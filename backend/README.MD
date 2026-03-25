@@ -94,6 +94,3 @@
   - Password: admin123
   - Role: admin
   - Auto-created when the database is first initialized
-
-
-*Frontend: Nikhil give skeleton*
