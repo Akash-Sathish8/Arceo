@@ -25,8 +25,12 @@ class BlastRadius:
     risk_breakdown: dict = field(default_factory=dict)
 
 
-def build_agent_graph(agent: AgentConfig) -> nx.DiGraph:
-    """Build a directed graph: agent → tools → actions → risk labels."""
+def build_agent_graph(agent: AgentConfig, action_overrides: dict | None = None) -> nx.DiGraph:
+    """Build a directed graph: agent → tools → actions → risk labels.
+
+    If action_overrides is provided, use it instead of ACTION_CATALOG.
+    Format: {tool_name: {action_name: MappedAction, ...}, ...}
+    """
     G = nx.DiGraph()
 
     agent_node = f"agent:{agent.id}"
@@ -37,7 +41,10 @@ def build_agent_graph(agent: AgentConfig) -> nx.DiGraph:
         G.add_node(tool_node, type="tool", label=tool.service, description=tool.description)
         G.add_edge(agent_node, tool_node, relation="has_tool")
 
-        actions = get_mapped_actions(tool.name)
+        if action_overrides and tool.name in action_overrides:
+            actions = list(action_overrides[tool.name].values())
+        else:
+            actions = get_mapped_actions(tool.name)
         for action in actions:
             action_node = f"action:{tool.name}.{action.action}"
             G.add_node(
@@ -58,11 +65,18 @@ def build_agent_graph(agent: AgentConfig) -> nx.DiGraph:
     return G
 
 
-def calculate_blast_radius(agent: AgentConfig) -> BlastRadius:
-    """Calculate the blast radius for an agent."""
+def calculate_blast_radius(agent: AgentConfig, action_overrides: dict | None = None) -> BlastRadius:
+    """Calculate the blast radius for an agent.
+
+    If action_overrides is provided, use it instead of ACTION_CATALOG.
+    Format: {tool_name: {action_name: MappedAction, ...}, ...}
+    """
     all_actions: list[MappedAction] = []
     for tool in agent.tools:
-        all_actions.extend(get_mapped_actions(tool.name))
+        if action_overrides and tool.name in action_overrides:
+            all_actions.extend(action_overrides[tool.name].values())
+        else:
+            all_actions.extend(get_mapped_actions(tool.name))
 
     total = len(all_actions)
     moves_money = sum(1 for a in all_actions if "moves_money" in a.risk_labels)

@@ -9,6 +9,7 @@ from datetime import datetime
 
 from fastapi import FastAPI, HTTPException, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from auth import get_current_user, login_user
@@ -19,6 +20,7 @@ from db import (
 from authority.chain_detector import detect_chains as _detect_chains
 from authority.graph import build_agent_graph, calculate_blast_radius, graph_to_dict
 from authority.parser import AgentConfig, ToolDef, parse_agent_config
+from authority.risk_classifier import classify_with_fallback, schema_hints
 
 app = FastAPI(title="ActionGate", version="0.3.0")
 
@@ -83,8 +85,9 @@ def _db_agent_to_action_catalog(agent_dict: dict) -> dict:
 def _compute_agent_summary(agent_dict: dict) -> dict:
     """Compute blast radius and chains for a DB agent."""
     config = _db_agent_to_config(agent_dict)
-    radius = calculate_blast_radius(config)
-    chain_result = _detect_chains(config)
+    catalog = _db_agent_to_action_catalog(agent_dict)
+    radius = calculate_blast_radius(config, action_overrides=catalog)
+    chain_result = _detect_chains(config, action_overrides=catalog)
     return {
         "blast_radius": asdict(radius),
         "chain_count": len(chain_result.flagged_chains),
@@ -179,9 +182,10 @@ def get_agent_detail(agent_id: str, user: dict = Depends(get_current_user)):
         ).fetchall()
 
     config = _db_agent_to_config(agent)
-    graph = build_agent_graph(config)
-    radius = calculate_blast_radius(config)
-    chain_result = _detect_chains(config)
+    catalog = _db_agent_to_action_catalog(agent)
+    graph = build_agent_graph(config, action_overrides=catalog)
+    radius = calculate_blast_radius(config, action_overrides=catalog)
+    chain_result = _detect_chains(config, action_overrides=catalog)
 
     flagged = []
     for fc in chain_result.flagged_chains:
@@ -217,7 +221,8 @@ def list_all_chains(user: dict = Depends(get_current_user)):
     output = []
     for agent in agents:
         config = _db_agent_to_config(agent)
-        chain_result = _detect_chains(config)
+        catalog = _db_agent_to_action_catalog(agent)
+        chain_result = _detect_chains(config, action_overrides=catalog)
         for fc in chain_result.flagged_chains:
             output.append({
                 "agent_id": agent["id"], "agent_name": agent["name"],
@@ -331,6 +336,211 @@ def delete_agent(agent_id: str, user: dict = Depends(get_current_user)):
                   detail=f"Deleted agent '{existing['name']}'")
 
     return {"message": "Agent deleted"}
+
+
+# ── Agent Discovery: Register + Import ─────────────────────────────────────
+
+class RegisterActionInput(BaseModel):
+    name: str
+    description: str = ""
+
+
+class RegisterToolInput(BaseModel):
+    name: str
+    service: str = ""
+    description: str = ""
+    actions: list[RegisterActionInput] = []
+
+
+class RegisterAgentInput(BaseModel):
+    name: str
+    description: str = ""
+    tools: list[RegisterToolInput] = []
+
+
+def _upsert_agent(conn, agent_id: str, name: str, description: str, tools: list[dict], audit_source: str) -> str:
+    """Insert or update an agent with auto-classified actions. Returns 'created' or 'updated'."""
+    now = datetime.utcnow().isoformat()
+    existing = conn.execute("SELECT id FROM agents WHERE id = ?", (agent_id,)).fetchone()
+
+    if existing:
+        conn.execute(
+            "UPDATE agents SET name = ?, description = ?, updated_at = ? WHERE id = ?",
+            (name, description, now, agent_id),
+        )
+        conn.execute("DELETE FROM agent_tools WHERE agent_id = ?", (agent_id,))
+        status = "updated"
+    else:
+        conn.execute(
+            "INSERT INTO agents (id, name, description, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+            (agent_id, name, description, now, now),
+        )
+        status = "created"
+
+    for tool in tools:
+        cur = conn.execute(
+            "INSERT INTO agent_tools (agent_id, name, service, description) VALUES (?, ?, ?, ?)",
+            (agent_id, tool["name"], tool["service"], tool["description"]),
+        )
+        tool_id = cur.lastrowid
+        for a in tool["actions"]:
+            mapped = classify_with_fallback(
+                tool["name"], a["name"], a.get("description", ""),
+                input_schema=a.get("input_schema"),
+            )
+            conn.execute(
+                "INSERT INTO tool_actions (tool_id, action, description, risk_labels, reversible) VALUES (?, ?, ?, ?, ?)",
+                (tool_id, a["name"], mapped.description, json.dumps(mapped.risk_labels), mapped.reversible),
+            )
+
+    log_audit(conn, None, audit_source, f"{status.upper()}_AGENT", resource=agent_id,
+              detail=f"{'Created' if status == 'created' else 'Updated'} agent '{name}' with {len(tools)} tools")
+
+    return status
+
+
+@app.post("/api/authority/agents/register")
+def register_agent(req: RegisterAgentInput):
+    """Unauthenticated — agents call this at startup to self-register."""
+    agent_id = req.name.lower().replace(" ", "-").replace("_", "-")
+
+    tools = []
+    for t in req.tools:
+        tools.append({
+            "name": t.name,
+            "service": t.service or t.name.capitalize(),
+            "description": t.description,
+            "actions": [{"name": a.name, "description": a.description} for a in t.actions],
+        })
+
+    with get_db() as conn:
+        status = _upsert_agent(conn, agent_id, req.name, req.description, tools, "agent-self-register")
+        agent = get_agent_from_db(conn, agent_id)
+
+    summary = _compute_agent_summary(agent)
+
+    return {
+        "id": agent_id,
+        "status": status,
+        "blast_radius": summary["blast_radius"],
+    }
+
+
+class MCPToolInput(BaseModel):
+    name: str
+    description: str = ""
+    inputSchema: dict = {}
+
+
+class MCPImportInput(BaseModel):
+    agent_name: str
+    agent_description: str = ""
+    source: str = ""
+    mcp_tools: list[MCPToolInput]
+
+
+@app.post("/api/authority/agents/import/mcp")
+def import_mcp(req: MCPImportInput, user: dict = Depends(get_current_user)):
+    """Import tools from an MCP server's tools/list response."""
+    agent_id = req.agent_name.lower().replace(" ", "-").replace("_", "-")
+
+    if req.source:
+        # All MCP tools become actions under one ActionGate tool
+        actions = []
+        for mt in req.mcp_tools:
+            extra_labels = schema_hints(mt.inputSchema.get("properties", {})) if mt.inputSchema else []
+            actions.append({
+                "name": mt.name,
+                "description": mt.description,
+                "input_schema": mt.inputSchema if mt.inputSchema else None,
+            })
+        tools = [{
+            "name": req.source,
+            "service": req.source.replace("-", " ").replace("_", " ").title(),
+            "description": f"MCP server: {req.source}",
+            "actions": actions,
+        }]
+    else:
+        # Each MCP tool becomes its own ActionGate tool with one action
+        tools = []
+        for mt in req.mcp_tools:
+            tools.append({
+                "name": mt.name,
+                "service": mt.name.replace("-", " ").replace("_", " ").title(),
+                "description": mt.description,
+                "actions": [{"name": mt.name, "description": mt.description,
+                             "input_schema": mt.inputSchema if mt.inputSchema else None}],
+            })
+
+    with get_db() as conn:
+        status = _upsert_agent(conn, agent_id, req.agent_name, req.agent_description, tools, user["email"])
+        agent = get_agent_from_db(conn, agent_id)
+
+    summary = _compute_agent_summary(agent)
+
+    return {
+        "id": agent_id,
+        "status": status,
+        "blast_radius": summary["blast_radius"],
+    }
+
+
+class OpenAIFunctionDef(BaseModel):
+    name: str
+    description: str = ""
+    parameters: dict = {}
+
+
+class OpenAIToolInput(BaseModel):
+    type: str = "function"
+    function: OpenAIFunctionDef
+
+
+class OpenAIImportInput(BaseModel):
+    agent_name: str
+    agent_description: str = ""
+    source: str = ""
+    tools: list[OpenAIToolInput]
+
+
+@app.post("/api/authority/agents/import/openai")
+def import_openai(req: OpenAIImportInput, user: dict = Depends(get_current_user)):
+    """Import tools from OpenAI function-calling format."""
+    agent_id = req.agent_name.lower().replace(" ", "-").replace("_", "-")
+
+    functions = [t.function for t in req.tools]
+
+    if req.source:
+        actions = [{"name": f.name, "description": f.description,
+                     "input_schema": f.parameters if f.parameters else None} for f in functions]
+        tools = [{
+            "name": req.source,
+            "service": req.source.replace("-", " ").replace("_", " ").title(),
+            "description": f"OpenAI function source: {req.source}",
+            "actions": actions,
+        }]
+    else:
+        tools = []
+        for f in functions:
+            tools.append({
+                "name": f.name,
+                "service": f.name.replace("-", " ").replace("_", " ").title(),
+                "description": f.description,
+                "actions": [{"name": f.name, "description": f.description,
+                             "input_schema": f.parameters if f.parameters else None}],
+            })
+
+    with get_db() as conn:
+        status = _upsert_agent(conn, agent_id, req.agent_name, req.agent_description, tools, user["email"])
+        agent = get_agent_from_db(conn, agent_id)
+
+    summary = _compute_agent_summary(agent)
+
+    return {
+        "id": agent_id,
+        "status": status,
+        "blast_radius": summary["blast_radius"],
+    }
 
 
 # ── Enforcement Policies ────────────────────────────────────────────────────
@@ -474,6 +684,464 @@ def get_agent_executions(agent_id: str, user: dict = Depends(get_current_user)):
             (agent_id,),
         ).fetchall()
     return {"entries": [dict(r) for r in rows]}
+
+
+# ── Sandbox Simulation ─────────────────────────────────────────────────────
+
+class SimulateRequest(BaseModel):
+    agent_id: str
+    scenario_id: str = ""
+    custom_prompt: str = ""  # If provided, use this instead of a scenario
+    dry_run: bool = False
+
+
+@app.get("/api/sandbox/scenarios")
+def list_scenarios():
+    """List all available simulation scenarios."""
+    from sandbox.prompts.scenarios import list_all_scenarios
+    return {"scenarios": list_all_scenarios()}
+
+
+@app.get("/api/sandbox/scenarios/{agent_type}")
+def list_agent_scenarios(agent_type: str):
+    """List scenarios for a specific agent type (support, devops, sales)."""
+    from sandbox.prompts.scenarios import get_scenarios_for_agent
+    scenarios = get_scenarios_for_agent(agent_type)
+    return {
+        "agent_type": agent_type,
+        "scenarios": [
+            {"id": s.id, "name": s.name, "description": s.description,
+             "category": s.category, "severity": s.severity}
+            for s in scenarios
+        ],
+    }
+
+
+@app.get("/api/sandbox/agent/{agent_id}/scenarios")
+def get_agent_scenarios(agent_id: str, user: dict = Depends(get_current_user)):
+    """Auto-generate scenarios based on an agent's actual tool configuration."""
+    from sandbox.prompts.scenarios import generate_scenarios_for_agent
+
+    with get_db() as conn:
+        agent = get_agent_from_db(conn, agent_id)
+        if not agent:
+            raise HTTPException(status_code=404, detail=f"Agent '{agent_id}' not found")
+
+    scenarios = generate_scenarios_for_agent(agent)
+    return {
+        "agent_id": agent_id,
+        "agent_name": agent["name"],
+        "scenarios": [
+            {"id": s.id, "name": s.name, "description": s.description,
+             "agent_type": s.agent_type, "category": s.category, "severity": s.severity}
+            for s in scenarios
+        ],
+    }
+
+
+@app.post("/api/sandbox/simulate")
+def run_sandbox_simulation(req: SimulateRequest, user: dict = Depends(get_current_user)):
+    """Run a simulation: agent + scenario + mocks + enforcement + trace."""
+    from sandbox.prompts.scenarios import get_scenario
+    from sandbox.analyzer import analyze_trace
+    from dataclasses import asdict as _asdict
+
+    # Load agent config
+    with get_db() as conn:
+        agent = get_agent_from_db(conn, req.agent_id)
+        if not agent:
+            raise HTTPException(status_code=404, detail=f"Agent '{req.agent_id}' not found")
+        log_audit(conn, user["sub"], user["email"], "RUN_SIMULATION",
+                  resource=req.agent_id, detail=f"Scenario: {req.scenario_id or 'custom prompt'}")
+
+    # Load scenario — custom prompt, hardcoded, or auto-generated
+    if req.custom_prompt:
+        from sandbox.models import Scenario as ScenarioModel
+        scenario = ScenarioModel(
+            id="custom", name="Custom Prompt", description="User-provided prompt",
+            agent_type=req.agent_id, category="custom", severity="info",
+            prompt=req.custom_prompt,
+        )
+    else:
+        scenario = get_scenario(req.scenario_id)
+        if not scenario:
+            from sandbox.prompts.scenarios import generate_scenarios_for_agent
+            auto_scenarios = generate_scenarios_for_agent(agent)
+            scenario = next((s for s in auto_scenarios if s.id == req.scenario_id), None)
+        if not scenario:
+            raise HTTPException(status_code=404, detail=f"Scenario '{req.scenario_id}' not found")
+
+    # Run simulation
+    if req.dry_run:
+        from sandbox.runner import run_simulation_dry
+        trace = run_simulation_dry(agent, scenario)
+    else:
+        from sandbox.runner import run_simulation
+        trace = run_simulation(agent, scenario)
+
+    # Analyze
+    report = analyze_trace(trace)
+
+    # Store simulation in DB
+    with get_db() as conn:
+        conn.execute("""
+            INSERT INTO simulations (id, agent_id, scenario_id, status, trace_json, report_json, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (
+            trace.simulation_id, trace.agent_id, trace.scenario_id,
+            trace.status, json.dumps(_asdict(trace)), json.dumps(_asdict(report)),
+            trace.started_at,
+        ))
+
+    return {
+        "simulation_id": trace.simulation_id,
+        "status": trace.status,
+        "error": trace.error,
+        "trace": {
+            "total_steps": len(trace.steps),
+            "steps": [_asdict(s) for s in trace.steps],
+        },
+        "report": _asdict(report),
+    }
+
+
+@app.get("/api/sandbox/simulate/stream")
+def run_sandbox_simulation_stream(agent_id: str, scenario_id: str, request: Request):
+    """SSE endpoint: stream simulation steps as they happen."""
+    from sandbox.prompts.scenarios import get_scenario
+    from sandbox.analyzer import analyze_trace
+    from sandbox.mocks.registry import MockState
+    from sandbox.agents.executor import execute_tool_call
+    from sandbox.models import SimulationTrace
+    from dataclasses import asdict as _asdict
+    import sandbox.mocks  # noqa — registers all mocks
+
+    # Validate inputs
+    with get_db() as conn:
+        agent = get_agent_from_db(conn, agent_id)
+        if not agent:
+            raise HTTPException(status_code=404, detail=f"Agent '{agent_id}' not found")
+
+    scenario = get_scenario(scenario_id)
+    if not scenario:
+        raise HTTPException(status_code=404, detail=f"Scenario '{scenario_id}' not found")
+
+    def event_stream():
+        import uuid as _uuid
+        simulation_id = _uuid.uuid4().hex[:12]
+        state = MockState()
+
+        trace = SimulationTrace(
+            simulation_id=simulation_id,
+            agent_id=agent["id"],
+            agent_name=agent["name"],
+            scenario_id=scenario.id,
+            scenario_name=scenario.name,
+            prompt=scenario.prompt,
+        )
+
+        # Send simulation start
+        yield f"data: {json.dumps({'type': 'start', 'simulation_id': simulation_id, 'agent_name': agent['name'], 'scenario_name': scenario.name})}\n\n"
+
+        step_index = 0
+        for tool in agent.get("tools", []):
+            tool_name = tool["name"]
+            for action in tool.get("actions", []):
+                action_name = action["action"] if isinstance(action, dict) else action
+
+                step = execute_tool_call(
+                    agent_id=agent["id"],
+                    tool=tool_name,
+                    action=action_name,
+                    params={},
+                    state=state,
+                    step_index=step_index,
+                )
+                trace.steps.append(step)
+
+                # Stream this step
+                yield f"data: {json.dumps({'type': 'step', 'step': _asdict(step)})}\n\n"
+                step_index += 1
+
+        trace.status = "completed"
+        trace.completed_at = datetime.utcnow().isoformat()
+
+        # Analyze and send report
+        report = analyze_trace(trace)
+
+        # Store in DB
+        with get_db() as conn:
+            conn.execute("""
+                INSERT INTO simulations (id, agent_id, scenario_id, status, trace_json, report_json, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (
+                trace.simulation_id, trace.agent_id, trace.scenario_id,
+                trace.status, json.dumps(_asdict(trace)), json.dumps(_asdict(report)),
+                trace.started_at,
+            ))
+
+        yield f"data: {json.dumps({'type': 'complete', 'simulation_id': simulation_id, 'report': _asdict(report)})}\n\n"
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+
+@app.get("/api/sandbox/simulations")
+def list_simulations(user: dict = Depends(get_current_user)):
+    """List past simulation runs."""
+    with get_db() as conn:
+        rows = conn.execute(
+            "SELECT id, agent_id, scenario_id, status, created_at FROM simulations ORDER BY created_at DESC LIMIT 50"
+        ).fetchall()
+    return {"simulations": [dict(r) for r in rows]}
+
+
+@app.get("/api/sandbox/simulation/{simulation_id}")
+def get_simulation(simulation_id: str, user: dict = Depends(get_current_user)):
+    """Get full simulation detail with trace and report."""
+    with get_db() as conn:
+        row = conn.execute("SELECT * FROM simulations WHERE id = ?", (simulation_id,)).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail=f"Simulation '{simulation_id}' not found")
+    return {
+        "simulation_id": row["id"],
+        "agent_id": row["agent_id"],
+        "scenario_id": row["scenario_id"],
+        "status": row["status"],
+        "trace": json.loads(row["trace_json"]),
+        "report": json.loads(row["report_json"]),
+        "created_at": row["created_at"],
+    }
+
+
+class ApplyPolicyRequest(BaseModel):
+    agent_id: str
+    action_pattern: str
+    effect: str
+    reason: str = ""
+
+
+@app.post("/api/sandbox/apply-policy")
+def apply_recommended_policy(req: ApplyPolicyRequest, user: dict = Depends(get_current_user)):
+    """One-click: apply a recommended policy from a simulation report."""
+    if req.effect not in ("BLOCK", "REQUIRE_APPROVAL", "ALLOW"):
+        raise HTTPException(status_code=400, detail="Effect must be BLOCK, REQUIRE_APPROVAL, or ALLOW")
+
+    with get_db() as conn:
+        existing = conn.execute("SELECT id FROM agents WHERE id = ?", (req.agent_id,)).fetchone()
+        if not existing:
+            raise HTTPException(status_code=404, detail=f"Agent '{req.agent_id}' not found")
+
+        # Check if policy already exists
+        dupe = conn.execute(
+            "SELECT id FROM policies WHERE agent_id = ? AND action_pattern = ? AND effect = ?",
+            (req.agent_id, req.action_pattern, req.effect),
+        ).fetchone()
+        if dupe:
+            return {"id": dupe["id"], "message": "Policy already exists", "already_exists": True}
+
+        cur = conn.execute(
+            "INSERT INTO policies (agent_id, action_pattern, effect, reason, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+            (req.agent_id, req.action_pattern, req.effect, req.reason, user["email"], datetime.utcnow().isoformat()),
+        )
+        log_audit(conn, user["sub"], user["email"], "APPLY_RECOMMENDATION", resource=req.agent_id,
+                  detail=f"{req.effect} on {req.action_pattern}")
+
+    return {"id": cur.lastrowid, "message": "Policy created", "already_exists": False}
+
+
+class ApplyAllPoliciesRequest(BaseModel):
+    agent_id: str
+    policies: list[ApplyPolicyRequest]
+
+
+@app.post("/api/sandbox/apply-all-policies")
+def apply_all_recommended_policies(req: ApplyAllPoliciesRequest, user: dict = Depends(get_current_user)):
+    """One-click: apply ALL recommended policies from a simulation report."""
+    created = 0
+    skipped = 0
+
+    with get_db() as conn:
+        existing = conn.execute("SELECT id FROM agents WHERE id = ?", (req.agent_id,)).fetchone()
+        if not existing:
+            raise HTTPException(status_code=404, detail=f"Agent '{req.agent_id}' not found")
+
+        for p in req.policies:
+            dupe = conn.execute(
+                "SELECT id FROM policies WHERE agent_id = ? AND action_pattern = ? AND effect = ?",
+                (req.agent_id, p.action_pattern, p.effect),
+            ).fetchone()
+            if dupe:
+                skipped += 1
+                continue
+
+            conn.execute(
+                "INSERT INTO policies (agent_id, action_pattern, effect, reason, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+                (req.agent_id, p.action_pattern, p.effect, p.reason, user["email"], datetime.utcnow().isoformat()),
+            )
+            created += 1
+
+        log_audit(conn, user["sub"], user["email"], "APPLY_ALL_RECOMMENDATIONS", resource=req.agent_id,
+                  detail=f"Created {created} policies, skipped {skipped} duplicates")
+
+    return {"created": created, "skipped": skipped, "message": f"Applied {created} policies"}
+
+
+# ── Mock HTTP Endpoints (for real agents to call) ─────────────────────────
+
+_mock_sessions: dict[str, dict] = {}  # session_id -> {state, agent_id, steps}
+
+
+@app.post("/mock/session")
+def create_mock_session(request: Request):
+    """Create a sandbox session. Real agents call this before testing.
+
+    Body: {"agent_id": "my-agent"}
+    Returns: {"session_id": "...", "base_url": "http://localhost:8000/mock"}
+    """
+    import sandbox.mocks  # noqa — registers all mocks
+    from sandbox.mocks.registry import MockState
+
+    body = {}
+    try:
+        import asyncio
+        body = asyncio.get_event_loop().run_until_complete(request.json())
+    except Exception:
+        pass
+
+    agent_id = body.get("agent_id", "unknown")
+    session_id = uuid.uuid4().hex[:12]
+
+    _mock_sessions[session_id] = {
+        "state": MockState(),
+        "agent_id": agent_id,
+        "steps": [],
+        "created_at": datetime.utcnow().isoformat(),
+    }
+
+    return {
+        "session_id": session_id,
+        "agent_id": agent_id,
+        "base_url": "http://localhost:8000/mock",
+        "usage": "POST /mock/{tool}/{action} with headers X-Session-ID and X-Agent-ID",
+    }
+
+
+@app.post("/mock/{tool}/{action}")
+async def call_mock_endpoint(tool: str, action: str, request: Request):
+    """Mock HTTP endpoint. Real agents call this instead of real APIs.
+
+    Headers:
+      X-Session-ID: session from /mock/session
+      X-Agent-ID: agent id (for enforce check)
+    Body: JSON params for the action
+    """
+    import sandbox.mocks  # noqa
+    from sandbox.mocks.registry import call_mock
+
+    session_id = request.headers.get("x-session-id", "")
+    agent_id = request.headers.get("x-agent-id", "")
+
+    # Get or create session
+    if session_id and session_id in _mock_sessions:
+        session = _mock_sessions[session_id]
+    else:
+        # Auto-create session for convenience
+        from sandbox.mocks.registry import MockState
+        session_id = session_id or uuid.uuid4().hex[:12]
+        session = {
+            "state": MockState(),
+            "agent_id": agent_id or "unknown",
+            "steps": [],
+            "created_at": datetime.utcnow().isoformat(),
+        }
+        _mock_sessions[session_id] = session
+
+    if not agent_id:
+        agent_id = session["agent_id"]
+
+    # Parse body
+    try:
+        params = await request.json()
+    except Exception:
+        params = {}
+
+    # Step 1: Enforce check
+    enforce_decision = "ALLOW"
+    enforce_reason = ""
+    try:
+        with get_db() as conn:
+            policies = conn.execute(
+                "SELECT * FROM policies WHERE agent_id = ? ORDER BY id", (agent_id,)
+            ).fetchall()
+
+            action_key = f"{tool}.{action}"
+            for p in policies:
+                pattern = p["action_pattern"]
+                if pattern == action_key:
+                    enforce_decision = p["effect"]
+                    enforce_reason = p["reason"]
+                    break
+                if pattern.endswith(".*") and action_key.startswith(pattern[:-1]):
+                    enforce_decision = p["effect"]
+                    enforce_reason = p["reason"]
+
+            # Log execution
+            status = "BLOCKED" if enforce_decision == "BLOCK" else "PENDING_APPROVAL" if enforce_decision == "REQUIRE_APPROVAL" else "EXECUTED"
+            log_execution(conn, agent_id, tool, action, status, detail=enforce_reason or "Mock endpoint")
+    except Exception:
+        pass
+
+    # Step 2: Call mock if allowed
+    if enforce_decision == "BLOCK":
+        step = {"tool": tool, "action": action, "decision": "BLOCK", "reason": enforce_reason, "result": None}
+        session["steps"].append(step)
+        return {"blocked": True, "action": f"{tool}.{action}", "reason": enforce_reason, "decision": "BLOCK"}
+
+    if enforce_decision == "REQUIRE_APPROVAL":
+        step = {"tool": tool, "action": action, "decision": "REQUIRE_APPROVAL", "reason": enforce_reason, "result": None}
+        session["steps"].append(step)
+        return {"pending_approval": True, "action": f"{tool}.{action}", "reason": enforce_reason, "decision": "REQUIRE_APPROVAL"}
+
+    # Execute mock
+    result = call_mock(tool, action, params, session["state"])
+    step = {"tool": tool, "action": action, "decision": "ALLOW", "result": result}
+    session["steps"].append(step)
+
+    return result
+
+
+@app.get("/mock/session/{session_id}/trace")
+def get_mock_session_trace(session_id: str):
+    """Get the full trace of a mock session — what the agent did."""
+    session = _mock_sessions.get(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail=f"Session '{session_id}' not found")
+
+    return {
+        "session_id": session_id,
+        "agent_id": session["agent_id"],
+        "created_at": session["created_at"],
+        "total_steps": len(session["steps"]),
+        "steps": session["steps"],
+    }
+
+
+@app.get("/mock/available")
+def list_mock_endpoints():
+    """List all available mock endpoints."""
+    import sandbox.mocks  # noqa
+    from sandbox.mocks.registry import list_available_mocks
+
+    mocks = list_available_mocks()
+    return {
+        "total": len(mocks),
+        "endpoints": [f"POST /mock/{m.replace('.', '/')}" for m in mocks],
+        "usage": {
+            "1_create_session": "POST /mock/session {\"agent_id\": \"my-agent\"}",
+            "2_call_tool": "POST /mock/{tool}/{action} with X-Session-ID and X-Agent-ID headers",
+            "3_get_trace": "GET /mock/session/{session_id}/trace",
+        },
+    }
 
 
 # ── Health ──────────────────────────────────────────────────────────────────

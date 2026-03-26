@@ -124,12 +124,19 @@ def _get_actions_with_label(actions: list[MappedAction], label: str) -> list[str
     ]
 
 
-def detect_chains(agent: AgentConfig) -> AgentChainResult:
-    """Detect dangerous action chains available to an agent."""
+def detect_chains(agent: AgentConfig, action_overrides: dict | None = None) -> AgentChainResult:
+    """Detect dangerous action chains available to an agent.
+
+    If action_overrides is provided, use it instead of ACTION_CATALOG.
+    Format: {tool_name: {action_name: MappedAction, ...}, ...}
+    """
     # Gather all actions for this agent
     all_actions: list[MappedAction] = []
     for tool in agent.tools:
-        all_actions.extend(get_mapped_actions(tool.name))
+        if action_overrides and tool.name in action_overrides:
+            all_actions.extend(action_overrides[tool.name].values())
+        else:
+            all_actions.extend(get_mapped_actions(tool.name))
 
     # Build a set of risk labels this agent has access to
     available_labels: set[str] = set()

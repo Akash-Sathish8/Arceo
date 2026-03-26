@@ -93,7 +93,15 @@ export default function Authority() {
   const [riskFilter, setRiskFilter] = useState("all");
   const [chainSeverityFilter, setChainSeverityFilter] = useState("all");
 
-  useEffect(() => {
+  // Create agent form
+  const [showCreate, setShowCreate] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [newDesc, setNewDesc] = useState("");
+  const [newToolsText, setNewToolsText] = useState("");
+  const [creating, setCreating] = useState(false);
+  const [createResult, setCreateResult] = useState(null);
+
+  const loadData = () => {
     Promise.all([
       apiFetch("/api/authority/agents"),
       apiFetch("/api/authority/chains"),
@@ -107,7 +115,48 @@ export default function Authority() {
         setError(err.message);
         setLoading(false);
       });
-  }, []);
+  };
+
+  useEffect(() => { loadData(); }, []);
+
+  const handleCreate = async (e) => {
+    e.preventDefault();
+    setCreating(true);
+    setCreateResult(null);
+    try {
+      // Parse tools text: each line is "toolname: action1, action2, action3"
+      const tools = newToolsText.trim().split("\n").filter(Boolean).map((line) => {
+        const [toolPart, actionsPart] = line.split(":").map((s) => s.trim());
+        const actions = (actionsPart || "").split(",").map((a) => a.trim()).filter(Boolean);
+        return {
+          name: toolPart.toLowerCase().replace(/\s+/g, "_"),
+          service: toolPart,
+          description: toolPart,
+          actions: actions.map((a) => ({
+            action: a.toLowerCase().replace(/\s+/g, "_"),
+            description: a,
+            risk_labels: [],
+            reversible: true,
+          })),
+        };
+      });
+
+      const data = await apiFetch("/api/authority/agents", {
+        method: "POST",
+        body: JSON.stringify({ name: newName, description: newDesc, tools }),
+      });
+
+      setCreateResult(data);
+      setNewName("");
+      setNewDesc("");
+      setNewToolsText("");
+      setShowCreate(false);
+      loadData(); // refresh
+    } catch (err) {
+      setCreateResult({ error: err.message });
+    }
+    setCreating(false);
+  };
 
   // Filtered + sorted agents
   const filteredAgents = useMemo(() => {
@@ -183,9 +232,49 @@ export default function Authority() {
   return (
     <div className="authority-page">
       <header className="auth-header">
-        <h1>Authority Engine</h1>
-        <p>Map what your AI agents can do. Score the blast radius. Find the dangers.</p>
+        <div className="auth-header-row">
+          <div>
+            <h1>Authority Engine</h1>
+            <p>Map what your AI agents can do. Score the blast radius. Find the dangers.</p>
+          </div>
+          <button className="create-agent-btn" onClick={() => setShowCreate(!showCreate)}>
+            {showCreate ? "Cancel" : "+ New Agent"}
+          </button>
+        </div>
       </header>
+
+      {showCreate && (
+        <div className="create-agent-form-wrapper">
+          <form className="create-agent-form" onSubmit={handleCreate}>
+            <div className="form-row">
+              <div className="form-group">
+                <label>Agent Name</label>
+                <input type="text" value={newName} onChange={(e) => setNewName(e.target.value)}
+                       placeholder="e.g. Customer Support Agent" required />
+              </div>
+              <div className="form-group">
+                <label>Description</label>
+                <input type="text" value={newDesc} onChange={(e) => setNewDesc(e.target.value)}
+                       placeholder="What this agent does" />
+              </div>
+            </div>
+            <div className="form-group">
+              <label>Tools &amp; Actions (one tool per line: <code>ToolName: action1, action2, action3</code>)</label>
+              <textarea
+                value={newToolsText}
+                onChange={(e) => setNewToolsText(e.target.value)}
+                placeholder={"Stripe: get_customer, create_refund, create_charge\nZendesk: get_ticket, update_ticket, close_ticket\nSendGrid: send_email, list_templates"}
+                rows={4}
+              />
+            </div>
+            <div className="form-actions">
+              <button type="submit" disabled={creating || !newName.trim() || !newToolsText.trim()}>
+                {creating ? "Creating..." : "Create Agent & Score Risk"}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
 
       {/* Summary Stats */}
       <div className="summary-row">

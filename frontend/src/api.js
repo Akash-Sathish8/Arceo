@@ -31,6 +31,10 @@ export function setUser(user) {
   localStorage.setItem("actiongate_user", JSON.stringify(user));
 }
 
+export function getApiBase() {
+  return API_BASE;
+}
+
 export async function apiFetch(path, options = {}) {
   const headers = { ...options.headers };
   if (authToken) headers["Authorization"] = `Bearer ${authToken}`;
