@@ -7,9 +7,12 @@ import uuid
 from dataclasses import asdict
 from datetime import datetime
 
+from pathlib import Path
+
 from fastapi import FastAPI, HTTPException, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from auth import get_current_user, login_user
@@ -22,11 +25,32 @@ from authority.graph import build_agent_graph, calculate_blast_radius, graph_to_
 from authority.parser import AgentConfig, ToolDef, parse_agent_config
 from authority.risk_classifier import classify_with_fallback, schema_hints
 
-app = FastAPI(title="ActionGate", version="0.3.0")
+import os
+import time
+from collections import defaultdict
+
+app = FastAPI(title="ActionGate", version="0.4.0")
+
+# Simple in-memory rate limiter
+_rate_limits: dict[str, list[float]] = defaultdict(list)
+RATE_LIMIT_MAX = int(os.getenv("RATE_LIMIT_MAX", "100"))  # requests per window
+RATE_LIMIT_WINDOW = int(os.getenv("RATE_LIMIT_WINDOW", "60"))  # seconds
+
+
+def check_rate_limit(key: str):
+    """Check rate limit for a key. Raises 429 if exceeded."""
+    now = time.time()
+    window_start = now - RATE_LIMIT_WINDOW
+    _rate_limits[key] = [t for t in _rate_limits[key] if t > window_start]
+    if len(_rate_limits[key]) >= RATE_LIMIT_MAX:
+        raise HTTPException(status_code=429, detail="Rate limit exceeded. Try again later.")
+    _rate_limits[key].append(now)
+
+ALLOWED_ORIGINS = os.getenv("CORS_ORIGINS", "http://localhost:5173,http://localhost:3000").split(",")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=ALLOWED_ORIGINS,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -35,6 +59,25 @@ app.add_middleware(
 @app.on_event("startup")
 def startup():
     init_db()
+
+
+def _match_policy(action_key: str, policies: list) -> dict | None:
+    """Match an action key against a list of policies. Returns first match or None."""
+    for p in policies:
+        pattern = p["action_pattern"]
+        if pattern == action_key:
+            return p
+        if pattern.endswith(".*") and action_key.startswith(pattern[:-1]):
+            return p
+        if "*" in pattern:
+            parts = pattern.split(".")
+            key_parts = action_key.split(".")
+            if len(parts) == 2 and len(key_parts) == 2:
+                tool_match = parts[0] == "*" or parts[0] == key_parts[0]
+                action_match = parts[1] == "*" or (parts[1].endswith("*") and key_parts[1].startswith(parts[1][:-1]))
+                if tool_match and action_match:
+                    return p
+    return None
 
 
 # ── Helpers ─────────────────────────────────────────────────────────────────
@@ -439,9 +482,90 @@ class MCPImportInput(BaseModel):
     mcp_tools: list[MCPToolInput]
 
 
+class MCPConnectInput(BaseModel):
+    url: str  # MCP server HTTP/SSE URL
+    agent_name: str
+    agent_description: str = ""
+
+
+@app.post("/api/authority/agents/connect/mcp")
+def connect_mcp_server(req: MCPConnectInput, user: dict = Depends(get_current_user)):
+    """Connect to a live MCP server, pull its tools, and register as an agent."""
+    import httpx as _httpx
+
+    # Call the MCP server's tools/list via JSON-RPC
+    url = req.url.rstrip("/")
+    try:
+        rpc_request = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/list",
+            "params": {},
+        }
+        resp = _httpx.post(url, json=rpc_request, timeout=15.0)
+        resp.raise_for_status()
+        data = resp.json()
+    except _httpx.TimeoutException:
+        raise HTTPException(status_code=504, detail=f"MCP server at {url} timed out")
+    except _httpx.HTTPError as e:
+        # Try as a plain REST endpoint (some MCP servers expose tools/list as GET)
+        try:
+            resp = _httpx.get(f"{url}/tools/list", timeout=15.0)
+            resp.raise_for_status()
+            data = resp.json()
+        except Exception:
+            raise HTTPException(status_code=502, detail=f"Could not connect to MCP server at {url}: {str(e)}")
+
+    # Parse response — handle JSON-RPC envelope or plain response
+    if "result" in data:
+        mcp_tools = data["result"].get("tools", [])
+    elif "tools" in data:
+        mcp_tools = data["tools"]
+    else:
+        raise HTTPException(status_code=422, detail=f"Unexpected response from MCP server. Expected 'tools' array, got: {list(data.keys())}")
+
+    if not mcp_tools:
+        raise HTTPException(status_code=422, detail="MCP server returned 0 tools")
+
+    # Convert to ActionGate format
+    agent_id = req.agent_name.lower().replace(" ", "-").replace("_", "-")
+    source = url.split("//")[-1].split("/")[0].split(":")[0]  # extract hostname as source
+
+    actions = []
+    for mt in mcp_tools:
+        actions.append({
+            "name": mt.get("name", "unknown"),
+            "description": mt.get("description", ""),
+            "input_schema": mt.get("inputSchema") or mt.get("input_schema"),
+        })
+
+    tools = [{
+        "name": source,
+        "service": source.replace("-", " ").replace("_", " ").title(),
+        "description": f"MCP server: {url}",
+        "actions": actions,
+    }]
+
+    with get_db() as conn:
+        status = _upsert_agent(conn, agent_id, req.agent_name, req.agent_description, tools, user["email"])
+        agent = get_agent_from_db(conn, agent_id)
+        log_audit(conn, user["sub"], user["email"], "CONNECT_MCP", resource=agent_id,
+                  detail=f"Connected to {url}, imported {len(actions)} tools")
+
+    summary = _compute_agent_summary(agent)
+
+    return {
+        "id": agent_id,
+        "status": status,
+        "tools_imported": len(actions),
+        "tool_names": [a["name"] for a in actions],
+        "blast_radius": summary["blast_radius"],
+    }
+
+
 @app.post("/api/authority/agents/import/mcp")
 def import_mcp(req: MCPImportInput, user: dict = Depends(get_current_user)):
-    """Import tools from an MCP server's tools/list response."""
+    """Import tools from an MCP server's tools/list response (paste JSON)."""
     agent_id = req.agent_name.lower().replace(" ", "-").replace("_", "-")
 
     if req.source:
@@ -606,6 +730,7 @@ class EnforceRequest(BaseModel):
 @app.post("/api/enforce")
 def enforce_action(req: EnforceRequest):
     """Runtime enforcement — agents call this before executing an action."""
+    check_rate_limit(f"enforce:{req.agent_id}")
     action_key = f"{req.tool}.{req.action}"
 
     with get_db() as conn:
@@ -613,26 +738,7 @@ def enforce_action(req: EnforceRequest):
             "SELECT * FROM policies WHERE agent_id = ? ORDER BY id", (req.agent_id,)
         ).fetchall()
 
-        # Check policies: most specific match wins
-        matched_policy = None
-        for p in policies:
-            pattern = p["action_pattern"]
-            # Exact match
-            if pattern == action_key:
-                matched_policy = p
-                break
-            # Wildcard: "stripe.*" matches "stripe.create_refund"
-            if pattern.endswith(".*") and action_key.startswith(pattern[:-1]):
-                matched_policy = p
-            # Wildcard: "*.delete_*" matches "salesforce.delete_record"
-            if "*" in pattern:
-                parts = pattern.split(".")
-                key_parts = action_key.split(".")
-                if len(parts) == 2 and len(key_parts) == 2:
-                    tool_match = parts[0] == "*" or parts[0] == key_parts[0]
-                    action_match = parts[1] == "*" or (parts[1].endswith("*") and key_parts[1].startswith(parts[1][:-1]))
-                    if tool_match and action_match:
-                        matched_policy = p
+        matched_policy = _match_policy(action_key, policies)
 
         if matched_policy:
             effect = matched_policy["effect"]
@@ -1040,6 +1146,7 @@ async def call_mock_endpoint(tool: str, action: str, request: Request):
 
     session_id = request.headers.get("x-session-id", "")
     agent_id = request.headers.get("x-agent-id", "")
+    check_rate_limit(f"mock:{agent_id or session_id or 'anon'}")
 
     # Get or create session
     if session_id and session_id in _mock_sessions:
@@ -1075,17 +1182,11 @@ async def call_mock_endpoint(tool: str, action: str, request: Request):
             ).fetchall()
 
             action_key = f"{tool}.{action}"
-            for p in policies:
-                pattern = p["action_pattern"]
-                if pattern == action_key:
-                    enforce_decision = p["effect"]
-                    enforce_reason = p["reason"]
-                    break
-                if pattern.endswith(".*") and action_key.startswith(pattern[:-1]):
-                    enforce_decision = p["effect"]
-                    enforce_reason = p["reason"]
+            matched = _match_policy(action_key, policies)
+            if matched:
+                enforce_decision = matched["effect"]
+                enforce_reason = matched["reason"]
 
-            # Log execution
             status = "BLOCKED" if enforce_decision == "BLOCK" else "PENDING_APPROVAL" if enforce_decision == "REQUIRE_APPROVAL" else "EXECUTED"
             log_execution(conn, agent_id, tool, action, status, detail=enforce_reason or "Mock endpoint")
     except Exception:
@@ -1126,6 +1227,21 @@ def get_mock_session_trace(session_id: str):
     }
 
 
+@app.get("/mock/sessions")
+def list_mock_sessions():
+    """List all active mock sessions with step counts."""
+    sessions = []
+    for sid, session in _mock_sessions.items():
+        sessions.append({
+            "session_id": sid,
+            "agent_id": session["agent_id"],
+            "total_steps": len(session["steps"]),
+            "created_at": session["created_at"],
+        })
+    sessions.sort(key=lambda s: s["created_at"], reverse=True)
+    return {"sessions": sessions}
+
+
 @app.get("/mock/available")
 def list_mock_endpoints():
     """List all available mock endpoints."""
@@ -1149,3 +1265,19 @@ def list_mock_endpoints():
 @app.get("/api/health")
 def health():
     return {"status": "ok"}
+
+
+# ── Serve frontend static files ───────────────────────────────────────────
+
+STATIC_DIR = Path(__file__).parent / "static"
+
+if STATIC_DIR.exists():
+    app.mount("/assets", StaticFiles(directory=str(STATIC_DIR / "assets")), name="assets")
+
+    @app.get("/{full_path:path}")
+    def serve_frontend(full_path: str):
+        """Serve the React SPA for any non-API route."""
+        file_path = STATIC_DIR / full_path
+        if file_path.exists() and file_path.is_file():
+            return FileResponse(str(file_path))
+        return FileResponse(str(STATIC_DIR / "index.html"))

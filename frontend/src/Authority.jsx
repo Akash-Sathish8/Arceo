@@ -101,6 +101,13 @@ export default function Authority() {
   const [creating, setCreating] = useState(false);
   const [createResult, setCreateResult] = useState(null);
 
+  // MCP connect
+  const [showMcpConnect, setShowMcpConnect] = useState(false);
+  const [mcpUrl, setMcpUrl] = useState("");
+  const [mcpAgentName, setMcpAgentName] = useState("");
+  const [mcpConnecting, setMcpConnecting] = useState(false);
+  const [mcpResult, setMcpResult] = useState(null);
+
   const loadData = () => {
     Promise.all([
       apiFetch("/api/authority/agents"),
@@ -229,6 +236,148 @@ export default function Authority() {
   const totalActions = agents.reduce((s, a) => s + a.blast_radius.total_actions, 0);
   const totalIrreversible = agents.reduce((s, a) => s + a.blast_radius.irreversible_actions, 0);
 
+  const handleMcpConnect = async (e) => {
+    e.preventDefault();
+    setMcpConnecting(true);
+    setMcpResult(null);
+    try {
+      const data = await apiFetch("/api/authority/agents/connect/mcp", {
+        method: "POST",
+        body: JSON.stringify({
+          url: mcpUrl,
+          agent_name: mcpAgentName,
+        }),
+      });
+      setMcpResult(data);
+      setMcpUrl("");
+      setMcpAgentName("");
+      setShowMcpConnect(false);
+      loadData();
+    } catch (err) {
+      setMcpResult({ error: err.message });
+    }
+    setMcpConnecting(false);
+  };
+
+  // Agent templates for one-click onboarding
+  const TEMPLATES = [
+    {
+      name: "Customer Support Agent",
+      description: "Handles tickets, refunds, account lookups, and customer emails",
+      tools: "Stripe: get_customer, list_payments, create_refund, create_charge, cancel_subscription\nZendesk: get_ticket, update_ticket, close_ticket, add_comment, delete_ticket\nSalesforce: query_contacts, get_account, update_record, delete_record\nSendGrid: send_email, send_template_email",
+    },
+    {
+      name: "DevOps Agent",
+      description: "Manages deployments, infrastructure, incidents, and team notifications",
+      tools: "GitHub: list_repos, get_pull_request, merge_pull_request, create_branch, delete_branch, trigger_workflow, create_release\nAWS: list_instances, start_instance, stop_instance, terminate_instance, scale_service, update_security_group, delete_snapshot\nSlack: send_message, send_channel_message\nPagerDuty: create_incident, acknowledge_incident, resolve_incident, escalate_incident",
+    },
+    {
+      name: "Sales Agent",
+      description: "Manages leads, outreach, deals, meetings, and pipeline updates",
+      tools: "HubSpot: get_contact, create_contact, update_contact, delete_contact, list_deals, update_deal, create_deal, query_contacts\nGmail: send_email, read_inbox, search_emails, create_draft, send_draft\nSlack: send_message, send_channel_message\nCalendly: list_events, create_invite_link, cancel_event, get_availability",
+    },
+  ];
+
+  const handleCreateFromTemplate = async (template) => {
+    setCreating(true);
+    try {
+      const tools = template.tools.trim().split("\n").filter(Boolean).map((line) => {
+        const [toolPart, actionsPart] = line.split(":").map((s) => s.trim());
+        const actions = (actionsPart || "").split(",").map((a) => a.trim()).filter(Boolean);
+        return {
+          name: toolPart.toLowerCase().replace(/\s+/g, "_"),
+          service: toolPart,
+          description: toolPart,
+          actions: actions.map((a) => ({
+            action: a.toLowerCase().replace(/\s+/g, "_"),
+            description: a,
+            risk_labels: [],
+            reversible: true,
+          })),
+        };
+      });
+      await apiFetch("/api/authority/agents", {
+        method: "POST",
+        body: JSON.stringify({ name: template.name, description: template.description, tools }),
+      });
+      loadData();
+    } catch (err) {
+      alert("Failed: " + err.message);
+    }
+    setCreating(false);
+  };
+
+  // Empty state — onboarding
+  if (agents.length === 0 && !showCreate) {
+    return (
+      <div className="authority-page">
+        <div className="onboarding">
+          <h1>Welcome to ActionGate</h1>
+          <p className="onboarding-sub">Tell us what your AI agent can do. We'll show you what can go wrong.</p>
+
+          <h2 className="onboarding-section-title">Start with a template</h2>
+          <div className="template-grid">
+            {TEMPLATES.map((t, i) => (
+              <div key={i} className="template-card" onClick={() => handleCreateFromTemplate(t)}>
+                <h3>{t.name}</h3>
+                <p>{t.description}</p>
+                <div className="template-tools">{t.tools.split("\n").map((l) => l.split(":")[0].trim()).join(", ")}</div>
+                <span className="template-cta">{creating ? "Creating..." : "Use This Template"}</span>
+              </div>
+            ))}
+          </div>
+
+          <div className="onboarding-divider">
+            <span>or</span>
+          </div>
+
+          <div className="onboarding-alt-actions">
+            <button className="onboarding-alt-btn" onClick={() => setShowMcpConnect(true)}>
+              Connect MCP Server
+            </button>
+            <button className="onboarding-alt-btn" onClick={() => setShowCreate(true)}>
+              Create Custom Agent
+            </button>
+            <span className="onboarding-alt-hint">
+              Or use the SDK: <code>pip install -e sdk/</code> — your agent self-registers on first run
+            </span>
+          </div>
+
+          {showMcpConnect && (
+            <form className="mcp-connect-form" onSubmit={handleMcpConnect}>
+              <h3>Connect to MCP Server</h3>
+              <p className="mcp-connect-desc">Enter your MCP server's HTTP URL. ActionGate will call tools/list and import all tools automatically.</p>
+              <div className="form-row">
+                <div className="form-group">
+                  <label>MCP Server URL</label>
+                  <input type="url" value={mcpUrl} onChange={(e) => setMcpUrl(e.target.value)}
+                         placeholder="http://localhost:3000" required />
+                </div>
+                <div className="form-group">
+                  <label>Agent Name</label>
+                  <input type="text" value={mcpAgentName} onChange={(e) => setMcpAgentName(e.target.value)}
+                         placeholder="e.g. My MCP Agent" required />
+                </div>
+              </div>
+              <div className="form-actions">
+                <button type="button" className="onboarding-alt-btn" onClick={() => setShowMcpConnect(false)}>Cancel</button>
+                <button type="submit" disabled={mcpConnecting || !mcpUrl.trim() || !mcpAgentName.trim()}>
+                  {mcpConnecting ? "Connecting..." : "Connect & Import"}
+                </button>
+              </div>
+              {mcpResult && mcpResult.error && (
+                <div className="run-error" style={{ marginTop: 12 }}><strong>Failed:</strong> {mcpResult.error}</div>
+              )}
+              {mcpResult && mcpResult.tools_imported && (
+                <div className="mcp-success">Imported {mcpResult.tools_imported} tools: {mcpResult.tool_names.join(", ")}</div>
+              )}
+            </form>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="authority-page">
       <header className="auth-header">
@@ -237,9 +386,14 @@ export default function Authority() {
             <h1>Authority Engine</h1>
             <p>Map what your AI agents can do. Score the blast radius. Find the dangers.</p>
           </div>
-          <button className="create-agent-btn" onClick={() => setShowCreate(!showCreate)}>
-            {showCreate ? "Cancel" : "+ New Agent"}
-          </button>
+          <div className="header-buttons">
+            <button className="create-agent-btn secondary" onClick={() => setShowMcpConnect(!showMcpConnect)}>
+              {showMcpConnect ? "Cancel" : "Connect MCP"}
+            </button>
+            <button className="create-agent-btn" onClick={() => { setShowCreate(!showCreate); setShowMcpConnect(false); }}>
+              {showCreate ? "Cancel" : "+ New Agent"}
+            </button>
+          </div>
         </div>
       </header>
 
@@ -272,6 +426,40 @@ export default function Authority() {
                 {creating ? "Creating..." : "Create Agent & Score Risk"}
               </button>
             </div>
+          </form>
+        </div>
+      )}
+
+      {showMcpConnect && (
+        <div className="create-agent-form-wrapper">
+          <form className="create-agent-form" onSubmit={handleMcpConnect}>
+            <h3 style={{ margin: "0 0 8px", fontSize: 16, fontWeight: 700 }}>Connect to MCP Server</h3>
+            <p style={{ margin: "0 0 16px", fontSize: 13, color: "var(--text-muted)" }}>
+              Enter your MCP server's HTTP URL. ActionGate will call tools/list and import all tools automatically.
+            </p>
+            <div className="form-row">
+              <div className="form-group">
+                <label>MCP Server URL</label>
+                <input type="url" value={mcpUrl} onChange={(e) => setMcpUrl(e.target.value)}
+                       placeholder="http://localhost:3000" required />
+              </div>
+              <div className="form-group">
+                <label>Agent Name</label>
+                <input type="text" value={mcpAgentName} onChange={(e) => setMcpAgentName(e.target.value)}
+                       placeholder="e.g. My MCP Agent" required />
+              </div>
+            </div>
+            <div className="form-actions">
+              <button type="submit" disabled={mcpConnecting || !mcpUrl.trim() || !mcpAgentName.trim()}>
+                {mcpConnecting ? "Connecting..." : "Connect & Import Tools"}
+              </button>
+            </div>
+            {mcpResult && mcpResult.error && (
+              <div className="run-error" style={{ marginTop: 12 }}><strong>Failed:</strong> {mcpResult.error}</div>
+            )}
+            {mcpResult && mcpResult.tools_imported && (
+              <div className="mcp-success">Imported {mcpResult.tools_imported} tools: {mcpResult.tool_names.join(", ")}</div>
+            )}
           </form>
         </div>
       )}

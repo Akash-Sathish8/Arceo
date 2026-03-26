@@ -1,0 +1,8 @@
+{
+  "name": "actiongate",
+  "version": "0.1.0",
+  "description": "ActionGate SDK for JavaScript/TypeScript — test your AI agent's tools in a sandbox",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "license": "MIT"
+}

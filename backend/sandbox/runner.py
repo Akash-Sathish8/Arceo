@@ -99,7 +99,7 @@ def run_simulation(
         # Call Claude
         try:
             response = client.messages.create(
-                model="claude-sonnet-4-6-20250514",
+                model="claude-sonnet-4-20250514",
                 max_tokens=4096,
                 system=system_prompt,
                 tools=tool_defs,
@@ -160,9 +160,12 @@ def run_simulation(
                 "content": json.dumps(step.result) if step.result else '{"error": "Action blocked by policy"}',
             })
 
-        # Add tool results to conversation
-        messages.append({"role": "user", "content": tool_results})
-        trace.messages.append({"role": "tool_results", "content": tool_results})
+        # Add tool results to conversation (only if there were tool calls)
+        if tool_results:
+            messages.append({"role": "user", "content": tool_results})
+            trace.messages.append({"role": "tool_results", "content": tool_results})
+        else:
+            break  # No tool calls in this turn, agent is done
 
     trace.status = "completed"
     trace.completed_at = datetime.utcnow().isoformat()

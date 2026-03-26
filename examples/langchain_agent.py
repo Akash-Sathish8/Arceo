@@ -62,11 +62,11 @@ def email__send_email(to: str, subject: str, body: str) -> str:
 
 # ── Step 2: Connect to ActionGate ─────────────────────────────────────────
 
-gate = ActionGateClient(agent_id="support-agent-demo")
+gate = ActionGateClient(agent_id="akagent")
 
 # Register the agent so ActionGate knows its capabilities
 gate.register_agent(
-    name="Support Agent Demo",
+    name="AkAgent",
     description="Customer support agent with Stripe, Zendesk, and Email access",
     tools=[
         {"name": "stripe", "description": "Payment processing", "actions": [

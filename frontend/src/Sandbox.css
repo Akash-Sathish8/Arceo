@@ -294,6 +294,18 @@
   transform: translateY(-1px);
 }
 
+.run-btn.llm-btn {
+  background: var(--white);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+}
+
+.run-btn.llm-btn:hover:not(:disabled) {
+  background: var(--text-primary);
+  color: var(--white);
+  transform: translateY(-1px);
+}
+
 .run-btn:disabled {
   opacity: 0.4;
   cursor: not-allowed;
@@ -461,6 +473,27 @@
 .rerun-btn:disabled {
   opacity: 0.4;
   cursor: not-allowed;
+}
+
+.run-mode-badge {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  vertical-align: middle;
+  margin-left: 8px;
+}
+
+.run-mode-badge.dry-run {
+  background: #edf5fb;
+  color: #4B9CD3;
+}
+
+.run-mode-badge.llm {
+  background: #f0fdf4;
+  color: #16a34a;
 }
 
 .view-report-link {

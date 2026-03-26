@@ -117,9 +117,9 @@ def init_db():
 
 def _seed_demo_user(conn):
     """Seed only the demo login user. No fake agents, no fake data."""
-    import hashlib
+    from auth import hash_password
     now = datetime.utcnow().isoformat()
-    pw_hash = hashlib.sha256("admin123".encode()).hexdigest()
+    pw_hash = hash_password("admin123")
     conn.execute(
         "INSERT INTO users (id, email, password_hash, name, role, created_at) VALUES (?, ?, ?, ?, ?, ?)",
         (str(uuid.uuid4()), "admin@actiongate.io", pw_hash, "Admin", "admin", now),

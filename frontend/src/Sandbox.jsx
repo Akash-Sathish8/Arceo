@@ -55,6 +55,7 @@ export default function Sandbox() {
   const [result, setResult] = useState(null);
   const [previousResult, setPreviousResult] = useState(null);
   const [runError, setRunError] = useState(null);
+  const [lastRunMode, setLastRunMode] = useState("");
 
   useEffect(() => {
     Promise.all([
@@ -99,9 +100,10 @@ export default function Sandbox() {
   }, [scenarios, categoryFilter]);
 
   const handleRun = async (dryRun = true) => {
-    if (!selectedScenario || !selectedAgent) return;
+    if ((!selectedScenario && !customPrompt.trim()) || !selectedAgent) return;
     setRunning(true);
     setRunError(null);
+    setLastRunMode(dryRun ? "dry-run" : "llm");
     if (result) setPreviousResult(result);
     setResult(null);
     try {
@@ -208,6 +210,14 @@ export default function Sandbox() {
             >
               {running ? "Running..." : "Run Simulation"}
             </button>
+            <button
+              className="run-btn llm-btn"
+              onClick={() => handleRun(false)}
+              disabled={(!selectedScenario && !customPrompt.trim()) || !selectedAgent || running}
+              title="Uses Claude to reason and decide which tools to call (~$0.05/run)"
+            >
+              {running ? "Running..." : "Run with LLM"}
+            </button>
           </div>
         </div>
 
@@ -298,7 +308,7 @@ export default function Sandbox() {
       {result && (
         <section className="results-section">
           <div className="section-header">
-            <h2>Results</h2>
+            <h2>Results <span className={`run-mode-badge ${lastRunMode}`}>{lastRunMode === "llm" ? "LLM Agent" : "Dry Run"}</span></h2>
             <Link to={`/sandbox/${result.simulation_id}`} className="view-report-link">
               View Full Report &rarr;
             </Link>

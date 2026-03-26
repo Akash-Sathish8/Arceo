@@ -5,3 +5,5 @@ __pycache__/
 dist/
 .DS_Store
 sdk/actiongate.egg-info/
+.gstack/
+backend/static/
