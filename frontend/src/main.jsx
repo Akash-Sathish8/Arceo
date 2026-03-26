@@ -10,6 +10,7 @@ import AuditLog from './AuditLog.jsx'
 import ExecutionLog from './ExecutionLog.jsx'
 import Sandbox from './Sandbox.jsx'
 import SimulationDetail from './SimulationDetail.jsx'
+import ErrorBoundary from './ErrorBoundary.jsx'
 
 function ProtectedRoute({ children }) {
   if (!isLoggedIn()) return <Navigate to="/login" replace />
@@ -41,6 +42,7 @@ function Nav() {
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>
+    <ErrorBoundary>
     <BrowserRouter>
       <Nav />
       <Routes>
@@ -54,5 +56,6 @@ createRoot(document.getElementById('root')).render(
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>
+    </ErrorBoundary>
   </StrictMode>,
 )

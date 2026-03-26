@@ -100,6 +100,23 @@
   transform: none;
 }
 
+.login-toggle {
+  text-align: center;
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin: 0 0 8px;
+}
+
+.login-toggle span {
+  color: var(--text-primary);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.login-toggle span:hover {
+  text-decoration: underline;
+}
+
 .login-hint {
   text-align: center;
   font-size: 13px;

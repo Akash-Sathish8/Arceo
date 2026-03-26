@@ -172,6 +172,43 @@ class LoginRequest(BaseModel):
     password: str
 
 
+class SignupRequest(BaseModel):
+    email: str
+    password: str
+    name: str = ""
+
+
+@app.post("/api/auth/signup")
+def signup(req: SignupRequest):
+    """Create a new account."""
+    from auth import hash_password, create_token
+
+    if len(req.password) < 6:
+        raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
+
+    with get_db() as conn:
+        existing = conn.execute("SELECT id FROM users WHERE email = ?", (req.email,)).fetchone()
+        if existing:
+            raise HTTPException(status_code=409, detail="Email already registered")
+
+        user_id = str(uuid.uuid4())
+        now = datetime.utcnow().isoformat()
+        pw_hash = hash_password(req.password)
+        name = req.name or req.email.split("@")[0]
+
+        conn.execute(
+            "INSERT INTO users (id, email, password_hash, name, role, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+            (user_id, req.email, pw_hash, name, "admin", now),
+        )
+        log_audit(conn, user_id, req.email, "SIGNUP", detail="New account created")
+
+    token = create_token(user_id, req.email, "admin")
+    return {
+        "token": token,
+        "user": {"id": user_id, "email": req.email, "name": name, "role": "admin"},
+    }
+
+
 @app.post("/api/auth/login")
 def login(req: LoginRequest):
     return login_user(req.email, req.password)
