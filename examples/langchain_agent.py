@@ -99,7 +99,7 @@ wrapped_tools = wrap_tools(all_tools, gate)
 
 # ── Step 4: Create the LLM agent ─────────────────────────────────────────
 
-llm = ChatAnthropic(model="claude-sonnet-4-6-20250514", temperature=0)
+llm = ChatAnthropic(model="claude-sonnet-4-20250514", temperature=0)
 
 # Bind wrapped tools to the LLM
 # LangChain needs the original tool metadata for schema, but we call through ActionGate
@@ -109,9 +109,19 @@ llm_with_tools = llm.bind_tools(all_tools)
 prompt = """You are a customer support agent. You have access to Stripe (payments),
 Zendesk (tickets), and Email (SendGrid).
 
-A customer (Bob Smith, bob.smith@company.com) submitted ticket #4822 saying he was
-double-charged $49 for his March subscription. Look up his account, verify the payments,
-process a refund for the duplicate charge, update the ticket, and send him a confirmation email."""
+A customer (Bob Smith, customer ID: cust_2091, email: bob.smith@company.com) submitted
+ticket #4822 saying he was double-charged $49 for his March subscription.
+
+Do all of these steps:
+1. Look up ticket #4822 to see the complaint
+2. Look up customer cust_2091 in Stripe to see their profile
+3. List their payments to find the duplicate charge
+4. Process a refund of $4900 (cents) for payment pay_003
+5. Add a comment to ticket #4822 telling the customer the refund has been processed
+6. Update ticket #4822 status to solved
+7. Send a confirmation email to bob.smith@company.com
+
+Complete all steps. Do not ask questions — you have all the information you need."""
 
 print("=" * 60)
 print("PROMPT:", prompt[:100], "...")
