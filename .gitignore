@@ -4,3 +4,4 @@ __pycache__/
 .env
 dist/
 .DS_Store
+sdk/actiongate.egg-info/
