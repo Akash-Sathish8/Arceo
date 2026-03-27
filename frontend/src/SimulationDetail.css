@@ -1,7 +1,7 @@
 /* ── Simulation Detail Page ────────────────────────────────────────────── */
 
 .sim-detail-page {
-  max-width: 940px;
+  max-width: 960px;
   margin: 0 auto;
   padding: 48px 24px 100px;
   animation: fadeInUp 0.5s cubic-bezier(0.4, 0, 0.2, 1);
@@ -14,15 +14,15 @@
   justify-content: space-between;
   align-items: flex-start;
   margin-top: 20px;
-  margin-bottom: 28px;
+  margin-bottom: 32px;
 }
 
 .sim-detail-header h1 {
-  font-size: 32px;
+  font-size: 36px;
   font-weight: 800;
-  letter-spacing: -1.2px;
+  letter-spacing: -1.5px;
   color: var(--text-primary);
-  margin: 0 0 10px;
+  margin: 0 0 12px;
 }
 
 .sim-meta {
@@ -37,8 +37,9 @@
   font-family: 'Inter', monospace;
   color: var(--text-muted);
   background: var(--bg);
-  padding: 3px 8px;
-  border-radius: 4px;
+  padding: 4px 10px;
+  border-radius: 5px;
+  border: 1px solid var(--border);
 }
 
 .sim-agent,
@@ -47,43 +48,75 @@
   font-weight: 500;
   color: var(--text-secondary);
   background: var(--bg);
-  padding: 3px 10px;
+  padding: 4px 12px;
   border-radius: 5px;
+  border: 1px solid var(--border);
 }
 
 .sim-status-badge {
   font-size: 10px;
-  font-weight: 600;
-  padding: 3px 9px;
+  font-weight: 700;
+  padding: 4px 10px;
   border-radius: 5px;
   text-transform: uppercase;
-  letter-spacing: 0.3px;
+  letter-spacing: 0.4px;
 }
 
+/* ── Risk Score Ring (large circular gauge) ─────────────────────────── */
+
 .sim-score-ring {
-  width: 90px;
-  height: 90px;
-  border: 3px solid;
+  width: 100px;
+  height: 100px;
   border-radius: 50%;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
+  position: relative;
+  border: none;
+  background: transparent;
+}
+
+/* Background ring */
+.sim-score-ring::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 5px solid currentColor;
+  opacity: 0.12;
+}
+
+/* Foreground partial ring */
+.sim-score-ring::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 5px solid transparent;
+  border-top-color: currentColor;
+  border-right-color: currentColor;
+  border-bottom-color: currentColor;
+  animation: ring-appear 0.8s cubic-bezier(0.4, 0, 0.2, 1) forwards;
 }
 
 .sim-score-number {
-  font-size: 28px;
+  font-size: 32px;
   font-weight: 800;
   letter-spacing: -1px;
+  position: relative;
+  z-index: 1;
 }
 
 .sim-score-label {
   font-size: 9px;
   text-transform: uppercase;
-  letter-spacing: 0.5px;
-  font-weight: 500;
-  opacity: 0.8;
+  letter-spacing: 0.6px;
+  font-weight: 600;
+  opacity: 0.6;
+  position: relative;
+  z-index: 1;
 }
 
 /* ── Prompt Box ───────────────────────────────────────────────────────── */
@@ -92,8 +125,9 @@
   background: var(--white);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 16px 20px;
-  margin-bottom: 28px;
+  padding: 20px 24px;
+  margin-bottom: 32px;
+  box-shadow: var(--shadow-sm);
 }
 
 .sim-prompt-label {
@@ -101,8 +135,8 @@
   text-transform: uppercase;
   letter-spacing: 0.8px;
   color: var(--text-muted);
-  font-weight: 600;
-  margin-bottom: 8px;
+  font-weight: 700;
+  margin-bottom: 10px;
 }
 
 .sim-prompt-text {
@@ -118,16 +152,23 @@
   display: grid;
   grid-template-columns: repeat(6, 1fr);
   gap: 8px;
-  margin-bottom: 36px;
+  margin-bottom: 40px;
 }
 
 .sim-stat {
   text-align: center;
-  padding: 14px 6px;
+  padding: 16px 6px;
   background: var(--white);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   animation: countUp 0.4s cubic-bezier(0.4, 0, 0.2, 1) both;
+  box-shadow: var(--shadow-sm);
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.sim-stat:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
 }
 
 .sim-stat:nth-child(1) { animation-delay: 0s; }
@@ -139,7 +180,7 @@
 
 .sim-stat strong {
   display: block;
-  font-size: 22px;
+  font-size: 24px;
   font-weight: 800;
   letter-spacing: -0.5px;
 }
@@ -149,13 +190,13 @@
   text-transform: uppercase;
   letter-spacing: 0.5px;
   color: var(--text-muted);
-  font-weight: 500;
+  font-weight: 600;
 }
 
 /* ── Section ──────────────────────────────────────────────────────────── */
 
 .sim-section {
-  margin-bottom: 36px;
+  margin-bottom: 40px;
 }
 
 .sim-section h2 {
@@ -163,43 +204,61 @@
   text-transform: uppercase;
   letter-spacing: 1.2px;
   color: var(--text-muted);
-  font-weight: 600;
+  font-weight: 700;
   margin: 0 0 16px;
 }
 
-/* ── Risk Breakdown ───────────────────────────────────────────────────── */
+/* ── Risk Breakdown (horizontal bars) ────────────────────────────────── */
 
 .risk-breakdown-row {
   display: flex;
-  gap: 16px;
-  flex-wrap: wrap;
+  flex-direction: column;
+  gap: 12px;
   background: var(--white);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 16px 20px;
+  padding: 24px 28px;
+  box-shadow: var(--shadow-sm);
 }
 
 .risk-breakdown-item {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 12px;
 }
 
 .risk-breakdown-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
   flex-shrink: 0;
 }
 
 .risk-breakdown-label {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--text-secondary);
+  width: 120px;
+  flex-shrink: 0;
+  font-weight: 500;
 }
 
 .risk-breakdown-count {
-  font-size: 14px;
-  font-weight: 700;
+  font-size: 15px;
+  font-weight: 800;
+  width: 28px;
+  flex-shrink: 0;
+}
+
+/* Horizontal bar behind the count */
+.risk-breakdown-item::after {
+  content: "";
+  flex: 1;
+  height: 8px;
+  background: var(--bg);
+  border-radius: 4px;
+  position: relative;
+  overflow: hidden;
+  border: 1px solid rgba(0, 0, 0, 0.03);
 }
 
 /* ── Trace Timeline ───────────────────────────────────────────────────── */
@@ -224,21 +283,23 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  width: 20px;
+  width: 28px;
   flex-shrink: 0;
 }
 
 .timeline-dot {
-  width: 12px;
-  height: 12px;
+  width: 16px;
+  height: 16px;
   border-radius: 50%;
   flex-shrink: 0;
   margin-top: 10px;
-  transition: transform 0.15s;
+  transition: transform 0.2s, box-shadow 0.2s;
+  box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.04);
 }
 
 .timeline-step:hover .timeline-dot {
   transform: scale(1.3);
+  box-shadow: 0 0 0 5px rgba(0, 0, 0, 0.08);
 }
 
 .timeline-line {
@@ -250,7 +311,7 @@
 
 .timeline-content {
   flex: 1;
-  padding: 8px 12px;
+  padding: 10px 16px;
   border-radius: var(--radius-sm);
   transition: background 0.15s;
   margin-bottom: 2px;
@@ -267,6 +328,7 @@
   color: var(--text-muted);
   font-family: 'Inter', monospace;
   min-width: 24px;
+  font-weight: 600;
 }
 
 .timeline-action {
@@ -278,29 +340,53 @@
 
 .timeline-decision {
   font-size: 10px;
-  font-weight: 600;
-  padding: 2px 8px;
-  border-radius: 4px;
+  font-weight: 700;
+  padding: 3px 10px;
+  border-radius: 5px;
   text-transform: uppercase;
-  letter-spacing: 0.3px;
+  letter-spacing: 0.4px;
 }
 
 .timeline-expand {
   margin-left: auto;
-  font-size: 14px;
+  font-size: 16px;
   color: var(--text-muted);
-  font-weight: 600;
-  width: 20px;
+  font-weight: 700;
+  width: 24px;
+  height: 24px;
   text-align: center;
+  line-height: 24px;
+  border-radius: 6px;
+  transition: background 0.15s, color 0.15s;
 }
 
+.timeline-step:hover .timeline-expand {
+  background: var(--border);
+  color: var(--text-primary);
+}
+
+/* Smooth expand/collapse animation */
 .timeline-detail {
-  margin-top: 10px;
-  animation: scaleIn 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  margin-top: 12px;
+  animation: timeline-expand 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  overflow: hidden;
+}
+
+@keyframes timeline-expand {
+  from {
+    opacity: 0;
+    max-height: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    max-height: 600px;
+    transform: translateY(0);
+  }
 }
 
 .timeline-json {
-  margin-bottom: 8px;
+  margin-bottom: 10px;
 }
 
 .json-label {
@@ -308,8 +394,8 @@
   text-transform: uppercase;
   letter-spacing: 0.6px;
   color: var(--text-muted);
-  font-weight: 600;
-  margin-bottom: 4px;
+  font-weight: 700;
+  margin-bottom: 6px;
 }
 
 .timeline-json pre {
@@ -317,7 +403,7 @@
   background: var(--bg);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
-  padding: 10px 14px;
+  padding: 12px 16px;
   margin: 0;
   overflow-x: auto;
   color: var(--text-secondary);
@@ -340,10 +426,18 @@
 .sim-chain-card {
   background: var(--white);
   border: 1px solid var(--border);
-  border-left: 3px solid;
+  border-left: 4px solid;
   border-radius: var(--radius);
-  padding: 16px 20px;
+  padding: 18px 24px;
   animation: slideUp 0.35s cubic-bezier(0.4, 0, 0.2, 1) both;
+  box-shadow: var(--shadow-sm);
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.sim-violation-card:hover,
+.sim-chain-card:hover {
+  transform: translateX(3px);
+  box-shadow: var(--shadow-md);
 }
 
 .sim-violation-top,
@@ -351,25 +445,25 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  margin-bottom: 6px;
+  margin-bottom: 8px;
 }
 
 .sim-violation-sev,
 .sim-chain-sev {
   font-size: 10px;
-  font-weight: 600;
-  padding: 3px 9px;
+  font-weight: 700;
+  padding: 4px 10px;
   border-radius: 5px;
   text-transform: uppercase;
-  letter-spacing: 0.3px;
+  letter-spacing: 0.4px;
 }
 
 .sim-violation-card p,
 .sim-chain-card p {
   font-size: 13px;
   color: var(--text-secondary);
-  margin: 0 0 8px;
-  line-height: 1.5;
+  margin: 0 0 10px;
+  line-height: 1.55;
 }
 
 .sim-violation-steps,
@@ -381,10 +475,12 @@
 .step-ref {
   font-size: 11px;
   background: var(--bg);
-  padding: 2px 6px;
-  border-radius: 3px;
+  padding: 3px 8px;
+  border-radius: 4px;
   font-family: 'Inter', monospace;
   margin: 0 2px;
+  border: 1px solid var(--border);
+  font-weight: 600;
 }
 
 .chain-arrow {
@@ -412,32 +508,34 @@
 }
 
 .sim-apply-all-btn {
-  padding: 6px 16px;
-  font-size: 12px;
-  font-weight: 600;
-  background: var(--text-primary);
+  padding: 8px 20px;
+  font-size: 13px;
+  font-weight: 700;
+  background: linear-gradient(135deg, #38a169, #2f855a);
   color: var(--white);
   border: none;
   border-radius: var(--radius-sm);
   cursor: pointer;
   font-family: inherit;
-  transition: opacity 0.2s;
+  transition: all 0.2s;
+  box-shadow: 0 2px 8px rgba(56, 161, 105, 0.25);
 }
 
 .sim-apply-all-btn:hover {
-  opacity: 0.85;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 14px rgba(56, 161, 105, 0.35);
 }
 
 .sim-apply-btn {
-  padding: 4px 12px;
+  padding: 6px 14px;
   font-size: 11px;
-  font-weight: 600;
-  border-radius: 5px;
+  font-weight: 700;
+  border-radius: 6px;
   cursor: pointer;
   font-family: inherit;
-  transition: opacity 0.2s, background 0.2s;
+  transition: all 0.2s;
   white-space: nowrap;
-  border: 1px solid var(--border);
+  border: 1.5px solid var(--border);
   background: var(--white);
   color: var(--text-primary);
   flex-shrink: 0;
@@ -446,24 +544,34 @@
 .sim-apply-btn:hover {
   background: var(--text-primary);
   color: var(--white);
+  border-color: var(--text-primary);
+  box-shadow: 0 2px 8px rgba(15, 20, 25, 0.15);
 }
 
 .sim-rec-card {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   background: var(--white);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 14px 18px;
+  padding: 16px 20px;
   animation: slideUp 0.3s both;
+  box-shadow: var(--shadow-sm);
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.sim-rec-card:hover {
+  transform: translateX(2px);
+  box-shadow: var(--shadow-md);
 }
 
 .sim-rec-arrow {
-  color: var(--text-muted);
-  font-size: 16px;
+  color: var(--green, #38a169);
+  font-size: 18px;
   flex-shrink: 0;
   margin-top: 1px;
+  font-weight: 800;
 }
 
 .sim-rec-card p {

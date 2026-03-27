@@ -2,15 +2,15 @@
 
 :root {
   --white: #ffffff;
-  --bg: #fafafa;
+  --bg: #f8f9fb;
   --bg-card: #ffffff;
-  --border: #e8e8e8;
-  --border-hover: #d0d0d0;
-  --text-primary: #111111;
-  --text-secondary: #555555;
-  --text-muted: #999999;
-  --accent: #111111;
-  --accent-light: #333333;
+  --border: #e2e5ea;
+  --border-hover: #c8cdd5;
+  --text-primary: #0f1419;
+  --text-secondary: #4a5568;
+  --text-muted: #8896a6;
+  --accent: #0f1419;
+  --accent-light: #2d3748;
   --carolina: #4B9CD3;
   --carolina-light: #7DB8E0;
   --carolina-pale: #edf5fb;
@@ -21,10 +21,10 @@
   --green: #38a169;
   --green-pale: #f0fff4;
   --purple: #805ad5;
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04);
-  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.06);
-  --shadow-lg: 0 12px 40px rgba(0, 0, 0, 0.08);
-  --shadow-hover: 0 8px 30px rgba(0, 0, 0, 0.1);
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.04), 0 1px 2px rgba(0, 0, 0, 0.03);
+  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.06), 0 1px 4px rgba(0, 0, 0, 0.04);
+  --shadow-lg: 0 16px 48px rgba(0, 0, 0, 0.08), 0 4px 12px rgba(0, 0, 0, 0.04);
+  --shadow-hover: 0 8px 30px rgba(0, 0, 0, 0.1), 0 2px 8px rgba(0, 0, 0, 0.04);
   --radius: 12px;
   --radius-sm: 8px;
   --radius-lg: 16px;
@@ -52,12 +52,15 @@ body {
   align-items: center;
   gap: 28px;
   padding: 0 32px;
-  height: 56px;
+  height: 60px;
   background: var(--white);
   border-bottom: 1px solid var(--border);
   position: sticky;
   top: 0;
   z-index: 100;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
+  backdrop-filter: blur(12px);
+  background: rgba(255, 255, 255, 0.92);
 }
 
 .nav-brand {
@@ -65,6 +68,19 @@ body {
   font-weight: 800;
   letter-spacing: -0.5px;
   color: var(--text-primary);
+  position: relative;
+}
+
+.nav-brand::after {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  background: var(--green);
+  border-radius: 50%;
+  margin-left: 4px;
+  vertical-align: super;
+  animation: pulse-dot 2s ease-in-out infinite;
 }
 
 .nav-links {
@@ -77,8 +93,8 @@ body {
   text-decoration: none;
   font-size: 13.5px;
   font-weight: 500;
-  padding: 6px 14px;
-  border-radius: 6px;
+  padding: 7px 14px;
+  border-radius: 8px;
   transition: color 0.2s, background 0.2s;
 }
 
@@ -91,6 +107,7 @@ body {
   color: var(--text-primary);
   background: var(--bg);
   font-weight: 600;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
 }
 
 .nav-right {
@@ -108,9 +125,9 @@ body {
 
 .nav-logout {
   font-size: 13px;
-  padding: 5px 14px;
+  padding: 6px 16px;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: 8px;
   background: var(--white);
   color: var(--text-secondary);
   cursor: pointer;
@@ -122,6 +139,7 @@ body {
 .nav-logout:hover {
   border-color: var(--border-hover);
   background: var(--bg);
+  box-shadow: var(--shadow-sm);
 }
 
 /* ── Animations ────────────────────────────────────────────────── */
@@ -155,6 +173,20 @@ body {
   to { opacity: 1; transform: translateY(0); }
 }
 
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(0.85); }
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+@keyframes ring-fill {
+  from { stroke-dashoffset: 226; }
+}
+
 /* ── Shared ────────────────────────────────────────────────────── */
 
 .spinner {
@@ -165,4 +197,63 @@ body {
   border-radius: 50%;
   margin: 0 auto 12px;
   animation: spin 0.7s linear infinite;
+}
+
+/* ── Table styles (shared) ────────────────────────────────────── */
+
+.log-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.log-table th {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: var(--text-muted);
+  font-weight: 600;
+  padding: 12px 16px;
+  text-align: left;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+}
+
+.log-table td {
+  padding: 10px 16px;
+  font-size: 13px;
+  border-bottom: 1px solid var(--bg);
+}
+
+.log-table tr:last-child td {
+  border-bottom: none;
+}
+
+.log-table tr:hover td {
+  background: var(--bg);
+}
+
+.log-time {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.mono {
+  font-family: 'Inter', monospace;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.status-badge {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 3px 10px;
+  border-radius: 5px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
 }

@@ -40,39 +40,60 @@ export default function Login() {
 
   return (
     <div className="login-page">
-      <form className="login-form" onSubmit={handleSubmit}>
-        <div className="login-brand">ActionGate</div>
-        <p className="login-subtitle">{isSignup ? "Create your account" : "Sign in to the Authority Engine"}</p>
+      <div className="login-brand-panel">
+        <div className="login-brand-logo">ActionGate</div>
+        <h1 className="login-brand-headline">Know what your AI agents can do before they do it.</h1>
+        <p className="login-brand-sub">Map every tool, score the blast radius, catch dangerous chains — before a single action runs in production.</p>
+        <div className="login-brand-features">
+          <div className="login-brand-feature">
+            <span className="login-brand-feature-label">Authority</span>
+            <span className="login-brand-feature-value">Map agent permissions</span>
+          </div>
+          <div className="login-brand-feature">
+            <span className="login-brand-feature-label">Sandbox</span>
+            <span className="login-brand-feature-value">Simulate before deploy</span>
+          </div>
+          <div className="login-brand-feature">
+            <span className="login-brand-feature-label">Enforce</span>
+            <span className="login-brand-feature-value">Block risky actions</span>
+          </div>
+        </div>
+      </div>
+      <div className="login-form-panel">
+        <form className="login-form" onSubmit={handleSubmit}>
+          <div className="login-brand">ActionGate</div>
+          <p className="login-subtitle">{isSignup ? "Create your account" : "Sign in to the Authority Engine"}</p>
 
-        {error && <div className="login-error">{error}</div>}
+          {error && <div className="login-error">{error}</div>}
 
-        {isSignup && (
-          <>
-            <label>Name</label>
-            <input type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="Your name" />
-          </>
-        )}
-
-        <label>Email</label>
-        <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@company.com" required />
-
-        <label>Password</label>
-        <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder={isSignup ? "At least 6 characters" : ""} required />
-
-        <button type="submit" disabled={loading}>
-          {loading ? (isSignup ? "Creating..." : "Signing in...") : (isSignup ? "Create Account" : "Sign In")}
-        </button>
-
-        <p className="login-toggle">
-          {isSignup ? (
-            <>Already have an account? <span onClick={() => { setIsSignup(false); setError(null); }}>Sign in</span></>
-          ) : (
-            <>Don't have an account? <span onClick={() => { setIsSignup(true); setError(null); }}>Create one</span></>
+          {isSignup && (
+            <>
+              <label>Name</label>
+              <input type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="Your name" />
+            </>
           )}
-        </p>
 
-        {!isSignup && <p className="login-hint">Demo: admin@actiongate.io / admin123</p>}
-      </form>
+          <label>Email</label>
+          <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@company.com" required />
+
+          <label>Password</label>
+          <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder={isSignup ? "At least 6 characters" : ""} required />
+
+          <button type="submit" disabled={loading}>
+            {loading ? (isSignup ? "Creating..." : "Signing in...") : (isSignup ? "Create Account" : "Sign In")}
+          </button>
+
+          <p className="login-toggle">
+            {isSignup ? (
+              <>Already have an account? <span onClick={() => { setIsSignup(false); setError(null); }}>Sign in</span></>
+            ) : (
+              <>Don't have an account? <span onClick={() => { setIsSignup(true); setError(null); }}>Create one</span></>
+            )}
+          </p>
+
+          {!isSignup && <p className="login-hint">Demo: admin@actiongate.io / admin123</p>}
+        </form>
+      </div>
     </div>
   );
 }
