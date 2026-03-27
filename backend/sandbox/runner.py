@@ -51,6 +51,7 @@ def run_simulation(
     enforce_url: str = "http://localhost:8000/api/enforce",
     api_key: str | None = None,
     max_turns: int = MAX_TURNS,
+    custom_data: dict | None = None,
 ) -> SimulationTrace:
     """Run a full simulation: LLM agent with tools, enforcement, and mocks.
 
@@ -78,8 +79,8 @@ def run_simulation(
         prompt=scenario.prompt,
     )
 
-    # Initialize mock state for this simulation
-    state = MockState()
+    # Initialize mock state for this simulation (with custom data if provided)
+    state = MockState(custom_data=custom_data)
 
     # Build Anthropic tool definitions from agent config
     tool_defs = build_tool_definitions(agent_config)
@@ -176,6 +177,7 @@ def run_simulation_dry(
     agent_config: dict,
     scenario: Scenario,
     enforce_url: str = "http://localhost:8000/api/enforce",
+    custom_data: dict | None = None,
 ) -> SimulationTrace:
     """Run a dry simulation without an LLM — executes all agent tools sequentially.
 
@@ -194,7 +196,7 @@ def run_simulation_dry(
         prompt=f"[DRY RUN] {scenario.prompt}",
     )
 
-    state = MockState()
+    state = MockState(custom_data=custom_data)
     step_index = 0
 
     for tool in agent_config.get("tools", []):

@@ -98,6 +98,14 @@ def init_db():
                 timestamp TEXT
             );
 
+            CREATE TABLE IF NOT EXISTS test_data (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                agent_id TEXT REFERENCES agents(id) ON DELETE CASCADE,
+                data_json TEXT NOT NULL,
+                created_at TEXT,
+                updated_at TEXT
+            );
+
             CREATE TABLE IF NOT EXISTS simulations (
                 id TEXT PRIMARY KEY,
                 agent_id TEXT,

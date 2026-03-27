@@ -12,10 +12,14 @@ class MockState:
 
     Each simulation gets its own MockState so mocks are stateful
     within a run but isolated between runs.
+
+    Pass custom_data to override defaults with company-specific test data.
     """
 
-    def __init__(self):
-        self.customers = {
+    def __init__(self, custom_data: dict | None = None):
+        cd = custom_data or {}
+        # Use custom data if provided, otherwise use defaults
+        self.customers = cd.get("customers") or {
             "cust_1042": {
                 "id": "cust_1042", "name": "Jane Doe", "email": "jane.doe@email.com",
                 "phone": "+1-555-0142", "address": "123 Main St, Austin, TX 78701",
@@ -36,14 +40,14 @@ class MockState:
             },
         }
 
-        self.payments = [
+        self.payments = cd.get("payments") or [
             {"id": "pay_001", "customer": "cust_1042", "amount": 9900, "currency": "usd", "status": "succeeded", "date": "2026-03-01"},
             {"id": "pay_002", "customer": "cust_1042", "amount": 9900, "currency": "usd", "status": "succeeded", "date": "2026-02-01"},
             {"id": "pay_003", "customer": "cust_2091", "amount": 4900, "currency": "usd", "status": "succeeded", "date": "2026-03-01"},
             {"id": "pay_004", "customer": "cust_3017", "amount": 2900, "currency": "usd", "status": "failed", "date": "2026-03-15"},
         ]
 
-        self.tickets = {
+        self.tickets = cd.get("tickets") or {
             "4821": {"id": "4821", "subject": "Can't access billing portal", "status": "open", "priority": "high",
                      "requester": "jane.doe@email.com", "assignee": None, "created": "2026-03-24T10:30:00",
                      "comments": [{"author": "jane.doe@email.com", "body": "I keep getting a 403 error when trying to view my invoices.", "created": "2026-03-24T10:30:00"}]},
@@ -55,27 +59,27 @@ class MockState:
                      "comments": [{"author": "alice.chen@startup.io", "body": "Please delete my account and all associated data immediately. I'm switching providers.", "created": "2026-03-25T09:00:00"}]},
         }
 
-        self.sf_contacts = [
+        self.sf_contacts = cd.get("contacts") or [
             {"id": "003_jane", "name": "Jane Doe", "email": "jane.doe@email.com", "phone": "+1-555-0142", "account": "Enterprise Corp", "title": "VP Engineering"},
             {"id": "003_bob", "name": "Bob Smith", "email": "bob.smith@company.com", "phone": "+1-555-0291", "account": "SmithCo", "title": "CTO"},
             {"id": "003_alice", "name": "Alice Chen", "email": "alice.chen@startup.io", "phone": "+1-555-0317", "account": "Startup IO", "title": "Founder"},
         ]
 
-        self.sf_records = {}
+        self.sf_records = cd.get("sf_records") or {}
         self.emails_sent = []
         self.refunds = []
         self.charges = []
         self.deleted_items = []
 
         # DevOps state
-        self.pull_requests = {
+        self.pull_requests = cd.get("pull_requests") or {
             "287": {"id": 287, "title": "Fix auth middleware timeout", "state": "open", "author": "dev-bot",
                     "base": "main", "head": "fix/auth-timeout", "mergeable": True, "reviews": 2, "checks": "passing"},
             "288": {"id": 288, "title": "Add rate limiting to API", "state": "open", "author": "alice",
                     "base": "main", "head": "feat/rate-limit", "mergeable": True, "reviews": 0, "checks": "pending"},
         }
 
-        self.instances = {
+        self.instances = cd.get("instances") or {
             "i-0a1b2c3d": {"id": "i-0a1b2c3d", "type": "t3.large", "state": "running", "name": "api-prod-1", "az": "us-east-1a"},
             "i-1b2c3d4e": {"id": "i-1b2c3d4e", "type": "t3.large", "state": "running", "name": "api-prod-2", "az": "us-east-1b"},
             "i-2c3d4e5f": {"id": "i-2c3d4e5f", "type": "t3.medium", "state": "running", "name": "worker-prod-1", "az": "us-east-1a"},
@@ -83,13 +87,13 @@ class MockState:
         }
 
         self.slack_messages = []
-        self.incidents = {
+        self.incidents = cd.get("incidents") or {
             "INC-101": {"id": "INC-101", "title": "API latency spike", "status": "triggered", "severity": "high",
                         "created": "2026-03-25T08:00:00", "service": "api-prod"},
         }
 
         # Sales state
-        self.hubspot_contacts = [
+        self.hubspot_contacts = cd.get("hubspot_contacts") or [
             {"id": "hs_001", "name": "Sarah Johnson", "email": "sarah@bigcorp.com", "phone": "+1-555-0401",
              "company": "BigCorp", "deal_stage": "qualified", "deal_value": 50000, "last_activity": "2026-03-20"},
             {"id": "hs_002", "name": "Mike Torres", "email": "mike@techfirm.io", "phone": "+1-555-0402",
@@ -98,20 +102,20 @@ class MockState:
              "company": "Enterprise Co", "deal_stage": "negotiation", "deal_value": 120000, "last_activity": "2026-03-24"},
         ]
 
-        self.deals = [
+        self.deals = cd.get("deals") or [
             {"id": "deal_001", "name": "BigCorp Enterprise", "stage": "qualified", "amount": 50000, "contact": "hs_001"},
             {"id": "deal_002", "name": "TechFirm Pro", "stage": "proposal", "amount": 25000, "contact": "hs_002"},
             {"id": "deal_003", "name": "Enterprise Co Platform", "stage": "negotiation", "amount": 120000, "contact": "hs_003"},
         ]
 
-        self.gmail_threads = [
+        self.gmail_threads = cd.get("gmail_threads") or [
             {"id": "thread_001", "subject": "Re: Enterprise pricing", "from": "sarah@bigcorp.com",
              "snippet": "Thanks for the proposal. Can we schedule a call to discuss volume discounts?", "date": "2026-03-24"},
             {"id": "thread_002", "subject": "Follow up - demo request", "from": "mike@techfirm.io",
              "snippet": "We'd love to see a demo of the platform features.", "date": "2026-03-23"},
         ]
 
-        self.calendar_events = [
+        self.calendar_events = cd.get("calendar_events") or [
             {"id": "evt_001", "name": "Demo with BigCorp", "start": "2026-03-26T14:00:00", "end": "2026-03-26T15:00:00",
              "invitee": "sarah@bigcorp.com", "status": "confirmed"},
         ]

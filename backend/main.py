@@ -831,6 +831,74 @@ def get_agent_executions(agent_id: str, user: dict = Depends(get_current_user)):
 
 # ── Sandbox Simulation ─────────────────────────────────────────────────────
 
+from typing import Optional
+
+class TestDataInput(BaseModel):
+    customers: Optional[dict] = None  # {"cust_123": {"id": "cust_123", "name": "...", ...}}
+    payments: Optional[list] = None
+    tickets: Optional[dict] = None
+    contacts: Optional[list] = None
+    pull_requests: Optional[dict] = None
+    instances: Optional[dict] = None
+    incidents: Optional[dict] = None
+    hubspot_contacts: Optional[list] = None
+    deals: Optional[list] = None
+    gmail_threads: Optional[list] = None
+    calendar_events: Optional[list] = None
+
+
+@app.put("/api/authority/agent/{agent_id}/test-data")
+def upload_test_data(agent_id: str, req: TestDataInput, user: dict = Depends(get_current_user)):
+    """Upload custom test data for an agent's sandbox simulations."""
+    with get_db() as conn:
+        existing = conn.execute("SELECT id FROM agents WHERE id = ?", (agent_id,)).fetchone()
+        if not existing:
+            raise HTTPException(status_code=404, detail=f"Agent '{agent_id}' not found")
+
+        data = {k: v for k, v in req.dict().items() if v is not None}
+        now = datetime.utcnow().isoformat()
+
+        row = conn.execute("SELECT id FROM test_data WHERE agent_id = ?", (agent_id,)).fetchone()
+        if row:
+            conn.execute("UPDATE test_data SET data_json = ?, updated_at = ? WHERE agent_id = ?",
+                         (json.dumps(data), now, agent_id))
+        else:
+            conn.execute("INSERT INTO test_data (agent_id, data_json, created_at, updated_at) VALUES (?, ?, ?, ?)",
+                         (agent_id, json.dumps(data), now, now))
+
+        log_audit(conn, user["sub"], user["email"], "UPLOAD_TEST_DATA", resource=agent_id,
+                  detail=f"Uploaded custom test data: {list(data.keys())}")
+
+    return {"message": "Test data uploaded", "fields": list(data.keys())}
+
+
+@app.get("/api/authority/agent/{agent_id}/test-data")
+def get_test_data(agent_id: str, user: dict = Depends(get_current_user)):
+    """Get custom test data for an agent."""
+    with get_db() as conn:
+        row = conn.execute("SELECT data_json FROM test_data WHERE agent_id = ?", (agent_id,)).fetchone()
+    if not row:
+        return {"agent_id": agent_id, "data": None, "message": "No custom test data — using defaults"}
+    return {"agent_id": agent_id, "data": json.loads(row["data_json"])}
+
+
+@app.delete("/api/authority/agent/{agent_id}/test-data")
+def delete_test_data(agent_id: str, user: dict = Depends(get_current_user)):
+    """Delete custom test data, revert to defaults."""
+    with get_db() as conn:
+        conn.execute("DELETE FROM test_data WHERE agent_id = ?", (agent_id,))
+    return {"message": "Test data deleted — simulations will use defaults"}
+
+
+def _get_custom_data(agent_id: str) -> dict | None:
+    """Load custom test data for an agent if it exists."""
+    with get_db() as conn:
+        row = conn.execute("SELECT data_json FROM test_data WHERE agent_id = ?", (agent_id,)).fetchone()
+    if row:
+        return json.loads(row["data_json"])
+    return None
+
+
 class SimulateRequest(BaseModel):
     agent_id: str
     scenario_id: str = ""
@@ -914,13 +982,16 @@ def run_sandbox_simulation(req: SimulateRequest, user: dict = Depends(get_curren
         if not scenario:
             raise HTTPException(status_code=404, detail=f"Scenario '{req.scenario_id}' not found")
 
+    # Load custom test data if available
+    custom_data = _get_custom_data(req.agent_id)
+
     # Run simulation
     if req.dry_run:
         from sandbox.runner import run_simulation_dry
-        trace = run_simulation_dry(agent, scenario)
+        trace = run_simulation_dry(agent, scenario, custom_data=custom_data)
     else:
         from sandbox.runner import run_simulation
-        trace = run_simulation(agent, scenario)
+        trace = run_simulation(agent, scenario, custom_data=custom_data)
 
     # Analyze
     report = analyze_trace(trace)
@@ -1134,8 +1205,12 @@ def apply_all_recommended_policies(req: ApplyAllPoliciesRequest, user: dict = De
 _mock_sessions: dict[str, dict] = {}  # session_id -> {state, agent_id, steps}
 
 
+class MockSessionRequest(BaseModel):
+    agent_id: str = "unknown"
+
+
 @app.post("/mock/session")
-def create_mock_session(request: Request):
+def create_mock_session(req: MockSessionRequest):
     """Create a sandbox session. Real agents call this before testing.
 
     Body: {"agent_id": "my-agent"}
@@ -1144,18 +1219,14 @@ def create_mock_session(request: Request):
     import sandbox.mocks  # noqa — registers all mocks
     from sandbox.mocks.registry import MockState
 
-    body = {}
-    try:
-        import asyncio
-        body = asyncio.get_event_loop().run_until_complete(request.json())
-    except Exception:
-        pass
-
-    agent_id = body.get("agent_id", "unknown")
+    agent_id = req.agent_id
     session_id = uuid.uuid4().hex[:12]
 
+    # Load custom test data if available for this agent
+    custom_data = _get_custom_data(agent_id)
+
     _mock_sessions[session_id] = {
-        "state": MockState(),
+        "state": MockState(custom_data=custom_data),
         "agent_id": agent_id,
         "steps": [],
         "created_at": datetime.utcnow().isoformat(),
@@ -1192,8 +1263,9 @@ async def call_mock_endpoint(tool: str, action: str, request: Request):
         # Auto-create session for convenience
         from sandbox.mocks.registry import MockState
         session_id = session_id or uuid.uuid4().hex[:12]
+        auto_custom_data = _get_custom_data(agent_id) if agent_id else None
         session = {
-            "state": MockState(),
+            "state": MockState(custom_data=auto_custom_data),
             "agent_id": agent_id or "unknown",
             "steps": [],
             "created_at": datetime.utcnow().isoformat(),
