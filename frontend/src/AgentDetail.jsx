@@ -36,70 +36,91 @@ const SEV_STYLE = {
   high: { bg: "#fff7ed", color: "#ea580c" },
 };
 
-// ── Authority Map (structured list replacing canvas graph) ────────────────
+// ── Authority Map ─────────────────────────────────────────────────────────
 
 function AuthorityMap({ graph }) {
   const nodeById = {};
   graph.nodes.forEach((n) => { nodeById[n.id] = n; });
 
-  // tool id → action ids
   const toolActionIds = {};
   graph.edges.filter((e) => e.relation === "exposes").forEach((e) => {
     if (!toolActionIds[e.source]) toolActionIds[e.source] = [];
     toolActionIds[e.source].push(e.target);
   });
 
-  // agent → tool ids (in order)
   const toolIds = graph.edges
     .filter((e) => e.relation === "has_tool")
     .map((e) => e.target);
 
   const tools = toolIds.map((id) => nodeById[id]).filter(Boolean);
+  const [collapsed, setCollapsed] = useState(() => {
+    const init = {};
+    tools.forEach((tool) => {
+      const acts = (toolActionIds[tool.id] || []).map((id) => nodeById[id]).filter(Boolean);
+      const hasDanger = acts.some((a) => a.reversible === false || a.risk_labels?.length > 0);
+      if (!hasDanger) init[tool.id] = true;
+    });
+    return init;
+  });
+  const toggle = (id) => setCollapsed((p) => ({ ...p, [id]: !p[id] }));
 
   return (
     <div className="authority-map">
-      <div className="am-legend">
-        <span><span className="am-dot am-dot-safe" /> Safe</span>
-        <span><span className="am-dot am-dot-risky" /> Has Risk</span>
-        <span><span className="am-dot am-dot-irreversible" /> Irreversible</span>
-      </div>
       {tools.map((tool) => {
         const actions = (toolActionIds[tool.id] || [])
           .map((id) => nodeById[id])
-          .filter(Boolean);
+          .filter(Boolean)
+          .sort((a, b) => {
+            const rank = (x) => x.reversible === false ? 0 : x.risk_labels?.length ? 1 : 2;
+            return rank(a) - rank(b);
+          });
+        const nIrrev = actions.filter((a) => a.reversible === false).length;
+        const nRisky = actions.filter((a) => a.reversible !== false && a.risk_labels?.length).length;
+        const nSafe  = actions.filter((a) => a.reversible !== false && !a.risk_labels?.length).length;
+        const isOpen = !collapsed[tool.id];
+        const accentColor = nIrrev > 0 ? "#dc2626" : nRisky > 0 ? "#f59e0b" : "#d1d5db";
         return (
-          <div key={tool.id} className="am-tool">
-            <div className="am-tool-header">
+          <div key={tool.id} className="am-tool" style={{ borderLeftColor: accentColor }}>
+            <div className="am-tool-header" onClick={() => toggle(tool.id)}>
               <span className="am-tool-name">{tool.label}</span>
-              <span className="am-tool-count">{actions.length} action{actions.length !== 1 ? "s" : ""}</span>
+              <div className="am-tool-header-right">
+                <div className="am-tool-risk-counts">
+                  {nIrrev > 0 && <span className="am-count-chip am-count-irrev">{nIrrev} irreversible</span>}
+                  {nRisky > 0 && <span className="am-count-chip am-count-risky">{nRisky} risky</span>}
+                  {nSafe  > 0 && <span className="am-count-chip am-count-safe">{nSafe} safe</span>}
+                </div>
+                <span className="am-chevron">{isOpen ? "▾" : "▸"}</span>
+              </div>
             </div>
-            <div className="am-actions">
-              {actions.map((action) => {
-                const isIrrev = action.reversible === false;
-                const hasRisk = action.risk_labels && action.risk_labels.length > 0;
-                const dotClass = isIrrev ? "irreversible" : hasRisk ? "risky" : "safe";
-                return (
-                  <div key={action.id} className="am-action">
-                    <span className={`am-dot am-dot-${dotClass}`} />
-                    <span className="am-action-name">{formatAction(action.label)}</span>
-                    <div className="am-badges">
-                      {action.risk_labels?.map((r) => (
-                        <span key={r} className="am-badge" style={{
-                          background: RISK_COLORS[r] + "18",
-                          color: RISK_COLORS[r],
-                          borderColor: RISK_COLORS[r] + "50",
-                        }}>
-                          {RISK_LABELS[r]}
-                        </span>
-                      ))}
-                      {isIrrev && (
-                        <span className="am-badge am-badge-irrev">Irreversible</span>
-                      )}
+            {isOpen && (
+              <div className="am-actions">
+                {actions.map((action) => {
+                  const isIrrev = action.reversible === false;
+                  const hasRisk = action.risk_labels && action.risk_labels.length > 0;
+                  const dotClass = isIrrev ? "irreversible" : hasRisk ? "risky" : "safe";
+                  return (
+                    <div key={action.id} className={`am-action${isIrrev ? " am-action-irrev" : hasRisk ? " am-action-risky" : ""}`}>
+                      <span className={`am-dot am-dot-${dotClass}`} />
+                      <span className="am-action-name">{formatAction(action.label)}</span>
+                      <div className="am-badges">
+                        {action.risk_labels?.map((r) => (
+                          <span key={r} className="am-badge" style={{
+                            background: RISK_COLORS[r] + "18",
+                            color: RISK_COLORS[r],
+                            borderColor: RISK_COLORS[r] + "50",
+                          }}>
+                            {RISK_LABELS[r]}
+                          </span>
+                        ))}
+                        {isIrrev && (
+                          <span className="am-badge am-badge-irrev">Irreversible</span>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                );
-              })}
-            </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         );
       })}
@@ -210,6 +231,34 @@ export default function AgentDetail() {
 
   const { agent, graph, blast_radius: br, chains, recommendations, policies, executions } = data;
   const scoreColor = br.score >= 70 ? "#dc2626" : br.score >= 40 ? "#ea580c" : "#16a34a";
+  const scoreLevel = br.score >= 70 ? "Critical" : br.score >= 40 ? "Warning" : "Safe";
+  const ringR = 44;
+  const ringC = 2 * Math.PI * ringR;
+  const ringOffset = ringC * (1 - br.score / 100);
+
+  const statItems = [
+    { label: "Total Actions",  value: br.total_actions,       color: null },
+    { label: "Move Money",     value: br.moves_money,         color: "#dc2626" },
+    { label: "Touch PII",      value: br.touches_pii,         color: "#7c3aed" },
+    { label: "Delete Data",    value: br.deletes_data,        color: "#ea580c" },
+    { label: "Send External",  value: br.sends_external,      color: "#2563eb" },
+    { label: "Change Prod",    value: br.changes_production,  color: "#0d9488" },
+    { label: "Irreversible",   value: br.irreversible_actions, color: null },
+  ];
+  const visibleStats = statItems.filter((s, i) => i === 0 || i === statItems.length - 1 || s.value > 0);
+
+  const formatExecTime = (ts) => {
+    const d = new Date(ts);
+    const now = new Date();
+    const time = d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+    if (d.toDateString() === now.toDateString()) return `Today ${time}`;
+    const yesterday = new Date(now); yesterday.setDate(yesterday.getDate() - 1);
+    if (d.toDateString() === yesterday.toDateString()) return `Yesterday ${time}`;
+    return d.toLocaleDateString("en-US", { month: "short", day: "numeric" }) + ` ${time}`;
+  };
+
+  const noPolicyCount = executions?.filter((e) => e.detail === "No matching policy").length || 0;
+  const allUnpolicied = executions?.length > 0 && noPolicyCount === executions.length;
 
   return (
     <div className="detail-page">
@@ -239,21 +288,31 @@ export default function AgentDetail() {
             ))}
           </div>
         </div>
-        <div className="detail-score" style={{ borderColor: scoreColor, color: scoreColor }}>
+        <div className="detail-score" style={{ color: scoreColor }}>
+          <svg className="detail-score-svg" viewBox="0 0 110 110">
+            <circle cx="55" cy="55" r={ringR} fill="none" stroke="currentColor" strokeWidth="7" opacity="0.12" />
+            <circle cx="55" cy="55" r={ringR} fill="none" stroke="currentColor" strokeWidth="7"
+              strokeDasharray={ringC}
+              strokeDashoffset={ringOffset}
+              strokeLinecap="round"
+              transform="rotate(-90 55 55)"
+              style={{ transition: "stroke-dashoffset 0.8s cubic-bezier(0.4, 0, 0.2, 1)" }}
+            />
+          </svg>
           <div className="ds-number">{br.score}</div>
           <div className="ds-label">Risk Score</div>
+          <div className="ds-level">{scoreLevel}</div>
         </div>
       </div>
 
       {/* Stats Row */}
-      <div className="detail-stats">
-        <div className="d-stat"><strong>{br.total_actions}</strong><span>Total Actions</span></div>
-        <div className="d-stat" style={{ color: "#dc2626" }}><strong>{br.moves_money}</strong><span>Move Money</span></div>
-        <div className="d-stat" style={{ color: "#7c3aed" }}><strong>{br.touches_pii}</strong><span>Touch PII</span></div>
-        <div className="d-stat" style={{ color: "#ea580c" }}><strong>{br.deletes_data}</strong><span>Delete Data</span></div>
-        <div className="d-stat" style={{ color: "#2563eb" }}><strong>{br.sends_external}</strong><span>Send External</span></div>
-        <div className="d-stat" style={{ color: "#0d9488" }}><strong>{br.changes_production}</strong><span>Change Prod</span></div>
-        <div className="d-stat"><strong>{br.irreversible_actions}</strong><span>Irreversible</span></div>
+      <div className="detail-stats" style={{ gridTemplateColumns: `repeat(${visibleStats.length}, 1fr)` }}>
+        {visibleStats.map((s) => (
+          <div key={s.label} className="d-stat" style={s.color ? { color: s.color } : undefined}>
+            <strong>{s.value}</strong>
+            <span>{s.label}</span>
+          </div>
+        ))}
       </div>
 
       {/* Enforcement Policies */}
@@ -294,6 +353,12 @@ export default function AgentDetail() {
       {executions && executions.length > 0 && (
         <div className="detail-section">
           <h2>Recent Executions ({executions.length})</h2>
+          {allUnpolicied && (
+            <div className="no-policy-banner">
+              None of these {executions.length} executions matched a policy — this agent runs with no enforcement rules.
+              <span className="no-policy-hint">Use the form above to block or require approval for risky actions.</span>
+            </div>
+          )}
           <div className="exec-list">
             {executions.slice(0, 20).map((e) => {
               const st = EXEC_STATUS_STYLE[e.status] || {};
@@ -301,14 +366,14 @@ export default function AgentDetail() {
               const statusLabel = e.status === "PENDING_APPROVAL" ? "Pending" : e.status.charAt(0) + e.status.slice(1).toLowerCase();
               return (
                 <div key={e.id} className="exec-row">
-                  <span className="exec-time">{new Date(e.timestamp).toLocaleString()}</span>
+                  <span className="exec-time">{formatExecTime(e.timestamp)}</span>
                   <div className="exec-action-cell">
                     <span style={{ width: 7, height: 7, borderRadius: "50%", background: dot, flexShrink: 0, display: "inline-block" }} />
                     <span className="exec-tool">{e.tool.charAt(0).toUpperCase() + e.tool.slice(1)}</span>
                     <span className="exec-action">{formatAction(e.action)}</span>
                   </div>
                   <span className="exec-status" style={{ background: st.bg, color: st.color }}>{statusLabel}</span>
-                  <span className="exec-detail">{e.detail}</span>
+                  {!allUnpolicied && <span className="exec-detail">{e.detail}</span>}
                 </div>
               );
             })}
@@ -318,8 +383,14 @@ export default function AgentDetail() {
 
       {/* Authority Map */}
       <div className="detail-section">
-        <h2>Authority Graph</h2>
-        <p className="graph-hint">Every action this agent can take, grouped by service, with risk categories shown inline.</p>
+        <div className="am-section-header">
+          <h2>Authority Graph</h2>
+          <div className="am-legend">
+            <span><span className="am-dot am-dot-safe" /> Safe</span>
+            <span><span className="am-dot am-dot-risky" /> Risky</span>
+            <span><span className="am-dot am-dot-irreversible" /> Irreversible</span>
+          </div>
+        </div>
         <AuthorityMap graph={graph} />
       </div>
 
@@ -331,7 +402,7 @@ export default function AgentDetail() {
             {chains.map((c) => {
               const sev = SEV_STYLE[c.severity] || SEV_STYLE.high;
               return (
-                <div key={c.id} className="d-chain">
+                <div key={c.id} className="d-chain" style={{ borderLeftColor: sev.color }}>
                   <div className="d-chain-top">
                     <span className="d-chain-sev" style={{ background: sev.bg, color: sev.color }}>{c.severity}</span>
                     <strong>{c.name}</strong>
@@ -340,18 +411,44 @@ export default function AgentDetail() {
                   <div className="d-chain-steps">
                     {c.steps.map((step, j) => (
                       <span key={j}>
-                        <span className="step-tag" style={{ borderColor: RISK_COLORS[step] || "#ccc", color: RISK_COLORS[step] || "#555" }}>{step}</span>
-                        {j < c.steps.length - 1 && <span className="step-arrow">&rarr;</span>}
+                        <span className="step-tag" style={{
+                          borderColor: RISK_COLORS[step] || "#ccc",
+                          color: RISK_COLORS[step] || "#555",
+                          background: (RISK_COLORS[step] || "#ccc") + "12",
+                        }}>
+                          {RISK_LABELS[step] || step}
+                        </span>
+                        {j < c.steps.length - 1 && <span className="step-arrow">→</span>}
                       </span>
                     ))}
                   </div>
                   <div className="d-chain-actions">
-                    {c.matching_actions.map((group, gi) => (
-                      <div key={gi} className="match-group">
-                        <span className="match-label">Step {gi + 1}:</span>
-                        {group.map((a) => <code key={a} className="match-action">{a}</code>)}
-                      </div>
-                    ))}
+                    {c.matching_actions.map((group, gi) => {
+                      const byService = {};
+                      const order = [];
+                      group.forEach((a) => {
+                        const dot = a.indexOf(".");
+                        const svc = dot > -1 ? a.slice(0, dot) : a;
+                        const act = dot > -1 ? a.slice(dot + 1) : a;
+                        if (!byService[svc]) { byService[svc] = []; order.push(svc); }
+                        byService[svc].push(act);
+                      });
+                      return (
+                        <div key={gi} className="match-group">
+                          <span className="match-label">Step {gi + 1}</span>
+                          <div className="match-service-rows">
+                            {order.map((svc) => (
+                              <div key={svc} className="match-service-row">
+                                <span className="match-svc">{svc.charAt(0).toUpperCase() + svc.slice(1)}</span>
+                                {byService[svc].map((a) => (
+                                  <span key={a} className="match-action">{formatAction(a)}</span>
+                                ))}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               );

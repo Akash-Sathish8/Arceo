@@ -26,6 +26,7 @@ const RISK_FILTERS = [
 ];
 
 function RiskBar({ label, count, max, color }) {
+  if (count === 0) return null;
   const pct = max > 0 ? (count / max) * 100 : 0;
   return (
     <div className="risk-bar-row">
@@ -47,7 +48,7 @@ function AgentCard({ agent }) {
   const dashOffset = circumference * (1 - br.score / 100);
 
   return (
-    <Link to={`/agent/${agent.id}`} className="agent-card">
+    <Link to={`/agent/${agent.id}`} className={`agent-card risk-${riskLevel.toLowerCase()}`}>
       <div className="agent-card-header">
         <div>
           <h3>{agent.name}</h3>
@@ -85,7 +86,7 @@ function AgentCard({ agent }) {
 
       <div className="agent-card-footer">
         <span className="stat">{br.total_actions} actions</span>
-        <span className="stat">{br.irreversible_actions} permanent</span>
+        <span className="stat">{br.irreversible_actions}/{br.total_actions} permanent</span>
         <span className="stat chain-stat">
           {agent.chain_count} risk combos
           {agent.critical_chains > 0 && (
@@ -249,6 +250,25 @@ export default function Authority() {
     agents.forEach((a) => { m[a.id] = a.name; });
     return m;
   }, [agents]);
+
+  const agentIdByName = useMemo(() => {
+    const m = {};
+    agents.forEach((a) => { m[a.name] = a.id; });
+    return m;
+  }, [agents]);
+
+  const formatRiskTag = (tag) =>
+    tag.split("_").map((w) => (w === "pii" ? "PII" : w.charAt(0).toUpperCase() + w.slice(1))).join(" ");
+
+  const stepTagStyle = (step) => {
+    const s = step.toLowerCase();
+    if (s.includes("pii"))                                   return { bg: "#f5f3ff", color: "#7c3aed", border: "#ddd6fe" };
+    if (s.includes("money") || s.includes("charge"))        return { bg: "#eff6ff", color: "#2563eb", border: "#bfdbfe" };
+    if (s.includes("delet"))                                 return { bg: "#fef2f2", color: "#dc2626", border: "#fecaca" };
+    if (s.includes("external") || s.includes("send"))       return { bg: "#fdf4ff", color: "#a21caf", border: "#f0abfc" };
+    if (s.includes("production") || s.includes("change"))   return { bg: "#f0fdfa", color: "#0d9488", border: "#99f6e4" };
+    return { bg: "var(--bg)", color: "var(--text-secondary)", border: "var(--border)" };
+  };
 
   if (loading) {
     return (
@@ -802,23 +822,34 @@ export default function Authority() {
         <div className="chains-list">
           {filteredChains.map((c, i) => {
             const sev = SEVERITY_COLORS[c.severity] || SEVERITY_COLORS.high;
+            const agentId = agentIdByName[c.agent_name];
             return (
               <div key={i} className="chain-card" style={{ borderLeftColor: sev.border }}>
                 <div className="chain-header">
                   <span className="chain-severity" style={{ background: sev.bg, color: sev.color }}>
-                    {c.severity}
+                    {c.severity.toUpperCase()}
                   </span>
                   <strong>{c.chain_name}</strong>
-                  <span className="chain-agent">{c.agent_name}</span>
+                  <span className="chain-agent-badge">{c.agent_name}</span>
+                  {agentId && (
+                    <Link to={`/agent/${agentId}`} className="chain-policy-btn" onClick={(e) => e.stopPropagation()}>
+                      Set Policy →
+                    </Link>
+                  )}
                 </div>
                 <p className="chain-desc">{c.description}</p>
                 <div className="chain-steps">
-                  {c.steps.map((step, j) => (
-                    <span key={j}>
-                      <span className="step-tag">{step}</span>
-                      {j < c.steps.length - 1 && <span className="step-arrow">&rarr;</span>}
-                    </span>
-                  ))}
+                  {c.steps.map((step, j) => {
+                    const ts = stepTagStyle(step);
+                    return (
+                      <span key={j} className="chain-step-group">
+                        <span className="step-tag" style={{ background: ts.bg, color: ts.color, borderColor: ts.border }}>
+                          {formatRiskTag(step)}
+                        </span>
+                        {j < c.steps.length - 1 && <span className="step-arrow">→</span>}
+                      </span>
+                    );
+                  })}
                 </div>
               </div>
             );

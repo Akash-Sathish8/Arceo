@@ -843,10 +843,9 @@
 .risk-bar-track {
   flex: 1;
   height: 8px;
-  background: var(--bg);
+  background: #ebebeb;
   border-radius: 4px;
   overflow: hidden;
-  border: 1px solid rgba(0, 0, 0, 0.03);
 }
 
 .risk-bar-fill {
@@ -875,8 +874,8 @@
 
 .stat {
   font-size: 13px;
-  color: var(--text-muted);
-  font-weight: 400;
+  color: var(--text-secondary);
+  font-weight: 500;
 }
 
 .chain-stat { margin-left: auto; }
@@ -939,10 +938,36 @@
   color: var(--text-primary);
 }
 
-.chain-agent {
-  font-size: 12px;
-  color: var(--text-muted);
+.chain-agent-badge {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 2px 10px;
   margin-left: auto;
+  white-space: nowrap;
+}
+
+.chain-policy-btn {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+  text-decoration: none;
+  padding: 4px 12px;
+  border: 1.5px solid var(--border);
+  border-radius: 6px;
+  background: var(--white);
+  transition: all 0.15s;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.chain-policy-btn:hover {
+  background: var(--text-primary);
+  color: var(--white);
+  border-color: var(--text-primary);
 }
 
 .chain-desc {
@@ -955,23 +980,29 @@
 .chain-steps {
   display: flex;
   align-items: center;
-  gap: 8px;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.chain-step-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .step-tag {
   font-size: 12px;
   padding: 4px 12px;
-  background: var(--bg);
   border-radius: 6px;
-  font-family: 'Inter', monospace;
-  color: var(--text-secondary);
-  font-weight: 500;
-  border: 1px solid var(--border);
+  font-weight: 600;
+  border: 1px solid;
+  letter-spacing: -0.1px;
 }
 
 .step-arrow {
   color: var(--text-muted);
   font-size: 14px;
+  font-weight: 600;
 }
 
 /* ── Critical Banner ───────────────────────────────────────────── */
@@ -1190,14 +1221,23 @@
 }
 
 .view-all-link {
-  font-size: 13px;
-  color: var(--text-muted);
+  font-size: 12px;
+  color: var(--text-secondary);
   text-decoration: none;
-  font-weight: 500;
-  transition: color 0.15s;
+  font-weight: 600;
+  padding: 6px 14px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--white);
+  transition: all 0.15s;
+  white-space: nowrap;
 }
 
-.view-all-link:hover { color: var(--text-primary); }
+.view-all-link:hover {
+  color: var(--text-primary);
+  border-color: var(--text-primary);
+  background: var(--bg);
+}
 
 .activity-feed {
   background: var(--white);
@@ -1207,13 +1247,54 @@
   box-shadow: var(--shadow-sm);
 }
 
+/* Column header row */
+.activity-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 8px 20px 8px 23px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg);
+}
+
+.activity-header .activity-time,
+.activity-header .activity-agent {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.7px;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.activity-action-header {
+  flex: 1;
+  min-width: 0;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.7px;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.activity-status-header {
+  flex-shrink: 0;
+  width: 80px;
+  text-align: center;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.7px;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
 .activity-item {
   display: flex;
   align-items: center;
   gap: 16px;
-  padding: 12px 20px;
+  padding: 11px 20px;
   border-bottom: 1px solid var(--bg);
-  transition: background 0.15s;
+  border-left: 3px solid transparent;
+  transition: background 0.15s, border-left-color 0.15s;
   text-decoration: none;
   color: inherit;
   cursor: pointer;
@@ -1223,6 +1304,17 @@
 .activity-item:hover { background: #f8f9fb; }
 .activity-item:hover .activity-action { color: var(--text-primary); }
 .activity-item:hover .activity-agent { color: var(--text-primary); }
+
+/* Risk-type left accent borders */
+.activity-item--destructive { border-left-color: #dc2626; }
+.activity-item--financial   { border-left-color: #2563eb; }
+.activity-item--message     { border-left-color: #7c3aed; }
+
+/* Status row tints */
+.activity-item--blocked       { background: #fff8f8; }
+.activity-item--blocked:hover { background: #fef2f2; }
+.activity-item--pending       { background: #fffdf0; }
+.activity-item--pending:hover { background: #fefce8; }
 
 .activity-time {
   font-size: 12px;
@@ -1265,6 +1357,10 @@
   color: var(--text-muted);
   letter-spacing: 0.1px;
   flex-shrink: 0;
+  width: 76px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .activity-action {
@@ -1282,6 +1378,8 @@
   padding: 3px 10px;
   border-radius: 5px;
   flex-shrink: 0;
+  width: 80px;
+  text-align: center;
 }
 
 /* ── Improved Empty State ──────────────────────────────────────── */
