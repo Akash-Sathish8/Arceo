@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm run:*)",
+      "Bash(npm install:*)",
+      "Read(//c/Users/iramj/desktop/ActionGate/ActionGate/backend/**)",
+      "Bash(pip install:*)",
+      "Bash(python -m uvicorn main:app --reload --port 8000)",
+      "Bash(python -c \":*)",
+      "Bash(curl -s http://localhost:8000/docs -o /dev/null -w \"%{http_code}\")",
+      "Bash(python -c \"import sys; print\\(sys.executable\\)\")",
+      "Bash(pip show:*)",
+      "Bash(py -3.12 -m pip install uvicorn fastapi pydantic networkx pyjwt python-dotenv bcrypt anthropic httpx)"
+    ]
+  }
+}

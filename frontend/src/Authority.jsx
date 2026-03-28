@@ -1,6 +1,7 @@
-import { useState, useEffect, useMemo } from "react";
-import { Link } from "react-router-dom";
+import { useState, useEffect, useMemo, useRef } from "react";
+import { Link, useSearchParams } from "react-router-dom";
 import { apiFetch } from "./api.js";
+import { toast } from "./Toast.jsx";
 import "./Authority.css";
 
 const SEVERITY_COLORS = {
@@ -39,7 +40,11 @@ function RiskBar({ label, count, max, color }) {
 
 function AgentCard({ agent }) {
   const br = agent.blast_radius;
-  const scoreColor = br.score >= 70 ? "#dc2626" : br.score >= 40 ? "#ea580c" : "#16a34a";
+  const scoreColor = br.score >= 70 ? '#dc2626' : br.score >= 40 ? '#f59e0b' : '#16a34a';
+  const riskLevel = br.score >= 70 ? "Critical" : br.score >= 40 ? "Warning" : "Safe";
+  const radius = 32;
+  const circumference = 2 * Math.PI * radius;
+  const dashOffset = circumference * (1 - br.score / 100);
 
   return (
     <Link to={`/agent/${agent.id}`} className="agent-card">
@@ -53,25 +58,36 @@ function AgentCard({ agent }) {
             ))}
           </div>
         </div>
-        <div className="blast-score" style={{ borderColor: scoreColor, color: scoreColor }}>
+        <div className="blast-score" style={{ color: scoreColor }}>
+          <svg className="blast-ring" viewBox="0 0 80 80">
+            <circle cx="40" cy="40" r={radius} fill="none" stroke="currentColor" strokeWidth="5" opacity="0.15" />
+            <circle cx="40" cy="40" r={radius} fill="none" stroke="currentColor" strokeWidth="5"
+              strokeDasharray={circumference}
+              strokeDashoffset={dashOffset}
+              strokeLinecap="round"
+              transform="rotate(-90 40 40)"
+              style={{ transition: "stroke-dashoffset 0.6s ease" }}
+            />
+          </svg>
           <div className="blast-number">{br.score}</div>
-          <div className="blast-label">Blast Radius</div>
+          <div className="blast-label">Risk Score</div>
+          <div className="blast-level">{riskLevel}</div>
         </div>
       </div>
 
       <div className="risk-bars">
-        <RiskBar label="Moves Money" count={br.moves_money} max={br.total_actions} color="#dc2626" />
-        <RiskBar label="Touches PII" count={br.touches_pii} max={br.total_actions} color="#7c3aed" />
-        <RiskBar label="Deletes Data" count={br.deletes_data} max={br.total_actions} color="#ea580c" />
-        <RiskBar label="Sends External" count={br.sends_external} max={br.total_actions} color="#2563eb" />
-        <RiskBar label="Changes Prod" count={br.changes_production} max={br.total_actions} color="#0d9488" />
+        <RiskBar label="Moves Money"        count={br.moves_money}        max={br.total_actions} color="#dc2626" />
+        <RiskBar label="Touches PII"        count={br.touches_pii}        max={br.total_actions} color="#7c3aed" />
+        <RiskBar label="Deletes Data"       count={br.deletes_data}       max={br.total_actions} color="#ea580c" />
+        <RiskBar label="Sends External"     count={br.sends_external}     max={br.total_actions} color="#2563eb" />
+        <RiskBar label="Changes Production" count={br.changes_production} max={br.total_actions} color="#0d9488" />
       </div>
 
       <div className="agent-card-footer">
         <span className="stat">{br.total_actions} actions</span>
-        <span className="stat">{br.irreversible_actions} irreversible</span>
+        <span className="stat">{br.irreversible_actions} permanent</span>
         <span className="stat chain-stat">
-          {agent.chain_count} chains
+          {agent.chain_count} risk combos
           {agent.critical_chains > 0 && (
             <span className="crit-badge">{agent.critical_chains} critical</span>
           )}
@@ -82,10 +98,12 @@ function AgentCard({ agent }) {
 }
 
 export default function Authority() {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [agents, setAgents] = useState([]);
   const [chains, setChains] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [executions, setExecutions] = useState([]);
 
   // Filters
   const [search, setSearch] = useState("");
@@ -95,6 +113,8 @@ export default function Authority() {
 
   // Create agent form
   const [showCreate, setShowCreate] = useState(false);
+  const [connectTab, setConnectTab] = useState("manual"); // "manual" | "mcp"
+  const connectFormRef = useRef(null);
   const [newName, setNewName] = useState("");
   const [newDesc, setNewDesc] = useState("");
   const [newToolsText, setNewToolsText] = useState("");
@@ -112,10 +132,12 @@ export default function Authority() {
     Promise.all([
       apiFetch("/api/authority/agents"),
       apiFetch("/api/authority/chains"),
+      apiFetch("/api/executions").catch(() => ({ entries: [] })),
     ])
-      .then(([agentData, chainData]) => {
+      .then(([agentData, chainData, execData]) => {
         setAgents(agentData.agents);
         setChains(chainData.chains);
+        setExecutions(execData.entries || []);
         setLoading(false);
       })
       .catch((err) => {
@@ -124,7 +146,21 @@ export default function Authority() {
       });
   };
 
-  useEffect(() => { loadData(); }, []);
+  useEffect(() => {
+    loadData();
+    const interval = setInterval(loadData, 30000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Auto-open connect form when ?connect=true (e.g. from sidebar CTA)
+  useEffect(() => {
+    if (searchParams.get("connect") === "true") {
+      setShowCreate(true);
+      setConnectTab("manual");
+      setSearchParams({}, { replace: true });
+      setTimeout(() => connectFormRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 100);
+    }
+  }, [searchParams]);
 
   const handleCreate = async (e) => {
     e.preventDefault();
@@ -158,9 +194,11 @@ export default function Authority() {
       setNewDesc("");
       setNewToolsText("");
       setShowCreate(false);
+      toast("Agent created successfully");
       loadData(); // refresh
     } catch (err) {
       setCreateResult({ error: err.message });
+      toast(err.message, "error");
     }
     setCreating(false);
   };
@@ -206,6 +244,12 @@ export default function Authority() {
     return chains.filter((c) => c.severity === chainSeverityFilter);
   }, [chains, chainSeverityFilter]);
 
+  const agentNameMap = useMemo(() => {
+    const m = {};
+    agents.forEach((a) => { m[a.id] = a.name; });
+    return m;
+  }, [agents]);
+
   if (loading) {
     return (
       <div className="authority-page">
@@ -236,6 +280,57 @@ export default function Authority() {
   const totalActions = agents.reduce((s, a) => s + a.blast_radius.total_actions, 0);
   const totalIrreversible = agents.reduce((s, a) => s + a.blast_radius.irreversible_actions, 0);
 
+  // Today / yesterday stats from executions
+  const now = new Date();
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const yesterdayStart = new Date(todayStart.getTime() - 86400000);
+  const todayExecs = executions.filter((e) => new Date(e.timestamp) >= todayStart);
+  const yesterdayExecs = executions.filter((e) => {
+    const t = new Date(e.timestamp);
+    return t >= yesterdayStart && t < todayStart;
+  });
+  const todayBlocked = todayExecs.filter((e) => e.status === "BLOCKED").length;
+  const yesterdayBlocked = yesterdayExecs.filter((e) => e.status === "BLOCKED").length;
+  const todayExecuted = todayExecs.filter((e) => e.status === "EXECUTED").length;
+
+  // 7-day bar chart data
+  const days7 = Array.from({ length: 7 }, (_, i) => {
+    const start = new Date(todayStart.getTime() - (6 - i) * 86400000);
+    const end = new Date(start.getTime() + 86400000);
+    const dayExecs = executions.filter((e) => {
+      const t = new Date(e.timestamp);
+      return t >= start && t < end;
+    });
+    return {
+      label: start.toLocaleDateString("en-US", { weekday: "short" }),
+      total: dayExecs.length,
+      blocked: dayExecs.filter((e) => e.status === "BLOCKED").length,
+    };
+  });
+  const maxDay = Math.max(...days7.map((d) => d.total), 1);
+
+  const recentExecs = executions.slice(0, 10);
+
+  const timeAgo = (ts) => {
+    const diff = (Date.now() - new Date(ts)) / 1000;
+    if (diff < 5) return "Just now";
+    if (diff < 60) return `${Math.floor(diff)}s ago`;
+    if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+    if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+    return `${Math.floor(diff / 86400)}d ago`;
+  };
+
+  const formatAction = (action) =>
+    action.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+
+  const actionRiskDot = (tool, action) => {
+    const s = `${tool}.${action}`.toLowerCase();
+    if (/delete|terminate|drop|destroy|remove|cancel/.test(s)) return "#dc2626";
+    if (/charge|transfer|pay|refund|create_charge/.test(s)) return "#2563eb";
+    if (/send|email|message|notify/.test(s)) return "#7c3aed";
+    return "#9ca3af";
+  };
+
   const handleMcpConnect = async (e) => {
     e.preventDefault();
     setMcpConnecting(true);
@@ -252,9 +347,11 @@ export default function Authority() {
       setMcpUrl("");
       setMcpAgentName("");
       setShowMcpConnect(false);
+      toast(`Connected — ${data.tools_imported} tool${data.tools_imported !== 1 ? "s" : ""} imported`);
       loadData();
     } catch (err) {
       setMcpResult({ error: err.message });
+      toast(err.message, "error");
     }
     setMcpConnecting(false);
   };
@@ -300,9 +397,10 @@ export default function Authority() {
         method: "POST",
         body: JSON.stringify({ name: template.name, description: template.description, tools }),
       });
+      toast(`${template.name} created`);
       loadData();
     } catch (err) {
-      alert("Failed: " + err.message);
+      toast("Failed: " + err.message, "error");
     }
     setCreating(false);
   };
@@ -314,6 +412,24 @@ export default function Authority() {
         <div className="onboarding">
           <h1>Welcome to ActionGate</h1>
           <p className="onboarding-sub">Tell us what your AI agent can do. We'll show you what can go wrong.</p>
+
+          <div className="onboarding-steps">
+            <div className="onboarding-step">
+              <div className="onboarding-num">1</div>
+              <h3>Register your agent</h3>
+              <p>List the tools your AI agent can use — Stripe, Zendesk, Salesforce, or anything custom.</p>
+            </div>
+            <div className="onboarding-step">
+              <div className="onboarding-num">2</div>
+              <h3>See what can go wrong</h3>
+              <p>Instantly get a risk score, dangerous capability combinations, and which tools could cause real-world damage.</p>
+            </div>
+            <div className="onboarding-step">
+              <div className="onboarding-num">3</div>
+              <h3>Enforce policies</h3>
+              <p>Block or require approval for risky actions before they run in production.</p>
+            </div>
+          </div>
 
           <h2 className="onboarding-section-title">Start with a template</h2>
           <div className="template-grid">
@@ -383,115 +499,254 @@ export default function Authority() {
       <header className="auth-header">
         <div className="auth-header-row">
           <div>
-            <h1>Authority Engine</h1>
-            <p>Map what your AI agents can do. Score the blast radius. Find the dangers.</p>
+            <h1>Dashboard</h1>
+            <p>See what your AI agents can do — and what they could do wrong — before it happens in production.</p>
           </div>
           <div className="header-buttons">
-            <button className="create-agent-btn secondary" onClick={() => setShowMcpConnect(!showMcpConnect)}>
-              {showMcpConnect ? "Cancel" : "Connect MCP"}
-            </button>
             <button className="create-agent-btn" onClick={() => { setShowCreate(!showCreate); setShowMcpConnect(false); }}>
-              {showCreate ? "Cancel" : "+ New Agent"}
+              {showCreate ? "Cancel" : "+ Connect Agent"}
             </button>
           </div>
         </div>
       </header>
 
       {showCreate && (
-        <div className="create-agent-form-wrapper">
-          <form className="create-agent-form" onSubmit={handleCreate}>
-            <div className="form-row">
-              <div className="form-group">
-                <label>Agent Name</label>
-                <input type="text" value={newName} onChange={(e) => setNewName(e.target.value)}
-                       placeholder="e.g. Customer Support Agent" required />
-              </div>
-              <div className="form-group">
-                <label>Description</label>
-                <input type="text" value={newDesc} onChange={(e) => setNewDesc(e.target.value)}
-                       placeholder="What this agent does" />
-              </div>
-            </div>
-            <div className="form-group">
-              <label>Tools &amp; Actions (one tool per line: <code>ToolName: action1, action2, action3</code>)</label>
-              <textarea
-                value={newToolsText}
-                onChange={(e) => setNewToolsText(e.target.value)}
-                placeholder={"Stripe: get_customer, create_refund, create_charge\nZendesk: get_ticket, update_ticket, close_ticket\nSendGrid: send_email, list_templates"}
-                rows={4}
-              />
-            </div>
-            <div className="form-actions">
-              <button type="submit" disabled={creating || !newName.trim() || !newToolsText.trim()}>
-                {creating ? "Creating..." : "Create Agent & Score Risk"}
+        <div className="create-agent-form-wrapper" ref={connectFormRef}>
+          <div className="create-agent-form">
+            {/* Tabs */}
+            <div className="connect-tabs">
+              <button
+                className={`connect-tab${connectTab === "manual" ? " active" : ""}`}
+                onClick={() => setConnectTab("manual")}
+                type="button"
+              >
+                Manual setup
+              </button>
+              <button
+                className={`connect-tab${connectTab === "mcp" ? " active" : ""}`}
+                onClick={() => setConnectTab("mcp")}
+                type="button"
+              >
+                Import from MCP server
               </button>
             </div>
-          </form>
+
+            {connectTab === "manual" && (
+              <form onSubmit={handleCreate}>
+                <div className="form-row">
+                  <div className="form-group">
+                    <label>Agent Name</label>
+                    <input type="text" value={newName} onChange={(e) => setNewName(e.target.value)}
+                           placeholder="e.g. Customer Support Agent" required />
+                  </div>
+                  <div className="form-group">
+                    <label>Description</label>
+                    <input type="text" value={newDesc} onChange={(e) => setNewDesc(e.target.value)}
+                           placeholder="What this agent does" />
+                  </div>
+                </div>
+                <div className="form-group">
+                  <label>Tools &amp; Actions (one tool per line: <code>ToolName: action1, action2, action3</code>)</label>
+                  <textarea
+                    value={newToolsText}
+                    onChange={(e) => setNewToolsText(e.target.value)}
+                    placeholder={"Stripe: get_customer, create_refund, create_charge\nZendesk: get_ticket, update_ticket, close_ticket\nSendGrid: send_email, list_templates"}
+                    rows={4}
+                  />
+                </div>
+                <div className="form-actions">
+                  <button type="submit" disabled={creating || !newName.trim() || !newToolsText.trim()}>
+                    {creating ? "Creating..." : "Create Agent & Score Risk"}
+                  </button>
+                </div>
+              </form>
+            )}
+
+            {connectTab === "mcp" && (
+              <form onSubmit={handleMcpConnect}>
+                <p className="connect-tab-desc">
+                  Point to your MCP server URL — ActionGate auto-discovers all tools and imports them instantly.
+                </p>
+                <div className="form-row">
+                  <div className="form-group">
+                    <label>MCP Server URL</label>
+                    <input type="url" value={mcpUrl} onChange={(e) => setMcpUrl(e.target.value)}
+                           placeholder="http://localhost:3000" required />
+                  </div>
+                  <div className="form-group">
+                    <label>Agent Name</label>
+                    <input type="text" value={mcpAgentName} onChange={(e) => setMcpAgentName(e.target.value)}
+                           placeholder="e.g. My Production Agent" required />
+                  </div>
+                </div>
+                <div className="form-actions">
+                  <button type="submit" disabled={mcpConnecting || !mcpUrl.trim() || !mcpAgentName.trim()}>
+                    {mcpConnecting ? "Connecting..." : "Connect & Import Tools"}
+                  </button>
+                </div>
+                {mcpResult && mcpResult.error && (
+                  <div className="run-error" style={{ marginTop: 12 }}><strong>Failed:</strong> {mcpResult.error}</div>
+                )}
+                {mcpResult && mcpResult.tools_imported && (
+                  <div className="mcp-success">Imported {mcpResult.tools_imported} tools: {mcpResult.tool_names.join(", ")}</div>
+                )}
+              </form>
+            )}
+          </div>
         </div>
       )}
 
-      {showMcpConnect && (
-        <div className="create-agent-form-wrapper">
-          <form className="create-agent-form" onSubmit={handleMcpConnect}>
-            <h3 style={{ margin: "0 0 8px", fontSize: 16, fontWeight: 700 }}>Connect to MCP Server</h3>
-            <p style={{ margin: "0 0 16px", fontSize: 13, color: "var(--text-muted)" }}>
-              Enter your MCP server's HTTP URL. ActionGate will call tools/list and import all tools automatically.
-            </p>
-            <div className="form-row">
-              <div className="form-group">
-                <label>MCP Server URL</label>
-                <input type="url" value={mcpUrl} onChange={(e) => setMcpUrl(e.target.value)}
-                       placeholder="http://localhost:3000" required />
-              </div>
-              <div className="form-group">
-                <label>Agent Name</label>
-                <input type="text" value={mcpAgentName} onChange={(e) => setMcpAgentName(e.target.value)}
-                       placeholder="e.g. My MCP Agent" required />
-              </div>
-            </div>
-            <div className="form-actions">
-              <button type="submit" disabled={mcpConnecting || !mcpUrl.trim() || !mcpAgentName.trim()}>
-                {mcpConnecting ? "Connecting..." : "Connect & Import Tools"}
-              </button>
-            </div>
-            {mcpResult && mcpResult.error && (
-              <div className="run-error" style={{ marginTop: 12 }}><strong>Failed:</strong> {mcpResult.error}</div>
-            )}
-            {mcpResult && mcpResult.tools_imported && (
-              <div className="mcp-success">Imported {mcpResult.tools_imported} tools: {mcpResult.tool_names.join(", ")}</div>
-            )}
-          </form>
+      {/* Critical alert banner */}
+      {criticalChains.length > 0 && (
+        <div className="critical-banner">
+          <span className="critical-banner-icon">⚠</span>
+          <div className="critical-banner-body">
+            <strong>{criticalChains.length} high-risk capability combination{criticalChains.length > 1 ? "s" : ""} detected</strong>
+            <span className="critical-banner-names">
+              Your agents can combine {criticalChains.slice(0, 2).map(c => c.chain_name).join(" and ")}
+              {criticalChains.length > 2 ? ` — and ${criticalChains.length - 2} more` : ""}
+            </span>
+          </div>
+          <a href="#danger-chains" className="critical-banner-link">Review risks ↓</a>
         </div>
       )}
 
-      {/* Summary Stats */}
-      <div className="summary-row">
-        <div className="summary-stat">
-          <div className="summary-number">{agents.length}</div>
-          <div className="summary-label">Agents</div>
+      {/* Overview Panel — today + fleet merged into one card */}
+      <div className="overview-panel">
+        <div className="today-section">
+          <div className="today-metrics">
+            <div className="today-metric">
+              <div className="today-value blocked">{todayBlocked}</div>
+              <div className="today-label">Blocked today</div>
+              {(todayBlocked > 0 || yesterdayBlocked > 0) && (
+                <div className="today-delta">
+                  {todayBlocked === yesterdayBlocked ? "— same as yesterday" : todayBlocked > yesterdayBlocked ? `↑ ${todayBlocked - yesterdayBlocked} vs yesterday` : `↓ ${yesterdayBlocked - todayBlocked} vs yesterday`}
+                </div>
+              )}
+            </div>
+            <div className="today-metric">
+              <div className="today-value executed">{todayExecuted}</div>
+              <div className="today-label">Completed today</div>
+            </div>
+            <div className="today-metric">
+              <div className="today-value">{todayExecs.length}</div>
+              <div className="today-label">Total today</div>
+            </div>
+          </div>
+          <div className="activity-bars">
+            <div className="activity-bars-label">Last 7 days</div>
+            <div className="activity-bars-chart">
+              {days7.map((d, i) => (
+                <div key={i} className="activity-bar-col">
+                  <div className="activity-bar-wrap">
+                    {d.total > 0 && (
+                      <div
+                        className={`activity-bar${i === 6 ? " today" : ""}`}
+                        style={{ height: `${Math.max((d.total / maxDay) * 100, 15)}%` }}
+                        title={`${d.total} actions${d.blocked ? `, ${d.blocked} blocked` : ""}`}
+                      />
+                    )}
+                  </div>
+                  <div className="activity-bar-day">{d.label}</div>
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
-        <div className="summary-stat">
-          <div className="summary-number">{totalActions}</div>
-          <div className="summary-label">Total Actions</div>
+
+        <div className="fleet-overview">
+        <div className="fleet-stat">
+          <div className="fleet-stat-number">{agents.length}</div>
+          <div className="fleet-stat-label">Agents Connected</div>
         </div>
-        <div className="summary-stat">
-          <div className="summary-number">{totalIrreversible}</div>
-          <div className="summary-label">Irreversible</div>
+        <div className="fleet-divider" />
+        <div className="fleet-stat">
+          <div className="fleet-stat-number">{totalActions}</div>
+          <div className="fleet-stat-label">Total Actions</div>
         </div>
-        <div className="summary-stat warn">
-          <div className="summary-number">{chains.length}</div>
-          <div className="summary-label">Danger Chains</div>
+        <div className="fleet-divider" />
+        <div className="fleet-stat fleet-stat-warn">
+          <div className="fleet-stat-number">{totalIrreversible}</div>
+          <div className="fleet-stat-label">Permanent Actions</div>
         </div>
-        <div className="summary-stat crit">
-          <div className="summary-number">{criticalChains.length}</div>
-          <div className="summary-label">Critical</div>
+        <div className="fleet-divider" />
+        <div className="fleet-stat fleet-stat-danger">
+          <div className="fleet-stat-number">{chains.length}</div>
+          <div className="fleet-stat-label">Risk Combinations</div>
+        </div>
+        <div className="fleet-divider" />
+        <div className={`fleet-stat ${criticalChains.length > 0 ? "fleet-stat-critical" : ""}`}>
+          <div className="fleet-stat-number">{criticalChains.length}</div>
+          <div className="fleet-stat-label">Critical Risks</div>
+        </div>
+        <div className="fleet-divider" />
+        <div className="fleet-stat fleet-risk-level">
+          <div className={`fleet-risk-badge ${
+            agents.some(a => a.blast_radius.score >= 70) ? "fleet-risk-critical" :
+            agents.some(a => a.blast_radius.score >= 40) ? "fleet-risk-warning" :
+            "fleet-risk-safe"
+          }`}>
+            {agents.some(a => a.blast_radius.score >= 70) ? "High Risk" :
+             agents.some(a => a.blast_radius.score >= 40) ? "Needs Review" :
+             agents.length === 0 ? "No Agents" : "All Clear"}
+          </div>
+          <div className="fleet-stat-label">Overall Status</div>
         </div>
       </div>
+      </div>{/* end overview-panel */}
+
+      {/* Recent Activity Feed */}
+      {recentExecs.length > 0 && (
+        <div className="recent-activity">
+          <div className="section-header">
+            <div>
+              <h2>Recent Activity</h2>
+              <div className="risk-legend">
+                <span className="risk-legend-item"><span className="risk-legend-dot" style={{ background: "#dc2626" }} />Destructive</span>
+                <span className="risk-legend-item"><span className="risk-legend-dot" style={{ background: "#2563eb" }} />Financial</span>
+                <span className="risk-legend-item"><span className="risk-legend-dot" style={{ background: "#7c3aed" }} />Sends message</span>
+                <span className="risk-legend-item"><span className="risk-legend-dot" style={{ background: "#9ca3af" }} />Read-only</span>
+              </div>
+            </div>
+            <Link to="/history" className="view-all-link">View all →</Link>
+          </div>
+          <div className="activity-feed">
+            <div className="activity-header">
+              <span className="activity-time">Time</span>
+              <span className="activity-agent">Agent</span>
+              <span className="activity-action-header">Action</span>
+              <span className="activity-status-header">Status</span>
+            </div>
+            {recentExecs.map((e) => {
+              const STATUS_STYLE = { EXECUTED: { bg: "#d4edda", color: "#155724" }, BLOCKED: { bg: "#f8d7da", color: "#721c24" }, PENDING_APPROVAL: { bg: "#fff3cd", color: "#856404" } };
+              const st = STATUS_STYLE[e.status] || {};
+              const dot = actionRiskDot(e.tool, e.action);
+              const agentName = agentNameMap[e.agent_id] || e.agent_id;
+              const riskClass = dot === "#dc2626" ? " activity-item--destructive" : dot === "#2563eb" ? " activity-item--financial" : dot === "#7c3aed" ? " activity-item--message" : "";
+              const statusClass = e.status === "BLOCKED" ? " activity-item--blocked" : e.status === "PENDING_APPROVAL" ? " activity-item--pending" : "";
+              return (
+                <Link key={e.id} to={`/agent/${e.agent_id}`} className={`activity-item${riskClass}${statusClass}`}>
+                  <span className="activity-time">{timeAgo(e.timestamp)}</span>
+                  <span className="activity-agent" title={agentName}>{agentName}</span>
+                  <div className="activity-action-cell">
+                    <span className="activity-dot" style={{ background: dot }} />
+                    <span className="activity-tool">{e.tool.charAt(0).toUpperCase() + e.tool.slice(1)}</span>
+                    <span className="activity-action">{formatAction(e.action)}</span>
+                  </div>
+                  <span className="activity-status" style={{ background: st.bg, color: st.color }}>
+                    {e.status === "PENDING_APPROVAL" ? "Pending" : e.status === "EXECUTED" ? "Completed" : e.status === "BLOCKED" ? "Blocked" : e.status.charAt(0) + e.status.slice(1).toLowerCase()}
+                  </span>
+                </Link>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Agent Section with Controls */}
       <section>
         <div className="section-header">
-          <h2>Agent Blast Radius</h2>
+          <h2>Agent Risk Scores</h2>
           <div className="controls">
             <input
               type="text"
@@ -514,7 +769,11 @@ export default function Authority() {
         </div>
 
         {filteredAgents.length === 0 ? (
-          <div className="empty-state">No agents match your filters.</div>
+          <div className="empty-state">
+            <div className="empty-state-icon">⚙</div>
+            <div className="empty-state-title">No agents match your filters</div>
+            <div className="empty-state-desc">Try adjusting your search or risk filter</div>
+          </div>
         ) : (
           <div className="agent-grid">
             {filteredAgents.map((a) => (
@@ -525,9 +784,9 @@ export default function Authority() {
       </section>
 
       {/* Dangerous Chains with filter */}
-      <section>
+      <section id="danger-chains">
         <div className="section-header">
-          <h2>Flagged Dangerous Chains ({filteredChains.length})</h2>
+          <h2>Dangerous Capability Combinations ({filteredChains.length})</h2>
           <div className="controls">
             <select
               className="control-select"

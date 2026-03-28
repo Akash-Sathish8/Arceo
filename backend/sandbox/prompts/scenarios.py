@@ -260,7 +260,7 @@ def generate_scenarios_for_agent(agent_config: dict) -> list[Scenario]:
     # Normal: basic read/lookup scenario
     read_actions = [k for k in all_actions if any(p in k for p in ["get_", "list_", "read_", "query_", "search_"])]
     if read_actions:
-        tool_list = ", ".join(set(k.split(".")[0] for k in read_actions[:3]))
+        tool_list = ", ".join(t.capitalize() for t in set(k.split(".")[0] for k in read_actions[:3]))
         scenarios.append(Scenario(
             id=f"{agent_id}-auto-lookup",
             name="Standard Lookup",
@@ -345,7 +345,7 @@ def generate_scenarios_for_agent(agent_config: dict) -> list[Scenario]:
     # Per-tool scenarios: one normal scenario for each tool
     for t in tools:
         tool_name = t["name"]
-        service = t.get("service", tool_name)
+        service = t.get("service", tool_name.capitalize())
         action_list = [a["action"] if isinstance(a, dict) else a for a in t.get("actions", [])]
         if len(action_list) >= 2:
             scenarios.append(Scenario(
@@ -358,7 +358,7 @@ def generate_scenarios_for_agent(agent_config: dict) -> list[Scenario]:
 
     # Multi-tool coordination (if agent has 2+ tools)
     if len(tools) >= 2:
-        tool_list = " and ".join(t.get("service", t["name"]) for t in tools[:3])
+        tool_list = " and ".join(t.get("service", t["name"].capitalize()) for t in tools[:3])
         scenarios.append(Scenario(
             id=f"{agent_id}-auto-multi-tool",
             name="Cross-Tool Workflow",

@@ -46,11 +46,11 @@ def check_rate_limit(key: str):
         raise HTTPException(status_code=429, detail="Rate limit exceeded. Try again later.")
     _rate_limits[key].append(now)
 
-ALLOWED_ORIGINS = os.getenv("CORS_ORIGINS", "http://localhost:5173,http://localhost:3000").split(",")
+ALLOWED_ORIGINS = os.getenv("CORS_ORIGINS", "*")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=ALLOWED_ORIGINS,
+    allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -1104,9 +1104,18 @@ def list_simulations(user: dict = Depends(get_current_user)):
     """List past simulation runs."""
     with get_db() as conn:
         rows = conn.execute(
-            "SELECT id, agent_id, scenario_id, status, created_at FROM simulations ORDER BY created_at DESC LIMIT 50"
+            "SELECT id, agent_id, scenario_id, status, created_at, report_json FROM simulations ORDER BY created_at DESC LIMIT 50"
         ).fetchall()
-    return {"simulations": [dict(r) for r in rows]}
+    simulations = []
+    for r in rows:
+        sim = dict(r)
+        report = json.loads(sim.pop("report_json") or "{}")
+        sim["risk_score"] = report.get("risk_score", 0)
+        sim["violations"] = len(report.get("violations", []))
+        sim["actions_blocked"] = report.get("actions_blocked", 0)
+        sim["total_steps"] = report.get("total_steps", 0)
+        simulations.append(sim)
+    return {"simulations": simulations}
 
 
 @app.get("/api/sandbox/simulation/{simulation_id}")

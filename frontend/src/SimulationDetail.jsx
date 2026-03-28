@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useParams, Link } from "react-router-dom";
 import { apiFetch } from "./api.js";
+import { toast } from "./Toast.jsx";
 import "./SimulationDetail.css";
 
 const SEVERITY_COLORS = {
@@ -31,6 +32,22 @@ const RISK_LABELS = {
   sends_external: "Sends External",
   changes_production: "Changes Prod",
 };
+
+// Mirrors backend authority/risk_classifier.py KEYWORD_RULES exactly
+const KEYWORD_RULES = {
+  moves_money: ["pay", "charge", "refund", "invoice", "transfer", "billing", "payout", "debit", "credit", "subscription", "price"],
+  touches_pii: ["customer", "user", "contact", "personal", "profile", "account", "pii", "address", "phone", "ssn", "identity"],
+  deletes_data: ["delete", "remove", "drop", "purge", "destroy", "truncate", "erase", "wipe"],
+  sends_external: ["send", "email", "notify", "post", "message", "sms", "webhook", "publish", "broadcast", "alert"],
+  changes_production: ["deploy", "merge", "release", "production", "infrastructure", "instance", "scale", "terminate", "rollback", "migrate", "provision"],
+};
+
+function classifyStep(action) {
+  const text = action.toLowerCase();
+  return Object.entries(KEYWORD_RULES)
+    .filter(([, kws]) => kws.some((kw) => text.includes(kw)))
+    .map(([label]) => label);
+}
 
 export default function SimulationDetail() {
   const { simulationId } = useParams();
@@ -76,9 +93,41 @@ export default function SimulationDetail() {
   const riskScore = report.risk_score;
   const scoreColor = riskScore >= 50 ? "#dc2626" : riskScore >= 25 ? "#ea580c" : "#16a34a";
 
+  // Build a map of risk category → step indices that triggered it
+  const stepsByCategory = {};
+  trace.steps.forEach((step, i) => {
+    classifyStep(step.action).forEach((label) => {
+      if (!stepsByCategory[label]) stepsByCategory[label] = [];
+      stepsByCategory[label].push(i);
+    });
+  });
+
+  const formatAction = (action) =>
+    action.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+
+  const formatDecision = (d) => {
+    if (d === "ALLOW") return "Allow";
+    if (d === "BLOCK") return "Block";
+    if (d === "REQUIRE_APPROVAL") return "Require Approval";
+    return d;
+  };
+
+  const actionRiskDot = (tool, action) => {
+    const s = `${tool}.${action}`.toLowerCase();
+    if (/delete|terminate|drop|destroy|remove|cancel/.test(s)) return "#dc2626";
+    if (/charge|transfer|pay|refund|create_charge/.test(s)) return "#2563eb";
+    if (/send|email|message|notify/.test(s)) return "#7c3aed";
+    return "#9ca3af";
+  };
+
   return (
     <div className="sim-detail-page">
-      <Link to="/sandbox" className="back-link">&larr; Sandbox</Link>
+      <div className="sim-detail-topbar">
+        <Link to="/sandbox" className="back-link">&larr; Sandbox</Link>
+        <Link to={`/sandbox?agent=${data?.agent_id || ""}`} className="sim-run-again-btn">
+          Run Again →
+        </Link>
+      </div>
 
       {/* Header */}
       <div className="sim-detail-header">
@@ -136,26 +185,71 @@ export default function SimulationDetail() {
       {/* Risk Breakdown */}
       <div className="sim-section">
         <h2>Risk Breakdown</h2>
+        <p className="sim-section-sub">How many of the {report.total_steps} steps in this simulation touched each sensitive category.</p>
         <div className="risk-breakdown-row">
-          {Object.entries(report.risk_summary).map(([key, count]) => (
-            <div key={key} className="risk-breakdown-item">
-              <div className="risk-breakdown-dot" style={{ background: RISK_COLORS[key] || "#999" }} />
-              <span className="risk-breakdown-label">{RISK_LABELS[key] || key}</span>
-              <strong className="risk-breakdown-count" style={{ color: RISK_COLORS[key] || "#999" }}>{count}</strong>
-            </div>
-          ))}
+          {Object.entries(report.risk_summary).map(([key, count]) => {
+            const color = RISK_COLORS[key] || "#999";
+            const pct = report.total_steps > 0 ? Math.round((count / report.total_steps) * 100) : 0;
+            const steps = stepsByCategory[key] || [];
+            const desc = {
+              moves_money: "Charges, refunds, transfers, or subscription changes",
+              touches_pii: "Reads or writes personal customer data",
+              deletes_data: "Permanently removes records or files",
+              sends_external: "Emails, messages, or webhooks sent outside your system",
+              changes_production: "Updates live config, access rules, or deployments",
+            }[key] || "";
+            return (
+              <div key={key} className="risk-breakdown-item">
+                <div className="risk-breakdown-dot" style={{ background: color }} />
+                <div className="risk-breakdown-text">
+                  <span className="risk-breakdown-label">{RISK_LABELS[key] || key}</span>
+                  <span className="risk-breakdown-desc">{desc}</span>
+                </div>
+                <div className="risk-breakdown-bar-wrap">
+                  <div className="risk-breakdown-bar-track">
+                    <div className="risk-breakdown-bar-fill" style={{ width: `${pct}%`, background: color }} />
+                  </div>
+                  <div className="risk-breakdown-steps">
+                    {steps.map((idx) => (
+                      <a key={idx} href={`#step-${idx}`} className="step-ref-link" style={{ borderColor: color, color }}>
+                        #{idx}
+                      </a>
+                    ))}
+                  </div>
+                </div>
+                <strong className="risk-breakdown-count" style={{ color: count > 0 ? color : "var(--text-muted)" }}>
+                  {count > 0 ? `${count} of ${report.total_steps}` : "none"}
+                </strong>
+              </div>
+            );
+          })}
         </div>
       </div>
 
       {/* Trace Timeline */}
       <div className="sim-section">
-        <h2>Execution Trace ({trace.steps.length} steps)</h2>
+        <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", flexWrap: "wrap", gap: 12, marginBottom: 16 }}>
+          <h2 style={{ margin: 0 }}>Execution Trace ({trace.steps.length} steps)</h2>
+          <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
+            {[
+              { color: "#dc2626", label: "Destructive" },
+              { color: "#2563eb", label: "Financial" },
+              { color: "#7c3aed", label: "Sends message" },
+              { color: "#9ca3af", label: "Read-only" },
+            ].map(({ color, label }) => (
+              <span key={label} style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, color: "var(--text-muted)", fontWeight: 500 }}>
+                <span style={{ width: 7, height: 7, borderRadius: "50%", background: color, display: "inline-block", flexShrink: 0 }} />
+                {label}
+              </span>
+            ))}
+          </div>
+        </div>
         <div className="trace-timeline">
           {trace.steps.map((step, i) => {
             const ds = DECISION_STYLE[step.enforce_decision] || DECISION_STYLE.ALLOW;
             const isExpanded = expandedSteps[i];
             return (
-              <div key={i} className="timeline-step" onClick={() => toggleStep(i)}>
+              <div key={i} id={`step-${i}`} className="timeline-step" onClick={() => toggleStep(i)}>
                 <div className="timeline-rail">
                   <div className="timeline-dot" style={{ background: ds.dot }} />
                   {i < trace.steps.length - 1 && <div className="timeline-line" />}
@@ -163,9 +257,13 @@ export default function SimulationDetail() {
                 <div className="timeline-content">
                   <div className="timeline-row">
                     <span className="timeline-index">#{i}</span>
-                    <code className="timeline-action">{step.tool}.{step.action}</code>
+                    <div className="timeline-action-cell">
+                      <span className="timeline-dot-risk" style={{ background: actionRiskDot(step.tool, step.action) }} />
+                      <span className="timeline-tool">{step.tool.charAt(0).toUpperCase() + step.tool.slice(1)}</span>
+                      <span className="timeline-action">{formatAction(step.action)}</span>
+                    </div>
                     <span className="timeline-decision" style={{ background: ds.bg, color: ds.color }}>
-                      {step.enforce_decision}
+                      {formatDecision(step.enforce_decision)}
                     </span>
                     <span className="timeline-expand">{isExpanded ? "−" : "+"}</span>
                   </div>
@@ -276,9 +374,9 @@ export default function SimulationDetail() {
                         })),
                       }),
                     });
-                    alert(`Applied ${resp.created} policies${resp.skipped ? `, ${resp.skipped} already existed` : ""}`);
+                    toast(`Applied ${resp.created} polic${resp.created === 1 ? "y" : "ies"}${resp.skipped ? ` · ${resp.skipped} already existed` : ""}`);
                   } catch (err) {
-                    alert("Failed: " + err.message);
+                    toast(err.message, "error");
                   }
                 }}
               >
@@ -307,9 +405,9 @@ export default function SimulationDetail() {
                               reason: rec.reason,
                             }),
                           });
-                          alert(resp.already_exists ? "Policy already exists" : "Policy created!");
+                          toast(resp.already_exists ? "Policy already exists" : "Policy created");
                         } catch (err) {
-                          alert("Failed: " + err.message);
+                          toast(err.message, "error");
                         }
                       }}
                     >

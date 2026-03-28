@@ -1,7 +1,26 @@
 import { useState, useEffect, useMemo } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { apiFetch } from "./api.js";
+import { toast } from "./Toast.jsx";
 import "./Sandbox.css";
+
+const formatDesc = (desc) => {
+  // Capitalize known service names
+  const withServices = desc
+    .replace(/\bstripe\b/gi, "Stripe")
+    .replace(/\bzendesk\b/gi, "Zendesk")
+    .replace(/\bsalesforce\b/gi, "Salesforce")
+    .replace(/\bsendgrid\b/gi, "SendGrid")
+    .replace(/\bgithub\b/gi, "GitHub")
+    .replace(/\bslack\b/gi, "Slack")
+    .replace(/\baws\b/gi, "AWS")
+    .replace(/\bhubspot\b/gi, "HubSpot")
+    .replace(/\bpagerduty\b/gi, "PagerDuty");
+  // Convert snake_case action names to Title Case
+  return withServices.replace(/\b[a-z]+(?:_[a-z]+)+\b/g, (match) =>
+    match.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())
+  );
+};
 
 const SEVERITY_COLORS = {
   critical: { bg: "#fef2f2", color: "#dc2626", border: "#fca5a5" },
@@ -37,6 +56,9 @@ const DECISION_STYLE = {
 };
 
 export default function Sandbox() {
+  const [searchParams] = useSearchParams();
+  const preselectedAgent = searchParams.get("agent");
+
   const [scenarios, setScenarios] = useState([]);
   const [agents, setAgents] = useState([]);
   const [simulations, setSimulations] = useState([]);
@@ -65,9 +87,10 @@ export default function Sandbox() {
       .then(([agentData, simData]) => {
         setAgents(agentData.agents);
         setSimulations(simData.simulations);
-        if (agentData.agents.length > 0) {
-          setSelectedAgent(agentData.agents[0].id);
-        }
+        const defaultAgent = preselectedAgent && agentData.agents.find(a => a.id === preselectedAgent)
+          ? preselectedAgent
+          : agentData.agents[0]?.id || "";
+        setSelectedAgent(defaultAgent);
         setLoading(false);
       })
       .catch((err) => {
@@ -121,8 +144,16 @@ export default function Sandbox() {
       setResult(data);
       const simData = await apiFetch("/api/sandbox/simulations");
       setSimulations(simData.simulations);
+      const score = data.report?.risk_score ?? data.risk_score;
+      if (score !== undefined) {
+        const label = score >= 70 ? "Critical" : score >= 25 ? "Warning" : "Safe";
+        toast(`Simulation complete — Risk score: ${score} (${label})`, score >= 70 ? "error" : "info");
+      } else {
+        toast("Simulation complete");
+      }
     } catch (err) {
       setRunError(err.message);
+      toast(err.message, "error");
     }
     setRunning(false);
   };
@@ -256,7 +287,7 @@ export default function Sandbox() {
 
       {/* Scenarios (auto-generated from selected agent) */}
       {selectedAgent && !useCustomPrompt && (
-        <section>
+        <section style={{ marginTop: 56, marginBottom: 48 }}>
           <div className="section-header">
             <h2>Or pick a scenario</h2>
             <div className="controls">
@@ -295,7 +326,7 @@ export default function Sandbox() {
                       </span>
                     </div>
                     <h3 className="scenario-card-name">{s.name}</h3>
-                    <p className="scenario-card-desc">{s.description}</p>
+                    <p className="scenario-card-desc">{formatDesc(s.description)}</p>
                   </div>
                 );
               })}
@@ -527,9 +558,23 @@ export default function Sandbox() {
         </section>
       )}
 
+      {result && previousResult && (
+        <div className="compare-runs-banner">
+          <div className="compare-runs-text">
+            <strong>You've run 2 simulations.</strong> Compare them to see the impact of your policies.
+          </div>
+          <a
+            href={`/compare?before=${previousResult.simulation_id}&after=${result.simulation_id}`}
+            className="compare-runs-btn"
+          >
+            Compare Runs →
+          </a>
+        </div>
+      )}
+
       {/* Past Simulations */}
       {simulations.length > 0 && (
-        <section>
+        <section style={{ marginTop: 56, marginBottom: 48 }}>
           <div className="section-header">
             <h2>Past Simulations ({simulations.length})</h2>
           </div>
@@ -539,32 +584,45 @@ export default function Sandbox() {
                 <th>Time</th>
                 <th>Agent</th>
                 <th>Scenario</th>
-                <th>Status</th>
+                <th>Risk Score</th>
+                <th>Violations</th>
+                <th>Blocked</th>
+                <th>Steps</th>
                 <th></th>
               </tr>
             </thead>
             <tbody>
-              {simulations.map((sim) => (
-                <tr key={sim.id}>
-                  <td className="log-time">{new Date(sim.created_at).toLocaleString()}</td>
-                  <td className="mono">{sim.agent_id}</td>
-                  <td className="mono">{sim.scenario_id}</td>
-                  <td>
-                    <span
-                      className="status-badge"
-                      style={{
-                        background: sim.status === "completed" ? "#d4edda" : "#f8d7da",
-                        color: sim.status === "completed" ? "#155724" : "#721c24",
-                      }}
-                    >
-                      {sim.status}
-                    </span>
-                  </td>
-                  <td>
-                    <Link to={`/sandbox/${sim.id}`} className="view-link">View</Link>
-                  </td>
-                </tr>
-              ))}
+              {simulations.map((sim) => {
+                const scoreColor = sim.risk_score >= 50 ? "#dc2626" : sim.risk_score >= 25 ? "#ea580c" : "#16a34a";
+                const scenarioLabel = sim.scenario_id.replace(sim.agent_id + "-", "").replace(/-/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+                const agentLabel = sim.agent_id.replace(/-/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+                const diff = (Date.now() - new Date(sim.created_at)) / 1000;
+                const timeAgo = diff < 60 ? `${Math.floor(diff)}s ago` : diff < 3600 ? `${Math.floor(diff / 60)}m ago` : diff < 86400 ? `${Math.floor(diff / 3600)}h ago` : new Date(sim.created_at).toLocaleDateString();
+                return (
+                  <tr key={sim.id}>
+                    <td className="log-time">{timeAgo}</td>
+                    <td style={{ fontWeight: 500, fontSize: 13 }}>{agentLabel}</td>
+                    <td style={{ fontSize: 13, color: "var(--text-secondary)" }}>{scenarioLabel}</td>
+                    <td>
+                      <span style={{ fontWeight: 700, fontSize: 15, color: scoreColor }}>{sim.risk_score}</span>
+                    </td>
+                    <td>
+                      {sim.violations > 0
+                        ? <span className="status-badge" style={{ background: "#f8d7da", color: "#721c24" }}>{sim.violations}</span>
+                        : <span style={{ color: "var(--text-muted)", fontSize: 13 }}>—</span>}
+                    </td>
+                    <td>
+                      {sim.actions_blocked > 0
+                        ? <span style={{ fontWeight: 600, color: "#dc2626", fontSize: 13 }}>{sim.actions_blocked}</span>
+                        : <span style={{ color: "var(--text-muted)", fontSize: 13 }}>0</span>}
+                    </td>
+                    <td style={{ color: "var(--text-muted)", fontSize: 13 }}>{sim.total_steps}</td>
+                    <td>
+                      <Link to={`/sandbox/${sim.id}`} className="view-link">View Report</Link>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </section>

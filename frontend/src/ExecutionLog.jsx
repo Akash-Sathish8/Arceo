@@ -29,6 +29,27 @@ export default function ExecutionLog() {
 
   const blocked = entries.filter((e) => e.status === "BLOCKED").length;
   const executed = entries.filter((e) => e.status === "EXECUTED").length;
+  const pending = entries.filter((e) => e.status === "PENDING_APPROVAL").length;
+
+  const handleExport = () => {
+    const rows = [["Time", "Agent", "Tool", "Action", "Status", "Detail"]];
+    filtered.forEach((e) => {
+      rows.push([new Date(e.timestamp).toISOString(), e.agent_id, e.tool, e.action, e.status, e.detail || ""]);
+    });
+    const csv = rows.map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = "executions.csv"; a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const CHIPS = [
+    { value: "all", label: "All", count: entries.length },
+    { value: "EXECUTED", label: "Executed", count: executed },
+    { value: "BLOCKED", label: "Blocked", count: blocked },
+    { value: "PENDING_APPROVAL", label: "Pending", count: pending },
+  ];
 
   return (
     <div className="log-page">
@@ -48,12 +69,19 @@ export default function ExecutionLog() {
       </div>
 
       <div className="log-controls">
-        <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}>
-          <option value="all">All Statuses</option>
-          <option value="EXECUTED">Executed</option>
-          <option value="BLOCKED">Blocked</option>
-          <option value="PENDING_APPROVAL">Pending Approval</option>
-        </select>
+        <div className="filter-chips">
+          {CHIPS.map((chip) => (
+            <button
+              key={chip.value}
+              className={`filter-chip${filterStatus === chip.value ? " active" : ""}`}
+              onClick={() => setFilterStatus(chip.value)}
+            >
+              {chip.label}
+              <span className="chip-count">{chip.count}</span>
+            </button>
+          ))}
+        </div>
+        <button className="export-btn" onClick={handleExport}>↓ Export CSV</button>
       </div>
 
       <table className="log-table">
@@ -84,7 +112,19 @@ export default function ExecutionLog() {
             );
           })}
           {filtered.length === 0 && (
-            <tr><td colSpan={5} className="log-empty">No matching entries.</td></tr>
+            <tr>
+              <td colSpan={5}>
+                <div className="table-empty-state">
+                  <div className="empty-icon">📋</div>
+                  <div className="empty-title">
+                    {entries.length === 0 ? "No executions yet" : "No matching entries"}
+                  </div>
+                  <div className="empty-desc">
+                    {entries.length === 0 ? "Actions your agents take will appear here." : "Try a different filter."}
+                  </div>
+                </div>
+              </td>
+            </tr>
           )}
         </tbody>
       </table>

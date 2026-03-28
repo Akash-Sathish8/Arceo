@@ -922,3 +922,41 @@
   color: var(--text-muted);
   font-size: 14px;
 }
+
+/* ── Compare Runs Banner ──────────────────────────────────────── */
+.compare-runs-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  background: #f0fdf4;
+  border: 1.5px solid #86efac;
+  border-radius: var(--radius);
+  padding: 16px 20px;
+  margin-bottom: 24px;
+  animation: slideUp 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.compare-runs-text {
+  font-size: 14px;
+  color: #15803d;
+}
+
+.compare-runs-text strong {
+  font-weight: 700;
+}
+
+.compare-runs-btn {
+  font-size: 13px;
+  font-weight: 700;
+  padding: 8px 20px;
+  background: #16a34a;
+  color: #fff;
+  border-radius: var(--radius-sm);
+  text-decoration: none;
+  white-space: nowrap;
+  transition: opacity 0.2s;
+  flex-shrink: 0;
+}
+
+.compare-runs-btn:hover { opacity: 0.88; }
