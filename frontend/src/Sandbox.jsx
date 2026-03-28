@@ -1,12 +1,18 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { apiFetch } from "./api.js";
 import { toast } from "./Toast.jsx";
 import "./Sandbox.css";
 
 const formatDesc = (desc) => {
+  // Fix developer jargon
+  const noJargon = desc
+    .replace(/blast radius/gi, "risk scope")
+    .replace(/dry.?run/gi, "simulation");
+  // Strip trailing ellipsis artifacts from truncated backend strings
+  const cleaned = noJargon.replace(/\.{2,}$/, "").replace(/…$/, "").trimEnd();
   // Capitalize known service names
-  const withServices = desc
+  const withServices = cleaned
     .replace(/\bstripe\b/gi, "Stripe")
     .replace(/\bzendesk\b/gi, "Zendesk")
     .replace(/\bsalesforce\b/gi, "Salesforce")
@@ -47,6 +53,8 @@ const CATEGORY_FILTERS = [
   { value: "all", label: "All Categories" },
   { value: "normal", label: "Normal" },
   { value: "edge_case", label: "Edge Case" },
+  { value: "adversarial", label: "Adversarial" },
+  { value: "chain_exploit", label: "Chain Exploit" },
 ];
 
 const DECISION_STYLE = {
@@ -66,15 +74,27 @@ export default function Sandbox() {
   const [error, setError] = useState(null);
 
   // Selection state
-  const [selectedScenario, setSelectedScenario] = useState(null);
+  const [selectedScenarios, setSelectedScenarios] = useState([]);
   const [selectedAgent, setSelectedAgent] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [customPrompt, setCustomPrompt] = useState("");
   const [useCustomPrompt, setUseCustomPrompt] = useState(false);
 
+  const [agentOpen, setAgentOpen] = useState(false);
+  const agentSelectorRef = useRef(null);
+
+  useEffect(() => {
+    if (!agentOpen) return;
+    const handler = (e) => { if (!agentSelectorRef.current?.contains(e.target)) setAgentOpen(false); };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [agentOpen]);
+
   // Simulation state
   const [running, setRunning] = useState(false);
+  const [runProgress, setRunProgress] = useState(null); // { current, total }
   const [result, setResult] = useState(null);
+  const [queueResults, setQueueResults] = useState([]);
   const [previousResult, setPreviousResult] = useState(null);
   const [runError, setRunError] = useState(null);
   const [lastRunMode, setLastRunMode] = useState("");
@@ -104,7 +124,7 @@ export default function Sandbox() {
   useEffect(() => {
     if (!selectedAgent) { setScenarios([]); return; }
     setLoadingScenarios(true);
-    setSelectedScenario(null);
+    setSelectedScenarios([]);
     apiFetch(`/api/sandbox/agent/${selectedAgent}/scenarios`)
       .then((d) => {
         setScenarios(d.scenarios);
@@ -122,38 +142,79 @@ export default function Sandbox() {
     return result;
   }, [scenarios, categoryFilter]);
 
+  const toggleScenario = (s) => {
+    setSelectedScenarios((prev) => {
+      const exists = prev.some((x) => x.id === s.id);
+      return exists ? prev.filter((x) => x.id !== s.id) : [...prev, s];
+    });
+    setCustomPrompt("");
+    setUseCustomPrompt(false);
+  };
+
+  const addAllToQueue = () => {
+    setSelectedScenarios((prev) => {
+      const existing = new Set(prev.map((x) => x.id));
+      const toAdd = filteredScenarios.filter((s) => !existing.has(s.id));
+      return [...prev, ...toAdd];
+    });
+    setCustomPrompt("");
+    setUseCustomPrompt(false);
+  };
+
   const handleRun = async (dryRun = true) => {
-    if ((!selectedScenario && !customPrompt.trim()) || !selectedAgent) return;
+    if ((selectedScenarios.length === 0 && !customPrompt.trim()) || !selectedAgent) return;
     setRunning(true);
     setRunError(null);
     setLastRunMode(dryRun ? "dry-run" : "llm");
     if (result) setPreviousResult(result);
     setResult(null);
-    try {
-      const body = { agent_id: selectedAgent, dry_run: dryRun };
-      if (useCustomPrompt && customPrompt.trim()) {
-        body.custom_prompt = customPrompt.trim();
-        body.scenario_id = "";
-      } else if (selectedScenario) {
-        body.scenario_id = selectedScenario.id;
+    setQueueResults([]);
+
+    const toRun = selectedScenarios.length > 0 ? selectedScenarios : [null];
+    const allResults = [];
+
+    for (let i = 0; i < toRun.length; i++) {
+      setRunProgress({ current: i + 1, total: toRun.length });
+      try {
+        const body = { agent_id: selectedAgent, dry_run: dryRun };
+        if (toRun[i]) {
+          body.scenario_id = toRun[i].id;
+        } else if (customPrompt.trim()) {
+          body.custom_prompt = customPrompt.trim();
+          body.scenario_id = "";
+        }
+        const data = await apiFetch("/api/sandbox/simulate", { method: "POST", body: JSON.stringify(body) });
+        allResults.push({ scenario: toRun[i], data });
+      } catch (_) {
+        // continue with remaining scenarios
       }
-      const data = await apiFetch("/api/sandbox/simulate", {
-        method: "POST",
-        body: JSON.stringify(body),
-      });
-      setResult(data);
+    }
+
+    setRunProgress(null);
+    setQueueResults(allResults);
+
+    if (allResults.length > 0) {
+      const lastData = allResults[allResults.length - 1].data;
+      setResult(lastData);
       const simData = await apiFetch("/api/sandbox/simulations");
       setSimulations(simData.simulations);
-      const score = data.report?.risk_score ?? data.risk_score;
-      if (score !== undefined) {
-        const label = score >= 70 ? "Critical" : score >= 25 ? "Warning" : "Safe";
-        toast(`Simulation complete — Risk score: ${score} (${label})`, score >= 70 ? "error" : "info");
+      if (allResults.length > 1) {
+        const scores = allResults.map((r) => r.data.report?.risk_score ?? 0);
+        const peak = Math.max(...scores);
+        const avg = Math.round(scores.reduce((a, b) => a + b, 0) / scores.length);
+        toast(`${allResults.length} scenarios done — peak risk: ${peak}, avg: ${avg}`, peak >= 70 ? "error" : "info");
       } else {
-        toast("Simulation complete");
+        const score = lastData.report?.risk_score ?? lastData.risk_score;
+        if (score !== undefined) {
+          const label = score >= 70 ? "Critical" : score >= 25 ? "Warning" : "Safe";
+          toast(`Simulation complete — Risk score: ${score} (${label})`, score >= 70 ? "error" : "info");
+        } else {
+          toast("Simulation complete");
+        }
       }
-    } catch (err) {
-      setRunError(err.message);
-      toast(err.message, "error");
+    } else {
+      setRunError("All simulations failed");
+      toast("All simulations failed", "error");
     }
     setRunning(false);
   };
@@ -215,42 +276,120 @@ export default function Sandbox() {
       {/* Run Simulation — top of page */}
       <section className="run-section" id="run-section">
         <div className="run-controls">
-          <div className="run-control-group">
+          <div className="run-control-group" ref={agentSelectorRef}>
             <label>Agent</label>
             {agents.length === 0 ? (
               <div className="selected-scenario-display">
                 <span className="no-selection">No agents yet — <a href="/">create one</a> first</span>
               </div>
-            ) : (
-              <select
-                className="control-select agent-select"
-                value={selectedAgent}
-                onChange={(e) => setSelectedAgent(e.target.value)}
-              >
-                {agents.map((a) => (
-                  <option key={a.id} value={a.id}>{a.name} (blast radius: {a.blast_radius.score})</option>
-                ))}
-              </select>
-            )}
+            ) : (() => {
+              const sel = agents.find((a) => a.id === selectedAgent);
+              const sc = sel?.blast_radius?.score ?? 0;
+              const scColor = sc >= 70 ? "#dc2626" : sc >= 40 ? "#ea580c" : "#16a34a";
+              return (
+                <div className={`agent-selector ${agentOpen ? "open" : ""}`}>
+                  <div className="agent-selector-current" onClick={() => setAgentOpen((v) => !v)}>
+                    {sel ? (
+                      <>
+                        <div className="agent-sel-info">
+                          <strong>{sel.name}</strong>
+                          {sel.tools?.filter((t) => t.service).length > 0 && (
+                            <span className="agent-sel-tools">{sel.tools.filter((t) => t.service).map((t) => t.service).join(" · ")}</span>
+                          )}
+                        </div>
+                        <div className="agent-sel-right">
+                          <div className="agent-sel-score-group">
+                            <span className="agent-sel-score-label">Risk Score</span>
+                            <span className="agent-sel-score" style={{ color: scColor }}>{sc}</span>
+                          </div>
+                          <span className="agent-sel-chevron">{agentOpen ? "▾" : "▸"}</span>
+                        </div>
+                      </>
+                    ) : <span className="no-selection">Select an agent...</span>}
+                  </div>
+                  {agentOpen && (
+                    <div className="agent-selector-dropdown">
+                      {agents.map((a) => {
+                        const s = a.blast_radius?.score ?? 0;
+                        const c = s >= 70 ? "#dc2626" : s >= 40 ? "#ea580c" : "#16a34a";
+                        return (
+                          <div
+                            key={a.id}
+                            className={`agent-pick-card ${a.id === selectedAgent ? "active" : ""}`}
+                            onClick={() => { setSelectedAgent(a.id); setAgentOpen(false); }}
+                          >
+                            <div className="agent-pick-info">
+                              <strong>{a.name}</strong>
+                              {a.tools?.filter((t) => t.service).length > 0 && (
+                                <span className="agent-pick-tools">{a.tools.filter((t) => t.service).map((t) => t.service).join(" · ")}</span>
+                              )}
+                            </div>
+                            <div style={{ textAlign: "right" }}>
+                              <div className="agent-pick-score" style={{ color: c }}>{s}</div>
+                              <div style={{ fontSize: 10, color: "var(--text-muted)", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.4px" }}>Risk</div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
           </div>
           <div className="run-buttons">
             <button
               className="run-btn primary"
               onClick={() => handleRun(true)}
-              disabled={(!selectedScenario && !customPrompt.trim()) || !selectedAgent || running}
+              disabled={(selectedScenarios.length === 0 && !customPrompt.trim()) || !selectedAgent || running}
+              title="Dry run — enforces policies, calls mock APIs, no LLM cost"
             >
-              {running ? "Running..." : "Run Simulation"}
+              <span>
+                {running && lastRunMode === "dry-run"
+                  ? (runProgress?.total > 1 ? `Running ${runProgress.current} of ${runProgress.total}...` : "Running...")
+                  : selectedScenarios.length > 1 ? `Run ${selectedScenarios.length} Scenarios` : "Run Simulation"}
+              </span>
+              <span className="run-btn-sub">dry run · mock APIs</span>
             </button>
             <button
               className="run-btn llm-btn"
               onClick={() => handleRun(false)}
-              disabled={(!selectedScenario && !customPrompt.trim()) || !selectedAgent || running}
+              disabled={(selectedScenarios.length === 0 && !customPrompt.trim()) || !selectedAgent || running}
               title="Uses Claude to reason and decide which tools to call (~$0.05/run)"
             >
-              {running ? "Running..." : "Run with LLM"}
+              <span>
+                {running && lastRunMode === "llm"
+                  ? (runProgress?.total > 1 ? `Running ${runProgress.current} of ${runProgress.total}...` : "Running...")
+                  : selectedScenarios.length > 1 ? `LLM: ${selectedScenarios.length} Scenarios` : "Run with LLM"}
+              </span>
+              <span className="run-btn-sub">Claude decides · ~$0.05</span>
             </button>
           </div>
         </div>
+
+        {/* Queue bar */}
+        {selectedScenarios.length > 0 ? (
+          <div className="run-queue-bar">
+            <span className="rsb-label">{selectedScenarios.length} queued</span>
+            <div className="queue-chips">
+              {selectedScenarios.map((s) => {
+                const cat = CATEGORY_COLORS[s.category] || CATEGORY_COLORS.normal;
+                return (
+                  <span key={s.id} className="queue-chip">
+                    <span className="queue-chip-dot" style={{ background: cat.color }} />
+                    {s.name}
+                    <button className="queue-chip-remove" onClick={() => toggleScenario(s)} title="Remove">×</button>
+                  </span>
+                );
+              })}
+            </div>
+            <button className="queue-clear-all" onClick={() => setSelectedScenarios([])}>Clear all</button>
+          </div>
+        ) : !useCustomPrompt ? (
+          <div className="run-scenario-bar empty">
+            <span className="rsb-hint">↓ Click scenarios below to add to queue, or type a custom prompt</span>
+          </div>
+        ) : null}
 
         {/* Custom prompt input */}
         <div className="custom-prompt-section">
@@ -261,7 +400,7 @@ export default function Sandbox() {
               setCustomPrompt(e.target.value);
               if (e.target.value.trim()) {
                 setUseCustomPrompt(true);
-                setSelectedScenario(null);
+                setSelectedScenarios([]);
               } else {
                 setUseCustomPrompt(false);
               }
@@ -274,7 +413,11 @@ export default function Sandbox() {
         {running && (
           <div className="run-loading">
             <div className="spinner" />
-            <p>Executing simulation — enforcing policies, calling mocks, capturing trace...</p>
+            <p>
+              {runProgress && runProgress.total > 1
+                ? `Scenario ${runProgress.current} of ${runProgress.total} — enforcing policies, calling mocks...`
+                : "Executing simulation — enforcing policies, calling mocks, capturing trace..."}
+            </p>
           </div>
         )}
 
@@ -289,12 +432,31 @@ export default function Sandbox() {
       {selectedAgent && !useCustomPrompt && (
         <section style={{ marginTop: 56, marginBottom: 48 }}>
           <div className="section-header">
-            <h2>Or pick a scenario</h2>
-            <div className="controls">
-              <select className="control-select" value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)}>
-                {CATEGORY_FILTERS.map((f) => <option key={f.value} value={f.value}>{f.label}</option>)}
-              </select>
+            <div>
+              <h2>Pick a scenario</h2>
+              <p className="scenario-section-hint">Click to add to queue — select multiple to batch run</p>
             </div>
+            {filteredScenarios.length > 0 && (
+              <button className="add-all-queue-btn" onClick={addAllToQueue}>
+                + Add all {filteredScenarios.length} to queue
+              </button>
+            )}
+          </div>
+          <div className="scenario-filter-pills">
+            {CATEGORY_FILTERS.map((f) => {
+              const count = f.value === "all" ? scenarios.length : scenarios.filter((s) => s.category === f.value).length;
+              if (f.value !== "all" && count === 0) return null;
+              return (
+                <button
+                  key={f.value}
+                  className={`scenario-filter-pill ${categoryFilter === f.value ? "active" : ""}`}
+                  onClick={() => setCategoryFilter(f.value)}
+                >
+                  {f.label}
+                  <span className="pill-count">{count}</span>
+                </button>
+              );
+            })}
           </div>
 
           {loadingScenarios ? (
@@ -306,24 +468,30 @@ export default function Sandbox() {
               {filteredScenarios.map((s) => {
                 const cat = CATEGORY_COLORS[s.category] || CATEGORY_COLORS.normal;
                 const sev = SEVERITY_COLORS[s.severity] || SEVERITY_COLORS.info;
-                const isSelected = selectedScenario?.id === s.id;
+                const isSelected = selectedScenarios.some((x) => x.id === s.id);
+                const borderColor =
+                  s.severity === "critical" ? "#dc2626" :
+                  s.severity === "high"     ? "#ea580c" :
+                  s.category === "normal"   ? "#16a34a" :
+                  s.category === "chain_exploit" ? "#7c3aed" :
+                  s.category === "adversarial"   ? "#dc2626" : null;
                 return (
                   <div
                     key={s.id}
                     className={`scenario-card ${isSelected ? "selected" : ""}`}
-                    onClick={() => {
-                      setSelectedScenario(s);
-                      setCustomPrompt("");
-                      setUseCustomPrompt(false);
-                    }}
+                    style={borderColor ? { borderLeft: `3px solid ${borderColor}` } : undefined}
+                    onClick={() => toggleScenario(s)}
                   >
                     <div className="scenario-card-top">
                       <span className="scenario-badge" style={{ background: cat.bg, color: cat.color }}>
                         {CATEGORY_LABELS[s.category] || s.category}
                       </span>
-                      <span className="scenario-badge" style={{ background: sev.bg, color: sev.color }}>
-                        {s.severity}
-                      </span>
+                      {s.severity !== "info" && (
+                        <span className="scenario-badge" style={{ background: sev.bg, color: sev.color }}>
+                          {s.severity}
+                        </span>
+                      )}
+                      {isSelected && <span className="scenario-selected-chip">✓ Queued</span>}
                     </div>
                     <h3 className="scenario-card-name">{s.name}</h3>
                     <p className="scenario-card-desc">{formatDesc(s.description)}</p>
@@ -339,11 +507,60 @@ export default function Sandbox() {
       {result && (
         <section className="results-section">
           <div className="section-header">
-            <h2>Results <span className={`run-mode-badge ${lastRunMode}`}>{lastRunMode === "llm" ? "LLM Agent" : "Dry Run"}</span></h2>
+            <h2>
+              {queueResults.length > 1 ? `Results — ${queueResults.length} Scenarios` : "Results"}
+              <span className={`run-mode-badge ${lastRunMode}`}>{lastRunMode === "llm" ? "LLM Agent" : "Dry Run"}</span>
+            </h2>
             <Link to={`/sandbox/${result.simulation_id}`} className="view-report-link">
               View Full Report &rarr;
             </Link>
           </div>
+
+          {/* Batch Summary */}
+          {queueResults.length > 1 && (() => {
+            const scores = queueResults.map((r) => r.data.report?.risk_score ?? 0);
+            const peak = Math.max(...scores);
+            const avg = Math.round(scores.reduce((a, b) => a + b, 0) / scores.length);
+            const totalViol = queueResults.reduce((s, r) => s + r.data.report.violations.length, 0);
+            const peakColor = peak >= 70 ? "#dc2626" : peak >= 25 ? "#ea580c" : "#16a34a";
+            return (
+              <div className="batch-summary">
+                <div className="batch-summary-header">
+                  <span className="batch-summary-title">Batch Run</span>
+                  <div className="batch-summary-stats">
+                    <span>Peak <strong style={{ color: peakColor }}>{peak}</strong></span>
+                    <span>Avg <strong>{avg}</strong></span>
+                    <span>Violations <strong style={{ color: totalViol > 0 ? "#dc2626" : "inherit" }}>{totalViol}</strong></span>
+                  </div>
+                </div>
+                <div className="batch-rows">
+                  {queueResults.map(({ scenario, data: d }, i) => {
+                    const sc = d.report?.risk_score ?? 0;
+                    const col = sc >= 70 ? "#dc2626" : sc >= 25 ? "#ea580c" : "#16a34a";
+                    const isActive = d === result;
+                    return (
+                      <div
+                        key={i}
+                        className={`batch-row ${isActive ? "batch-row-active" : ""}`}
+                        onClick={() => setResult(d)}
+                      >
+                        <span className="batch-row-num">{i + 1}</span>
+                        <span className="batch-row-name">{scenario?.name || "Custom"}</span>
+                        <span className="batch-row-score" style={{ color: col }}>{sc}</span>
+                        <span className="batch-row-meta">{d.report.violations.length} violations · {d.report.actions_blocked} blocked</span>
+                        <Link
+                          to={`/sandbox/${d.simulation_id}`}
+                          className="batch-row-link"
+                          onClick={(e) => e.stopPropagation()}
+                        >Full Report →</Link>
+                      </div>
+                    );
+                  })}
+                </div>
+                <p className="batch-detail-note">↓ Showing detail for highlighted scenario — click a row to switch</p>
+              </div>
+            );
+          })()}
 
           {/* Before/After Comparison */}
           {previousResult && (
@@ -440,7 +657,11 @@ export default function Sandbox() {
                 const ds = DECISION_STYLE[step.enforce_decision] || DECISION_STYLE.ALLOW;
                 return (
                   <div key={i} className="trace-step-mini">
-                    <code className="trace-action">{step.tool}.{step.action}</code>
+                    <span className="trace-action">
+                      <span className="trace-tool">{step.tool.charAt(0).toUpperCase() + step.tool.slice(1)}</span>
+                      <span className="trace-sep">·</span>
+                      {step.action.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())}
+                    </span>
                     <span className="trace-decision" style={{ background: ds.bg, color: ds.color }}>
                       {step.enforce_decision}
                     </span>
@@ -512,9 +733,9 @@ export default function Sandbox() {
                             })),
                           }),
                         });
-                        alert(`Applied ${data.created} policies${data.skipped ? `, ${data.skipped} already existed` : ""}`);
+                        toast(`Applied ${data.created} polic${data.created !== 1 ? "ies" : "y"}${data.skipped ? ` · ${data.skipped} already existed` : ""}`);
                       } catch (err) {
-                        alert("Failed: " + err.message);
+                        toast("Failed: " + err.message, "error");
                       }
                     }}
                   >
@@ -541,9 +762,9 @@ export default function Sandbox() {
                                 reason: rec.reason,
                               }),
                             });
-                            alert(data.already_exists ? "Policy already exists" : "Policy created!");
+                            toast(data.already_exists ? "Policy already exists" : "Policy created");
                           } catch (err) {
-                            alert("Failed: " + err.message);
+                            toast("Failed: " + err.message, "error");
                           }
                         }}
                       >
@@ -578,53 +799,48 @@ export default function Sandbox() {
           <div className="section-header">
             <h2>Past Simulations ({simulations.length})</h2>
           </div>
-          <table className="log-table">
-            <thead>
-              <tr>
-                <th>Time</th>
-                <th>Agent</th>
-                <th>Scenario</th>
-                <th>Risk Score</th>
-                <th>Violations</th>
-                <th>Blocked</th>
-                <th>Steps</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {simulations.map((sim) => {
-                const scoreColor = sim.risk_score >= 50 ? "#dc2626" : sim.risk_score >= 25 ? "#ea580c" : "#16a34a";
-                const scenarioLabel = sim.scenario_id.replace(sim.agent_id + "-", "").replace(/-/g, " ").replace(/\b\w/g, c => c.toUpperCase());
-                const agentLabel = sim.agent_id.replace(/-/g, " ").replace(/\b\w/g, c => c.toUpperCase());
-                const diff = (Date.now() - new Date(sim.created_at)) / 1000;
-                const timeAgo = diff < 60 ? `${Math.floor(diff)}s ago` : diff < 3600 ? `${Math.floor(diff / 60)}m ago` : diff < 86400 ? `${Math.floor(diff / 3600)}h ago` : new Date(sim.created_at).toLocaleDateString();
-                return (
-                  <tr key={sim.id}>
-                    <td className="log-time">{timeAgo}</td>
-                    <td style={{ fontWeight: 500, fontSize: 13 }}>{agentLabel}</td>
-                    <td style={{ fontSize: 13, color: "var(--text-secondary)" }}>{scenarioLabel}</td>
-                    <td>
-                      <span style={{ fontWeight: 700, fontSize: 15, color: scoreColor }}>{sim.risk_score}</span>
-                    </td>
-                    <td>
-                      {sim.violations > 0
-                        ? <span className="status-badge" style={{ background: "#f8d7da", color: "#721c24" }}>{sim.violations}</span>
-                        : <span style={{ color: "var(--text-muted)", fontSize: 13 }}>—</span>}
-                    </td>
-                    <td>
-                      {sim.actions_blocked > 0
-                        ? <span style={{ fontWeight: 600, color: "#dc2626", fontSize: 13 }}>{sim.actions_blocked}</span>
-                        : <span style={{ color: "var(--text-muted)", fontSize: 13 }}>0</span>}
-                    </td>
-                    <td style={{ color: "var(--text-muted)", fontSize: 13 }}>{sim.total_steps}</td>
-                    <td>
-                      <Link to={`/sandbox/${sim.id}`} className="view-link">View Report</Link>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+          <div className="sim-list">
+            {simulations.map((sim) => {
+              const score = sim.risk_score ?? 0;
+              const scoreColor = score >= 50 ? "#dc2626" : score >= 25 ? "#ea580c" : "#16a34a";
+              const agentName = agents.find((a) => a.id === sim.agent_id)?.name ||
+                sim.agent_id.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+              const scenarioLabel = sim.scenario_id
+                .replace(new RegExp("^" + sim.agent_id + "-?"), "")
+                .replace(/-/g, " ")
+                .replace(/\b\w/g, (c) => c.toUpperCase()) || "Custom Prompt";
+              const diff = (Date.now() - new Date(sim.created_at)) / 1000;
+              const timeAgo = diff < 60 ? `${Math.floor(diff)}s ago` : diff < 3600 ? `${Math.floor(diff / 60)}m ago` : diff < 86400 ? `${Math.floor(diff / 3600)}h ago` : new Date(sim.created_at).toLocaleDateString();
+              const isClean = !sim.violations && !sim.actions_blocked;
+              const isCurrent = result && sim.id === result.simulation_id;
+              return (
+                <div key={sim.id} className={`sim-card${isCurrent ? " sim-card-current" : ""}`} style={{ borderLeftColor: scoreColor }}>
+                  <div className="sim-score-col">
+                    <span className="sim-score-num" style={{ color: scoreColor }}>{score}</span>
+                    <span className="sim-score-label">Risk</span>
+                  </div>
+                  <div className="sim-info">
+                    <span className="sim-scenario-name">
+                      {scenarioLabel}
+                      {isCurrent && <span className="sim-current-badge">Latest Run</span>}
+                    </span>
+                    <span className="sim-meta">{agentName} · {timeAgo}{sim.total_steps ? ` · ${sim.total_steps} steps` : ""}</span>
+                  </div>
+                  <div className="sim-badges">
+                    {isClean ? (
+                      <span className="sim-badge sim-badge-clean">Clean</span>
+                    ) : (
+                      <>
+                        {sim.violations > 0 && <span className="sim-badge sim-badge-violations">{sim.violations} violation{sim.violations !== 1 ? "s" : ""}</span>}
+                        {sim.actions_blocked > 0 && <span className="sim-badge sim-badge-blocked">{sim.actions_blocked} blocked</span>}
+                      </>
+                    )}
+                  </div>
+                  <Link to={`/sandbox/${sim.id}`} className="view-link">View →</Link>
+                </div>
+              );
+            })}
+          </div>
         </section>
       )}
     </div>

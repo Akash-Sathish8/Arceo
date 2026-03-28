@@ -7,6 +7,21 @@ import "./AgentDetail.css";
 const formatAction = (action) =>
   action.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 
+const parsePolicyPattern = (pattern) => {
+  const dot = pattern.indexOf(".");
+  if (dot === -1) return { service: "", action: formatAction(pattern) };
+  const svc = pattern.slice(0, dot);
+  return {
+    service: svc.charAt(0).toUpperCase() + svc.slice(1),
+    action: formatAction(pattern.slice(dot + 1)),
+  };
+};
+
+const formatDescription = (text) =>
+  text.replace(/\b([a-z]+(?:_[a-z]+)+)\b/g, (m) =>
+    m.split("_").map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ")
+  );
+
 const actionRiskDot = (tool, action) => {
   const s = `${tool}.${action}`.toLowerCase();
   if (/delete|terminate|drop|destroy|remove|cancel/.test(s)) return "#dc2626";
@@ -156,6 +171,14 @@ export default function AgentDetail() {
   const [newEffect, setNewEffect] = useState("BLOCK");
   const [newReason, setNewReason] = useState("");
 
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [collapsedChains, setCollapsedChains] = useState({});
+  const toggleChain = (id) => setCollapsedChains((p) => ({ ...p, [id]: !p[id] }));
+  const [applyingRecs, setApplyingRecs] = useState(false);
+  const [showRecsMenu, setShowRecsMenu] = useState(false);
+  const [selectedRecs, setSelectedRecs] = useState(new Set());
+  const [appliedRecIndices, setAppliedRecIndices] = useState(new Set());
+
   const loadData = () => {
     setLoading(true);
     setError(null);
@@ -166,7 +189,12 @@ export default function AgentDetail() {
 
   useEffect(() => { loadData(); }, [agentId]);
 
-  const [confirmDelete, setConfirmDelete] = useState(false);
+  useEffect(() => {
+    if (!showRecsMenu) return;
+    const handler = (e) => { if (!e.target.closest(".apply-recs-wrapper")) setShowRecsMenu(false); };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [showRecsMenu]);
 
   const handleDelete = async () => {
     if (!confirmDelete) { setConfirmDelete(true); return; }
@@ -194,6 +222,47 @@ export default function AgentDetail() {
     } catch (err) {
       toast("Failed to add policy: " + err.message, "error");
     }
+  };
+
+  const getPoliciesForRec = (rec) => {
+    const tokens = rec.description.match(/\b[a-z]+(?:_[a-z]+)+\b/g) || [];
+    const fallbackRe = /delete|terminate|cancel|charge|refund|send_email|send_template/;
+    return agent.tools.flatMap((t) =>
+      t.actions
+        .filter((a) => tokens.length > 0 ? tokens.includes(a.action) : fallbackRe.test(a.action))
+        .map((a) => `${t.name}.${a.action}`)
+    );
+  };
+
+  const handleApplySelected = async () => {
+    setApplyingRecs(true);
+    const existingPatterns = new Set((policies || []).map((p) => p.action_pattern));
+    const toCreate = new Set();
+    recommendations.forEach((rec, i) => {
+      if (selectedRecs.has(i)) getPoliciesForRec(rec).forEach((p) => { if (!existingPatterns.has(p)) toCreate.add(p); });
+    });
+    if (toCreate.size === 0) {
+      toast("All selected policies are already applied");
+      setAppliedRecIndices((prev) => new Set([...prev, ...selectedRecs]));
+      setApplyingRecs(false);
+      setShowRecsMenu(false);
+      return;
+    }
+    try {
+      await Promise.all([...toCreate].map((pattern) =>
+        apiFetch(`/api/authority/agent/${agentId}/policies`, {
+          method: "POST",
+          body: JSON.stringify({ action_pattern: pattern, effect: "REQUIRE_APPROVAL", reason: "Auto-applied from recommendations" }),
+        })
+      ));
+      toast(`Applied ${toCreate.size} polic${toCreate.size !== 1 ? "ies" : "y"}`);
+      setAppliedRecIndices((prev) => new Set([...prev, ...selectedRecs]));
+      loadData();
+      setShowRecsMenu(false);
+    } catch (err) {
+      toast("Failed: " + err.message, "error");
+    }
+    setApplyingRecs(false);
   };
 
   const handleDeletePolicy = async (policyId) => {
@@ -260,6 +329,28 @@ export default function AgentDetail() {
   const noPolicyCount = executions?.filter((e) => e.detail === "No matching policy").length || 0;
   const allUnpolicied = executions?.length > 0 && noPolicyCount === executions.length;
 
+  const EFFECT_ORDER = { BLOCK: 0, REQUIRE_APPROVAL: 1, ALLOW: 2 };
+  const sortedPolicies = [...(policies || [])].sort((a, b) => (EFFECT_ORDER[a.effect] ?? 3) - (EFFECT_ORDER[b.effect] ?? 3));
+  const policyEffectCounts = sortedPolicies.reduce((acc, p) => { acc[p.effect] = (acc[p.effect] || 0) + 1; return acc; }, {});
+  const allSamePolicyReason = sortedPolicies.length > 1 && sortedPolicies.every((p) => p.reason === sortedPolicies[0]?.reason) ? sortedPolicies[0]?.reason : null;
+
+  const existingPolicyPatterns = new Set((policies || []).map((p) => p.action_pattern));
+  const visibleRecs = recommendations
+    .map((r, i) => ({ r, i }))
+    .filter(({ r, i }) => {
+      if (appliedRecIndices.has(i)) return false;
+      const tokens = r.description.match(/\b[a-z]+(?:_[a-z]+)+\b/g) || [];
+      const fallbackRe = /delete|terminate|cancel|charge|refund|send_email|send_template/;
+      const needed = agent.tools.flatMap((t) =>
+        t.actions
+          .filter((a) => tokens.length > 0 ? tokens.includes(a.action) : fallbackRe.test(a.action))
+          .map((a) => `${t.name}.${a.action}`)
+      );
+      if (needed.length === 0) return true;
+      return !needed.every((p) => existingPolicyPatterns.has(p));
+    })
+    .sort((a, b) => (a.r.severity === "critical" ? -1 : 1) - (b.r.severity === "critical" ? -1 : 1));
+
   return (
     <div className="detail-page">
       <div className="detail-topbar">
@@ -317,15 +408,29 @@ export default function AgentDetail() {
 
       {/* Enforcement Policies */}
       <div className="detail-section">
-        <h2>Enforcement Policies ({policies?.length || 0})</h2>
+        <div className="chain-section-header">
+          <h2>Enforcement Policies ({sortedPolicies.length})</h2>
+          <div className="chain-sev-counts">
+            {policyEffectCounts.BLOCK > 0 && <span className="chain-sev-chip" style={{ background: "#fef2f2", color: "#dc2626" }}>{policyEffectCounts.BLOCK} Block</span>}
+            {policyEffectCounts.REQUIRE_APPROVAL > 0 && <span className="chain-sev-chip" style={{ background: "#fff7ed", color: "#ea580c" }}>{policyEffectCounts.REQUIRE_APPROVAL} Req. Approval</span>}
+            {policyEffectCounts.ALLOW > 0 && <span className="chain-sev-chip" style={{ background: "#f0fdf4", color: "#16a34a" }}>{policyEffectCounts.ALLOW} Allow</span>}
+          </div>
+        </div>
+        {allSamePolicyReason && (
+          <p className="policy-shared-reason">All policies: {allSamePolicyReason}</p>
+        )}
         <div className="policies-list">
-          {(policies || []).map((p) => {
+          {sortedPolicies.map((p) => {
             const es = EFFECT_STYLE[p.effect] || EFFECT_STYLE.BLOCK;
+            const { service, action } = parsePolicyPattern(p.action_pattern);
             return (
               <div key={p.id} className="policy-row">
                 <span className="policy-effect" style={{ background: es.bg, color: es.color }}>{p.effect}</span>
-                <code className="policy-pattern">{p.action_pattern}</code>
-                <span className="policy-reason">{p.reason}</span>
+                <div className="policy-action">
+                  {service && <span className="policy-service">{service}</span>}
+                  <span className="policy-action-name">{action}</span>
+                </div>
+                {!allSamePolicyReason && p.reason && <span className="policy-reason">{p.reason}</span>}
                 <button className="policy-delete" onClick={() => handleDeletePolicy(p.id)}>Remove</button>
               </div>
             );
@@ -397,59 +502,82 @@ export default function AgentDetail() {
       {/* Chains */}
       {chains.length > 0 && (
         <div className="detail-section">
-          <h2>Dangerous Chains ({chains.length})</h2>
+          <div className="chain-section-header">
+            <h2>Dangerous Chains ({chains.length})</h2>
+            <div className="chain-sev-counts">
+              {chains.filter((c) => c.severity === "critical").length > 0 && (
+                <span className="chain-sev-chip chain-sev-critical">{chains.filter((c) => c.severity === "critical").length} Critical</span>
+              )}
+              {chains.filter((c) => c.severity === "high").length > 0 && (
+                <span className="chain-sev-chip chain-sev-high">{chains.filter((c) => c.severity === "high").length} High</span>
+              )}
+            </div>
+          </div>
           <div className="detail-chains">
             {chains.map((c) => {
               const sev = SEV_STYLE[c.severity] || SEV_STYLE.high;
+              const isOpen = !collapsedChains[c.id];
               return (
                 <div key={c.id} className="d-chain" style={{ borderLeftColor: sev.color }}>
-                  <div className="d-chain-top">
-                    <span className="d-chain-sev" style={{ background: sev.bg, color: sev.color }}>{c.severity}</span>
-                    <strong>{c.name}</strong>
+                  <div className="d-chain-header" onClick={() => toggleChain(c.id)}>
+                    <div className="d-chain-top">
+                      <span className="d-chain-sev" style={{ background: sev.bg, color: sev.color }}>{c.severity}</span>
+                      <strong>{c.name}</strong>
+                    </div>
+                    <span className="d-chain-chevron">{isOpen ? "▾" : "▸"}</span>
                   </div>
-                  <p>{c.description}</p>
-                  <div className="d-chain-steps">
-                    {c.steps.map((step, j) => (
-                      <span key={j}>
-                        <span className="step-tag" style={{
-                          borderColor: RISK_COLORS[step] || "#ccc",
-                          color: RISK_COLORS[step] || "#555",
-                          background: (RISK_COLORS[step] || "#ccc") + "12",
-                        }}>
-                          {RISK_LABELS[step] || step}
-                        </span>
-                        {j < c.steps.length - 1 && <span className="step-arrow">→</span>}
-                      </span>
-                    ))}
-                  </div>
-                  <div className="d-chain-actions">
-                    {c.matching_actions.map((group, gi) => {
-                      const byService = {};
-                      const order = [];
-                      group.forEach((a) => {
-                        const dot = a.indexOf(".");
-                        const svc = dot > -1 ? a.slice(0, dot) : a;
-                        const act = dot > -1 ? a.slice(dot + 1) : a;
-                        if (!byService[svc]) { byService[svc] = []; order.push(svc); }
-                        byService[svc].push(act);
-                      });
-                      return (
-                        <div key={gi} className="match-group">
-                          <span className="match-label">Step {gi + 1}</span>
-                          <div className="match-service-rows">
-                            {order.map((svc) => (
-                              <div key={svc} className="match-service-row">
-                                <span className="match-svc">{svc.charAt(0).toUpperCase() + svc.slice(1)}</span>
-                                {byService[svc].map((a) => (
-                                  <span key={a} className="match-action">{formatAction(a)}</span>
+                  {isOpen && (
+                    <>
+                      <p>{c.description}</p>
+                      <div className="d-chain-steps">
+                        {c.steps.map((step, j) => (
+                          <span key={j}>
+                            <span className="step-tag" style={{
+                              borderColor: RISK_COLORS[step] || "#ccc",
+                              color: RISK_COLORS[step] || "#555",
+                              background: (RISK_COLORS[step] || "#ccc") + "12",
+                            }}>
+                              {RISK_LABELS[step] || step}
+                            </span>
+                            {j < c.steps.length - 1 && <span className="step-arrow">→</span>}
+                          </span>
+                        ))}
+                      </div>
+                      <div className="d-chain-actions">
+                        {c.matching_actions.map((group, gi) => {
+                          const byService = {};
+                          const order = [];
+                          group.forEach((a) => {
+                            const dot = a.indexOf(".");
+                            const svc = dot > -1 ? a.slice(0, dot) : a;
+                            const act = dot > -1 ? a.slice(dot + 1) : a;
+                            if (!byService[svc]) { byService[svc] = []; order.push(svc); }
+                            byService[svc].push(act);
+                          });
+                          return (
+                            <div key={gi} className="match-group">
+                              <span className="match-label">Step {gi + 1}</span>
+                              <div className="match-service-rows">
+                                {order.map((svc) => (
+                                  <div key={svc} className="match-service-row">
+                                    <span className="match-svc">{svc.charAt(0).toUpperCase() + svc.slice(1)}</span>
+                                    {byService[svc].map((a) => {
+                                      const isDanger = /delete|terminate|drop|destroy|cancel|charge|refund/.test(a.toLowerCase());
+                                      return (
+                                        <span key={a} className={`match-action${isDanger ? " match-action-danger" : ""}`}>
+                                          {formatAction(a)}
+                                        </span>
+                                      );
+                                    })}
+                                  </div>
                                 ))}
                               </div>
-                            ))}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </>
+                  )}
                 </div>
               );
             })}
@@ -458,11 +586,67 @@ export default function AgentDetail() {
       )}
 
       {/* Recommendations */}
-      {recommendations.length > 0 && (
+      {visibleRecs.length > 0 && (
         <div className="detail-section">
-          <h2>Recommendations</h2>
+          <div className="chain-section-header">
+            <h2>Recommendations ({visibleRecs.length})</h2>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <div className="chain-sev-counts">
+                {visibleRecs.filter(({ r }) => r.severity === "critical").length > 0 && (
+                  <span className="chain-sev-chip chain-sev-critical">{visibleRecs.filter(({ r }) => r.severity === "critical").length} Critical</span>
+                )}
+                {visibleRecs.filter(({ r }) => r.severity === "high").length > 0 && (
+                  <span className="chain-sev-chip chain-sev-high">{visibleRecs.filter(({ r }) => r.severity === "high").length} High</span>
+                )}
+              </div>
+              <div className="apply-recs-wrapper">
+                <button
+                  className="apply-recs-btn"
+                  onClick={() => {
+                    setSelectedRecs(new Set(visibleRecs.map(({ i }) => i)));
+                    setShowRecsMenu((v) => !v);
+                  }}
+                >
+                  Apply Recommendations {showRecsMenu ? "▾" : "▸"}
+                </button>
+                {showRecsMenu && (
+                  <div className="apply-recs-menu">
+                    <div className="apply-recs-menu-header">
+                      <span>Select to apply</span>
+                      <button className="apply-recs-toggle" onClick={() =>
+                        setSelectedRecs(selectedRecs.size === visibleRecs.length ? new Set() : new Set(visibleRecs.map(({ i }) => i)))
+                      }>
+                        {selectedRecs.size === visibleRecs.length ? "Deselect all" : "Select all"}
+                      </button>
+                    </div>
+                    {visibleRecs.map(({ r, i }) => {
+                      const sev = SEV_STYLE[r.severity] || SEV_STYLE.high;
+                      const checked = selectedRecs.has(i);
+                      return (
+                        <label key={i} className="apply-recs-item">
+                          <input type="checkbox" checked={checked} onChange={() => {
+                            const next = new Set(selectedRecs);
+                            checked ? next.delete(i) : next.add(i);
+                            setSelectedRecs(next);
+                          }} />
+                          <span className="rec-sev" style={{ background: sev.bg, color: sev.color }}>{r.severity}</span>
+                          <span className="apply-recs-item-title">{r.title}</span>
+                        </label>
+                      );
+                    })}
+                    <div className="apply-recs-menu-footer">
+                      <button className="apply-recs-confirm" onClick={handleApplySelected} disabled={applyingRecs || selectedRecs.size === 0}>
+                        {applyingRecs ? "Applying…" : `Apply ${selectedRecs.size} selected`}
+                      </button>
+                      <button className="apply-recs-cancel" onClick={() => setShowRecsMenu(false)}>Cancel</button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
           <div className="recs">
-            {recommendations.map((r, i) => {
+            {visibleRecs.map(({ r, i }) => {
               const sev = SEV_STYLE[r.severity] || SEV_STYLE.high;
               return (
                 <div key={i} className="rec-card" style={{ borderLeftColor: sev.color }}>
@@ -470,7 +654,7 @@ export default function AgentDetail() {
                     <span className="rec-sev" style={{ background: sev.bg, color: sev.color }}>{r.severity}</span>
                     <strong>{r.title}</strong>
                   </div>
-                  <p>{r.description}</p>
+                  <p>{formatDescription(r.description)}</p>
                 </div>
               );
             })}
