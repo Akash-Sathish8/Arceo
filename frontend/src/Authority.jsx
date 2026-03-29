@@ -4,11 +4,30 @@ import { apiFetch } from "./api.js";
 import { toast } from "./Toast.jsx";
 import "./Authority.css";
 
+function Tooltip({ text, children }) {
+  return (
+    <span className="tooltip-wrap">
+      {children}
+      <span className="tooltip-bubble">{text}</span>
+    </span>
+  );
+}
+
 const SEVERITY_COLORS = {
   critical: { bg: "#fef2f2", color: "#dc2626", border: "#fca5a5" },
   high: { bg: "#fff7ed", color: "#ea580c", border: "#fdba74" },
   medium: { bg: "#fefce8", color: "#ca8a04", border: "#fde68a" },
 };
+
+function timeAgo(ts) {
+  if (!ts) return "";
+  const diff = (Date.now() - new Date(ts.endsWith("Z") || ts.includes("+") ? ts : ts + "Z")) / 1000;
+  if (diff < 5) return "just now";
+  if (diff < 60) return `${Math.floor(diff)}s ago`;
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+  return `${Math.floor(diff / 86400)}d ago`;
+}
 
 const SORT_OPTIONS = [
   { value: "score-desc", label: "Highest Risk" },
@@ -94,6 +113,17 @@ function AgentCard({ agent }) {
           )}
         </span>
       </div>
+      <div className="agent-card-meta-row">
+        <span className={`agent-policy-badge${(agent.policy_count || 0) === 0 ? " no-policies" : ""}`}>
+          {(agent.policy_count || 0) === 0 ? "⚠ No policies" : `${agent.policy_count} polic${agent.policy_count === 1 ? "y" : "ies"}`}
+        </span>
+        {(agent.pending_count || 0) > 0 && (
+          <span className="agent-pending-badge">{agent.pending_count} pending approval</span>
+        )}
+        {agent.last_execution_at && (
+          <span className="agent-last-seen">Last active {timeAgo(agent.last_execution_at)}</span>
+        )}
+      </div>
     </Link>
   );
 }
@@ -129,16 +159,20 @@ export default function Authority() {
   const [mcpConnecting, setMcpConnecting] = useState(false);
   const [mcpResult, setMcpResult] = useState(null);
 
+  const [simulations, setSimulations] = useState([]);
+
   const loadData = () => {
     Promise.all([
       apiFetch("/api/authority/agents"),
       apiFetch("/api/authority/chains"),
       apiFetch("/api/executions").catch(() => ({ entries: [] })),
+      apiFetch("/api/sandbox/simulations").catch(() => ({ simulations: [] })),
     ])
-      .then(([agentData, chainData, execData]) => {
+      .then(([agentData, chainData, execData, simData]) => {
         setAgents(agentData.agents);
         setChains(chainData.chains);
         setExecutions(execData.entries || []);
+        setSimulations(simData.simulations || []);
         setLoading(false);
       })
       .catch((err) => {
@@ -297,6 +331,20 @@ export default function Authority() {
   }
 
   const criticalChains = chains.filter((c) => c.severity === "critical");
+
+  // Onboarding checklist — show until all 4 steps done
+  const hasAgent = agents.length > 0;
+  const hasSimulation = simulations.length > 0;
+  const hasExecution = executions.length > 0;
+  const hasPolicies = agents.some((a) => (a.policy_count || 0) > 0);
+  const checklistDone = hasAgent && hasSimulation && hasExecution && hasPolicies;
+  const checklistSteps = [
+    { done: hasAgent,     label: "Connect your first agent",   action: () => setShowCreate(true),   link: null },
+    { done: hasSimulation,label: "Run a simulation in Sandbox", action: null,                        link: "/sandbox" },
+    { done: hasExecution, label: "Send a real enforcement call",action: null,                        link: "/settings" },
+    { done: hasPolicies,  label: "Add an enforcement policy",   action: null,                        link: agents[0] ? `/agent/${agents[0].id}` : "/" },
+  ];
+  const checklistProgress = checklistSteps.filter((s) => s.done).length;
   const totalActions = agents.reduce((s, a) => s + a.blast_radius.total_actions, 0);
   const totalIrreversible = agents.reduce((s, a) => s + a.blast_radius.irreversible_actions, 0);
 
@@ -330,15 +378,6 @@ export default function Authority() {
   const maxDay = Math.max(...days7.map((d) => d.total), 1);
 
   const recentExecs = executions.slice(0, 10);
-
-  const timeAgo = (ts) => {
-    const diff = (Date.now() - new Date(ts)) / 1000;
-    if (diff < 5) return "Just now";
-    if (diff < 60) return `${Math.floor(diff)}s ago`;
-    if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
-    if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
-    return `${Math.floor(diff / 86400)}d ago`;
-  };
 
   const formatAction = (action) =>
     action.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
@@ -616,6 +655,40 @@ export default function Authority() {
         </div>
       )}
 
+      {/* Onboarding checklist — hide once all steps complete */}
+      {!checklistDone && (
+        <div className="setup-checklist">
+          <div className="setup-checklist-header">
+            <div>
+              <span className="setup-checklist-title">Get started</span>
+              <span className="setup-checklist-sub">{checklistProgress} of {checklistSteps.length} steps complete</span>
+            </div>
+            <div className="setup-progress-bar">
+              <div className="setup-progress-fill" style={{ width: `${(checklistProgress / checklistSteps.length) * 100}%` }} />
+            </div>
+          </div>
+          <div className="setup-steps">
+            {checklistSteps.map((step, i) => (
+              <div key={i} className={`setup-step${step.done ? " done" : ""}`}>
+                <div className="setup-step-check">
+                  {step.done ? (
+                    <svg width="11" height="11" viewBox="0 0 11 11" fill="none"><path d="M2 5.5L4.5 8L9 3" stroke="white" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                  ) : (
+                    <span className="setup-step-num">{i + 1}</span>
+                  )}
+                </div>
+                <span className="setup-step-label">{step.label}</span>
+                {!step.done && (
+                  step.action
+                    ? <button className="setup-step-cta" onClick={step.action}>Start →</button>
+                    : <Link className="setup-step-cta" to={step.link}>Start →</Link>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Critical alert banner */}
       {criticalChains.length > 0 && (
         <div className="critical-banner">
@@ -766,7 +839,7 @@ export default function Authority() {
       {/* Agent Section with Controls */}
       <section>
         <div className="section-header">
-          <h2>Agent Risk Scores</h2>
+          <h2>Agent Risk Scores <Tooltip text="A 0–100 score showing how much damage an agent could cause if it acted without restriction. Combines irreversible actions, financial exposure, PII access, and dangerous capability chains."><span className="jargon-hint">?</span></Tooltip></h2>
           <div className="controls">
             <input
               type="text"
@@ -806,7 +879,7 @@ export default function Authority() {
       {/* Dangerous Chains with filter */}
       <section id="danger-chains">
         <div className="section-header">
-          <h2>Dangerous Capability Combinations ({filteredChains.length})</h2>
+          <h2>Dangerous Capability Combinations ({filteredChains.length}) <Tooltip text="Multi-step action sequences where an agent could chain together individually-allowed actions to cause serious harm — e.g. reading PII then emailing it externally."><span className="jargon-hint">?</span></Tooltip></h2>
           <div className="controls">
             <select
               className="control-select"

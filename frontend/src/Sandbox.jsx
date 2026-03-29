@@ -70,6 +70,8 @@ export default function Sandbox() {
   const [scenarios, setScenarios] = useState([]);
   const [agents, setAgents] = useState([]);
   const [simulations, setSimulations] = useState([]);
+  const [simSearch, setSimSearch] = useState("");
+  const [simSort, setSimSort] = useState("newest");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
@@ -339,6 +341,17 @@ export default function Sandbox() {
               );
             })()}
           </div>
+          <div className="run-mode-explainer">
+            <div className="run-mode-item">
+              <strong>Dry Run</strong>
+              <span>Uses mock APIs — no real calls, no cost. Tests your policies against the scenario instantly. Start here.</span>
+            </div>
+            <div className="run-mode-divider" />
+            <div className="run-mode-item">
+              <strong>Run with LLM</strong>
+              <span>Claude reasons through the scenario and decides which tools to call — like a real agent would. ~$0.05/run.</span>
+            </div>
+          </div>
           <div className="run-buttons">
             <button
               className="run-btn primary"
@@ -351,7 +364,7 @@ export default function Sandbox() {
                   ? (runProgress?.total > 1 ? `Running ${runProgress.current} of ${runProgress.total}...` : "Running...")
                   : selectedScenarios.length > 1 ? `Run ${selectedScenarios.length} Scenarios` : "Run Simulation"}
               </span>
-              <span className="run-btn-sub">dry run · mock APIs</span>
+              <span className="run-btn-sub">dry run · mock APIs · free</span>
             </button>
             <button
               className="run-btn llm-btn"
@@ -811,8 +824,37 @@ export default function Sandbox() {
           <div className="section-header">
             <h2>Past Simulations ({simulations.length})</h2>
           </div>
+          <div className="sim-filter-row">
+            <input
+              className="sim-search-input"
+              placeholder="Search by scenario or agent..."
+              value={simSearch}
+              onChange={(e) => setSimSearch(e.target.value)}
+            />
+            <select className="sim-sort-select" value={simSort} onChange={(e) => setSimSort(e.target.value)}>
+              <option value="newest">Newest first</option>
+              <option value="oldest">Oldest first</option>
+              <option value="highest-risk">Highest risk</option>
+              <option value="lowest-risk">Lowest risk</option>
+              <option value="most-violations">Most violations</option>
+            </select>
+          </div>
           <div className="sim-list">
-            {simulations.map((sim) => {
+            {[...simulations]
+              .filter((sim) => {
+                if (!simSearch.trim()) return true;
+                const q = simSearch.toLowerCase();
+                const agentName = agents.find((a) => a.id === sim.agent_id)?.name || "";
+                return sim.scenario_id?.toLowerCase().includes(q) || agentName.toLowerCase().includes(q);
+              })
+              .sort((a, b) => {
+                if (simSort === "oldest") return new Date(a.created_at) - new Date(b.created_at);
+                if (simSort === "highest-risk") return (b.risk_score ?? 0) - (a.risk_score ?? 0);
+                if (simSort === "lowest-risk") return (a.risk_score ?? 0) - (b.risk_score ?? 0);
+                if (simSort === "most-violations") return (b.violations ?? 0) - (a.violations ?? 0);
+                return new Date(b.created_at) - new Date(a.created_at);
+              })
+              .map((sim) => {
               const score = sim.risk_score ?? 0;
               const scoreColor = score >= 50 ? "#dc2626" : score >= 25 ? "#ea580c" : "#16a34a";
               const agentName = agents.find((a) => a.id === sim.agent_id)?.name ||

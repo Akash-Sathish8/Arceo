@@ -276,6 +276,13 @@
   color: var(--text-muted);
 }
 
+.empty-link {
+  color: var(--text-primary);
+  font-weight: 600;
+  text-decoration: none;
+}
+.empty-link:hover { text-decoration: underline; }
+
 /* ── Table ─────────────────────────────────────────────────────── */
 
 .log-table {

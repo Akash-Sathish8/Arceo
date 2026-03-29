@@ -227,17 +227,30 @@ def list_agents(user: dict = Depends(get_current_user)):
         log_audit(conn, user["sub"], user["email"], "LIST_AGENTS")
         agents = get_all_agents_from_db(conn)
 
-    results = []
-    for agent in agents:
-        summary = _compute_agent_summary(agent)
-        results.append({
-            "id": agent["id"],
-            "name": agent["name"],
-            "description": agent["description"],
-            "tools": [t["service"] for t in agent["tools"]],
-            "created_at": agent["created_at"],
-            **summary,
-        })
+    with get_db() as conn:
+        results = []
+        for agent in agents:
+            summary = _compute_agent_summary(agent)
+            policy_count = conn.execute(
+                "SELECT COUNT(*) FROM policies WHERE agent_id = ?", (agent["id"],)
+            ).fetchone()[0]
+            pending_count = conn.execute(
+                "SELECT COUNT(*) FROM execution_log WHERE agent_id = ? AND status = 'PENDING_APPROVAL'", (agent["id"],)
+            ).fetchone()[0]
+            last_exec = conn.execute(
+                "SELECT timestamp FROM execution_log WHERE agent_id = ? ORDER BY timestamp DESC LIMIT 1", (agent["id"],)
+            ).fetchone()
+            results.append({
+                "id": agent["id"],
+                "name": agent["name"],
+                "description": agent["description"],
+                "tools": [t["service"] for t in agent["tools"]],
+                "created_at": agent["created_at"],
+                "policy_count": policy_count,
+                "pending_count": pending_count,
+                "last_execution_at": last_exec["timestamp"] if last_exec else None,
+                **summary,
+            })
 
     return {"agents": results}
 
@@ -827,6 +840,50 @@ def get_agent_executions(agent_id: str, user: dict = Depends(get_current_user)):
             (agent_id,),
         ).fetchall()
     return {"entries": [dict(r) for r in rows]}
+
+
+@app.get("/api/approvals")
+def get_pending_approvals(user: dict = Depends(get_current_user)):
+    """Return all PENDING_APPROVAL executions across all agents."""
+    with get_db() as conn:
+        rows = conn.execute(
+            """SELECT e.*, a.name as agent_name
+               FROM execution_log e
+               LEFT JOIN agents a ON e.agent_id = a.id
+               WHERE e.status = 'PENDING_APPROVAL'
+               ORDER BY e.timestamp DESC""",
+        ).fetchall()
+    return {"approvals": [dict(r) for r in rows]}
+
+
+class ApprovalDecision(BaseModel):
+    decision: str  # "approve" or "reject"
+    reason: str = ""
+
+
+@app.post("/api/approvals/{execution_id}")
+def decide_approval(execution_id: int, body: ApprovalDecision, user: dict = Depends(get_current_user)):
+    """Approve or reject a PENDING_APPROVAL execution."""
+    if body.decision not in ("approve", "reject"):
+        raise HTTPException(status_code=400, detail="decision must be 'approve' or 'reject'")
+    new_status = "EXECUTED" if body.decision == "approve" else "BLOCKED"
+    detail_suffix = f" [{'Approved' if body.decision == 'approve' else 'Rejected'} by {user['email']}]"
+    if body.reason:
+        detail_suffix += f": {body.reason}"
+    with get_db() as conn:
+        row = conn.execute("SELECT * FROM execution_log WHERE id = ?", (execution_id,)).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Execution not found")
+        if row["status"] != "PENDING_APPROVAL":
+            raise HTTPException(status_code=400, detail="Execution is not pending approval")
+        existing_detail = row["detail"] or ""
+        conn.execute(
+            "UPDATE execution_log SET status = ?, detail = ? WHERE id = ?",
+            (new_status, existing_detail + detail_suffix, execution_id),
+        )
+        log_audit(conn, user["email"], body.decision.upper() + "_EXECUTION", "execution", str(execution_id),
+                  f"{'Approved' if body.decision == 'approve' else 'Rejected'} execution #{execution_id}")
+    return {"id": execution_id, "status": new_status}
 
 
 # ── Sandbox Simulation ─────────────────────────────────────────────────────

@@ -1,6 +1,6 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
-import { apiFetch } from "./api.js";
+import { apiFetch, getToken } from "./api.js";
 import { toast } from "./Toast.jsx";
 import "./AgentDetail.css";
 
@@ -78,21 +78,48 @@ function AuthorityMap({ graph }) {
     return init;
   });
   const toggle = (id) => setCollapsed((p) => ({ ...p, [id]: !p[id] }));
+  const [graphSearch, setGraphSearch] = useState("");
+  const [riskFilter, setRiskFilter] = useState("all");
+
+  const searchLower = graphSearch.toLowerCase();
 
   return (
     <div className="authority-map">
+      <div className="am-search-row">
+        <input
+          className="am-search"
+          placeholder="Search actions..."
+          value={graphSearch}
+          onChange={(e) => setGraphSearch(e.target.value)}
+        />
+        <div className="am-risk-filters">
+          {["all", "irreversible", "risky", "safe"].map((f) => (
+            <button key={f} className={`am-risk-filter${riskFilter === f ? " active" : ""}`} onClick={() => setRiskFilter(f)}>
+              {f === "all" ? "All" : f.charAt(0).toUpperCase() + f.slice(1)}
+            </button>
+          ))}
+        </div>
+      </div>
       {tools.map((tool) => {
-        const actions = (toolActionIds[tool.id] || [])
+        const allActions = (toolActionIds[tool.id] || [])
           .map((id) => nodeById[id])
           .filter(Boolean)
           .sort((a, b) => {
             const rank = (x) => x.reversible === false ? 0 : x.risk_labels?.length ? 1 : 2;
             return rank(a) - rank(b);
           });
-        const nIrrev = actions.filter((a) => a.reversible === false).length;
-        const nRisky = actions.filter((a) => a.reversible !== false && a.risk_labels?.length).length;
-        const nSafe  = actions.filter((a) => a.reversible !== false && !a.risk_labels?.length).length;
-        const isOpen = !collapsed[tool.id];
+        const actions = allActions.filter((a) => {
+          if (searchLower && !a.label?.toLowerCase().includes(searchLower)) return false;
+          if (riskFilter === "irreversible" && a.reversible !== false) return false;
+          if (riskFilter === "risky" && (a.reversible === false || !a.risk_labels?.length)) return false;
+          if (riskFilter === "safe" && (a.reversible === false || a.risk_labels?.length)) return false;
+          return true;
+        });
+        if (actions.length === 0) return null;
+        const nIrrev = allActions.filter((a) => a.reversible === false).length;
+        const nRisky = allActions.filter((a) => a.reversible !== false && a.risk_labels?.length).length;
+        const nSafe  = allActions.filter((a) => a.reversible !== false && !a.risk_labels?.length).length;
+        const isOpen = !collapsed[tool.id] || !!searchLower || riskFilter !== "all";
         const accentColor = nIrrev > 0 ? "#dc2626" : nRisky > 0 ? "#f59e0b" : "#d1d5db";
         return (
           <div key={tool.id} className="am-tool" style={{ borderLeftColor: accentColor }}>
@@ -157,6 +184,156 @@ const EXEC_STATUS_STYLE = {
   PENDING_APPROVAL: { bg: "#fff3cd", color: "#856404" },
 };
 
+// ── Action Picker ─────────────────────────────────────────────────────────
+
+function ActionPicker({ tools, selectedPatterns, onAdd }) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const ref = useRef(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+
+  const searchLow = search.toLowerCase();
+  const filteredTools = tools
+    .map((t) => ({
+      ...t,
+      filteredActions: t.actions.filter(
+        (a) => !searchLow || a.action.toLowerCase().includes(searchLow) || formatAction(a.action).toLowerCase().includes(searchLow)
+      ),
+      wildcardMatch: !searchLow || (t.service || t.name).toLowerCase().includes(searchLow) || "wildcard all actions".includes(searchLow),
+    }))
+    .filter((t) => t.wildcardMatch || t.filteredActions.length > 0);
+
+  return (
+    <div className="action-picker" ref={ref}>
+      <button
+        type="button"
+        className={`action-picker-btn${open ? " open" : ""}${selectedPatterns.length > 0 ? " has-value" : ""}`}
+        onClick={() => setOpen((o) => !o)}
+      >
+        <span className="ap-placeholder">
+          {selectedPatterns.length === 0 ? "Add an action…" : "Add another action…"}
+        </span>
+        <span className="ap-chevron">{open ? "▲" : "▼"}</span>
+      </button>
+      {open && (
+        <div className="action-picker-dropdown">
+          <div className="ap-search-wrap">
+            <input
+              autoFocus
+              className="ap-search"
+              placeholder="Search actions..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </div>
+          <div className="ap-list">
+            {filteredTools.map((t) => (
+              <div key={t.name} className="ap-group">
+                <div className="ap-group-label">{t.service || t.name}</div>
+                {t.wildcardMatch && (
+                  <button
+                    type="button"
+                    className={`ap-option ap-option-wildcard${selectedPatterns.includes(`${t.name}.*`) ? " ap-opt-checked" : ""}`}
+                    onClick={() => { onAdd(`${t.name}.*`); setSearch(""); setOpen(false); }}
+                  >
+                    <span className="ap-opt-check">{selectedPatterns.includes(`${t.name}.*`) ? "✓" : ""}</span>
+                    <span className="ap-opt-label">All actions</span>
+                    <span className="ap-badge ap-badge-wildcard">wildcard</span>
+                  </button>
+                )}
+                {t.filteredActions.map((a) => {
+                  const isIrrev = a.reversible === false;
+                  const isRisky = a.risk_labels?.length > 0;
+                  const key = `${t.name}.${a.action}`;
+                  const alreadySelected = selectedPatterns.includes(key);
+                  return (
+                    <button
+                      key={a.action}
+                      type="button"
+                      className={`ap-option${isIrrev ? " ap-opt-irrev" : isRisky ? " ap-opt-risky" : ""}${alreadySelected ? " ap-opt-checked" : ""}`}
+                      onClick={() => { onAdd(key); setSearch(""); setOpen(false); }}
+                    >
+                      <span className="ap-opt-check">{alreadySelected ? "✓" : ""}</span>
+                      <span className={`ap-opt-dot${isIrrev ? " ap-dot-irrev" : isRisky ? " ap-dot-risky" : " ap-dot-safe"}`} />
+                      <span className="ap-opt-label">{formatAction(a.action)}</span>
+                      <div className="ap-opt-badges">
+                        {isIrrev && <span className="ap-badge ap-badge-irrev">irreversible</span>}
+                        {a.risk_labels?.map((r) => (
+                          <span key={r} className="ap-badge ap-badge-risk" style={{ background: RISK_COLORS[r] + "22", color: RISK_COLORS[r], borderColor: RISK_COLORS[r] + "55" }}>
+                            {RISK_LABELS[r] || r}
+                          </span>
+                        ))}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            ))}
+            {filteredTools.length === 0 && <div className="ap-empty">No actions match "{search}"</div>}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Effect Toggle ─────────────────────────────────────────────────────────
+
+function EffectToggle({ value, onChange }) {
+  const OPTIONS = [
+    {
+      value: "BLOCK",
+      label: "Block",
+      desc: "Agent is stopped — action never executes",
+      icon: "✕",
+      color: "#dc2626",
+      bg: "#fef2f2",
+      border: "#fca5a5",
+    },
+    {
+      value: "REQUIRE_APPROVAL",
+      label: "Require Approval",
+      desc: "Pauses for a human to review and approve",
+      icon: "⏸",
+      color: "#ea580c",
+      bg: "#fff7ed",
+      border: "#fdba74",
+    },
+    {
+      value: "ALLOW",
+      label: "Allow",
+      desc: "Explicitly permitted — logged for audit",
+      icon: "✓",
+      color: "#16a34a",
+      bg: "#f0fdf4",
+      border: "#86efac",
+    },
+  ];
+  return (
+    <div className="effect-toggle">
+      {OPTIONS.map((o) => (
+        <button
+          key={o.value}
+          type="button"
+          className={`effect-card${value === o.value ? " active" : ""}`}
+          style={value === o.value ? { borderColor: o.border, background: o.bg } : {}}
+          onClick={() => onChange(o.value)}
+        >
+          <span className="effect-card-icon" style={value === o.value ? { color: o.color } : {}}>{o.icon}</span>
+          <span className="effect-card-label" style={value === o.value ? { color: o.color } : {}}>{o.label}</span>
+          <span className="effect-card-desc">{o.desc}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
 // ── Main Detail Page ──────────────────────────────────────────────────────
 
 export default function AgentDetail() {
@@ -165,11 +342,15 @@ export default function AgentDetail() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [showIntegration, setShowIntegration] = useState(false);
 
   // Policy form
-  const [newPattern, setNewPattern] = useState("");
+  const [newPatterns, setNewPatterns] = useState([]);
   const [newEffect, setNewEffect] = useState("BLOCK");
   const [newReason, setNewReason] = useState("");
+
+  const addPattern = (p) => { if (!newPatterns.includes(p)) setNewPatterns((prev) => [...prev, p]); };
+  const removePattern = (p) => setNewPatterns((prev) => prev.filter((x) => x !== p));
 
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [collapsedChains, setCollapsedChains] = useState({});
@@ -209,15 +390,19 @@ export default function AgentDetail() {
 
   const handleAddPolicy = async (e) => {
     e.preventDefault();
-    if (!newPattern.trim()) return;
+    if (newPatterns.length === 0) return;
     try {
-      await apiFetch(`/api/authority/agent/${agentId}/policies`, {
-        method: "POST",
-        body: JSON.stringify({ action_pattern: newPattern, effect: newEffect, reason: newReason }),
-      });
-      setNewPattern("");
+      await Promise.all(
+        newPatterns.map((pattern) =>
+          apiFetch(`/api/authority/agent/${agentId}/policies`, {
+            method: "POST",
+            body: JSON.stringify({ action_pattern: pattern, effect: newEffect, reason: newReason }),
+          })
+        )
+      );
+      setNewPatterns([]);
       setNewReason("");
-      toast("Policy added");
+      toast(`${newPatterns.length} polic${newPatterns.length !== 1 ? "ies" : "y"} added`);
       loadData();
     } catch (err) {
       toast("Failed to add policy: " + err.message, "error");
@@ -407,7 +592,7 @@ export default function AgentDetail() {
       </div>
 
       {/* Enforcement Policies */}
-      <div className="detail-section">
+      <div className="detail-section" style={{ position: "relative", zIndex: 2 }}>
         <div className="chain-section-header">
           <h2>Enforcement Policies ({sortedPolicies.length})</h2>
           <div className="chain-sev-counts">
@@ -423,34 +608,84 @@ export default function AgentDetail() {
           {sortedPolicies.map((p) => {
             const es = EFFECT_STYLE[p.effect] || EFFECT_STYLE.BLOCK;
             const { service, action } = parsePolicyPattern(p.action_pattern);
+            const effectLabel = p.effect === "REQUIRE_APPROVAL" ? "Approval" : p.effect === "BLOCK" ? "Block" : "Allow";
             return (
-              <div key={p.id} className="policy-row">
-                <span className="policy-effect" style={{ background: es.bg, color: es.color }}>{p.effect}</span>
-                <div className="policy-action">
-                  {service && <span className="policy-service">{service}</span>}
-                  <span className="policy-action-name">{action}</span>
+              <div key={p.id} className="policy-row" style={{ borderLeftColor: es.color }}>
+                <span className="policy-effect-dot" style={{ background: es.color }} title={p.effect} />
+                <div className="policy-row-main">
+                  <div className="policy-row-top">
+                    <div className="policy-action">
+                      {service && <span className="policy-service">{service}</span>}
+                      <span className="policy-action-name">{action}</span>
+                    </div>
+                    <span className="policy-effect-label" style={{ background: es.bg, color: es.color }}>{effectLabel}</span>
+                  </div>
+                  {!allSamePolicyReason && p.reason && <span className="policy-reason">{p.reason}</span>}
                 </div>
-                {!allSamePolicyReason && p.reason && <span className="policy-reason">{p.reason}</span>}
                 <button className="policy-delete" onClick={() => handleDeletePolicy(p.id)}>Remove</button>
               </div>
             );
           })}
         </div>
         <form className="policy-form" onSubmit={handleAddPolicy}>
-          <select value={newPattern} onChange={(e) => setNewPattern(e.target.value)} required>
-            <option value="">Select an action…</option>
-            {agent.tools.flatMap((t) =>
-              t.actions.map((a) => {
-                const key = `${t.name}.${a.action}`;
-                return <option key={key} value={key}>{t.service} — {formatAction(a.action)}</option>;
-              })
-            )}
-          </select>
-          <select value={newEffect} onChange={(e) => setNewEffect(e.target.value)}>
-            {EFFECT_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
-          </select>
-          <input placeholder="Reason (optional)" value={newReason} onChange={(e) => setNewReason(e.target.value)} />
-          <button type="submit">Add Policy</button>
+          <div className="policy-form-field-label">1. Choose actions</div>
+          <ActionPicker tools={agent.tools} selectedPatterns={newPatterns} onAdd={addPattern} />
+          {newPatterns.length > 0 && (
+            <div className="selected-patterns">
+              {newPatterns.map((p) => {
+                const isWildcard = p.endsWith(".*");
+                const { service, action } = parsePolicyPattern(p);
+                const dot = p.indexOf(".");
+                const toolName = dot !== -1 ? p.slice(0, dot) : p;
+                const actionName = dot !== -1 ? p.slice(dot + 1) : "";
+                const tool = agent.tools.find((t) => t.name === toolName);
+                const actionObj = isWildcard ? null : tool?.actions.find((a) => a.action === actionName);
+                const isIrrev = actionObj?.reversible === false;
+                const riskLabels = actionObj?.risk_labels || [];
+                return (
+                  <span key={p} className="sp-chip">
+                    <span className="sp-chip-service">{service}</span>
+                    <span className="sp-chip-sep">›</span>
+                    <span className="sp-chip-action">{action}</span>
+                    {isWildcard && <span className="ap-badge ap-badge-wildcard">wildcard</span>}
+                    {isIrrev && <span className="ap-badge ap-badge-irrev">irreversible</span>}
+                    {!isIrrev && !isWildcard && riskLabels.length > 0 && <span className="ap-badge ap-badge-risky">risky</span>}
+                    <button type="button" className="sp-chip-remove" onClick={() => removePattern(p)}>×</button>
+                  </span>
+                );
+              })}
+              {newPatterns.length > 1 && (
+                <button type="button" className="sp-clear" onClick={() => setNewPatterns([])}>Clear all</button>
+              )}
+            </div>
+          )}
+          {newPatterns.some((p) => p.endsWith(".*")) && (
+            <p className="policy-wildcard-hint">
+              Wildcard patterns apply to <strong>all actions</strong> in that service.
+            </p>
+          )}
+          <div className="policy-form-field-label" style={{ marginTop: 4 }}>2. Set enforcement</div>
+          <EffectToggle value={newEffect} onChange={setNewEffect} />
+          {newEffect !== "ALLOW" && (
+            <input
+              className="policy-reason-input"
+              placeholder={newEffect === "BLOCK" ? "Why should this be blocked? (e.g. No refunds over $500)" : "When should this require approval?"}
+              value={newReason}
+              onChange={(e) => setNewReason(e.target.value)}
+              required
+            />
+          )}
+          {newEffect === "ALLOW" && (
+            <input
+              className="policy-reason-input"
+              placeholder="Reason (optional)"
+              value={newReason}
+              onChange={(e) => setNewReason(e.target.value)}
+            />
+          )}
+          <button type="submit" className="policy-submit-btn" disabled={newPatterns.length === 0 || (newEffect !== "ALLOW" && !newReason.trim())}>
+            {newPatterns.length > 1 ? `Add ${newPatterns.length} Policies` : "Add Policy"}
+          </button>
         </form>
       </div>
 
@@ -661,6 +896,103 @@ export default function AgentDetail() {
           </div>
         </div>
       )}
+
+      {/* ── Integration Guide ── */}
+      <div className="integration-guide">
+        <button className="integration-guide-toggle" onClick={() => setShowIntegration((v) => !v)}>
+          <span>How to enforce policies for this agent</span>
+          <span className="integration-guide-chevron">{showIntegration ? "▲" : "▼"}</span>
+        </button>
+        {showIntegration && (
+          <div className="integration-guide-body">
+            <p className="integration-guide-desc">
+              Call <code>POST /api/enforce</code> before every tool action this agent takes. Use the agent ID below — ActionGate checks your policies and returns a decision in &lt;10ms.
+            </p>
+            <div className="integration-agent-id-row">
+              <span className="integration-label">Agent ID</span>
+              <code className="integration-agent-id">{agentId}</code>
+              <button className="copy-inline-btn" onClick={() => navigator.clipboard.writeText(agentId)}>Copy</button>
+            </div>
+            <IntegrationSnippets agentId={agentId} token={getToken()} />
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function IntegrationSnippets({ agentId, token }) {
+  const [tab, setTab] = useState("python");
+  const shortToken = token ? token.slice(0, 20) + "..." : "YOUR_TOKEN";
+
+  const snippets = {
+    python: `import requests
+
+def enforce(tool: str, action: str, params: dict) -> str:
+    resp = requests.post(
+        "http://localhost:8000/api/enforce",
+        json={
+            "agent_id": "${agentId}",
+            "tool": tool,
+            "action": action,
+            "params": params
+        },
+        headers={"Authorization": "Bearer ${shortToken}"}
+    )
+    return resp.json()["decision"]  # "ALLOW" | "BLOCK" | "REQUIRE_APPROVAL"
+
+# Usage — call before every tool action:
+decision = enforce("Stripe", "create_refund", {"amount": 500})
+if decision == "ALLOW":
+    stripe.create_refund(...)
+elif decision == "BLOCK":
+    raise Exception("Action blocked by policy")`,
+
+    curl: `curl -X POST http://localhost:8000/api/enforce \\
+  -H "Authorization: Bearer ${shortToken}" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "agent_id": "${agentId}",
+    "tool": "Stripe",
+    "action": "create_refund",
+    "params": {"amount": 500}
+  }'`,
+
+    node: `const response = await fetch("http://localhost:8000/api/enforce", {
+  method: "POST",
+  headers: {
+    "Authorization": "Bearer ${shortToken}",
+    "Content-Type": "application/json"
+  },
+  body: JSON.stringify({
+    agent_id: "${agentId}",
+    tool: "Stripe",
+    action: "create_refund",
+    params: { amount: 500 }
+  })
+});
+const { decision } = await response.json();
+// decision: "ALLOW" | "BLOCK" | "REQUIRE_APPROVAL"`,
+  };
+
+  const [copied, setCopied] = useState(false);
+  const copy = () => {
+    navigator.clipboard.writeText(snippets[tab]);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  return (
+    <div className="integration-snippet-wrap">
+      <div className="integration-tabs">
+        {["python", "curl", "node"].map((t) => (
+          <button key={t} className={`integration-tab${tab === t ? " active" : ""}`} onClick={() => setTab(t)}>
+            {t === "node" ? "Node.js" : t}
+          </button>
+        ))}
+        <button className="integration-copy-btn" onClick={copy}>{copied ? "Copied!" : "Copy"}</button>
+      </div>
+      <pre className="integration-code"><code>{snippets[tab]}</code></pre>
     </div>
   );
 }

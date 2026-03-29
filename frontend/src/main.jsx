@@ -1,8 +1,8 @@
-import { StrictMode, useState } from 'react'
+import { StrictMode, useState, useEffect } from 'react'
 import { createRoot } from 'react-dom/client'
 import { BrowserRouter, Routes, Route, NavLink, Link, Navigate, useLocation } from 'react-router-dom'
 import './index.css'
-import { isLoggedIn, logout, getUser } from './api.js'
+import { isLoggedIn, logout, getUser, apiFetch } from './api.js'
 import Login from './Login.jsx'
 import Authority from './Authority.jsx'
 import AgentDetail from './AgentDetail.jsx'
@@ -10,6 +10,8 @@ import History from './History.jsx'
 import Sandbox from './Sandbox.jsx'
 import SimulationDetail from './SimulationDetail.jsx'
 import Comparison from './Comparison.jsx'
+import Settings from './Settings.jsx'
+import Approvals from './Approvals.jsx'
 import ErrorBoundary from './ErrorBoundary.jsx'
 import { ToastContainer } from './Toast.jsx'
 
@@ -47,6 +49,20 @@ const PlusIcon = () => (
   </svg>
 )
 
+const SettingsIcon = () => (
+  <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
+    <circle cx="7.5" cy="7.5" r="2" stroke="currentColor" strokeWidth="1.4"/>
+    <path d="M7.5 1v1.5M7.5 12.5V14M14 7.5h-1.5M2.5 7.5H1M12.07 2.93l-1.06 1.06M4 11l-1.06 1.07M12.07 12.07l-1.06-1.06M4 4l-1.06-1.07" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+  </svg>
+)
+
+const ApprovalIcon = () => (
+  <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
+    <rect x="2" y="1" width="11" height="13" rx="1.5" stroke="currentColor" strokeWidth="1.4"/>
+    <path d="M5 5h5M5 7.5h5M5 10h3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+  </svg>
+)
+
 const CollapseIcon = ({ collapsed }) => (
   <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
     {collapsed
@@ -60,6 +76,16 @@ function Sidebar({ collapsed, onToggle }) {
   const user = getUser()
   const initial = user?.email?.[0]?.toUpperCase() || 'A'
   const orgName = user?.email?.split('@')[1]?.split('.')[0] || 'workspace'
+  const [pendingCount, setPendingCount] = useState(0)
+
+  useEffect(() => {
+    if (!isLoggedIn()) return
+    const fetchPending = () =>
+      apiFetch('/api/approvals').then(d => setPendingCount((d.approvals || []).length)).catch(() => {})
+    fetchPending()
+    const iv = setInterval(fetchPending, 15000)
+    return () => clearInterval(iv)
+  }, [])
 
   return (
     <aside className={`sidebar${collapsed ? ' sidebar-collapsed' : ''}`}>
@@ -98,6 +124,14 @@ function Sidebar({ collapsed, onToggle }) {
         </NavLink>
         <NavLink to="/history" title="Past simulation runs" className={({ isActive }) => isActive ? 'active' : ''}>
           <HistoryIcon />{!collapsed && ' History'}
+        </NavLink>
+        <NavLink to="/approvals" title="Approval Queue — actions waiting for human review" className={({ isActive }) => isActive ? 'active' : ''}>
+          <ApprovalIcon />
+          {!collapsed && ' Approvals'}
+          {pendingCount > 0 && <span className="sidebar-badge">{pendingCount}</span>}
+        </NavLink>
+        <NavLink to="/settings" title="Settings — API key, notifications, team" className={({ isActive }) => isActive ? 'active' : ''}>
+          <SettingsIcon />{!collapsed && ' Settings'}
         </NavLink>
       </nav>
 
@@ -158,6 +192,8 @@ createRoot(document.getElementById('root')).render(
             <Route path="/sandbox" element={<ProtectedRoute><Sandbox /></ProtectedRoute>} />
             <Route path="/sandbox/:simulationId" element={<ProtectedRoute><SimulationDetail /></ProtectedRoute>} />
             <Route path="/compare" element={<ProtectedRoute><Comparison /></ProtectedRoute>} />
+            <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
+            <Route path="/approvals" element={<ProtectedRoute><Approvals /></ProtectedRoute>} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </AppLayout>

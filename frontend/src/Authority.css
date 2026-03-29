@@ -872,6 +872,47 @@
   border-top: 1px solid var(--bg);
 }
 
+.agent-card-meta-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding-top: 10px;
+  margin-top: 2px;
+}
+
+.agent-policy-badge {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 9px;
+  border-radius: 10px;
+  background: #f0fdf4;
+  color: #16a34a;
+  border: 1px solid #bbf7d0;
+}
+
+.agent-policy-badge.no-policies {
+  background: #fefce8;
+  color: #ca8a04;
+  border-color: #fde68a;
+}
+
+.agent-pending-badge {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 9px;
+  border-radius: 10px;
+  background: #fef2f2;
+  color: #dc2626;
+  border: 1px solid #fca5a5;
+}
+
+.agent-last-seen {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-left: auto;
+}
+
 .stat {
   font-size: 13px;
   color: var(--text-secondary);
@@ -1003,6 +1044,127 @@
   color: var(--text-muted);
   font-size: 14px;
   font-weight: 600;
+}
+
+/* ── Setup Checklist ───────────────────────────────────────────── */
+
+.setup-checklist {
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 18px 20px;
+  margin-bottom: 16px;
+  animation: fadeInUp 0.3s;
+}
+
+.setup-checklist-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+
+.setup-checklist-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-right: 10px;
+}
+
+.setup-checklist-sub {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.setup-progress-bar {
+  flex: 1;
+  max-width: 160px;
+  height: 4px;
+  background: var(--bg);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.setup-progress-fill {
+  height: 100%;
+  background: #16a34a;
+  border-radius: 2px;
+  transition: width 0.5s ease;
+}
+
+.setup-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.setup-step {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: var(--bg);
+}
+
+.setup-step.done {
+  opacity: 0.5;
+}
+
+.setup-step-check {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  background: var(--border);
+  font-size: 11px;
+}
+
+.setup-step.done .setup-step-check {
+  background: #16a34a;
+}
+
+.setup-step-num {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-muted);
+}
+
+.setup-step-label {
+  flex: 1;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.setup-step.done .setup-step-label {
+  text-decoration: line-through;
+  color: var(--text-muted);
+}
+
+.setup-step-cta {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 10px;
+  cursor: pointer;
+  font-family: inherit;
+  text-decoration: none;
+  transition: background 0.15s, border-color 0.15s;
+  white-space: nowrap;
+}
+
+.setup-step-cta:hover {
+  background: var(--text-primary);
+  color: var(--white);
+  border-color: var(--text-primary);
 }
 
 /* ── Critical Banner ───────────────────────────────────────────── */

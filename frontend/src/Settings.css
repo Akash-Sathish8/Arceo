@@ -1,0 +1,417 @@
+.settings-page {
+  max-width: 860px;
+  margin: 0 auto;
+  padding: 48px 24px 100px;
+}
+
+.settings-header h1 {
+  font-size: 28px;
+  font-weight: 800;
+  margin: 0;
+  letter-spacing: -0.8px;
+  animation: fadeInUp 0.45s;
+}
+
+.settings-sub {
+  color: var(--text-muted);
+  font-size: 15px;
+  margin: 6px 0 32px;
+  animation: fadeInUp 0.45s 0.05s both;
+}
+
+/* ── Layout ─────────────────────────────────────────────────────── */
+
+.settings-layout {
+  display: grid;
+  grid-template-columns: 180px 1fr;
+  gap: 32px;
+  align-items: start;
+}
+
+/* ── Sidebar nav ─────────────────────────────────────────────────── */
+
+.settings-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  position: sticky;
+  top: 24px;
+}
+
+.settings-nav-item {
+  text-align: left;
+  padding: 8px 12px;
+  font-size: 13px;
+  font-weight: 500;
+  font-family: inherit;
+  background: none;
+  border: none;
+  border-radius: 7px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.settings-nav-item:hover {
+  background: var(--white);
+  color: var(--text-primary);
+}
+
+.settings-nav-item.active {
+  background: var(--white);
+  color: var(--text-primary);
+  font-weight: 600;
+  box-shadow: var(--shadow-sm);
+}
+
+/* ── Section ─────────────────────────────────────────────────────── */
+
+.settings-content {
+  min-width: 0;
+}
+
+.settings-section h2 {
+  font-size: 17px;
+  font-weight: 700;
+  margin: 0 0 6px;
+  letter-spacing: -0.3px;
+}
+
+.settings-section h3 {
+  font-size: 14px;
+  font-weight: 600;
+  margin: 24px 0 10px;
+  color: var(--text-primary);
+}
+
+.settings-desc {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin: 0 0 18px;
+  line-height: 1.6;
+}
+
+.settings-hint {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin: 6px 0 0;
+  line-height: 1.5;
+}
+
+/* ── API Key box ─────────────────────────────────────────────────── */
+
+.api-key-box {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 10px 14px;
+  font-family: 'Courier New', monospace;
+}
+
+.api-key-value {
+  flex: 1;
+  font-size: 12px;
+  color: var(--text-primary);
+  word-break: break-all;
+  user-select: all;
+}
+
+.toggle-show-btn,
+.copy-btn {
+  padding: 5px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  font-family: inherit;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+  color: var(--text-secondary);
+  transition: background 0.15s, color 0.15s;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.toggle-show-btn:hover,
+.copy-btn:hover {
+  background: var(--text-primary);
+  color: var(--white);
+  border-color: var(--text-primary);
+}
+
+/* ── Code blocks ─────────────────────────────────────────────────── */
+
+.snippet-tabs {
+  margin: 0 0 24px;
+}
+
+.snippet-tab-bar {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 0;
+}
+
+.snippet-tab {
+  padding: 7px 16px;
+  font-size: 12px;
+  font-weight: 600;
+  font-family: inherit;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+  margin-bottom: -1px;
+}
+
+.snippet-tab:hover { color: var(--text-primary); }
+.snippet-tab.active {
+  color: var(--text-primary);
+  border-bottom-color: var(--text-primary);
+}
+
+.code-block {
+  background: #0f172a;
+  border-radius: 0 0 8px 8px;
+  overflow: hidden;
+}
+
+.code-block-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 14px;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+}
+
+.code-lang {
+  font-size: 11px;
+  font-weight: 600;
+  color: rgba(255,255,255,0.4);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.code-block .copy-btn {
+  background: rgba(255,255,255,0.08);
+  border-color: rgba(255,255,255,0.12);
+  color: rgba(255,255,255,0.6);
+}
+
+.code-block .copy-btn:hover {
+  background: rgba(255,255,255,0.15);
+  color: #fff;
+  border-color: rgba(255,255,255,0.2);
+}
+
+.code-pre {
+  margin: 0;
+  padding: 16px 18px;
+  overflow-x: auto;
+  font-family: 'Courier New', monospace;
+  font-size: 12px;
+  line-height: 1.7;
+  color: #e2e8f0;
+}
+
+/* ── Response guide ─────────────────────────────────────────────── */
+
+.response-guide {
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px 20px;
+  margin-top: 4px;
+}
+
+.response-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.response-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.response-badge {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 3px 9px;
+  border-radius: 5px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  white-space: nowrap;
+}
+
+.response-badge.allow    { background: #dcfce7; color: #16a34a; }
+.response-badge.block    { background: #fef2f2; color: #dc2626; }
+.response-badge.approval { background: #fefce8; color: #ca8a04; }
+
+/* ── Notifications & Form fields ─────────────────────────────────── */
+
+.settings-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 18px;
+}
+
+.settings-field label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.settings-field input[type="url"],
+.settings-field input[type="email"],
+.settings-field input[type="text"] {
+  padding: 9px 12px;
+  font-size: 13px;
+  font-family: inherit;
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--white);
+  color: var(--text-primary);
+  transition: border-color 0.2s;
+}
+
+.settings-field input:focus {
+  outline: none;
+  border-color: var(--text-primary);
+}
+
+.settings-field input[readonly] {
+  background: var(--bg);
+  color: var(--text-muted);
+  cursor: default;
+}
+
+.settings-field-hint {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.settings-toggle-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.settings-toggle-label input[type="checkbox"] {
+  width: 14px;
+  height: 14px;
+  accent-color: var(--text-primary);
+  cursor: pointer;
+}
+
+.settings-save-btn {
+  padding: 9px 20px;
+  font-size: 13px;
+  font-weight: 600;
+  font-family: inherit;
+  background: var(--text-primary);
+  color: var(--white);
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.settings-save-btn:hover:not(:disabled) { opacity: 0.85; }
+.settings-save-btn:disabled { opacity: 0.5; cursor: default; }
+
+/* ── Team ─────────────────────────────────────────────────────────── */
+
+.team-member-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  margin-bottom: 20px;
+}
+
+.team-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--text-primary);
+  color: var(--white);
+  font-size: 13px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.team-member-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.team-member-email {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.team-member-role {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.team-you-badge {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  padding: 2px 8px;
+  border-radius: 10px;
+}
+
+.invite-form h3 {
+  margin-top: 0;
+}
+
+.invite-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.invite-row input {
+  flex: 1;
+  padding: 9px 12px;
+  font-size: 13px;
+  font-family: inherit;
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--white);
+  color: var(--text-primary);
+  transition: border-color 0.2s;
+}
+
+.invite-row input:focus {
+  outline: none;
+  border-color: var(--text-primary);
+}

@@ -383,8 +383,12 @@ export default function History() {
                 <tr><td colSpan={5}>
                   <div className="table-empty-state">
                     <div className="empty-icon">📋</div>
-                    <div className="empty-title">{executions.length === 0 ? "No executions yet" : "No matching entries"}</div>
-                    <div className="empty-desc">{executions.length === 0 ? "Actions your agents take will appear here." : "Try a different filter or search term."}</div>
+                    <div className="empty-title">{executions.length === 0 ? "No agent activity yet" : "No matching entries"}</div>
+                    <div className="empty-desc">
+                      {executions.length === 0
+                        ? <>Your agents haven't called the enforcement API yet. <a href="/settings" className="empty-link">See how to integrate →</a></>
+                        : "Try a different filter or search term."}
+                    </div>
                   </div>
                 </td></tr>
               )}
@@ -440,8 +444,12 @@ export default function History() {
                 <tr><td colSpan={5}>
                   <div className="table-empty-state">
                     <div className="empty-icon">🗂</div>
-                    <div className="empty-title">{auditEntries.length === 0 ? "No audit entries yet" : "No matching entries"}</div>
-                    <div className="empty-desc">{auditEntries.length === 0 ? "Changes made in ActionGate will be recorded here." : "Try a different filter or search term."}</div>
+                    <div className="empty-title">{auditEntries.length === 0 ? "No changes recorded yet" : "No matching entries"}</div>
+                    <div className="empty-desc">
+                      {auditEntries.length === 0
+                        ? "Policy changes, agent connections, and simulations will be logged here for compliance."
+                        : "Try a different filter or search term."}
+                    </div>
                   </div>
                 </td></tr>
               )}

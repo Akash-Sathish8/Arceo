@@ -468,6 +468,42 @@
   font-style: italic;
 }
 
+.run-mode-explainer {
+  display: flex;
+  gap: 0;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  margin-bottom: 10px;
+  overflow: hidden;
+}
+
+.run-mode-item {
+  flex: 1;
+  padding: 10px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.run-mode-item strong {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.run-mode-item span {
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+.run-mode-divider {
+  width: 1px;
+  background: var(--border);
+  flex-shrink: 0;
+}
+
 .run-buttons {
   display: flex;
   gap: 8px;
@@ -1426,6 +1462,39 @@
 }
 
 /* ── Past Simulations Cards ──────────────────────────────────────────── */
+
+.sim-filter-row {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+
+.sim-search-input {
+  flex: 1;
+  min-width: 180px;
+  padding: 8px 12px;
+  font-size: 13px;
+  font-family: inherit;
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--white);
+  color: var(--text-primary);
+  transition: border-color 0.2s;
+}
+
+.sim-search-input:focus { outline: none; border-color: var(--text-primary); }
+.sim-search-input::placeholder { color: var(--text-muted); }
+
+.sim-sort-select {
+  padding: 8px 12px;
+  font-size: 13px;
+  font-family: inherit;
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--white);
+  color: var(--text-primary);
+}
 
 .sim-list {
   display: flex;
