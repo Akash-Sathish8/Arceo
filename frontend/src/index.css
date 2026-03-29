@@ -274,10 +274,78 @@ body {
   flex-direction: column;
   height: 100vh;
   overflow-y: auto;
+  overflow-x: hidden;
   position: sticky;
   top: 0;
   z-index: 50;
   border-right: 1px solid rgba(255, 255, 255, 0.05);
+  transition: width 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.sidebar-collapsed {
+  width: 52px;
+}
+
+.sidebar-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 10px 14px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  flex-shrink: 0;
+  min-height: 57px;
+}
+
+.sidebar-collapse-btn {
+  background: none;
+  border: none;
+  color: rgba(255, 255, 255, 0.35);
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 5px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s, color 0.15s;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+.sidebar-collapse-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.sidebar-collapsed .sidebar-cta-wrap {
+  padding: 10px 6px 4px;
+}
+
+.sidebar-cta-icon {
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+}
+
+.sidebar-collapsed .sidebar-nav a {
+  justify-content: center;
+  padding: 10px 0;
+}
+
+.sidebar-footer-collapsed {
+  display: flex;
+  justify-content: center;
+  padding: 14px 0;
+}
+
+.sidebar-avatar-sm {
+  width: 28px;
+  height: 28px;
+  font-size: 11px;
+  cursor: default;
 }
 
 /* Logo — clickable link */
@@ -288,11 +356,10 @@ body {
   font-weight: 800;
   color: #fff;
   letter-spacing: -0.6px;
-  padding: 20px 18px 16px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
   flex-shrink: 0;
   text-decoration: none;
   transition: opacity 0.15s;
+  white-space: nowrap;
 }
 
 .sidebar-logo:hover {

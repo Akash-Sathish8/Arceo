@@ -544,6 +544,12 @@
   flex: 1;
 }
 
+.queue-empty-hint {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
 .queue-chip {
   display: inline-flex;
   align-items: center;
@@ -843,6 +849,37 @@
 
 .custom-prompt-input::placeholder {
   color: var(--text-muted);
+}
+
+.custom-prompt-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.custom-prompt-add-btn {
+  padding: 7px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  font-family: inherit;
+  background: var(--text-primary);
+  color: var(--white);
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.custom-prompt-add-btn:hover {
+  opacity: 0.85;
+}
+
+.custom-prompt-queued {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--green);
 }
 
 .run-loading {

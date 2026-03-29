@@ -1,4 +1,4 @@
-import { StrictMode } from 'react'
+import { StrictMode, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { BrowserRouter, Routes, Route, NavLink, Link, Navigate, useLocation } from 'react-router-dom'
 import './index.css'
@@ -47,47 +47,81 @@ const PlusIcon = () => (
   </svg>
 )
 
-function Sidebar() {
+const CollapseIcon = ({ collapsed }) => (
+  <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+    {collapsed
+      ? <path d="M5 2.5L9.5 7L5 11.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
+      : <path d="M9 2.5L4.5 7L9 11.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
+    }
+  </svg>
+)
+
+function Sidebar({ collapsed, onToggle }) {
   const user = getUser()
   const initial = user?.email?.[0]?.toUpperCase() || 'A'
   const orgName = user?.email?.split('@')[1]?.split('.')[0] || 'workspace'
 
   return (
-    <aside className="sidebar">
-      <Link to="/" className="sidebar-logo">
-        ActionGate<span className="logo-dot" />
-      </Link>
-
-      <div className="sidebar-cta-wrap">
-        <Link to="/?connect=true" className="sidebar-cta">
-          <PlusIcon /> Connect Agent
-        </Link>
+    <aside className={`sidebar${collapsed ? ' sidebar-collapsed' : ''}`}>
+      <div className="sidebar-top">
+        {!collapsed && (
+          <Link to="/" className="sidebar-logo">
+            ActionGate<span className="logo-dot" />
+          </Link>
+        )}
+        <button className="sidebar-collapse-btn" onClick={onToggle} title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}>
+          <CollapseIcon collapsed={collapsed} />
+        </button>
       </div>
+
+      {!collapsed && (
+        <div className="sidebar-cta-wrap">
+          <Link to="/?connect=true" className="sidebar-cta">
+            <PlusIcon /> Connect Agent
+          </Link>
+        </div>
+      )}
+      {collapsed && (
+        <div className="sidebar-cta-wrap">
+          <Link to="/?connect=true" className="sidebar-cta sidebar-cta-icon" title="Connect Agent">
+            <PlusIcon />
+          </Link>
+        </div>
+      )}
 
       <nav className="sidebar-nav">
         <NavLink to="/" end title="Dashboard" className={({ isActive }) => isActive ? 'active' : ''}>
-          <DashboardIcon /> Dashboard
+          <DashboardIcon />{!collapsed && ' Dashboard'}
         </NavLink>
         <NavLink to="/sandbox" title="Sandbox — simulate agent behavior" className={({ isActive }) => isActive ? 'active' : ''}>
-          <SandboxIcon /> Sandbox
+          <SandboxIcon />{!collapsed && ' Sandbox'}
         </NavLink>
         <NavLink to="/history" title="Past simulation runs" className={({ isActive }) => isActive ? 'active' : ''}>
-          <HistoryIcon /> History
+          <HistoryIcon />{!collapsed && ' History'}
         </NavLink>
       </nav>
 
       <div className="sidebar-footer">
-        <div className="sidebar-user-row">
-          <div className="sidebar-avatar">{initial}</div>
-          <div className="sidebar-user-info">
-            <span className="sidebar-user-name">{orgName}</span>
-            <span className="sidebar-user-email">{user?.email}</span>
+        {!collapsed && (
+          <>
+            <div className="sidebar-user-row">
+              <div className="sidebar-avatar">{initial}</div>
+              <div className="sidebar-user-info">
+                <span className="sidebar-user-name">{orgName}</span>
+                <span className="sidebar-user-email">{user?.email}</span>
+              </div>
+            </div>
+            <div className="sidebar-footer-actions">
+              <a href="mailto:support@actiongate.io" className="sidebar-help-link">Help &amp; support</a>
+              <button className="sidebar-logout" onClick={logout}>Sign out</button>
+            </div>
+          </>
+        )}
+        {collapsed && (
+          <div className="sidebar-footer-collapsed">
+            <div className="sidebar-avatar sidebar-avatar-sm" title={user?.email}>{initial}</div>
           </div>
-        </div>
-        <div className="sidebar-footer-actions">
-          <a href="mailto:support@actiongate.io" className="sidebar-help-link">Help &amp; support</a>
-          <button className="sidebar-logout" onClick={logout}>Sign out</button>
-        </div>
+        )}
       </div>
     </aside>
   )
@@ -95,11 +129,12 @@ function Sidebar() {
 
 function AppLayout({ children }) {
   const location = useLocation()
+  const [collapsed, setCollapsed] = useState(false)
   const noSidebar = location.pathname === '/login'
   if (noSidebar || !isLoggedIn()) return children
   return (
     <div className="app-layout">
-      <Sidebar />
+      <Sidebar collapsed={collapsed} onToggle={() => setCollapsed(c => !c)} />
       <div className="main-content">
         {children}
       </div>

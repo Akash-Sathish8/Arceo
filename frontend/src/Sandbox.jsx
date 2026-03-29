@@ -78,7 +78,7 @@ export default function Sandbox() {
   const [selectedAgent, setSelectedAgent] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [customPrompt, setCustomPrompt] = useState("");
-  const [useCustomPrompt, setUseCustomPrompt] = useState(false);
+  const [queuedCustomPrompts, setQueuedCustomPrompts] = useState([]);
 
   const [agentOpen, setAgentOpen] = useState(false);
   const agentSelectorRef = useRef(null);
@@ -157,12 +157,10 @@ export default function Sandbox() {
       const toAdd = filteredScenarios.filter((s) => !existing.has(s.id));
       return [...prev, ...toAdd];
     });
-    setCustomPrompt("");
-    setUseCustomPrompt(false);
   };
 
   const handleRun = async (dryRun = true) => {
-    if ((selectedScenarios.length === 0 && !customPrompt.trim()) || !selectedAgent) return;
+    if ((selectedScenarios.length === 0 && queuedCustomPrompts.length === 0) || !selectedAgent) return;
     setRunning(true);
     setRunError(null);
     setLastRunMode(dryRun ? "dry-run" : "llm");
@@ -170,21 +168,25 @@ export default function Sandbox() {
     setResult(null);
     setQueueResults([]);
 
-    const toRun = selectedScenarios.length > 0 ? selectedScenarios : [null];
+    const toRun = [
+      ...selectedScenarios.map((s) => ({ type: "scenario", scenario: s })),
+      ...queuedCustomPrompts.map((p) => ({ type: "custom", prompt: p })),
+    ];
+    if (toRun.length === 0) return;
     const allResults = [];
 
     for (let i = 0; i < toRun.length; i++) {
       setRunProgress({ current: i + 1, total: toRun.length });
       try {
         const body = { agent_id: selectedAgent, dry_run: dryRun };
-        if (toRun[i]) {
-          body.scenario_id = toRun[i].id;
-        } else if (customPrompt.trim()) {
-          body.custom_prompt = customPrompt.trim();
+        if (toRun[i].type === "scenario") {
+          body.scenario_id = toRun[i].scenario.id;
+        } else {
+          body.custom_prompt = toRun[i].prompt;
           body.scenario_id = "";
         }
         const data = await apiFetch("/api/sandbox/simulate", { method: "POST", body: JSON.stringify(body) });
-        allResults.push({ scenario: toRun[i], data });
+        allResults.push({ scenario: toRun[i].type === "scenario" ? toRun[i].scenario : null, data });
       } catch (_) {
         // continue with remaining scenarios
       }
@@ -341,7 +343,7 @@ export default function Sandbox() {
             <button
               className="run-btn primary"
               onClick={() => handleRun(true)}
-              disabled={(selectedScenarios.length === 0 && !customPrompt.trim()) || !selectedAgent || running}
+              disabled={(selectedScenarios.length === 0 && queuedCustomPrompts.length === 0) || !selectedAgent || running}
               title="Dry run — enforces policies, calls mock APIs, no LLM cost"
             >
               <span>
@@ -354,7 +356,7 @@ export default function Sandbox() {
             <button
               className="run-btn llm-btn"
               onClick={() => handleRun(false)}
-              disabled={(selectedScenarios.length === 0 && !customPrompt.trim()) || !selectedAgent || running}
+              disabled={(selectedScenarios.length === 0 && queuedCustomPrompts.length === 0) || !selectedAgent || running}
               title="Uses Claude to reason and decide which tools to call (~$0.05/run)"
             >
               <span>
@@ -367,47 +369,25 @@ export default function Sandbox() {
           </div>
         </div>
 
-        {/* Queue bar */}
-        {selectedScenarios.length > 0 ? (
-          <div className="run-queue-bar">
-            <span className="rsb-label">{selectedScenarios.length} queued</span>
-            <div className="queue-chips">
-              {selectedScenarios.map((s) => {
-                const cat = CATEGORY_COLORS[s.category] || CATEGORY_COLORS.normal;
-                return (
-                  <span key={s.id} className="queue-chip">
-                    <span className="queue-chip-dot" style={{ background: cat.color }} />
-                    {s.name}
-                    <button className="queue-chip-remove" onClick={() => toggleScenario(s)} title="Remove">×</button>
-                  </span>
-                );
-              })}
-            </div>
-            <button className="queue-clear-all" onClick={() => setSelectedScenarios([])}>Clear all</button>
-          </div>
-        ) : !useCustomPrompt ? (
-          <div className="run-scenario-bar empty">
-            <span className="rsb-hint">↓ Click scenarios below to add to queue, or type a custom prompt</span>
-          </div>
-        ) : null}
-
         {/* Custom prompt input */}
         <div className="custom-prompt-section">
           <textarea
             className="custom-prompt-input"
             value={customPrompt}
-            onChange={(e) => {
-              setCustomPrompt(e.target.value);
-              if (e.target.value.trim()) {
-                setUseCustomPrompt(true);
-                setSelectedScenarios([]);
-              } else {
-                setUseCustomPrompt(false);
-              }
-            }}
+            onChange={(e) => setCustomPrompt(e.target.value)}
             placeholder="Type a custom prompt... e.g. 'A customer wants a refund for a $200 charge they don't recognize'"
             rows={2}
           />
+          <div className="custom-prompt-footer">
+            {customPrompt.trim() && (
+              <button
+                className="custom-prompt-add-btn"
+                onClick={() => { setQueuedCustomPrompts((prev) => [...prev, customPrompt.trim()]); setCustomPrompt(""); }}
+              >
+                + Add to queue
+              </button>
+            )}
+          </div>
         </div>
 
         {running && (
@@ -429,8 +409,40 @@ export default function Sandbox() {
       </section>
 
       {/* Scenarios (auto-generated from selected agent) */}
-      {selectedAgent && !useCustomPrompt && (
+      {selectedAgent && (
         <section style={{ marginTop: 56, marginBottom: 48 }}>
+          {/* Queue bar — always visible */}
+          <div className="run-queue-bar" style={{ marginBottom: 24 }}>
+            <span className="rsb-label">
+              {selectedScenarios.length + queuedCustomPrompts.length} queued
+            </span>
+            <div className="queue-chips">
+              {selectedScenarios.length === 0 && queuedCustomPrompts.length === 0 && (
+                <span className="queue-empty-hint">No scenarios selected — click a scenario below or add a custom prompt</span>
+              )}
+              {selectedScenarios.map((s) => {
+                const cat = CATEGORY_COLORS[s.category] || CATEGORY_COLORS.normal;
+                return (
+                  <span key={s.id} className="queue-chip">
+                    <span className="queue-chip-dot" style={{ background: cat.color }} />
+                    {s.name}
+                    <button className="queue-chip-remove" onClick={() => toggleScenario(s)} title="Remove">×</button>
+                  </span>
+                );
+              })}
+              {queuedCustomPrompts.map((p, i) => (
+                <span key={`custom-${i}`} className="queue-chip queue-chip-custom">
+                  <span className="queue-chip-dot" style={{ background: "#6366f1" }} />
+                  Custom prompt {queuedCustomPrompts.length > 1 ? i + 1 : ""}
+                  <button className="queue-chip-remove" onClick={() => setQueuedCustomPrompts((prev) => prev.filter((_, j) => j !== i))} title="Remove">×</button>
+                </span>
+              ))}
+            </div>
+            {(selectedScenarios.length > 0 || queuedCustomPrompts.length > 0) && (
+              <button className="queue-clear-all" onClick={() => { setSelectedScenarios([]); setQueuedCustomPrompts([]); }}>Clear all</button>
+            )}
+          </div>
+
           <div className="section-header">
             <div>
               <h2>Pick a scenario</h2>

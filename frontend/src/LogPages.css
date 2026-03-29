@@ -12,6 +12,36 @@
   gap: 16px;
 }
 
+/* ── View toggle ────────────────────────────────────────────────── */
+
+.view-toggle {
+  display: flex;
+  gap: 0;
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  flex-shrink: 0;
+  margin-top: 8px;
+}
+
+.view-tab {
+  padding: 8px 16px;
+  font-size: 13px;
+  font-weight: 500;
+  background: var(--white);
+  color: var(--text-secondary);
+  border: none;
+  border-right: 1px solid var(--border);
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.15s, color 0.15s;
+  white-space: nowrap;
+}
+
+.view-tab:last-child { border-right: none; }
+.view-tab:hover { background: var(--bg); color: var(--text-primary); }
+.view-tab.active { background: var(--text-primary); color: var(--white); }
+
 /* ── Search row ─────────────────────────────────────────────────── */
 
 .history-search-row {
@@ -22,10 +52,27 @@
   flex-wrap: wrap;
 }
 
-.history-search {
+.history-search-wrap {
   flex: 1;
   min-width: 200px;
-  padding: 8px 14px;
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.history-search-icon {
+  position: absolute;
+  left: 10px;
+  width: 15px;
+  height: 15px;
+  color: var(--text-muted);
+  pointer-events: none;
+  flex-shrink: 0;
+}
+
+.history-search {
+  width: 100%;
+  padding: 8px 14px 8px 32px;
   font-size: 13px;
   font-family: inherit;
   border: 1.5px solid var(--border);
@@ -37,22 +84,6 @@
 
 .history-search::placeholder { color: var(--text-muted); }
 .history-search:focus { outline: none; border-color: var(--text-primary); }
-
-.view-select {
-  padding: 8px 14px;
-  font-size: 13px;
-  font-weight: 500;
-  border: 1.5px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--white);
-  color: var(--text-primary);
-  font-family: inherit;
-  cursor: pointer;
-  margin-top: 8px;
-  transition: border-color 0.2s;
-}
-
-.view-select:focus { outline: none; border-color: var(--text-primary); }
 
 .log-page h1 {
   font-size: 28px;
@@ -76,7 +107,7 @@
 
 .exec-stats {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   gap: 12px;
   margin-bottom: 24px;
   animation: fadeInUp 0.45s 0.1s both;
@@ -112,7 +143,27 @@
 }
 
 .exec-stat.executed strong { color: var(--green); }
-.exec-stat.blocked strong { color: var(--red); }
+.exec-stat.blocked  strong { color: var(--red); }
+.exec-stat.pending  strong { color: #ca8a04; }
+
+/* Mini ratio bar inside stat card */
+.exec-stat-bar {
+  width: 100%;
+  height: 3px;
+  background: var(--bg);
+  border-radius: 2px;
+  margin-top: 10px;
+  overflow: hidden;
+}
+
+.exec-stat-fill {
+  height: 100%;
+  border-radius: 2px;
+  transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.exec-fill-green { background: var(--green); }
+.exec-fill-red   { background: var(--red); }
 
 /* ── Controls ──────────────────────────────────────────────────── */
 
@@ -261,6 +312,14 @@
 .log-table tr:hover td { background: var(--bg); }
 .log-table tr:last-child td { border-bottom: none; }
 
+/* ── Table row risk accents ─────────────────────────────────────── */
+
+.log-row-destructive td:first-child {
+  border-left: 3px solid #fca5a5;
+  padding-left: 13px;
+}
+
+
 /* ── Action cell ────────────────────────────────────────────────── */
 
 .log-action-cell {
@@ -276,13 +335,15 @@
   flex-shrink: 0;
 }
 
-.log-action-tool {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--text-muted);
-  text-transform: uppercase;
+.log-tool-chip {
+  font-size: 10px;
+  font-weight: 700;
   letter-spacing: 0.4px;
+  padding: 2px 0;
+  border-radius: 4px;
   flex-shrink: 0;
+  min-width: 90px;
+  text-align: center;
 }
 
 .log-action-name {
@@ -291,7 +352,62 @@
   color: var(--text-primary);
 }
 
-.log-time { white-space: nowrap; font-size: 12px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+/* ── Timestamp ──────────────────────────────────────────────────── */
+
+.log-time {
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  position: relative;
+}
+
+.log-time-rel {
+  cursor: default;
+  border-bottom: 1px dashed var(--border);
+}
+
+/* Tooltip: show full time on hover */
+.log-time-full {
+  display: none;
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 10;
+  background: #1e293b;
+  color: #f8fafc;
+  font-size: 11px;
+  padding: 4px 8px;
+  border-radius: 5px;
+  white-space: nowrap;
+  margin-top: 4px;
+  pointer-events: none;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+}
+
+.log-time:hover .log-time-full { display: block; }
+
+/* ── Agent cell ─────────────────────────────────────────────────── */
+
+.log-agent {
+  font-size: 13px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+/* ── Detail cell ────────────────────────────────────────────────── */
+
+.log-detail-none {
+  color: var(--text-muted);
+  font-style: italic;
+  font-size: 12px;
+}
+
+.log-detail-policy {
+  font-size: 12px;
+  color: #0369a1;
+  font-weight: 500;
+}
 
 .mono {
   font-family: 'Inter', monospace;
@@ -327,10 +443,67 @@
   flex-shrink: 0;
 }
 
+.risk-legend-swatch {
+  width: 14px;
+  height: 10px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+
 .action-badge {
   font-size: 11px; font-weight: 600; padding: 3px 9px;
   background: var(--bg); border-radius: 5px;
   font-family: 'Inter', monospace; color: var(--text-primary);
+}
+
+/* ── Audit view ─────────────────────────────────────────────────── */
+
+.audit-system-toggle {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  user-select: none;
+}
+
+.audit-system-toggle input[type="checkbox"] {
+  width: 14px;
+  height: 14px;
+  cursor: pointer;
+  accent-color: var(--text-primary);
+}
+
+.audit-hidden-count {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  background: var(--bg);
+  padding: 1px 7px;
+  border-radius: 10px;
+}
+
+.audit-action-cell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.audit-action-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.audit-count-badge {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  padding: 1px 7px;
+  border-radius: 10px;
 }
 
 .status-badge {
