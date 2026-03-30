@@ -4,6 +4,21 @@ import { apiFetch } from "./api.js";
 import { toast } from "./Toast.jsx";
 import "./Sandbox.css";
 
+function Tooltip({ text, children }) {
+  return (
+    <span className="tooltip-wrap">
+      {children}
+      <span className="tooltip-bubble">{text}</span>
+    </span>
+  );
+}
+
+const CATEGORY_TOOLTIPS = {
+  edge_case:    "Unusual or boundary situations the agent might encounter — tests whether it behaves safely in uncommon scenarios.",
+  adversarial:  "Scenarios designed to trick or manipulate the agent into taking unauthorized or harmful actions.",
+  chain_exploit:"Tests multi-step sequences where combining two actions creates elevated risk — e.g. reading customer data then sending it outside your system.",
+};
+
 const formatDesc = (desc) => {
   // Fix developer jargon
   const noJargon = desc
@@ -498,6 +513,11 @@ export default function Sandbox() {
                   onClick={() => setCategoryFilter(f.value)}
                 >
                   {f.label}
+                  {CATEGORY_TOOLTIPS[f.value] && (
+                    <Tooltip text={CATEGORY_TOOLTIPS[f.value]}>
+                      <span className="jargon-hint" style={{ marginLeft: 3, marginRight: 2 }}>?</span>
+                    </Tooltip>
+                  )}
                   <span className="pill-count">{count}</span>
                 </button>
               );

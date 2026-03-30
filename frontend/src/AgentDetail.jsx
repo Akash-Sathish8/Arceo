@@ -51,6 +51,15 @@ const SEV_STYLE = {
   high: { bg: "#fff7ed", color: "#ea580c" },
 };
 
+function Tooltip({ text, children }) {
+  return (
+    <span className="tooltip-wrap">
+      {children}
+      <span className="tooltip-bubble">{text}</span>
+    </span>
+  );
+}
+
 // ── Authority Map ─────────────────────────────────────────────────────────
 
 function AuthorityMap({ graph }) {
@@ -491,13 +500,13 @@ export default function AgentDetail() {
   const ringOffset = ringC * (1 - br.score / 100);
 
   const statItems = [
-    { label: "Total Actions",  value: br.total_actions,       color: null },
-    { label: "Move Money",     value: br.moves_money,         color: "#dc2626" },
-    { label: "Touch PII",      value: br.touches_pii,         color: "#7c3aed" },
-    { label: "Delete Data",    value: br.deletes_data,        color: "#ea580c" },
-    { label: "Send External",  value: br.sends_external,      color: "#2563eb" },
-    { label: "Change Prod",    value: br.changes_production,  color: "#0d9488" },
-    { label: "Irreversible",   value: br.irreversible_actions, color: null },
+    { label: "Total Actions",  tooltip: "Every individual API call or operation this agent can perform across all its connected tools.", value: br.total_actions,        color: null },
+    { label: "Move Money",     tooltip: "Charges, refunds, transfers, and subscription changes — any action that moves funds.",         value: br.moves_money,          color: "#dc2626" },
+    { label: "Touch PII",      tooltip: "Reads or writes personal data — names, emails, addresses, payment info, or any customer record.", value: br.touches_pii,        color: "#7c3aed" },
+    { label: "Delete Data",    tooltip: "Permanently removes records, files, or data. Cannot be undone.",                               value: br.deletes_data,         color: "#ea580c" },
+    { label: "Send External",  tooltip: "Emails, messages, or webhooks sent to customers or third-party services outside your system.", value: br.sends_external,       color: "#2563eb" },
+    { label: "Change Prod",    tooltip: "Edits to live configuration, infrastructure, access rules, or deployment settings.",           value: br.changes_production,   color: "#0d9488" },
+    { label: "Irreversible",   tooltip: "Actions that cannot be undone — includes permanent deletions, charges, and outbound sends.",   value: br.irreversible_actions, color: null },
   ];
   const visibleStats = statItems.filter((s, i) => i === 0 || i === statItems.length - 1 || s.value > 0);
 
@@ -586,7 +595,14 @@ export default function AgentDetail() {
         {visibleStats.map((s) => (
           <div key={s.label} className="d-stat" style={s.color ? { color: s.color } : undefined}>
             <strong>{s.value}</strong>
-            <span>{s.label}</span>
+            <span>
+              {s.label}
+              {s.tooltip && (
+                <Tooltip text={s.tooltip}>
+                  <span className="jargon-hint">?</span>
+                </Tooltip>
+              )}
+            </span>
           </div>
         ))}
       </div>
@@ -594,7 +610,12 @@ export default function AgentDetail() {
       {/* Enforcement Policies */}
       <div className="detail-section" style={{ position: "relative", zIndex: 2 }}>
         <div className="chain-section-header">
-          <h2>Enforcement Policies ({sortedPolicies.length})</h2>
+          <h2>
+            Enforcement Policies ({sortedPolicies.length})
+            <Tooltip text="Rules that tell ActionGate what to do when this agent attempts specific actions — block them outright, require a human to approve first, or explicitly allow them.">
+              <span className="jargon-hint">?</span>
+            </Tooltip>
+          </h2>
           <div className="chain-sev-counts">
             {policyEffectCounts.BLOCK > 0 && <span className="chain-sev-chip" style={{ background: "#fef2f2", color: "#dc2626" }}>{policyEffectCounts.BLOCK} Block</span>}
             {policyEffectCounts.REQUIRE_APPROVAL > 0 && <span className="chain-sev-chip" style={{ background: "#fff7ed", color: "#ea580c" }}>{policyEffectCounts.REQUIRE_APPROVAL} Req. Approval</span>}
@@ -738,7 +759,12 @@ export default function AgentDetail() {
       {/* Authority Map */}
       <div className="detail-section">
         <div className="am-section-header">
-          <h2>Authority Graph</h2>
+          <h2>
+            Authority Graph
+            <Tooltip text="A complete map of every tool and action this agent has access to, grouped by service and color-coded by risk level.">
+              <span className="jargon-hint">?</span>
+            </Tooltip>
+          </h2>
           <div className="am-legend">
             <span><span className="am-dot am-dot-safe" /> Safe</span>
             <span><span className="am-dot am-dot-risky" /> Risky</span>
@@ -752,7 +778,12 @@ export default function AgentDetail() {
       {chains.length > 0 && (
         <div className="detail-section">
           <div className="chain-section-header">
-            <h2>Dangerous Chains ({chains.length})</h2>
+            <h2>
+              Dangerous Chains ({chains.length})
+              <Tooltip text="Multi-step sequences where two or more of this agent's capabilities combine to create elevated risk — e.g. accessing customer PII then emailing it externally.">
+                <span className="jargon-hint">?</span>
+              </Tooltip>
+            </h2>
             <div className="chain-sev-counts">
               {chains.filter((c) => c.severity === "critical").length > 0 && (
                 <span className="chain-sev-chip chain-sev-critical">{chains.filter((c) => c.severity === "critical").length} Critical</span>
@@ -838,7 +869,12 @@ export default function AgentDetail() {
       {visibleRecs.length > 0 && (
         <div className="detail-section">
           <div className="chain-section-header">
-            <h2>Recommendations ({visibleRecs.length})</h2>
+            <h2>
+              Recommendations ({visibleRecs.length})
+              <Tooltip text="Policy suggestions auto-generated based on this agent's risk profile. Applying them adds enforcement rules to reduce your exposure.">
+                <span className="jargon-hint">?</span>
+              </Tooltip>
+            </h2>
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
               <div className="chain-sev-counts">
                 {visibleRecs.filter(({ r }) => r.severity === "critical").length > 0 && (

@@ -105,9 +105,17 @@ function AgentCard({ agent }) {
 
       <div className="agent-card-footer">
         <span className="stat">{br.total_actions} actions</span>
-        <span className="stat">{br.irreversible_actions}/{br.total_actions} permanent</span>
+        <span className="stat">
+          {br.irreversible_actions}/{br.total_actions} irreversible
+          <Tooltip text="Actions that cannot be undone — like deleting records, charging a card, or sending an email to a customer.">
+            <span className="jargon-hint">?</span>
+          </Tooltip>
+        </span>
         <span className="stat chain-stat">
-          {agent.chain_count} risk combos
+          {agent.chain_count} dangerous chains
+          <Tooltip text="Multi-step sequences where combining two of this agent's actions creates elevated risk.">
+            <span className="jargon-hint">?</span>
+          </Tooltip>
           {agent.critical_chains > 0 && (
             <span className="crit-badge">{agent.critical_chains} critical</span>
           )}
@@ -780,7 +788,12 @@ export default function Authority() {
         <div className="fleet-divider" />
         <div className={`fleet-stat ${criticalChains.length > 0 ? "fleet-stat-critical" : ""}`}>
           <div className="fleet-stat-number">{criticalChains.length}</div>
-          <div className="fleet-stat-label">Critical Risks</div>
+          <div className="fleet-stat-label">
+            Critical Risks
+            <Tooltip text="Dangerous chains rated at the highest severity — most likely to cause real harm. Review and add policies to address these immediately.">
+              <span className="jargon-hint">?</span>
+            </Tooltip>
+          </div>
         </div>
         <div className="fleet-divider" />
         <div className="fleet-stat fleet-risk-level">

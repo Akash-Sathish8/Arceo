@@ -242,6 +242,10 @@
   letter-spacing: 0.5px;
   color: var(--text-muted);
   font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
 }
 
 /* ── Sections ──────────────────────────────────────────────────── */
@@ -263,6 +267,10 @@
   color: var(--text-muted);
   margin: 0 0 14px;
   font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
 }
 
 /* ── Authority Map ──────────────────────────────────────────────── */
