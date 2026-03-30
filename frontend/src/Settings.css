@@ -389,40 +389,67 @@
   border-radius: 10px;
 }
 
-.invite-coming-soon {
-  padding: 16px 18px;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
+.invite-notify-section {
+  margin-top: 24px;
+  padding-top: 24px;
+  border-top: 1px solid var(--border);
 }
 
-.invite-cs-header {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.invite-cs-header h3 {
-  margin: 0;
+.invite-notify-section h3 {
+  margin: 0 0 6px;
   font-size: 14px;
   font-weight: 700;
   color: var(--text-primary);
 }
 
-.invite-cs-badge {
-  font-size: 10px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.6px;
-  background: #fefce8;
-  color: #ca8a04;
-  border: 1px solid #fde68a;
-  padding: 2px 8px;
-  border-radius: 10px;
+.invite-form {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
 }
 
-.invite-form h3 {
-  margin-top: 0;
+.invite-email-input {
+  flex: 1;
+  padding: 8px 12px;
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  color: var(--text-primary);
+  background: var(--white);
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.invite-email-input:focus {
+  border-color: var(--text-primary);
+}
+
+.invite-notify-btn {
+  padding: 8px 16px;
+  background: var(--text-primary);
+  color: var(--white);
+  border: none;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.15s;
+  white-space: nowrap;
+}
+
+.invite-notify-btn:hover {
+  opacity: 0.85;
+}
+
+.invite-sent-msg {
+  margin-top: 12px;
+  padding: 10px 14px;
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  color: #16a34a;
+  font-weight: 500;
 }
 
 .invite-row {

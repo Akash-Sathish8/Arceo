@@ -354,7 +354,7 @@ export default function Sandbox() {
               <span>
                 {running && lastRunMode === "dry-run"
                   ? (runProgress?.total > 1 ? `Running ${runProgress.current} of ${runProgress.total}...` : "Running...")
-                  : selectedScenarios.length > 1 ? `Run ${selectedScenarios.length} Scenarios` : "Run Simulation"}
+                  : selectedScenarios.length > 1 ? `Dry Run (${selectedScenarios.length})` : "Dry Run"}
               </span>
               <span className="run-btn-sub">dry run · mock APIs · free</span>
             </button>
@@ -367,7 +367,7 @@ export default function Sandbox() {
               <span>
                 {running && lastRunMode === "llm"
                   ? (runProgress?.total > 1 ? `Running ${runProgress.current} of ${runProgress.total}...` : "Running...")
-                  : selectedScenarios.length > 1 ? `LLM: ${selectedScenarios.length} Scenarios` : "Run with LLM"}
+                  : selectedScenarios.length > 1 ? `LLM Run (${selectedScenarios.length})` : "LLM Run"}
               </span>
               <span className="run-btn-sub">Claude decides · ~$0.05</span>
             </button>
@@ -490,6 +490,7 @@ export default function Sandbox() {
                   onClick={() => setCategoryFilter(f.value)}
                 >
                   {f.label}
+                  {f.value === "normal" && <span className="pill-start-here">Start here</span>}
                   {CATEGORY_TOOLTIPS[f.value] && (
                     <Tooltip text={CATEGORY_TOOLTIPS[f.value]}>
                       <span className="jargon-hint" style={{ marginLeft: 3, marginRight: 2 }}>?</span>

@@ -1,7 +1,7 @@
 .detail-page {
   max-width: 960px;
   margin: 0 auto;
-  padding: 36px 24px 100px;
+  padding: 48px 24px 100px;
 }
 
 .detail-topbar {
@@ -1432,6 +1432,38 @@
 
 .policy-submit-btn:hover { opacity: 0.9; box-shadow: 0 4px 12px rgba(15,20,25,0.15); }
 .policy-submit-btn:disabled { opacity: 0.4; cursor: default; }
+
+.policy-added-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 14px;
+  padding: 10px 14px;
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  color: #15803d;
+  font-weight: 500;
+  animation: fadeInUp 0.3s ease;
+}
+
+.policy-added-icon {
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+.policy-added-link {
+  margin-left: auto;
+  color: #15803d;
+  font-weight: 600;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.policy-added-link:hover {
+  text-decoration: underline;
+}
 
 /* ── Policy Row (updated) ──────────────────────────────────────── */
 

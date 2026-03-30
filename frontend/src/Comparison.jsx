@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { Link, useSearchParams, useNavigate } from "react-router-dom";
 import { apiFetch } from "./api.js";
 import "./Comparison.css";
 
@@ -61,6 +61,64 @@ function MetricRow({ label, before, after, lowerIsBetter = true }) {
   );
 }
 
+function SimulationPicker({ afterId, afterData }) {
+  const navigate = useNavigate();
+  const [sims, setSims] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    apiFetch("/api/sandbox/simulations")
+      .then((d) => { setSims(d.simulations || []); setLoading(false); })
+      .catch(() => setLoading(false));
+  }, []);
+
+  const candidates = sims.filter((s) => s.simulation_id !== afterId && s.status === "completed");
+
+  const scoreColor = (s) => s >= 70 ? "#dc2626" : s >= 40 ? "#ea580c" : "#16a34a";
+
+  return (
+    <div className="cmp-page">
+      <Link to="/sandbox" className="cmp-back">← Sandbox</Link>
+      <h1 className="cmp-title" style={{ marginTop: 12 }}>Compare Simulations</h1>
+      <p className="cmp-picker-sub">
+        You're comparing against <strong>{afterData?.trace?.agent_name || "this simulation"}</strong> — <em>{afterData?.trace?.scenario_name}</em>.
+        <br />Pick an earlier run to compare it against.
+      </p>
+      {loading ? (
+        <div className="loading-state"><div className="spinner" /></div>
+      ) : candidates.length === 0 ? (
+        <div className="cmp-no-sims">
+          <p>No other completed simulations found. Run another simulation first, then come back to compare.</p>
+          <Link to="/sandbox" className="cmp-btn-primary" style={{ display: "inline-block", marginTop: 12 }}>Go to Sandbox</Link>
+        </div>
+      ) : (
+        <div className="cmp-picker-list">
+          {candidates.map((s) => (
+            <button
+              key={s.simulation_id}
+              className="cmp-picker-row"
+              onClick={() => navigate(`/compare?before=${s.simulation_id}&after=${afterId}`)}
+            >
+              <div className="cmp-picker-row-left">
+                <span className="cmp-picker-agent">{s.agent_name}</span>
+                <span className="cmp-picker-scenario">{s.scenario_name}</span>
+                {s.is_dry_run && <span className="cmp-picker-badge">Dry Run</span>}
+              </div>
+              <div className="cmp-picker-row-right">
+                <span className="cmp-picker-score" style={{ color: scoreColor(s.risk_score ?? 0) }}>
+                  {s.risk_score ?? "—"}
+                </span>
+                <span className="cmp-picker-time">{new Date(s.timestamp + (s.timestamp?.endsWith("Z") ? "" : "Z")).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</span>
+                <span className="cmp-picker-arrow">→</span>
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function Comparison() {
   const [searchParams] = useSearchParams();
   const beforeId = searchParams.get("before");
@@ -72,9 +130,15 @@ export default function Comparison() {
   const [error, setError] = useState(null);
 
   useEffect(() => {
-    if (!beforeId || !afterId) {
-      setError("Missing simulation IDs. Run two simulations from the Sandbox to compare.");
+    if (!beforeId && !afterId) {
       setLoading(false);
+      return;
+    }
+    if (!beforeId && afterId) {
+      // Load afterData so the picker can show the context
+      apiFetch(`/api/sandbox/simulation/${afterId}`)
+        .then((a) => { setAfterData(a); setLoading(false); })
+        .catch(() => setLoading(false));
       return;
     }
     Promise.all([
@@ -91,6 +155,31 @@ export default function Comparison() {
         setLoading(false);
       });
   }, [beforeId, afterId]);
+
+  // No IDs at all — show a guide
+  if (!loading && !beforeId && !afterId) {
+    return (
+      <div className="cmp-page">
+        <h1 className="cmp-title" style={{ marginTop: 12 }}>Compare Simulations</h1>
+        <div className="cmp-guide">
+          <div className="cmp-guide-icon">↔</div>
+          <h2>See how policies change your risk</h2>
+          <p>Run two simulations on the same agent — one before and one after applying policies — then compare them side by side.</p>
+          <ol className="cmp-guide-steps">
+            <li>Go to <strong>Sandbox</strong> and run a simulation on an agent</li>
+            <li>On the report page, click <strong>"Compare with..."</strong></li>
+            <li>Pick a second simulation to compare against</li>
+          </ol>
+          <Link to="/sandbox" className="cmp-btn-primary" style={{ display: "inline-block", marginTop: 20 }}>Go to Sandbox →</Link>
+        </div>
+      </div>
+    );
+  }
+
+  // Only afterId — show simulation picker
+  if (!loading && afterId && !beforeId) {
+    return <SimulationPicker afterId={afterId} afterData={afterData} />;
+  }
 
   if (loading) {
     return (

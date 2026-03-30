@@ -258,14 +258,24 @@ if (await enforce("Stripe", "create_refund", { amount: 500 })) {
                 <span className="team-you-badge">You</span>
               </div>
 
-              <div className="invite-coming-soon">
-                <div className="invite-cs-header">
-                  <h3>Invite a teammate</h3>
-                  <span className="invite-cs-badge">Coming soon</span>
-                </div>
-                <p className="settings-desc" style={{ marginTop: 6 }}>
-                  Multi-user workspaces are in development. For now, share your API key directly with teammates who need access.
-                </p>
+              <div className="invite-notify-section">
+                <h3>Invite a teammate</h3>
+                <p className="settings-desc">Multi-user workspaces are coming soon. Enter a teammate's email and we'll notify you both when it's ready.</p>
+                {inviteSent ? (
+                  <div className="invite-sent-msg">Got it — we'll let you both know when team access launches.</div>
+                ) : (
+                  <form className="invite-form" onSubmit={sendInvite}>
+                    <input
+                      type="email"
+                      className="invite-email-input"
+                      placeholder="teammate@company.com"
+                      value={inviteEmail}
+                      onChange={(e) => setInviteEmail(e.target.value)}
+                      required
+                    />
+                    <button type="submit" className="invite-notify-btn">Notify me</button>
+                  </form>
+                )}
               </div>
             </div>
           )}

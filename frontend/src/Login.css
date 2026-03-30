@@ -239,6 +239,28 @@
   text-decoration: underline;
 }
 
+.login-toggle-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.login-toggle-btn:hover {
+  text-decoration: underline;
+}
+
+.login-toggle-btn:focus-visible {
+  outline: 2px solid var(--carolina);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
 .login-demo-btn {
   width: 100%;
   padding: 10px;

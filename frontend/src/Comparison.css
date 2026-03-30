@@ -22,6 +22,144 @@
 
 .cmp-back:hover { color: var(--text-primary); background: var(--bg); }
 
+/* ── Guide (no IDs) ────────────────────────────────────────────── */
+
+.cmp-guide {
+  margin-top: 32px;
+  padding: 40px 48px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  text-align: center;
+}
+
+.cmp-guide-icon {
+  font-size: 32px;
+  margin-bottom: 16px;
+  color: var(--text-muted);
+}
+
+.cmp-guide h2 {
+  font-size: 20px;
+  font-weight: 700;
+  margin: 0 0 10px;
+  color: var(--text-primary);
+}
+
+.cmp-guide p {
+  font-size: 14px;
+  color: var(--text-secondary);
+  margin: 0 auto 20px;
+  max-width: 460px;
+  line-height: 1.6;
+}
+
+.cmp-guide-steps {
+  text-align: left;
+  display: inline-block;
+  margin: 0 0 8px;
+  padding-left: 24px;
+  font-size: 14px;
+  color: var(--text-secondary);
+  line-height: 2;
+}
+
+.cmp-guide-steps strong { color: var(--text-primary); }
+
+/* ── Picker (only afterId) ─────────────────────────────────────── */
+
+.cmp-picker-sub {
+  font-size: 14px;
+  color: var(--text-secondary);
+  margin: 6px 0 24px;
+  line-height: 1.6;
+}
+
+.cmp-picker-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.cmp-picker-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 18px;
+  background: var(--bg-card);
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.15s, box-shadow 0.15s, transform 0.15s;
+  font-family: inherit;
+}
+
+.cmp-picker-row:hover {
+  border-color: var(--text-primary);
+  box-shadow: var(--shadow-sm);
+  transform: translateY(-1px);
+}
+
+.cmp-picker-row-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.cmp-picker-agent {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.cmp-picker-scenario {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.cmp-picker-badge {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  background: #edf5fb;
+  color: #4B9CD3;
+  border: 1px solid #7DB8E0;
+  padding: 2px 7px;
+  border-radius: 8px;
+}
+
+.cmp-picker-row-right {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-shrink: 0;
+}
+
+.cmp-picker-score {
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.cmp-picker-time {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.cmp-picker-arrow {
+  font-size: 14px;
+  color: var(--text-muted);
+}
+
+.cmp-no-sims {
+  margin-top: 24px;
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+
 /* ── Banner ───────────────────────────────────────────────────────── */
 
 .cmp-banner {

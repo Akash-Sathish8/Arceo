@@ -916,7 +916,10 @@ export default function Authority() {
       {/* Dangerous Chains with filter */}
       <section id="danger-chains">
         <div className="section-header">
-          <h2>Dangerous Capability Combinations ({filteredChains.length}) <Tooltip text="Multi-step action sequences where an agent could chain together individually-allowed actions to cause serious harm — e.g. reading PII then emailing it externally."><span className="jargon-hint">?</span></Tooltip></h2>
+          <div>
+            <h2>Dangerous Capability Combinations ({filteredChains.length}) <Tooltip text="Multi-step action sequences where an agent could chain together individually-allowed actions to cause serious harm — e.g. reading PII then emailing it externally."><span className="jargon-hint">?</span></Tooltip></h2>
+            <p className="section-sub">Sequences of individually-allowed actions that become high-risk when combined.</p>
+          </div>
           <div className="controls">
             <select
               className="control-select"

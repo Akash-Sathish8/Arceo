@@ -78,7 +78,7 @@ export default function Login() {
               <li>
                 <div className="ob-step-num">2</div>
                 <div>
-                  <strong>Score the blast radius</strong>
+                  <strong>Assess the risk exposure</strong>
                   <p>Instantly see which actions can move money, delete data, or leak PII — and how dangerous they are.</p>
                 </div>
               </li>
@@ -210,7 +210,7 @@ export default function Login() {
       <div className="login-form-panel">
         <form className="login-form" onSubmit={handleLoginSubmit}>
           <div className="login-brand">ActionGate</div>
-          <p className="login-subtitle">Sign in to the Authority Engine</p>
+          <p className="login-subtitle">Sign in to your workspace</p>
 
           {error && <div className="login-error">{error}</div>}
 
@@ -225,7 +225,7 @@ export default function Login() {
           </button>
 
           <p className="login-toggle">
-            Don't have an account? <span onClick={() => { setOnboardStep(1); setError(null); }}>Create one</span>
+            Don't have an account? <button type="button" className="login-toggle-btn" onClick={() => { setOnboardStep(1); setError(null); }}>Create one</button>
           </p>
 
           <button type="button" className="login-demo-btn" onClick={doLogin} disabled={loading}>

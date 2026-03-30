@@ -227,8 +227,8 @@ export default function History() {
           <h1>History</h1>
           <p className="log-subtitle">
             {view === "executions"
-              ? "What your agents did — and what was stopped."
-              : "Every change made in ActionGate."}
+              ? "Real-time API calls your agents made — and which ones were blocked or approved."
+              : "Every configuration change made in ActionGate."}
           </p>
         </div>
         {/* View toggle — replaces <select> */}
@@ -237,7 +237,7 @@ export default function History() {
             className={`view-tab${view === "executions" ? " active" : ""}`}
             onClick={() => { setView("executions"); setFilterStatus("all"); setSearch(""); }}
           >
-            Executions
+            Agent Actions
           </button>
           <button
             className={`view-tab${view === "audit" ? " active" : ""}`}

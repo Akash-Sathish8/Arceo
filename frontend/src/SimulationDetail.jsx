@@ -250,9 +250,14 @@ export default function SimulationDetail() {
     <div className="sim-detail-page">
       <div className="sim-detail-topbar">
         <Link to="/sandbox" className="back-link">&larr; Sandbox</Link>
-        <Link to={`/sandbox?agent=${data?.agent_id || ""}`} className="sim-run-again-btn">
-          Run Again →
-        </Link>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <Link to={`/compare?after=${simulationId}`} className="sim-compare-btn">
+            Compare with...
+          </Link>
+          <Link to={`/sandbox?agent=${data?.agent_id || ""}`} className="sim-run-again-btn">
+            Run Again →
+          </Link>
+        </div>
       </div>
 
       {/* Header */}

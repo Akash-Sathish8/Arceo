@@ -78,17 +78,19 @@ export default function Approvals() {
       {approvals.length === 0 ? (
         <div className="approvals-empty">
           <div className="approvals-empty-icon">
-            <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
-              <circle cx="12" cy="12" r="10" stroke="#16a34a" strokeWidth="1.8"/>
-              <path d="M7.5 12l3 3 6-6" stroke="#16a34a" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
-            </svg>
+            <div className="approvals-empty-icon-circle">
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none">
+                <path d="M7.5 12l3 3 6-6" stroke="#16a34a" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </div>
           </div>
-          <div className="approvals-empty-title">All clear</div>
+          <div className="approvals-empty-title">You're all caught up</div>
           <div className="approvals-empty-desc">
-            No actions waiting for review. When an agent triggers a{" "}
-            <code>REQUIRE_APPROVAL</code> policy, it will appear here.
+            No actions are waiting for your review right now.
+            <br />
+            When an agent triggers a <code>REQUIRE_APPROVAL</code> policy, it will pause here until you decide.
             <br /><br />
-            <Link to="/" className="approvals-link">Set up a policy →</Link>
+            <Link to="/agent" className="approvals-link">Set up a policy on an agent →</Link>
           </div>
         </div>
       ) : (

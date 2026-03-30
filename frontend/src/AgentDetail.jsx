@@ -378,6 +378,7 @@ export default function AgentDetail() {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [collapsedChains, setCollapsedChains] = useState({});
   const toggleChain = (id) => setCollapsedChains((p) => ({ ...p, [id]: !p[id] }));
+  const [policyAdded, setPolicyAdded] = useState(false);
   const [applyingRecs, setApplyingRecs] = useState(false);
   const [showRecsMenu, setShowRecsMenu] = useState(false);
   const [selectedRecs, setSelectedRecs] = useState(new Set());
@@ -425,6 +426,7 @@ export default function AgentDetail() {
       );
       setNewPatterns([]);
       setNewReason("");
+      setPolicyAdded(true);
       toast(`${newPatterns.length} polic${newPatterns.length !== 1 ? "ies" : "y"} added`);
       loadData();
     } catch (err) {
@@ -718,7 +720,7 @@ export default function AgentDetail() {
           {newEffect !== "ALLOW" && (
             <input
               className="policy-reason-input"
-              placeholder={newEffect === "BLOCK" ? "Why should this be blocked? (e.g. No refunds over $500)" : "When should this require approval?"}
+              placeholder={newEffect === "BLOCK" ? "Why should this be blocked? (e.g. No refunds over $500 without manager sign-off)" : "When should this require approval? (e.g. Any charge over $100 or from a new customer)"}
               value={newReason}
               onChange={(e) => setNewReason(e.target.value)}
               required
@@ -736,6 +738,13 @@ export default function AgentDetail() {
             {newPatterns.length > 1 ? `Add ${newPatterns.length} Policies` : "Add Policy"}
           </button>
         </form>
+        {policyAdded && (
+          <div className="policy-added-banner">
+            <span className="policy-added-icon">✓</span>
+            <span>Policies saved — they'll be enforced on your next simulation run.</span>
+            <Link to="/sandbox" className="policy-added-link">Run in Sandbox →</Link>
+          </div>
+        )}
       </div>
 
       {/* Execution Log */}

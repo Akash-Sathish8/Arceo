@@ -56,6 +56,14 @@ const SettingsIcon = () => (
   </svg>
 )
 
+const CompareIcon = () => (
+  <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
+    <path d="M5 2h-3a1 1 0 00-1 1v9a1 1 0 001 1h3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+    <path d="M10 2h3a1 1 0 011 1v9a1 1 0 01-1 1h-3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+    <path d="M7.5 5v5M5.5 7.5l2-2 2 2" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+  </svg>
+)
+
 const ApprovalIcon = () => (
   <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
     <rect x="2" y="1" width="11" height="13" rx="1.5" stroke="currentColor" strokeWidth="1.4"/>
@@ -116,14 +124,17 @@ function Sidebar({ collapsed, onToggle }) {
       )}
 
       <nav className="sidebar-nav">
-        <NavLink to="/" end title="Dashboard" className={({ isActive }) => isActive ? 'active' : ''}>
-          <DashboardIcon />{!collapsed && ' Dashboard'}
+        <NavLink to="/" end title="Agents" className={({ isActive }) => isActive ? 'active' : ''}>
+          <DashboardIcon />{!collapsed && ' Agents'}
         </NavLink>
         <NavLink to="/sandbox" title="Sandbox — simulate agent behavior" className={({ isActive }) => isActive ? 'active' : ''}>
           <SandboxIcon />{!collapsed && ' Sandbox'}
         </NavLink>
         <NavLink to="/history" title="Past simulation runs" className={({ isActive }) => isActive ? 'active' : ''}>
           <HistoryIcon />{!collapsed && ' History'}
+        </NavLink>
+        <NavLink to="/compare" title="Compare two simulation runs" className={({ isActive }) => isActive ? 'active' : ''}>
+          <CompareIcon />{!collapsed && ' Compare'}
         </NavLink>
         <NavLink to="/approvals" title="Approval Queue — actions waiting for human review" className={({ isActive }) => isActive ? 'active' : ''}>
           <ApprovalIcon />

@@ -349,6 +349,24 @@
   opacity: 0.75;
 }
 
+.pill-start-here {
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  background: #dcfce7;
+  color: #16a34a;
+  border: 1px solid #bbf7d0;
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+
+.scenario-filter-pill.active .pill-start-here {
+  background: rgba(255,255,255,0.15);
+  color: rgba(255,255,255,0.9);
+  border-color: rgba(255,255,255,0.25);
+}
+
 /* ── Add all to queue button ─────────────────────────────────────────── */
 
 .add-all-queue-btn {

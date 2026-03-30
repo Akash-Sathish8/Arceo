@@ -596,13 +596,20 @@
 .section-header {
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  align-items: flex-start;
   flex-wrap: wrap;
   gap: 12px;
   margin-bottom: 16px;
 }
 
 .section-header h2 { margin: 0; }
+
+.section-sub {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin: 4px 0 0;
+  font-weight: 400;
+}
 
 .authority-page h2 {
   font-size: 11px;

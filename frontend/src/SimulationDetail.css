@@ -1084,6 +1084,23 @@
   margin-bottom: 4px;
 }
 
+.sim-compare-btn {
+  font-size: 13px;
+  font-weight: 600;
+  padding: 7px 16px;
+  background: var(--bg-card);
+  color: var(--text-primary);
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-sm);
+  text-decoration: none;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.sim-compare-btn:hover {
+  border-color: var(--text-primary);
+  background: var(--bg);
+}
+
 .sim-run-again-btn {
   font-size: 13px;
   font-weight: 600;
