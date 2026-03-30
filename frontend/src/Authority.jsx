@@ -341,7 +341,7 @@ export default function Authority() {
   const checklistSteps = [
     { done: hasAgent,     label: "Connect your first agent",   action: () => setShowCreate(true),   link: null },
     { done: hasSimulation,label: "Run a simulation in Sandbox", action: null,                        link: "/sandbox" },
-    { done: hasExecution, label: "Send a real enforcement call",action: null,                        link: "/settings" },
+    { done: hasExecution, label: "Make your first enforcement call", action: null,                   link: "/settings" },
     { done: hasPolicies,  label: "Add an enforcement policy",   action: null,                        link: agents[0] ? `/agent/${agents[0].id}` : "/" },
   ];
   const checklistProgress = checklistSteps.filter((s) => s.done).length;
@@ -760,12 +760,22 @@ export default function Authority() {
         <div className="fleet-divider" />
         <div className="fleet-stat fleet-stat-warn">
           <div className="fleet-stat-number">{totalIrreversible}</div>
-          <div className="fleet-stat-label">Permanent Actions</div>
+          <div className="fleet-stat-label">
+            Irreversible Actions
+            <Tooltip text="Actions that cannot be undone once your agent executes them — like deleting records, charging cards, or sending emails to customers.">
+              <span className="jargon-hint">?</span>
+            </Tooltip>
+          </div>
         </div>
         <div className="fleet-divider" />
         <div className="fleet-stat fleet-stat-danger">
           <div className="fleet-stat-number">{chains.length}</div>
-          <div className="fleet-stat-label">Risk Combinations</div>
+          <div className="fleet-stat-label">
+            Dangerous Chains
+            <Tooltip text="Multi-step sequences where two actions combined become high-risk — e.g. reading customer PII and then emailing it externally.">
+              <span className="jargon-hint">?</span>
+            </Tooltip>
+          </div>
         </div>
         <div className="fleet-divider" />
         <div className={`fleet-stat ${criticalChains.length > 0 ? "fleet-stat-critical" : ""}`}>

@@ -627,6 +627,20 @@ export default function AgentDetail() {
             );
           })}
         </div>
+        {sortedPolicies.length === 0 && (
+          <div className="zero-policies-callout">
+            <div className="zpc-icon">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                <path d="M12 2L4 6v6c0 5.5 3.8 10.7 8 12 4.2-1.3 8-6.5 8-12V6L12 2z" stroke="#ca8a04" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M12 8v4M12 16h.01" stroke="#ca8a04" strokeWidth="1.8" strokeLinecap="round"/>
+              </svg>
+            </div>
+            <div className="zpc-body">
+              <strong>No enforcement rules set</strong>
+              <span>This agent runs with no restrictions. Add a policy below to block or require approval for risky actions.</span>
+            </div>
+          </div>
+        )}
         <form className="policy-form" onSubmit={handleAddPolicy}>
           <div className="policy-form-field-label">1. Choose actions</div>
           <ActionPicker tools={agent.tools} selectedPatterns={newPatterns} onAdd={addPattern} />

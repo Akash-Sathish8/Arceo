@@ -335,6 +335,33 @@ body {
   padding: 10px 0;
 }
 
+/* Custom tooltip when sidebar is collapsed */
+.sidebar-collapsed .sidebar-nav a::after {
+  content: attr(title);
+  position: absolute;
+  left: calc(100% + 10px);
+  top: 50%;
+  transform: translateY(-50%);
+  background: #1a2234;
+  color: rgba(255,255,255,0.95);
+  font-size: 12px;
+  font-weight: 500;
+  padding: 5px 10px;
+  border-radius: 6px;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s, transform 0.15s;
+  z-index: 9999;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.3);
+  transform: translateY(-50%) translateX(-4px);
+}
+
+.sidebar-collapsed .sidebar-nav a:hover::after {
+  opacity: 1;
+  transform: translateY(-50%) translateX(0);
+}
+
 .sidebar-footer-collapsed {
   display: flex;
   justify-content: center;
@@ -417,7 +444,7 @@ body {
   font-size: 10px;
   text-transform: uppercase;
   letter-spacing: 1px;
-  color: rgba(255, 255, 255, 0.22);
+  color: rgba(255, 255, 255, 0.38);
   padding: 14px 14px 6px;
   font-weight: 600;
 }
@@ -560,7 +587,7 @@ body {
 
 .sidebar-help-link {
   font-size: 11.5px;
-  color: rgba(255, 255, 255, 0.24);
+  color: rgba(255, 255, 255, 0.40);
   text-decoration: none;
   font-weight: 500;
   transition: color 0.15s;
@@ -578,7 +605,7 @@ body {
   padding: 6px 8px;
   font-size: 11.5px;
   font-weight: 500;
-  color: rgba(255, 255, 255, 0.24);
+  color: rgba(255, 255, 255, 0.40);
   background: transparent;
   border: none;
   border-radius: 5px;
@@ -646,6 +673,8 @@ body {
   pointer-events: none;
   z-index: 100;
   box-shadow: 0 4px 16px rgba(0,0,0,0.25);
+  text-transform: none;
+  letter-spacing: normal;
 }
 
 .tooltip-bubble::after {

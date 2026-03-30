@@ -389,6 +389,38 @@
   border-radius: 10px;
 }
 
+.invite-coming-soon {
+  padding: 16px 18px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.invite-cs-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.invite-cs-header h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.invite-cs-badge {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  background: #fefce8;
+  color: #ca8a04;
+  border: 1px solid #fde68a;
+  padding: 2px 8px;
+  border-radius: 10px;
+}
+
 .invite-form h3 {
   margin-top: 0;
 }

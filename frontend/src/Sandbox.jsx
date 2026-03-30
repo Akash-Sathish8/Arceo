@@ -405,12 +405,32 @@ export default function Sandbox() {
 
         {running && (
           <div className="run-loading">
-            <div className="spinner" />
-            <p>
-              {runProgress && runProgress.total > 1
-                ? `Scenario ${runProgress.current} of ${runProgress.total} — enforcing policies, calling mocks...`
-                : "Executing simulation — enforcing policies, calling mocks, capturing trace..."}
-            </p>
+            {runProgress && runProgress.total > 1 ? (
+              <div className="run-progress-wrap">
+                <div className="run-progress-header">
+                  <span className="run-progress-label">
+                    Running scenario <strong>{runProgress.current}</strong> of <strong>{runProgress.total}</strong>
+                  </span>
+                  <span className="run-progress-pct">
+                    {Math.round(((runProgress.current - 1) / runProgress.total) * 100)}%
+                  </span>
+                </div>
+                <div className="run-progress-track">
+                  <div
+                    className="run-progress-fill"
+                    style={{ width: `${((runProgress.current - 1) / runProgress.total) * 100}%` }}
+                  />
+                </div>
+                <p className="run-progress-sub">Enforcing policies · calling mock APIs · capturing trace</p>
+              </div>
+            ) : (
+              <div className="run-progress-wrap">
+                <div className="run-progress-track">
+                  <div className="run-progress-fill run-progress-indeterminate" />
+                </div>
+                <p className="run-progress-sub">Enforcing policies · calling mock APIs · capturing trace</p>
+              </div>
+            )}
           </div>
         )}
 

@@ -228,7 +228,9 @@ export default function Login() {
             Don't have an account? <span onClick={() => { setOnboardStep(1); setError(null); }}>Create one</span>
           </p>
 
-          <p className="login-hint">Leave fields empty to use demo credentials</p>
+          <button type="button" className="login-demo-btn" onClick={doLogin} disabled={loading}>
+            Try demo account →
+          </button>
         </form>
       </div>
     </div>

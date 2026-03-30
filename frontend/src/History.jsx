@@ -237,13 +237,13 @@ export default function History() {
             className={`view-tab${view === "executions" ? " active" : ""}`}
             onClick={() => { setView("executions"); setFilterStatus("all"); setSearch(""); }}
           >
-            Agent Activity
+            Executions
           </button>
           <button
             className={`view-tab${view === "audit" ? " active" : ""}`}
             onClick={() => { setView("audit"); setFilterStatus("all"); setSearch(""); }}
           >
-            Change History
+            Audit Log
           </button>
         </div>
       </div>

@@ -17,12 +17,15 @@ function relativeTime(ts) {
   return `${Math.floor(diff / 86400)}d ago`;
 }
 
+function formatAction(s) {
+  return s.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
 export default function Approvals() {
   const [approvals, setApprovals] = useState([]);
   const [loading, setLoading] = useState(true);
   const [deciding, setDeciding] = useState({});
-  const [reasons, setReasons] = useState({});
-  const [showReasonFor, setShowReasonFor] = useState(null);
+  const [notes, setNotes] = useState({});
 
   const load = useCallback(() => {
     apiFetch("/api/approvals")
@@ -41,11 +44,10 @@ export default function Approvals() {
     try {
       await apiFetch(`/api/approvals/${id}`, {
         method: "POST",
-        body: JSON.stringify({ decision, reason: reasons[id] || "" }),
+        body: JSON.stringify({ decision, reason: notes[id] || "" }),
       });
       toast(decision === "approve" ? "Action approved" : "Action rejected");
       setApprovals((prev) => prev.filter((a) => a.id !== id));
-      setShowReasonFor(null);
     } catch (e) {
       toast("Failed: " + e.message, "error");
     } finally {
@@ -75,92 +77,74 @@ export default function Approvals() {
 
       {approvals.length === 0 ? (
         <div className="approvals-empty">
-          <div className="approvals-empty-icon">✓</div>
-          <div className="approvals-empty-title">No pending approvals</div>
+          <div className="approvals-empty-icon">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
+              <circle cx="12" cy="12" r="10" stroke="#16a34a" strokeWidth="1.8"/>
+              <path d="M7.5 12l3 3 6-6" stroke="#16a34a" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+          </div>
+          <div className="approvals-empty-title">All clear</div>
           <div className="approvals-empty-desc">
-            When an agent triggers a <code>REQUIRE_APPROVAL</code> policy, the action will appear here for review.
+            No actions waiting for review. When an agent triggers a{" "}
+            <code>REQUIRE_APPROVAL</code> policy, it will appear here.
             <br /><br />
-            To create one, go to an <Link to="/" className="approvals-link">agent's detail page</Link> and add a policy with the "Require Approval" effect.
+            <Link to="/" className="approvals-link">Set up a policy →</Link>
           </div>
         </div>
       ) : (
         <div className="approvals-list">
-          {approvals.map((a) => (
-            <div key={a.id} className="approval-card">
-              <div className="approval-card-header">
-                <div className="approval-meta">
-                  <span className="approval-agent">
-                    <Link to={`/agent/${a.agent_id}`}>{a.agent_name || a.agent_id}</Link>
-                  </span>
-                  <span className="approval-time">{relativeTime(a.timestamp)}</span>
+          {approvals.map((a) => {
+            const isBusy = !!deciding[a.id];
+            return (
+              <div key={a.id} className="approval-card">
+                <div className="approval-card-header">
+                  <div className="approval-meta">
+                    <Link to={`/agent/${a.agent_id}`} className="approval-agent-link">
+                      {a.agent_name || a.agent_id}
+                    </Link>
+                    <span className="approval-dot">·</span>
+                    <span className="approval-time">{relativeTime(a.timestamp)}</span>
+                  </div>
                 </div>
-                <span className="approval-status-badge">Awaiting Review</span>
-              </div>
 
-              <div className="approval-action-row">
-                <div className="approval-tool-action">
-                  <span className="approval-tool">{a.tool}</span>
+                <div className="approval-action-row">
+                  <span className="approval-tool-chip">{a.tool}</span>
                   <span className="approval-arrow">→</span>
-                  <span className="approval-action">{a.action}</span>
+                  <span className="approval-action-name">{formatAction(a.action)}</span>
                 </div>
-              </div>
 
-              {a.detail && (
-                <div className="approval-detail">{a.detail}</div>
-              )}
+                {a.detail && (
+                  <div className="approval-detail">{a.detail}</div>
+                )}
 
-              {showReasonFor === a.id && (
-                <div className="approval-reason-row">
+                <div className="approval-footer">
                   <input
-                    className="approval-reason-input"
-                    placeholder="Reason (optional)"
-                    value={reasons[a.id] || ""}
-                    onChange={(e) => setReasons((p) => ({ ...p, [a.id]: e.target.value }))}
-                    autoFocus
+                    className="approval-note-input"
+                    placeholder="Add a note (optional)..."
+                    value={notes[a.id] || ""}
+                    onChange={(e) => setNotes((p) => ({ ...p, [a.id]: e.target.value }))}
+                    disabled={isBusy}
                   />
+                  <div className="approval-actions">
+                    <button
+                      className="approval-btn approve"
+                      disabled={isBusy}
+                      onClick={() => decide(a.id, "approve")}
+                    >
+                      {deciding[a.id] === "approve" ? "Approving..." : "Approve"}
+                    </button>
+                    <button
+                      className="approval-btn reject"
+                      disabled={isBusy}
+                      onClick={() => decide(a.id, "reject")}
+                    >
+                      {deciding[a.id] === "reject" ? "Rejecting..." : "Reject"}
+                    </button>
+                  </div>
                 </div>
-              )}
-
-              <div className="approval-actions">
-                <button
-                  className="approval-btn approve"
-                  disabled={!!deciding[a.id]}
-                  onClick={() => {
-                    if (showReasonFor === a.id || reasons[a.id]) {
-                      decide(a.id, "approve");
-                    } else {
-                      setShowReasonFor(a.id);
-                    }
-                  }}
-                >
-                  {deciding[a.id] === "approve" ? "Approving..." : "Approve"}
-                </button>
-                <button
-                  className="approval-btn reject"
-                  disabled={!!deciding[a.id]}
-                  onClick={() => {
-                    if (showReasonFor === a.id || reasons[a.id]) {
-                      decide(a.id, "reject");
-                    } else {
-                      setShowReasonFor(a.id);
-                    }
-                  }}
-                >
-                  {deciding[a.id] === "reject" ? "Rejecting..." : "Reject"}
-                </button>
-                {showReasonFor !== a.id && (
-                  <button className="approval-btn reason" onClick={() => setShowReasonFor(a.id)}>
-                    Add reason
-                  </button>
-                )}
-                {showReasonFor === a.id && (
-                  <button className="approval-btn reason" onClick={() => { setShowReasonFor(null); setReasons((p) => ({ ...p, [a.id]: "" })); }}>
-                    Cancel
-                  </button>
-                )}
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>

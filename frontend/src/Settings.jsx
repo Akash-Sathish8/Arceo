@@ -258,22 +258,15 @@ if (await enforce("Stripe", "create_refund", { amount: 500 })) {
                 <span className="team-you-badge">You</span>
               </div>
 
-              <form className="invite-form" onSubmit={sendInvite}>
-                <h3>Invite a teammate</h3>
-                <div className="invite-row">
-                  <input
-                    type="email"
-                    value={inviteEmail}
-                    onChange={(e) => setInviteEmail(e.target.value)}
-                    placeholder="colleague@yourcompany.com"
-                    required
-                  />
-                  <button type="submit" className="settings-save-btn" disabled={!inviteEmail.trim()}>
-                    {inviteSent ? "Invite sent!" : "Send Invite"}
-                  </button>
+              <div className="invite-coming-soon">
+                <div className="invite-cs-header">
+                  <h3>Invite a teammate</h3>
+                  <span className="invite-cs-badge">Coming soon</span>
                 </div>
-                <span className="settings-field-hint">They'll receive an email to join your ActionGate workspace.</span>
-              </form>
+                <p className="settings-desc" style={{ marginTop: 6 }}>
+                  Multi-user workspaces are in development. For now, share your API key directly with teammates who need access.
+                </p>
+              </div>
             </div>
           )}
 

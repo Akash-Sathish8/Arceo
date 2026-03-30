@@ -12,10 +12,10 @@
 }
 
 .auth-header h1 {
-  font-size: 24px;
-  font-weight: 700;
+  font-size: 28px;
+  font-weight: 800;
   margin: 0;
-  letter-spacing: -0.6px;
+  letter-spacing: -0.8px;
   color: var(--text-primary);
   line-height: 1.2;
 }
@@ -701,7 +701,7 @@
 
 /* Danger accent on left border for high-risk agents */
 .agent-card.risk-critical {
-  border-left: 4px solid #e53e3e;
+  border-left: 4px solid #dc2626;
 }
 
 .agent-card.risk-warning {
@@ -1601,6 +1601,10 @@
   letter-spacing: 0.8px;
   color: var(--text-muted);
   font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
 }
 
 .fleet-stat-warn .fleet-stat-number { color: #ea580c; }
