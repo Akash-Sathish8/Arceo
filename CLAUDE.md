@@ -101,6 +101,43 @@ npm run dev
 - `GET /api/executions` — Execution log
 - `GET /api/executions/{agent_id}` — Agent-specific executions
 
+## Frontend Status (update this section after every session)
+
+**YC Demo Readiness: ~76/100** — Last updated: 2026-03-30
+
+### Component Status
+
+| Component | Polish | What's real | What's fake / missing |
+|-----------|--------|-------------|----------------------|
+| `Authority.jsx` | ✅ High | Empty state w/ templates, setup checklist, today stats + 7-day chart, fleet stats, recent activity feed, critical chains banner, agent grid, Sort/filter/search | — |
+| `AgentDetail.jsx` | ✅ High | Authority map graph, policy condition builder (ConditionBuilder component), inline agent edit (PUT endpoint), execution history tab, chain display, risk stats, recommendations | Policy conflict detection (endpoint exists: GET /api/authority/agent/{id}/policy-conflicts) |
+| `Sandbox.jsx` | ✅ High | Scenario selection, batch run with progress bar, dry-run + LLM modes, before/after comparison banner on re-run, custom prompt queue, past sims list | No "Full Sweep" button (backend: POST /api/sandbox/sweep runs all 28 scenarios) |
+| `SimulationDetail.jsx` | ✅ High | Timeline trace with expandable steps, risk breakdown bars, violations list, chains triggered, data flows, simple+raw toggle | Violations have no "Block this in production →" CTA to AgentDetail |
+| `History.jsx` | ✅ High | Stats row (total/executed/blocked/pending), filter chips, time filter, search, risk legend, table with tool color chips, CSV export, audit log tab | — |
+| `Approvals.jsx` | ✅ High | Queue auto-refreshes 10s, params display, approve/reject with note field | — |
+| `Settings.jsx` | ✅ Med | Real JWT token display/copy, code snippets (Python/curl/Node.js), real team invite creates accounts via signup API | Code snippets say `"your-agent-id"` (should load real agent ID from API); notifications are localStorage-only (no real delivery) |
+| `Login.jsx` | ✅ High | 3-step onboarding flow, real signup on "Get started", demo login shortcut | Step 2 agent type selection is ignored — should auto-create agent from template |
+| `Comparison.jsx` | ✅ High | Animated metric counters, different-agents warning banner | No default to last two sims when accessed directly |
+| `main.jsx` (sidebar) | ✅ High | Pending approvals badge (polls /api/approvals 15s), org name from email domain, sign out | — |
+
+### Remaining Gaps (ordered by demo impact)
+
+1. **Login step 2**: Selected agent types are thrown away — should auto-create agent from template after login
+2. **Settings**: Code snippets hardcode `"your-agent-id"` — load `GET /api/authority/agents` and use `agents[0].id`
+3. **SimulationDetail**: No "Block this in production →" link on violations — should link to `/agent/{agent_id}`
+4. **Sandbox**: No "Full Sweep" button — `POST /api/sandbox/sweep` runs all 28 scenarios, great demo feature
+5. **AgentDetail**: No policy conflict UI — `GET /api/authority/agent/{id}/policy-conflicts` endpoint unused
+6. **Comparison**: No smart default — should auto-load last two simulations when accessed without query params
+
+### Design System Notes
+- CSS custom properties: `var(--text-primary)`, `var(--text-secondary)`, `var(--text-muted)`, `var(--border)`, `var(--bg)`, `var(--white)`
+- Risk colors (defined per-file, not shared): moves_money=#dc2626, touches_pii=#7c3aed, deletes_data=#ea580c, sends_external=#2563eb, changes_production=#0d9488
+- Severity colors: critical={bg:#fef2f2, color:#dc2626}, high={bg:#fff7ed, color:#ea580c}, medium={bg:#fefce8, color:#ca8a04}
+- Status styles: EXECUTED={bg:#d4edda, color:#155724}, BLOCKED={bg:#f8d7da, color:#721c24}, PENDING={bg:#fff3cd, color:#856404}
+- Brand name: **Arceo** (not ActionGate — the product was rebranded)
+- All toast notifications via `import { toast } from "./Toast.jsx"` — `toast(msg)` or `toast(msg, "error")`
+- API calls via `import { apiFetch } from "./api.js"` — auto-adds Bearer token; use `skipLogoutOn401: true` on auth endpoints
+
 ## Key Concepts
 
 ### Risk Labels (5 universal labels)
