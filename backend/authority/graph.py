@@ -1,4 +1,9 @@
-"""Phase 3: Authority graph — maps agents → tools → actions → risk labels."""
+"""Authority graph — maps agents → tools → actions → risk labels.
+
+Blast radius scoring weights by destructiveness and reversibility,
+not just label counts. An irreversible terminate_instance outscores
+5 reversible get_* calls.
+"""
 
 from __future__ import annotations
 
@@ -65,11 +70,47 @@ def build_agent_graph(agent: AgentConfig, action_overrides: dict | None = None) 
     return G
 
 
-def calculate_blast_radius(agent: AgentConfig, action_overrides: dict | None = None) -> BlastRadius:
-    """Calculate the blast radius for an agent.
+# ── Per-action danger score ──────────────────────────────────────────────
+# Each action gets scored individually based on its labels + reversibility.
+# This means one irreversible delete outscores many reversible reads.
 
-    If action_overrides is provided, use it instead of ACTION_CATALOG.
-    Format: {tool_name: {action_name: MappedAction, ...}, ...}
+LABEL_WEIGHTS = {
+    "moves_money": 15,
+    "touches_pii": 5,
+    "deletes_data": 18,
+    "sends_external": 8,
+    "changes_production": 14,
+}
+
+IRREVERSIBLE_MULTIPLIER = 2.5
+READ_PREFIXES = ("get_", "list_", "read_", "search_", "query_", "check_")
+
+
+def _score_action(action: MappedAction) -> float:
+    """Score a single action by its labels and reversibility.
+
+    Read-only actions get a minimal score. Irreversible write actions
+    get a large multiplier. This ensures terminate_instance vastly
+    outscores get_customer.
+    """
+    # Read-only actions contribute minimally
+    if action.action.startswith(READ_PREFIXES):
+        return sum(LABEL_WEIGHTS.get(l, 0) for l in action.risk_labels) * 0.2
+
+    base = sum(LABEL_WEIGHTS.get(l, 0) for l in action.risk_labels)
+
+    if not action.reversible:
+        base *= IRREVERSIBLE_MULTIPLIER
+
+    return base
+
+
+def calculate_blast_radius(agent: AgentConfig, action_overrides: dict | None = None) -> BlastRadius:
+    """Calculate blast radius using per-action danger scoring.
+
+    Each action is scored individually (labels + reversibility + read/write),
+    then summed and normalized. This means an agent with one irreversible
+    terminate_instance scores higher than an agent with 5 reversible get_* calls.
     """
     all_actions: list[MappedAction] = []
     for tool in agent.tools:
@@ -86,17 +127,12 @@ def calculate_blast_radius(agent: AgentConfig, action_overrides: dict | None = N
     changes_prod = sum(1 for a in all_actions if "changes_production" in a.risk_labels)
     irreversible = sum(1 for a in all_actions if not a.reversible)
 
-    # Score: weighted sum normalized to 0-100
-    raw = (
-        moves_money * 15
-        + touches_pii * 8
-        + deletes_data * 12
-        + sends_external * 6
-        + changes_prod * 10
-        + irreversible * 5
-    )
-    # Normalize: assume max reasonable raw ~300
-    score = min(100.0, round((raw / 300) * 100, 1))
+    # Sum per-action scores
+    total_score = sum(_score_action(a) for a in all_actions)
+
+    # Normalize: 0-100 scale. Cap assumes a worst-case agent with ~15 high-risk
+    # irreversible actions across multiple services (~500 raw).
+    score = min(100.0, round((total_score / 500) * 100, 1))
 
     return BlastRadius(
         agent_id=agent.id,

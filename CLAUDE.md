@@ -7,21 +7,23 @@ A trust and control layer for AI-powered workflows that maps what agents can do 
 - `backend/` — Python + FastAPI Authority Engine
   - `authority/parser.py` — Agent config parser with sample agent definitions
   - `authority/action_mapper.py` — Maps tool actions to risk labels
-  - `authority/graph.py` — NetworkX authority graph + blast radius scoring
-  - `authority/chain_detector.py` — Dangerous multi-step chain detection
-  - `authority/risk_classifier.py` — Heuristic auto-classification of risk labels
-  - `auth.py` — JWT authentication
+  - `authority/graph.py` — NetworkX authority graph + blast radius scoring (per-action weighting by reversibility)
+  - `authority/chain_detector.py` — Risk-label transition detection (14 universal rules, not tool-specific)
+  - `authority/risk_classifier.py` — 3-layer classification: catalog → keywords → LLM (Haiku)
+  - `auth.py` — JWT authentication (warns if default secret used in production)
   - `db.py` — SQLite database (agents, policies, audit log, execution log, users, simulations)
   - `main.py` — FastAPI endpoints
   - `sandbox/` — Simulation platform
-    - `models.py` — TraceStep, SimulationTrace, Violation, SimulationReport
-    - `mocks/` — Mock API servers for 11 services (Stripe, Zendesk, Salesforce, SendGrid, GitHub, AWS, Slack, PagerDuty, HubSpot, Gmail, Calendly)
-    - `mocks/registry.py` — Central mock registry + per-simulation state store
+    - `models.py` — TraceStep, SimulationTrace, MultiAgentTrace, Violation, DataFlow, VolumeViolation, SimulationReport
+    - `mocks/` — Mock API servers for 11 services with multi-tenant isolation
+    - `mocks/registry.py` — Central mock registry + per-simulation state store + tenant data
     - `agents/executor.py` — Tool executor: enforce check → mock call → trace capture
-    - `prompts/scenarios.py` — 21 scenarios (normal, edge case, adversarial, chain exploit) for 3 agent types
-    - `runner.py` — Simulation runner: LLM agent loop via Anthropic SDK + dry-run mode
-    - `analyzer.py` — Trace analyzer: violation detection, chain detection, risk scoring, recommendations
+    - `prompts/scenarios.py` — 28 scenarios (normal, edge case, adversarial, chain exploit) for 4 agent types (support, devops, sales, ops)
+    - `runner.py` — Single-agent simulation runner: LLM agent loop via Anthropic SDK + dry-run mode
+    - `multi_runner.py` — Multi-agent simulation runner: agent dispatch, depth-limited recursion
+    - `analyzer.py` — Trace analyzer: violation detection, chain detection, data flow tracking, volume detection, cross-agent analysis, executive summary
 - `frontend/` — React dashboard
+- `sdk/` — Python + JavaScript SDKs for 9 frameworks
 
 ## Running
 
@@ -29,6 +31,7 @@ A trust and control layer for AI-powered workflows that maps what agents can do 
 # Backend
 cd backend
 pip install -r requirements.txt
+echo "ANTHROPIC_API_KEY=sk-ant-..." > .env  # for LLM classification + simulation
 python3 -m uvicorn main:app --reload --port 8000
 
 # Frontend
@@ -46,6 +49,7 @@ npm run dev
 
 ### Auth
 - `POST /api/auth/login` — Login, get JWT token
+- `POST /api/auth/signup` — Create account
 - `GET /api/auth/me` — Current user
 
 ### Authority Engine (requires auth)
@@ -55,26 +59,78 @@ npm run dev
 - `PUT /api/authority/agent/{id}` — Update agent
 - `DELETE /api/authority/agent/{id}` — Delete agent
 - `GET /api/authority/chains` — All flagged dangerous chains
+- `GET /api/services` — Available services for the service picker (unauthenticated)
 
 ### Enforcement
-- `POST /api/enforce` — Runtime enforcement check (agents call this before acting)
-- `GET /api/authority/agent/{id}/policies` — List policies
-- `POST /api/authority/agent/{id}/policies` — Create policy
+- `POST /api/enforce` — Runtime enforcement check with conditional policies and session context
+  - Supports `params` for condition evaluation (amount > 100)
+  - Supports `session_context` for requires_prior conditions
+- `GET /api/authority/agent/{id}/policies` — List policies (includes conditions, priority)
+- `POST /api/authority/agent/{id}/policies` — Create policy (auto-assigns priority: BLOCK=100, REQUIRE_APPROVAL=50, ALLOW=10)
 - `DELETE /api/authority/policy/{id}` — Delete policy
+- `GET /api/authority/agent/{id}/policy-conflicts` — Detect overlapping policies and show which wins
 
 ### Agent Discovery (register is unauthenticated, import requires auth)
-- `POST /api/authority/agents/register` — Agents self-register with tool manifests (auto-classifies risk labels)
+- `POST /api/authority/agents/register` — Agents self-register with tool manifests (auto-classifies risk labels via 3-layer classifier)
 - `POST /api/authority/agents/import/mcp` — Import from MCP tools/list format
 - `POST /api/authority/agents/import/openai` — Import from OpenAI function-calling format
+- `POST /api/authority/agents/connect/mcp` — Connect to live MCP server, auto-pull tools
+
+### Proxy (transparent enforcement)
+- `ANY /proxy/{service}/{path}` — Transparent API proxy. Set `X-Agent-ID` header. Enforces policies then forwards to real API. Supports: stripe, zendesk, salesforce, sendgrid, github, slack, pagerduty, hubspot, gmail, calendly.
+
+### Post-Hoc Reporting (unauthenticated)
+- `POST /api/report` — Agent reports actions after execution. Full analysis (chains, data flows, volume, executive summary) without enforcement.
 
 ### Sandbox Simulation (requires auth, except scenario listing)
-- `GET /api/sandbox/scenarios` — List all 21 simulation scenarios
-- `GET /api/sandbox/scenarios/{agent_type}` — Scenarios for support/devops/sales
-- `POST /api/sandbox/simulate` — Run simulation (dry_run=true skips LLM, uses all tools)
+- `GET /api/sandbox/scenarios` — List all 28 simulation scenarios
+- `GET /api/sandbox/scenarios/{agent_type}` — Scenarios for support/devops/sales/ops
+- `POST /api/sandbox/simulate` — Run single-agent simulation (dry_run=true skips LLM)
+- `POST /api/sandbox/simulate/multi` — Run multi-agent simulation with dispatch (agent_ids, coordinator_id, scenario_id, dry_run)
+- `GET /api/sandbox/simulate/stream` — SSE stream for live simulation
 - `GET /api/sandbox/simulations` — List past simulation runs
 - `GET /api/sandbox/simulation/{id}` — Full simulation detail with trace + report
+
+### Sweep (Full Agent Scan)
+- `POST /api/sandbox/sweep` — Run all scenarios for an agent, get aggregate report (agent_id, dry_run, categories)
+- `GET /api/sandbox/sweeps` — List past sweep runs
+- `GET /api/sandbox/sweep/{id}` — Full sweep detail with per-scenario breakdown
 
 ### Logging (requires auth)
 - `GET /api/audit` — Audit log
 - `GET /api/executions` — Execution log
 - `GET /api/executions/{agent_id}` — Agent-specific executions
+
+## Key Concepts
+
+### Risk Labels (5 universal labels)
+- `moves_money` — charges, refunds, transfers
+- `touches_pii` — customer data, emails, personal info
+- `deletes_data` — permanent removal of records
+- `sends_external` — emails, messages, webhooks outside the org
+- `changes_production` — deploys, scales, terminates infrastructure
+
+### Chain Detection (risk-label transitions)
+14 universal transition rules detect dangerous sequences across any tool/domain.
+Example: `touches_pii → sends_external` = PII Exfiltration (critical).
+Works at both capability level (static analysis) and execution level (trace analysis).
+Cross-agent chains detected when actions span different agents in multi-agent simulations.
+
+### Conditional Policies
+Policies support conditions: `{"field": "amount", "op": "gt", "value": 100}`.
+Session-aware conditions: `{"op": "requires_prior", "value": "pagerduty.get_incident"}`.
+Policies have priority (BLOCK=100 > REQUIRE_APPROVAL=50 > ALLOW=10).
+
+### Multi-Agent Simulation
+Coordinator agent can dispatch sub-tasks to specialist agents via `dispatch_agent` tool.
+Max depth of 3 to prevent infinite loops. Each agent enforced independently.
+Cross-agent chain detection and authority escalation analysis.
+
+### Multi-Tenant Mock Isolation
+MockState accepts `tenant_id` to scope data. Default tenants: tenant-alpha, tenant-beta.
+Cross-tenant access violations detected in analysis.
+
+### 3-Layer Risk Classification
+1. Hardcoded catalog (89 known actions, instant)
+2. Keyword heuristics (~50 keywords, instant)
+3. LLM via Haiku (unknown actions, cached, ~0.1¢ per call)

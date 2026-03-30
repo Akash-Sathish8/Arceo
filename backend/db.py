@@ -46,6 +46,7 @@ def init_db():
                 id TEXT PRIMARY KEY,
                 name TEXT NOT NULL,
                 description TEXT,
+                tenant_id TEXT,
                 created_at TEXT,
                 updated_at TEXT
             );
@@ -73,6 +74,8 @@ def init_db():
                 action_pattern TEXT NOT NULL,
                 effect TEXT NOT NULL,
                 reason TEXT,
+                conditions TEXT DEFAULT '[]',
+                priority INTEGER DEFAULT 0,
                 created_by TEXT,
                 created_at TEXT
             );
@@ -115,6 +118,29 @@ def init_db():
                 report_json TEXT,
                 created_at TEXT
             );
+
+            CREATE TABLE IF NOT EXISTS api_keys (
+                id TEXT PRIMARY KEY,
+                key_hash TEXT NOT NULL,
+                key_prefix TEXT NOT NULL,
+                name TEXT NOT NULL,
+                created_by TEXT,
+                agent_id TEXT,
+                scopes TEXT DEFAULT '["enforce","register","report"]',
+                active INTEGER DEFAULT 1,
+                last_used TEXT,
+                created_at TEXT
+            );
+
+            CREATE TABLE IF NOT EXISTS sweeps (
+                id TEXT PRIMARY KEY,
+                agent_id TEXT,
+                status TEXT,
+                total_scenarios INTEGER,
+                completed INTEGER,
+                report_json TEXT,
+                created_at TEXT
+            );
         """)
 
         # Seed demo user if none exist
@@ -124,7 +150,7 @@ def init_db():
 
 
 def _seed_demo_user(conn):
-    """Seed only the demo login user. No fake agents, no fake data."""
+    """Seed the demo login user and default ops agent."""
     from auth import hash_password
     now = datetime.utcnow().isoformat()
     pw_hash = hash_password("admin123")
@@ -132,6 +158,64 @@ def _seed_demo_user(conn):
         "INSERT INTO users (id, email, password_hash, name, role, created_at) VALUES (?, ?, ?, ?, ?, ?)",
         (str(uuid.uuid4()), "admin@actiongate.io", pw_hash, "Admin", "admin", now),
     )
+
+    # Seed default ops agent
+    _seed_ops_agent(conn, now)
+
+
+def _seed_ops_agent(conn, now: str):
+    """Seed a default ops agent with GitHub, AWS, Slack, PagerDuty."""
+    agent_id = "ops-agent"
+    conn.execute(
+        "INSERT OR IGNORE INTO agents (id, name, description, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+        (agent_id, "Ops Agent", "Infrastructure health, incident response, and remediation", now, now),
+    )
+
+    ops_tools = [
+        ("github", "GitHub", "CI/CD and code changes", [
+            ("get_pull_request", "View PR details", '[]', True),
+            ("merge_pull_request", "Merge a PR", '["changes_production"]', False),
+            ("trigger_workflow", "Run CI/CD pipeline", '["changes_production"]', True),
+            ("get_workflow_status", "Check pipeline status", '[]', True),
+            ("create_release", "Create a release", '["changes_production"]', False),
+            ("rollback_release", "Rollback a release", '["changes_production"]', False),
+        ]),
+        ("aws", "AWS", "Infrastructure management", [
+            ("list_instances", "List EC2 instances", '[]', True),
+            ("start_instance", "Start an instance", '["changes_production"]', True),
+            ("stop_instance", "Stop an instance", '["changes_production"]', True),
+            ("terminate_instance", "Terminate an instance", '["changes_production", "deletes_data"]', False),
+            ("scale_service", "Scale a service", '["changes_production"]', True),
+            ("get_logs", "Retrieve logs", '[]', True),
+            ("update_security_group", "Modify firewall rules", '["changes_production"]', False),
+            ("create_snapshot", "Create backup", '[]', True),
+            ("delete_snapshot", "Delete backup", '["deletes_data"]', False),
+        ]),
+        ("slack", "Slack", "Team notifications", [
+            ("send_message", "Send Slack message", '["sends_external"]', False),
+            ("send_channel_message", "Post to channel", '["sends_external"]', False),
+        ]),
+        ("pagerduty", "PagerDuty", "Incident management", [
+            ("create_incident", "Create incident", '["changes_production"]', True),
+            ("acknowledge_incident", "Acknowledge incident", '[]', True),
+            ("resolve_incident", "Resolve incident", '[]', True),
+            ("get_oncall", "Get on-call schedule", '[]', True),
+            ("escalate_incident", "Escalate incident", '["changes_production"]', True),
+            ("list_incidents", "List incidents", '[]', True),
+        ]),
+    ]
+
+    for tool_name, service, desc, actions in ops_tools:
+        cur = conn.execute(
+            "INSERT INTO agent_tools (agent_id, name, service, description) VALUES (?, ?, ?, ?)",
+            (agent_id, tool_name, service, desc),
+        )
+        tool_id = cur.lastrowid
+        for action_name, action_desc, risk_labels, reversible in actions:
+            conn.execute(
+                "INSERT INTO tool_actions (tool_id, action, description, risk_labels, reversible) VALUES (?, ?, ?, ?, ?)",
+                (tool_id, action_name, action_desc, risk_labels, reversible),
+            )
 
 
 # ── Query helpers ───────────────────────────────────────────────────────────

@@ -1,4 +1,4 @@
-"""Tests for the chain detector — dangerous multi-step pattern detection."""
+"""Tests for the chain detector — risk-label transition detection."""
 
 import pytest
 from authority.chain_detector import detect_chains
@@ -23,32 +23,40 @@ class TestDetectChains:
         chain_ids = [fc.chain.id for fc in result.flagged_chains]
         assert "pii-exfil" in chain_ids
 
-    def test_no_chains_for_safe_agent(self):
-        agent = _make_agent({
-            "zendesk": ["get_ticket", "list_tickets"],
-        })
-        result = detect_chains(agent)
+    def test_no_chains_for_truly_safe_agent(self):
+        """An agent with only read-only actions on a single safe service."""
+        from authority.action_mapper import MappedAction
+        agent = _make_agent({"internal": ["read_config", "check_status"]})
+        overrides = {
+            "internal": {
+                "read_config": MappedAction(tool="internal", service="Internal", action="read_config",
+                                            description="", risk_labels=[], reversible=True),
+                "check_status": MappedAction(tool="internal", service="Internal", action="check_status",
+                                             description="", risk_labels=[], reversible=True),
+            }
+        }
+        result = detect_chains(agent, action_overrides=overrides)
         assert len(result.flagged_chains) == 0
 
-    def test_query_delete_chain(self):
+    def test_pii_to_delete_chain(self):
         agent = _make_agent({
             "salesforce": ["query_contacts"],  # touches_pii
             "stripe": ["delete_customer"],     # deletes_data
         })
         result = detect_chains(agent)
         chain_ids = [fc.chain.id for fc in result.flagged_chains]
-        assert "query-delete" in chain_ids
+        assert "pii-delete" in chain_ids
 
-    def test_deploy_no_review_needs_two_distinct_prod_actions(self):
-        # Two distinct production actions SHOULD trigger
+    def test_cascading_prod_changes(self):
+        # Two distinct production actions SHOULD trigger prod-prod
         agent = _make_agent({
             "github": ["merge_pull_request", "trigger_workflow"],
         })
         result = detect_chains(agent)
         chain_ids = [fc.chain.id for fc in result.flagged_chains]
-        assert "deploy-no-review" in chain_ids
+        assert "prod-prod" in chain_ids
 
-    def test_safe_read_only_agent_no_deploy_chain_with_overrides(self):
+    def test_safe_read_only_agent_no_chains_with_overrides(self):
         """With action_overrides, only the agent's actual actions are considered."""
         from authority.action_mapper import MappedAction
         agent = _make_agent({"github": ["list_repos", "get_pull_request"]})
@@ -63,13 +71,13 @@ class TestDetectChains:
         result = detect_chains(agent, action_overrides=overrides)
         assert len(result.flagged_chains) == 0
 
-    def test_terminate_cascade_chain(self):
+    def test_prod_to_delete_chain(self):
         agent = _make_agent({
             "aws": ["terminate_instance", "delete_snapshot"],
         })
         result = detect_chains(agent)
         chain_ids = [fc.chain.id for fc in result.flagged_chains]
-        assert "terminate-cascade" in chain_ids
+        assert "prod-delete" in chain_ids
 
     def test_action_overrides_used(self):
         from authority.action_mapper import MappedAction
@@ -86,3 +94,33 @@ class TestDetectChains:
         result = detect_chains(agent, action_overrides=overrides)
         chain_ids = [fc.chain.id for fc in result.flagged_chains]
         assert "pii-exfil" in chain_ids
+
+    def test_same_label_needs_two_distinct_actions(self):
+        """money-money chain requires 2 distinct moves_money actions."""
+        from authority.action_mapper import MappedAction
+        agent = _make_agent({"pay": ["charge"]})
+        overrides = {
+            "pay": {
+                "charge": MappedAction(tool="pay", service="Pay", action="charge",
+                                       description="", risk_labels=["moves_money"], reversible=True),
+            }
+        }
+        result = detect_chains(agent, action_overrides=overrides)
+        chain_ids = [fc.chain.id for fc in result.flagged_chains]
+        assert "money-money" not in chain_ids
+
+    def test_chained_financial_with_two_actions(self):
+        """money-money chain triggers with 2 distinct moves_money actions."""
+        from authority.action_mapper import MappedAction
+        agent = _make_agent({"pay": ["charge", "refund"]})
+        overrides = {
+            "pay": {
+                "charge": MappedAction(tool="pay", service="Pay", action="charge",
+                                       description="", risk_labels=["moves_money"], reversible=True),
+                "refund": MappedAction(tool="pay", service="Pay", action="refund",
+                                       description="", risk_labels=["moves_money"], reversible=True),
+            }
+        }
+        result = detect_chains(agent, action_overrides=overrides)
+        chain_ids = [fc.chain.id for fc in result.flagged_chains]
+        assert "money-money" in chain_ids

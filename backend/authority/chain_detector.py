@@ -1,4 +1,9 @@
-"""Phase 4: Chain detector — finds dangerous multi-step action sequences."""
+"""Chain detector — finds dangerous action sequences using risk-label transitions.
+
+Instead of hardcoding tool-specific chains, we define universal risk-label
+transition rules. Any pair of actions whose risk labels form a dangerous
+transition gets flagged — works across every tool, every domain, every company.
+"""
 
 from __future__ import annotations
 
@@ -9,11 +14,23 @@ from authority.parser import AgentConfig, load_all_agents
 
 
 @dataclass
-class DangerousChain:
+class LabelTransition:
+    """A dangerous risk-label transition rule."""
     id: str
     name: str
     description: str
     severity: str  # "critical", "high", "medium"
+    from_label: str
+    to_label: str
+
+
+@dataclass
+class DangerousChain:
+    """A detected dangerous chain (kept for API compatibility)."""
+    id: str
+    name: str
+    description: str
+    severity: str
     steps: list[str]
     risk_tags: list[str]
 
@@ -31,90 +48,75 @@ class FlaggedChain:
     matching_actions: list[list[str]]  # which specific actions match each step
 
 
-# ── Top 10 Dangerous Chain Patterns ─────────────────────────────────────────
+# ── Universal Risk-Label Transition Rules ────────────────────────────────────
+# These cover every tool and domain. The labels are universal; the specific
+# tools don't matter.
 
-DANGEROUS_CHAINS: list[DangerousChain] = [
-    DangerousChain(
-        id="pii-exfil",
-        name="PII Exfiltration",
-        description="Reads PII then sends it externally — data could leave the org",
-        severity="critical",
-        steps=["touches_pii", "sends_external"],
-        risk_tags=["touches_pii", "sends_external"],
-    ),
-    DangerousChain(
-        id="read-refund",
-        name="Unsupervised Refund",
-        description="Reads payment info then issues refund with no human approval",
-        severity="critical",
-        steps=["touches_pii", "moves_money"],
-        risk_tags=["touches_pii", "moves_money"],
-    ),
-    DangerousChain(
-        id="query-delete",
-        name="Query Then Delete",
-        description="Queries records then deletes them — bulk deletion risk",
-        severity="critical",
-        steps=["touches_pii", "deletes_data"],
-        risk_tags=["touches_pii", "deletes_data"],
-    ),
-    DangerousChain(
-        id="deploy-no-review",
-        name="Unreviewed Deployment",
-        description="Merges code and triggers deployment with no human review step",
-        severity="high",
-        steps=["changes_production", "changes_production"],
-        risk_tags=["changes_production"],
-    ),
-    DangerousChain(
-        id="money-notify",
-        name="Charge Then Notify",
-        description="Creates a charge then sends external notification — auto-billing risk",
-        severity="high",
-        steps=["moves_money", "sends_external"],
-        risk_tags=["moves_money", "sends_external"],
-    ),
-    DangerousChain(
-        id="delete-no-backup",
-        name="Delete Without Backup",
-        description="Deletes data across multiple systems with no snapshot step",
-        severity="critical",
-        steps=["deletes_data", "deletes_data"],
-        risk_tags=["deletes_data"],
-    ),
-    DangerousChain(
-        id="infra-exposure",
-        name="Infrastructure Exposure",
-        description="Modifies security groups then sends external message — could leak infra changes",
-        severity="high",
-        steps=["changes_production", "sends_external"],
-        risk_tags=["changes_production", "sends_external"],
-    ),
-    DangerousChain(
-        id="pii-money",
-        name="PII Access + Financial Action",
-        description="Accesses customer PII then moves money — impersonation/fraud risk",
-        severity="critical",
-        steps=["touches_pii", "moves_money"],
-        risk_tags=["touches_pii", "moves_money"],
-    ),
-    DangerousChain(
-        id="mass-outreach",
-        name="Mass External Outreach",
-        description="Queries contacts then sends external messages — spam/phishing risk",
-        severity="high",
-        steps=["touches_pii", "sends_external"],
-        risk_tags=["touches_pii", "sends_external"],
-    ),
-    DangerousChain(
-        id="terminate-cascade",
-        name="Cascading Termination",
-        description="Terminates infrastructure then deletes backups — catastrophic data loss",
-        severity="critical",
-        steps=["changes_production", "deletes_data"],
-        risk_tags=["changes_production", "deletes_data"],
-    ),
+LABEL_TRANSITIONS: list[LabelTransition] = [
+    # PII escalation paths
+    LabelTransition("pii-exfil", "PII Exfiltration",
+                    "Reads PII then sends it externally — data could leave the org",
+                    "critical", "touches_pii", "sends_external"),
+    LabelTransition("pii-financial", "PII to Financial Action",
+                    "Accesses customer PII then moves money — fraud/impersonation risk",
+                    "critical", "touches_pii", "moves_money"),
+    LabelTransition("pii-delete", "PII Access Then Deletion",
+                    "Queries records then deletes them — targeted destruction risk",
+                    "critical", "touches_pii", "deletes_data"),
+    LabelTransition("pii-prod", "PII Access Then Production Change",
+                    "Reads PII then modifies production — data-driven sabotage risk",
+                    "high", "touches_pii", "changes_production"),
+
+    # Financial escalation paths
+    LabelTransition("money-external", "Financial Then External Send",
+                    "Moves money then sends external notification — covers tracks or auto-billing",
+                    "high", "moves_money", "sends_external"),
+    LabelTransition("money-money", "Chained Financial Actions",
+                    "Multiple money-moving actions in sequence — fraud amplification risk",
+                    "critical", "moves_money", "moves_money"),
+    LabelTransition("money-delete", "Financial Then Deletion",
+                    "Moves money then deletes records — fraud with evidence destruction",
+                    "critical", "moves_money", "deletes_data"),
+
+    # Production/infrastructure escalation paths
+    LabelTransition("prod-prod", "Cascading Production Changes",
+                    "Multiple production changes in sequence — cascading failure risk",
+                    "high", "changes_production", "changes_production"),
+    LabelTransition("prod-delete", "Production Change Then Deletion",
+                    "Modifies production then deletes data — infrastructure destruction",
+                    "critical", "changes_production", "deletes_data"),
+    LabelTransition("prod-external", "Production Change Then External Send",
+                    "Modifies infrastructure then sends externally — could leak infra details",
+                    "high", "changes_production", "sends_external"),
+
+    # Deletion escalation paths
+    LabelTransition("delete-delete", "Multiple Deletions",
+                    "Deletes data across multiple systems — mass wipe risk",
+                    "critical", "deletes_data", "deletes_data"),
+    LabelTransition("delete-external", "Deletion Then External Send",
+                    "Deletes data then sends externally — destroy and exfiltrate",
+                    "high", "deletes_data", "sends_external"),
+
+    # External send escalation
+    LabelTransition("external-money", "External Send Then Financial",
+                    "Sends externally then moves money — social engineering + fraud",
+                    "high", "sends_external", "moves_money"),
+    LabelTransition("external-prod", "External Send Then Production Change",
+                    "Sends externally then modifies production — leak then exploit",
+                    "high", "sends_external", "changes_production"),
 ]
+
+
+def _transition_to_chain(t: LabelTransition) -> DangerousChain:
+    """Convert a LabelTransition to a DangerousChain for API compatibility."""
+    return DangerousChain(
+        id=t.id,
+        name=t.name,
+        description=t.description,
+        severity=t.severity,
+        steps=[t.from_label, t.to_label],
+        risk_tags=list(set([t.from_label, t.to_label])),
+    )
 
 
 def _get_actions_with_label(actions: list[MappedAction], label: str) -> list[str]:
@@ -125,10 +127,11 @@ def _get_actions_with_label(actions: list[MappedAction], label: str) -> list[str
 
 
 def detect_chains(agent: AgentConfig, action_overrides: dict | None = None) -> AgentChainResult:
-    """Detect dangerous action chains available to an agent.
+    """Detect dangerous label transitions available to an agent.
 
-    If action_overrides is provided, use it instead of ACTION_CATALOG.
-    Format: {tool_name: {action_name: MappedAction, ...}, ...}
+    Checks every label transition rule against the agent's capabilities.
+    If the agent has actions with both the from_label and to_label,
+    the transition is flagged.
     """
     # Gather all actions for this agent
     all_actions: list[MappedAction] = []
@@ -138,36 +141,25 @@ def detect_chains(agent: AgentConfig, action_overrides: dict | None = None) -> A
         else:
             all_actions.extend(get_mapped_actions(tool.name))
 
-    # Build a set of risk labels this agent has access to
-    available_labels: set[str] = set()
-    for a in all_actions:
-        available_labels.update(a.risk_labels)
-
     flagged: list[FlaggedChain] = []
 
-    for chain in DANGEROUS_CHAINS:
-        # Check if the agent has actions matching every step in the chain
-        step_matches: list[list[str]] = []
-        chain_possible = True
+    for transition in LABEL_TRANSITIONS:
+        from_actions = _get_actions_with_label(all_actions, transition.from_label)
+        to_actions = _get_actions_with_label(all_actions, transition.to_label)
 
-        for step_label in chain.steps:
-            matching = _get_actions_with_label(all_actions, step_label)
-            if not matching:
-                chain_possible = False
-                break
-            step_matches.append(matching)
+        if not from_actions or not to_actions:
+            continue
 
-        # For 2-step chains with the same label, ensure at least 2 distinct actions
-        if chain_possible and len(chain.steps) == 2 and chain.steps[0] == chain.steps[1]:
-            all_matching = _get_actions_with_label(all_actions, chain.steps[0])
-            if len(all_matching) < 2:
-                chain_possible = False
+        # For same-label transitions, need at least 2 distinct actions
+        if transition.from_label == transition.to_label:
+            combined = set(from_actions)
+            if len(combined) < 2:
+                continue
 
-        if chain_possible:
-            flagged.append(FlaggedChain(
-                chain=chain,
-                matching_actions=step_matches,
-            ))
+        flagged.append(FlaggedChain(
+            chain=_transition_to_chain(transition),
+            matching_actions=[from_actions, to_actions],
+        ))
 
     return AgentChainResult(
         agent_id=agent.id,

@@ -8,6 +8,8 @@ from dataclasses import asdict
 from datetime import datetime
 
 from pathlib import Path
+from dotenv import load_dotenv
+load_dotenv()
 
 from fastapi import FastAPI, HTTPException, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -61,23 +63,359 @@ def startup():
     init_db()
 
 
-def _match_policy(action_key: str, policies: list) -> dict | None:
-    """Match an action key against a list of policies. Returns first match or None."""
+@app.get("/api/services")
+def list_available_services():
+    """Return all known services and their actions for the service picker."""
+    from authority.action_mapper import ACTION_CATALOG
+    services = {}
+    for tool_name, actions in ACTION_CATALOG.items():
+        action_list = []
+        for action_name, mapped in actions.items():
+            action_list.append({
+                "action": action_name,
+                "description": mapped.description,
+                "risk_labels": mapped.risk_labels,
+                "reversible": mapped.reversible,
+            })
+        services[tool_name] = {
+            "service": mapped.service if actions else tool_name.title(),
+            "actions": action_list,
+            "action_count": len(action_list),
+        }
+    return {"services": services}
+
+
+# ── Proxy Layer ──────────────────────────────────────────────────────────
+# Companies change one env var (e.g. STRIPE_API_URL=https://actiongate.co/proxy/stripe)
+# and all traffic routes through ActionGate automatically. No SDK, no code changes.
+
+SERVICE_BASE_URLS = {
+    "stripe": "https://api.stripe.com",
+    "zendesk": "https://{subdomain}.zendesk.com/api/v2",
+    "salesforce": "https://{instance}.salesforce.com/services/data/v59.0",
+    "sendgrid": "https://api.sendgrid.com/v3",
+    "github": "https://api.github.com",
+    "slack": "https://slack.com/api",
+    "pagerduty": "https://api.pagerduty.com",
+    "hubspot": "https://api.hubapi.com",
+    "gmail": "https://gmail.googleapis.com/gmail/v1",
+    "calendly": "https://api.calendly.com/v2",
+}
+
+# Allow overrides via env vars: ACTIONGATE_PROXY_STRIPE=https://api.stripe.com
+for svc in list(SERVICE_BASE_URLS.keys()):
+    env_override = os.getenv(f"ACTIONGATE_PROXY_{svc.upper()}")
+    if env_override:
+        SERVICE_BASE_URLS[svc] = env_override
+
+
+def _infer_action_from_request(method: str, path: str) -> str:
+    """Infer an action name from HTTP method + path for policy matching.
+
+    Examples:
+      GET /v1/customers/cust_123 → get_customers
+      POST /v1/refunds → create_refunds
+      DELETE /v1/customers/cust_123 → delete_customers
+    """
+    # Strip version prefixes, IDs, and query params
+    parts = [p for p in path.strip("/").split("/") if p and not p.startswith("v") and not p[0].isdigit() and "_" not in p[:4]]
+    resource = parts[-1] if parts else "unknown"
+    # Remove trailing IDs like cust_123
+    if resource and any(c.isdigit() for c in resource):
+        resource = parts[-2] if len(parts) >= 2 else resource
+
+    method_prefix = {
+        "GET": "get", "POST": "create", "PUT": "update",
+        "PATCH": "update", "DELETE": "delete",
+    }.get(method.upper(), "call")
+
+    return f"{method_prefix}_{resource}"
+
+
+@app.api_route("/proxy/{service}/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
+async def proxy_request(service: str, path: str, request: Request):
+    """Transparent proxy — enforces policies then forwards to the real API.
+
+    Usage: set STRIPE_API_URL=https://actiongate.yourcompany.com/proxy/stripe
+    Headers:
+      X-Agent-ID: required — identifies which agent is calling
+      Everything else is forwarded to the upstream API as-is.
+    """
+    import httpx as _httpx
+
+    agent_id = request.headers.get("X-Agent-ID", "")
+    if not agent_id:
+        raise HTTPException(status_code=400, detail="X-Agent-ID header required for proxy requests")
+
+    base_url = SERVICE_BASE_URLS.get(service)
+    if not base_url:
+        raise HTTPException(status_code=404, detail=f"Unknown service '{service}'. Known: {', '.join(SERVICE_BASE_URLS.keys())}")
+
+    # Infer action from HTTP method + path
+    action = _infer_action_from_request(request.method, path)
+
+    # Read body for POST/PUT/PATCH (needed for condition evaluation)
+    body = await request.body()
+    params = {}
+    if body:
+        try:
+            params = json.loads(body)
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            pass
+
+    # Enforce policy using shared logic
+    result = enforce_check(agent_id, service, action, params=params or None)
+    effect = result["decision"]
+
+    if effect == "BLOCK":
+        return {"blocked": True, "reason": result["message"], "action": result["action"], "agent_id": agent_id}
+
+    if effect == "REQUIRE_APPROVAL":
+        return {"pending_approval": True, "reason": result["message"], "action": result["action"], "agent_id": agent_id}
+
+    # Forward to upstream
+    upstream_url = f"{base_url}/{path}"
+    # Forward all headers except host and agent-id
+    forward_headers = {k: v for k, v in request.headers.items()
+                       if k.lower() not in ("host", "x-agent-id", "content-length")}
+
+    try:
+        async with _httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.request(
+                method=request.method,
+                url=upstream_url,
+                headers=forward_headers,
+                content=body if body else None,
+                params=dict(request.query_params),
+            )
+        return StreamingResponse(
+            iter([resp.content]),
+            status_code=resp.status_code,
+            headers={k: v for k, v in resp.headers.items() if k.lower() not in ("content-encoding", "transfer-encoding")},
+        )
+    except _httpx.TimeoutException:
+        raise HTTPException(status_code=504, detail=f"Upstream {service} timed out")
+    except _httpx.HTTPError as e:
+        raise HTTPException(status_code=502, detail=f"Upstream {service} error: {str(e)}")
+
+
+# ── Post-Hoc Report (zero-friction audit) ────────────────────────────────
+# Agent runs normally, then reports what it did. No enforcement, full visibility.
+
+class ReportAction(BaseModel):
+    tool: str
+    action: str
+    params: dict = {}
+    result: dict = {}
+    timestamp: str = ""
+
+
+class PostHocReport(BaseModel):
+    agent_id: str
+    session_id: str = ""
+    actions: list[ReportAction]
+
+
+@app.post("/api/report")
+def submit_post_hoc_report(req: PostHocReport):
+    """Agent reports what it did after the fact. No enforcement, full analysis."""
+    from sandbox.models import SimulationTrace, TraceStep
+    from sandbox.analyzer import analyze_trace
+    from dataclasses import asdict
+
+    # Build a trace from the reported actions
+    trace = SimulationTrace(
+        simulation_id=req.session_id or uuid.uuid4().hex[:12],
+        agent_id=req.agent_id,
+        agent_name=req.agent_id,
+        scenario_id="post-hoc",
+        scenario_name="Post-Hoc Report",
+        prompt="Agent self-reported actions",
+    )
+
+    for i, action in enumerate(req.actions):
+        trace.steps.append(TraceStep(
+            step_index=i,
+            tool=action.tool,
+            action=action.action,
+            params=action.params,
+            enforce_decision="ALLOW",  # already happened
+            enforce_policy=None,
+            result=action.result,
+            timestamp=action.timestamp or datetime.utcnow().isoformat(),
+        ))
+
+    report = analyze_trace(trace)
+
+    # Log each action
+    with get_db() as conn:
+        for action in req.actions:
+            log_execution(conn, req.agent_id, action.tool, action.action, "REPORTED",
+                          detail="post-hoc report")
+
+        # Store as a simulation for dashboard visibility
+        def _asdict_safe(obj):
+            if hasattr(obj, '__dataclass_fields__'):
+                return asdict(obj)
+            return obj
+
+        conn.execute(
+            "INSERT INTO simulations (id, agent_id, scenario_id, status, trace_json, report_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (trace.simulation_id, req.agent_id, "post-hoc", "completed",
+             json.dumps(asdict(trace), default=str),
+             json.dumps(asdict(report), default=str),
+             datetime.utcnow().isoformat()),
+        )
+        log_audit(conn, None, req.agent_id, "POST_HOC_REPORT",
+                  resource=req.agent_id,
+                  detail=f"Reported {len(req.actions)} actions, risk score: {report.risk_score}")
+
+    return {
+        "simulation_id": trace.simulation_id,
+        "risk_score": report.risk_score,
+        "violations": len(report.violations),
+        "chains": len(report.chains_triggered),
+        "data_flows": len(report.data_flows),
+        "volume_violations": len(report.volume_violations),
+        "executive_summary": report.executive_summary,
+    }
+
+
+def _match_policy(action_key: str, policies: list, params: dict | None = None, session_context: list | None = None) -> dict | None:
+    """Match an action key against policies, evaluating conditions if present.
+
+    Conditions are optional JSON: [{"field": "amount", "op": "gt", "value": 100}]
+    Supported ops: gt, gte, lt, lte, eq, neq, in, not_in, contains, requires_prior
+    If a policy has conditions and params are provided, ALL conditions must match.
+    If no params provided, conditions are ignored (backward compatible).
+    session_context is a list of prior action strings (e.g. ["pagerduty.get_incident", "aws.list_instances"]).
+    """
     for p in policies:
         pattern = p["action_pattern"]
+        pattern_match = False
+
         if pattern == action_key:
-            return p
-        if pattern.endswith(".*") and action_key.startswith(pattern[:-1]):
-            return p
-        if "*" in pattern:
+            pattern_match = True
+        elif pattern.endswith(".*") and action_key.startswith(pattern[:-1]):
+            pattern_match = True
+        elif "*" in pattern:
             parts = pattern.split(".")
             key_parts = action_key.split(".")
             if len(parts) == 2 and len(key_parts) == 2:
                 tool_match = parts[0] == "*" or parts[0] == key_parts[0]
                 action_match = parts[1] == "*" or (parts[1].endswith("*") and key_parts[1].startswith(parts[1][:-1]))
                 if tool_match and action_match:
-                    return p
+                    pattern_match = True
+
+        if not pattern_match:
+            continue
+
+        # Check conditions if present
+        try:
+            raw_conditions = p["conditions"]
+        except (KeyError, IndexError):
+            raw_conditions = None
+        conditions = json.loads(raw_conditions) if raw_conditions else []
+        if conditions:
+            # Split into param conditions and session conditions
+            param_conds = [c for c in conditions if c.get("op") != "requires_prior"]
+            session_conds = [c for c in conditions if c.get("op") == "requires_prior"]
+
+            param_ok = True
+            if param_conds:
+                if params:
+                    param_ok = _evaluate_conditions(param_conds, params)
+                else:
+                    param_ok = False  # has param conditions but no params
+
+            session_ok = True
+            if session_conds:
+                session_ok = _evaluate_session_conditions(session_conds, session_context)
+
+            if param_ok and session_ok:
+                return p
+        else:
+            # No conditions — pattern match is enough
+            return p
+
     return None
+
+
+def _evaluate_conditions(conditions: list[dict], params: dict) -> bool:
+    """Evaluate param conditions against action params. ALL must match."""
+    for cond in conditions:
+        field = cond.get("field", "")
+        op = cond.get("op", "eq")
+        value = cond.get("value")
+
+        if op == "requires_prior":
+            continue  # handled separately
+
+        actual = params.get(field)
+        if actual is None:
+            return False
+
+        try:
+            if op == "gt" and not (float(actual) > float(value)):
+                return False
+            elif op == "gte" and not (float(actual) >= float(value)):
+                return False
+            elif op == "lt" and not (float(actual) < float(value)):
+                return False
+            elif op == "lte" and not (float(actual) <= float(value)):
+                return False
+            elif op == "eq" and str(actual) != str(value):
+                return False
+            elif op == "neq" and str(actual) == str(value):
+                return False
+            elif op == "in" and actual not in value:
+                return False
+            elif op == "not_in" and actual in value:
+                return False
+            elif op == "contains" and str(value) not in str(actual):
+                return False
+        except (ValueError, TypeError):
+            return False
+
+    return True
+
+
+def _evaluate_session_conditions(conditions: list[dict], session_context: list | None) -> bool:
+    """Evaluate session-aware conditions (requires_prior).
+
+    requires_prior checks that a specific tool.action was called earlier in the session.
+    Supports wildcards: "pagerduty.*" matches any pagerduty action.
+    """
+    if not session_context:
+        return False  # has session conditions but no context — fails
+
+    for cond in conditions:
+        required_pattern = str(cond.get("value", ""))
+        if not required_pattern:
+            return False
+
+        found = False
+        for prior_action in session_context:
+            if required_pattern == prior_action:
+                found = True
+                break
+            if required_pattern.endswith(".*") and prior_action.startswith(required_pattern[:-1]):
+                found = True
+                break
+            if "*" in required_pattern:
+                parts = required_pattern.split(".")
+                action_parts = prior_action.split(".")
+                if len(parts) == 2 and len(action_parts) == 2:
+                    t_match = parts[0] == "*" or parts[0] == action_parts[0]
+                    a_match = parts[1] == "*" or parts[1] == action_parts[1]
+                    if t_match and a_match:
+                        found = True
+                        break
+
+        if not found:
+            return False
+
+    return True
 
 
 # ── Helpers ─────────────────────────────────────────────────────────────────
@@ -139,29 +477,44 @@ def _compute_agent_summary(agent_dict: dict) -> dict:
 
 
 def _generate_recommendations(radius, chain_result) -> list[dict]:
+    """Generate recommendations from the agent's specific risk profile and chains."""
     recs = []
-    if radius.moves_money > 2:
-        recs.append({"severity": "critical", "title": "Restrict financial actions",
-                      "description": f"This agent can perform {radius.moves_money} money-moving actions. Add approval gates for create_charge, create_refund, and cancel_subscription."})
-    if radius.deletes_data > 1:
-        recs.append({"severity": "critical", "title": "Add deletion safeguards",
-                      "description": f"This agent can delete data in {radius.deletes_data} ways. Require confirmation or soft-delete instead of hard-delete."})
-    if radius.touches_pii > 4:
-        recs.append({"severity": "high", "title": "Limit PII access scope",
-                      "description": f"This agent touches PII in {radius.touches_pii} actions. Apply field-level masking and audit logging."})
-    if radius.sends_external > 2:
-        recs.append({"severity": "high", "title": "Gate external communications",
-                      "description": f"This agent can send {radius.sends_external} types of external messages. Add human-in-the-loop for outbound comms."})
-    if radius.changes_production > 3:
-        recs.append({"severity": "critical", "title": "Require deployment approval",
-                      "description": f"This agent can modify production in {radius.changes_production} ways. Add mandatory approval for merge, deploy, and infrastructure changes."})
-    critical_chains = [fc for fc in chain_result.flagged_chains if fc.chain.severity == "critical"]
-    if critical_chains:
-        recs.append({"severity": "critical", "title": "Break dangerous action chains",
-                      "description": f"{len(critical_chains)} critical chains detected. Insert approval gates between read and write steps to prevent automated exploitation."})
-    if radius.irreversible_actions > 3:
-        recs.append({"severity": "high", "title": "Add undo capability",
-                      "description": f"{radius.irreversible_actions} actions are irreversible. Implement soft-delete patterns and transaction logs."})
+
+    # Recommendations from detected chains — these are the most actionable
+    for fc in chain_result.flagged_chains:
+        chain = fc.chain
+        # Recommend gating the escalation step (second action in the chain)
+        escalation_actions = fc.matching_actions[1] if len(fc.matching_actions) > 1 else []
+        action_list = ", ".join(escalation_actions[:3])
+        if chain.severity == "critical":
+            recs.append({"severity": "critical", "title": f"Break chain: {chain.name}",
+                          "description": f"{chain.description}. Gate the escalation actions ({action_list}) with approval to prevent this chain."})
+        else:
+            recs.append({"severity": "high", "title": f"Monitor chain: {chain.name}",
+                          "description": f"{chain.description}. Consider requiring approval for: {action_list}."})
+
+    # Recommendations from irreversible actions — these can't be undone
+    if radius.irreversible_actions > 0:
+        recs.append({"severity": "critical" if radius.irreversible_actions > 2 else "high",
+                      "title": "Irreversible actions need gates",
+                      "description": f"{radius.irreversible_actions} actions are irreversible (deletes, terminates, sends). These cannot be undone — add approval or block policies."})
+
+    # Only add label-count recs if no chain already covers it
+    chain_labels = set()
+    for fc in chain_result.flagged_chains:
+        chain_labels.update(fc.chain.risk_tags)
+
+    if radius.moves_money > 0 and "moves_money" not in chain_labels:
+        recs.append({"severity": "high", "title": "Financial actions exposed",
+                      "description": f"{radius.moves_money} money-moving action(s). Run a simulation to see which ones fire, then add approval gates."})
+    if radius.deletes_data > 0 and "deletes_data" not in chain_labels:
+        recs.append({"severity": "high", "title": "Deletion actions exposed",
+                      "description": f"{radius.deletes_data} data-deletion action(s). Run a simulation to test, then block or require approval."})
+
+    if not recs:
+        recs.append({"severity": "info", "title": "Low risk profile",
+                      "description": "No critical chains or high-risk actions detected. Run simulations to verify."})
+
     return recs
 
 
@@ -424,11 +777,49 @@ def delete_agent(agent_id: str, user: dict = Depends(get_current_user)):
         if not existing:
             raise HTTPException(status_code=404, detail=f"Agent '{agent_id}' not found")
 
-        conn.execute("DELETE FROM agents WHERE id = ?", (agent_id,))
-        log_audit(conn, user["sub"], user["email"], "DELETE_AGENT", resource=agent_id,
-                  detail=f"Deleted agent '{existing['name']}'")
+        # Clean up all related data
+        sim_count = conn.execute("SELECT COUNT(*) FROM simulations WHERE agent_id = ?", (agent_id,)).fetchone()[0]
+        sweep_count = conn.execute("SELECT COUNT(*) FROM sweeps WHERE agent_id = ?", (agent_id,)).fetchone()[0]
+        exec_count = conn.execute("SELECT COUNT(*) FROM execution_log WHERE agent_id = ?", (agent_id,)).fetchone()[0]
 
-    return {"message": "Agent deleted"}
+        conn.execute("DELETE FROM simulations WHERE agent_id = ?", (agent_id,))
+        conn.execute("DELETE FROM sweeps WHERE agent_id = ?", (agent_id,))
+        conn.execute("DELETE FROM execution_log WHERE agent_id = ?", (agent_id,))
+        conn.execute("DELETE FROM agents WHERE id = ?", (agent_id,))  # cascades to tools, actions, policies, test_data
+
+        log_audit(conn, user["sub"], user["email"], "DELETE_AGENT", resource=agent_id,
+                  detail=f"Deleted agent '{existing['name']}' + {sim_count} simulations, {sweep_count} sweeps, {exec_count} executions")
+
+    return {"message": "Agent deleted", "cleaned": {"simulations": sim_count, "sweeps": sweep_count, "executions": exec_count}}
+
+
+class BulkDeleteRequest(BaseModel):
+    agent_ids: list[str]
+
+
+@app.post("/api/authority/agents/delete")
+def bulk_delete_agents(req: BulkDeleteRequest, user: dict = Depends(get_current_user)):
+    """Delete multiple agents and all their history in one call."""
+    deleted = []
+    not_found = []
+    with get_db() as conn:
+        for agent_id in req.agent_ids:
+            existing = conn.execute("SELECT name FROM agents WHERE id = ?", (agent_id,)).fetchone()
+            if not existing:
+                not_found.append(agent_id)
+                continue
+
+            conn.execute("DELETE FROM simulations WHERE agent_id = ?", (agent_id,))
+            conn.execute("DELETE FROM sweeps WHERE agent_id = ?", (agent_id,))
+            conn.execute("DELETE FROM execution_log WHERE agent_id = ?", (agent_id,))
+            conn.execute("DELETE FROM agents WHERE id = ?", (agent_id,))
+            deleted.append(agent_id)
+
+        if deleted:
+            log_audit(conn, user["sub"], user["email"], "BULK_DELETE_AGENTS",
+                      detail=f"Deleted {len(deleted)} agents: {', '.join(deleted)}")
+
+    return {"deleted": deleted, "not_found": not_found}
 
 
 # ── Agent Discovery: Register + Import ─────────────────────────────────────
@@ -563,7 +954,7 @@ def connect_mcp_server(req: MCPConnectInput, user: dict = Depends(get_current_us
             resp = _httpx.get(f"{url}/tools/list", timeout=15.0)
             resp.raise_for_status()
             data = resp.json()
-        except Exception:
+        except Exception as e:
             raise HTTPException(status_code=502, detail=f"Could not connect to MCP server at {url}: {str(e)}")
 
     # Parse response — handle JSON-RPC envelope or plain response
@@ -719,10 +1110,20 @@ def import_openai(req: OpenAIImportInput, user: dict = Depends(get_current_user)
 
 # ── Enforcement Policies ────────────────────────────────────────────────────
 
+from typing import Union
+
+
+class ConditionInput(BaseModel):
+    field: str       # param field name, e.g. "amount"
+    op: str          # gt, gte, lt, lte, eq, neq, in, not_in, contains
+    value: Union[str, int, float, list] = ""
+
+
 class PolicyInput(BaseModel):
     action_pattern: str
     effect: str  # BLOCK, REQUIRE_APPROVAL, ALLOW
     reason: str = ""
+    conditions: list[ConditionInput] = []
 
 
 @app.get("/api/authority/agent/{agent_id}/policies")
@@ -731,7 +1132,12 @@ def list_policies(agent_id: str, user: dict = Depends(get_current_user)):
         policies = conn.execute(
             "SELECT * FROM policies WHERE agent_id = ? ORDER BY created_at DESC", (agent_id,)
         ).fetchall()
-    return {"policies": [dict(p) for p in policies]}
+    result = []
+    for p in policies:
+        d = dict(p)
+        d["conditions"] = json.loads(d.get("conditions") or "[]")
+        result.append(d)
+    return {"policies": result}
 
 
 @app.post("/api/authority/agent/{agent_id}/policies")
@@ -739,20 +1145,31 @@ def create_policy(agent_id: str, req: PolicyInput, user: dict = Depends(get_curr
     if req.effect not in ("BLOCK", "REQUIRE_APPROVAL", "ALLOW"):
         raise HTTPException(status_code=400, detail="Effect must be BLOCK, REQUIRE_APPROVAL, or ALLOW")
 
+    valid_ops = {"gt", "gte", "lt", "lte", "eq", "neq", "in", "not_in", "contains", "requires_prior"}
+    for c in req.conditions:
+        if c.op not in valid_ops:
+            raise HTTPException(status_code=400, detail=f"Invalid condition op '{c.op}'. Must be one of: {', '.join(sorted(valid_ops))}")
+
+    conditions_json = json.dumps([c.model_dump() for c in req.conditions]) if req.conditions else "[]"
+
+    # Auto-assign priority: BLOCK=100, REQUIRE_APPROVAL=50, ALLOW=10
+    priority = {"BLOCK": 100, "REQUIRE_APPROVAL": 50, "ALLOW": 10}.get(req.effect, 0)
+
     with get_db() as conn:
         existing = conn.execute("SELECT id FROM agents WHERE id = ?", (agent_id,)).fetchone()
         if not existing:
             raise HTTPException(status_code=404, detail=f"Agent '{agent_id}' not found")
 
         cur = conn.execute(
-            "INSERT INTO policies (agent_id, action_pattern, effect, reason, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-            (agent_id, req.action_pattern, req.effect, req.reason, user["email"], datetime.utcnow().isoformat()),
+            "INSERT INTO policies (agent_id, action_pattern, effect, reason, conditions, priority, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (agent_id, req.action_pattern, req.effect, req.reason, conditions_json, priority, user["email"], datetime.utcnow().isoformat()),
         )
 
+        condition_desc = f" when {conditions_json}" if req.conditions else ""
         log_audit(conn, user["sub"], user["email"], "CREATE_POLICY", resource=agent_id,
-                  detail=f"{req.effect} on {req.action_pattern}")
+                  detail=f"{req.effect} on {req.action_pattern}{condition_desc}")
 
-    return {"id": cur.lastrowid, "message": "Policy created"}
+    return {"id": cur.lastrowid, "priority": priority, "message": "Policy created"}
 
 
 @app.delete("/api/authority/policy/{policy_id}")
@@ -769,26 +1186,87 @@ def delete_policy(policy_id: int, user: dict = Depends(get_current_user)):
     return {"message": "Policy deleted"}
 
 
+@app.get("/api/authority/agent/{agent_id}/policy-conflicts")
+def detect_policy_conflicts(agent_id: str, user: dict = Depends(get_current_user)):
+    """Find overlapping policies that might conflict (e.g., BLOCK on stripe.* and ALLOW on stripe.get_customer)."""
+    with get_db() as conn:
+        policies = conn.execute(
+            "SELECT * FROM policies WHERE agent_id = ? ORDER BY priority DESC, id", (agent_id,)
+        ).fetchall()
+
+    policy_list = []
+    for p in policies:
+        d = dict(p)
+        d["conditions"] = json.loads(d.get("conditions") or "[]")
+        policy_list.append(d)
+
+    conflicts = []
+    for i, p1 in enumerate(policy_list):
+        for p2 in policy_list[i + 1:]:
+            if p1["effect"] == p2["effect"]:
+                continue  # same effect — no conflict
+            # Check if patterns overlap
+            overlap = _patterns_overlap(p1["action_pattern"], p2["action_pattern"])
+            if overlap:
+                winner = p1 if p1.get("priority", 0) >= p2.get("priority", 0) else p2
+                conflicts.append({
+                    "policy_a": {"id": p1["id"], "pattern": p1["action_pattern"], "effect": p1["effect"], "priority": p1.get("priority", 0)},
+                    "policy_b": {"id": p2["id"], "pattern": p2["action_pattern"], "effect": p2["effect"], "priority": p2.get("priority", 0)},
+                    "overlap": overlap,
+                    "winner": {"id": winner["id"], "effect": winner["effect"]},
+                })
+
+    return {"agent_id": agent_id, "conflicts": conflicts, "total": len(conflicts)}
+
+
+def _patterns_overlap(pattern_a: str, pattern_b: str) -> str | None:
+    """Check if two action patterns overlap. Returns description of overlap or None."""
+    # Exact match
+    if pattern_a == pattern_b:
+        return f"identical: {pattern_a}"
+    # One is a wildcard that covers the other
+    if pattern_a.endswith(".*"):
+        prefix = pattern_a[:-1]
+        if pattern_b.startswith(prefix):
+            return f"{pattern_a} covers {pattern_b}"
+    if pattern_b.endswith(".*"):
+        prefix = pattern_b[:-1]
+        if pattern_a.startswith(prefix):
+            return f"{pattern_b} covers {pattern_a}"
+    # Both wildcards on same tool
+    parts_a = pattern_a.split(".")
+    parts_b = pattern_b.split(".")
+    if len(parts_a) == 2 and len(parts_b) == 2:
+        if parts_a[0] == parts_b[0] and ("*" in parts_a[1] or "*" in parts_b[1]):
+            return f"both match {parts_a[0]} actions"
+    return None
+
+
 # ── Enforcement Check (what agents call at runtime) ─────────────────────────
+
+class SessionAction(BaseModel):
+    tool: str
+    action: str
+
 
 class EnforceRequest(BaseModel):
     agent_id: str
     tool: str
     action: str
+    params: dict = {}
+    session_context: list[str] = []  # prior actions: ["pagerduty.get_incident", "aws.list_instances"]
 
 
-@app.post("/api/enforce")
-def enforce_action(req: EnforceRequest):
-    """Runtime enforcement — agents call this before executing an action."""
-    check_rate_limit(f"enforce:{req.agent_id}")
-    action_key = f"{req.tool}.{req.action}"
+def enforce_check(agent_id: str, tool: str, action: str, params: dict = None, session_context: list = None) -> dict:
+    """Shared enforce logic — used by the endpoint, proxy, and sandbox executor."""
+    action_key = f"{tool}.{action}"
 
     with get_db() as conn:
         policies = conn.execute(
-            "SELECT * FROM policies WHERE agent_id = ? ORDER BY id", (req.agent_id,)
+            "SELECT * FROM policies WHERE agent_id = ? ORDER BY priority DESC, id", (agent_id,)
         ).fetchall()
 
-        matched_policy = _match_policy(action_key, policies)
+        matched_policy = _match_policy(action_key, policies, params=params or None, session_context=session_context or None)
 
         if matched_policy:
             effect = matched_policy["effect"]
@@ -797,17 +1275,28 @@ def enforce_action(req: EnforceRequest):
             effect = "ALLOW"
             status = "EXECUTED"
 
-        log_execution(conn, req.agent_id, req.tool, req.action, status,
+        log_execution(conn, agent_id, tool, action, status,
                       policy_id=matched_policy["id"] if matched_policy else None,
                       detail=matched_policy["reason"] if matched_policy else "No matching policy")
 
         return {
             "decision": effect,
             "action": action_key,
-            "agent_id": req.agent_id,
+            "agent_id": agent_id,
             "policy": dict(matched_policy) if matched_policy else None,
             "message": matched_policy["reason"] if matched_policy else "Action allowed — no matching policy",
         }
+
+
+@app.post("/api/enforce")
+def enforce_action(req: EnforceRequest):
+    """Runtime enforcement — agents call this before executing an action.
+
+    Supports conditional policies (e.g. amount > 100) and session-aware
+    conditions (e.g. requires_prior: pagerduty.get_incident).
+    """
+    check_rate_limit(f"enforce:{req.agent_id}")
+    return enforce_check(req.agent_id, req.tool, req.action, req.params or None, req.session_context or None)
 
 
 # ── Audit Log ───────────────────────────────────────────────────────────────
@@ -1076,6 +1565,85 @@ def run_sandbox_simulation(req: SimulateRequest, user: dict = Depends(get_curren
     }
 
 
+class MultiSimulateRequest(BaseModel):
+    agent_ids: list[str]
+    coordinator_id: str
+    scenario_id: str = ""
+    custom_prompt: str = ""
+    dry_run: bool = True
+
+
+@app.post("/api/sandbox/simulate/multi")
+def run_multi_agent_simulation(req: MultiSimulateRequest, user: dict = Depends(get_current_user)):
+    """Run a multi-agent simulation with dispatch between agents."""
+    from sandbox.multi_runner import run_multi_simulation, run_multi_simulation_dry
+    from sandbox.analyzer import analyze_multi_trace
+    from sandbox.prompts.scenarios import get_scenario, Scenario
+    from dataclasses import asdict as _asdict
+
+    if req.coordinator_id not in req.agent_ids:
+        raise HTTPException(status_code=400, detail="coordinator_id must be in agent_ids")
+
+    # Load all agent configs
+    agent_configs = {}
+    with get_db() as conn:
+        for aid in req.agent_ids:
+            agent = get_agent_from_db(conn, aid)
+            if not agent:
+                raise HTTPException(status_code=404, detail=f"Agent '{aid}' not found")
+            agent_configs[aid] = agent
+
+    # Build scenario
+    scenario = None
+    if req.scenario_id:
+        scenario = get_scenario(req.scenario_id)
+        if not scenario:
+            raise HTTPException(status_code=404, detail=f"Scenario '{req.scenario_id}' not found")
+    elif req.custom_prompt:
+        scenario = Scenario(
+            id="custom", name="Custom Multi-Agent Prompt", description="Custom prompt",
+            agent_type="ops", category="custom", severity="medium", prompt=req.custom_prompt,
+        )
+    else:
+        raise HTTPException(status_code=400, detail="Provide scenario_id or custom_prompt")
+
+    api_key = os.getenv("ANTHROPIC_API_KEY")
+    custom_data = _get_custom_data(req.coordinator_id)
+
+    if req.dry_run:
+        multi_trace = run_multi_simulation_dry(agent_configs, req.coordinator_id, scenario, custom_data=custom_data)
+    else:
+        if not api_key:
+            raise HTTPException(status_code=400, detail="ANTHROPIC_API_KEY required for LLM simulation")
+        multi_trace = run_multi_simulation(agent_configs, req.coordinator_id, scenario, api_key=api_key, custom_data=custom_data)
+
+    report = analyze_multi_trace(multi_trace, agent_configs)
+
+    # Store simulation
+    with get_db() as conn:
+        conn.execute(
+            "INSERT INTO simulations (id, agent_id, scenario_id, status, trace_json, report_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (multi_trace.simulation_id, req.coordinator_id, scenario.id, multi_trace.status,
+             json.dumps(_asdict(multi_trace), default=str),
+             json.dumps(_asdict(report), default=str),
+             datetime.utcnow().isoformat()),
+        )
+        log_audit(conn, user["sub"], user["email"], "MULTI_SIMULATE", resource=req.coordinator_id,
+                  detail=f"Multi-agent sim with {len(req.agent_ids)} agents, dry_run={req.dry_run}")
+
+    return {
+        "simulation_id": multi_trace.simulation_id,
+        "status": multi_trace.status,
+        "agents": list(multi_trace.agent_traces.keys()),
+        "dispatches": multi_trace.dispatches,
+        "trace": {
+            "total_steps": len(multi_trace.unified_steps),
+            "steps": [_asdict(s) for s in multi_trace.unified_steps],
+        },
+        "report": _asdict(report),
+    }
+
+
 @app.get("/api/sandbox/simulate/stream")
 def run_sandbox_simulation_stream(agent_id: str, scenario_id: str, request: Request):
     """SSE endpoint: stream simulation steps as they happen."""
@@ -1191,6 +1759,137 @@ def get_simulation(simulation_id: str, user: dict = Depends(get_current_user)):
         "report": json.loads(row["report_json"]),
         "created_at": row["created_at"],
     }
+
+
+# ── Sweep (Full Agent Scan) ───────────────────────────────────────────────
+
+class SweepRequest(BaseModel):
+    agent_id: str
+    dry_run: bool = True
+    categories: list[str] = []  # optional filter, default: all
+
+
+@app.post("/api/sandbox/sweep")
+def run_sweep(req: SweepRequest, user: dict = Depends(get_current_user)):
+    """Run every applicable scenario for an agent and produce an aggregate report."""
+    from sandbox.runner import run_simulation, run_simulation_dry
+    from sandbox.analyzer import analyze_trace, aggregate_reports
+    from sandbox.prompts.scenarios import get_scenarios_for_agent, generate_scenarios_for_agent
+    from sandbox.models import Scenario
+    from dataclasses import asdict as _asdict
+
+    with get_db() as conn:
+        agent = get_agent_from_db(conn, req.agent_id)
+        if not agent:
+            raise HTTPException(status_code=404, detail=f"Agent '{req.agent_id}' not found")
+
+    config = _db_agent_to_config(agent)
+
+    # Collect scenarios: hardcoded + auto-generated
+    agent_type = _infer_agent_type_from_config(agent)
+    scenarios = list(get_scenarios_for_agent(agent_type))
+    auto_scenarios = generate_scenarios_for_agent(agent)
+    scenarios.extend(auto_scenarios)
+
+    # Filter by categories if specified
+    if req.categories:
+        scenarios = [s for s in scenarios if s.category in req.categories]
+
+    if not scenarios:
+        raise HTTPException(status_code=400, detail="No applicable scenarios found for this agent")
+
+    api_key = os.getenv("ANTHROPIC_API_KEY")
+    custom_data = _get_custom_data(req.agent_id)
+    sweep_id = uuid.uuid4().hex[:12]
+
+    # Run each scenario
+    results = []
+    for scenario in scenarios:
+        try:
+            if req.dry_run:
+                trace = run_simulation_dry(agent, scenario, custom_data=custom_data)
+            else:
+                if not api_key:
+                    raise HTTPException(status_code=400, detail="ANTHROPIC_API_KEY required for LLM sweep")
+                trace = run_simulation(agent, scenario, api_key=api_key, custom_data=custom_data)
+
+            report = analyze_trace(trace)
+            results.append((scenario, trace, report))
+        except Exception as e:
+            # Create a failed trace
+            from sandbox.models import SimulationTrace
+            failed_trace = SimulationTrace(
+                simulation_id=sweep_id, agent_id=req.agent_id,
+                agent_name=agent["name"], scenario_id=scenario.id,
+                scenario_name=scenario.name, prompt=scenario.prompt,
+                status="error", error=str(e),
+            )
+            from sandbox.models import SimulationReport
+            empty_report = SimulationReport(
+                simulation_id=sweep_id, agent_id=req.agent_id,
+                scenario_id=scenario.id, total_steps=0,
+                actions_executed=0, actions_blocked=0, actions_pending=0,
+            )
+            results.append((scenario, failed_trace, empty_report))
+
+    # Aggregate
+    sweep_report = aggregate_reports(results, req.agent_id, agent["name"], sweep_id)
+
+    # Store
+    with get_db() as conn:
+        conn.execute(
+            "INSERT INTO sweeps (id, agent_id, status, total_scenarios, completed, report_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (sweep_id, req.agent_id, "completed", sweep_report.total_scenarios,
+             sweep_report.completed, json.dumps(_asdict(sweep_report), default=str),
+             datetime.utcnow().isoformat()),
+        )
+        log_audit(conn, user["sub"], user["email"], "SWEEP", resource=req.agent_id,
+                  detail=f"Sweep: {sweep_report.total_scenarios} scenarios, risk={sweep_report.overall_risk_score}")
+
+    return _asdict(sweep_report)
+
+
+@app.get("/api/sandbox/sweeps")
+def list_sweeps(user: dict = Depends(get_current_user)):
+    """List past sweep runs."""
+    with get_db() as conn:
+        rows = conn.execute(
+            "SELECT id, agent_id, status, total_scenarios, completed, created_at, report_json FROM sweeps ORDER BY created_at DESC LIMIT 50"
+        ).fetchall()
+    sweeps = []
+    for r in rows:
+        s = dict(r)
+        report = json.loads(s.pop("report_json") or "{}")
+        s["overall_risk_score"] = report.get("overall_risk_score", 0)
+        s["max_risk_score"] = report.get("max_risk_score", 0)
+        s["violations"] = len(report.get("all_violations", []))
+        s["chains"] = len(report.get("all_chains", []))
+        sweeps.append(s)
+    return {"sweeps": sweeps}
+
+
+@app.get("/api/sandbox/sweep/{sweep_id}")
+def get_sweep(sweep_id: str, user: dict = Depends(get_current_user)):
+    """Get full sweep detail."""
+    with get_db() as conn:
+        row = conn.execute("SELECT * FROM sweeps WHERE id = ?", (sweep_id,)).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail=f"Sweep '{sweep_id}' not found")
+    return json.loads(row["report_json"])
+
+
+def _infer_agent_type_from_config(agent: dict) -> str:
+    """Infer agent type from tool names for scenario matching."""
+    tool_names = {t["name"] for t in agent.get("tools", [])}
+    if "zendesk" in tool_names or ("stripe" in tool_names and "email" in tool_names):
+        return "support"
+    if "github" in tool_names or "aws" in tool_names:
+        if "pagerduty" in tool_names:
+            return "ops"
+        return "devops"
+    if "hubspot" in tool_names or "calendly" in tool_names:
+        return "sales"
+    return "support"  # default
 
 
 class ApplyPolicyRequest(BaseModel):
@@ -1433,6 +2132,82 @@ def list_mock_endpoints():
             "3_get_trace": "GET /mock/session/{session_id}/trace",
         },
     }
+
+
+# ── API Key Management ─────────────────────────────────────────────────────
+
+import hashlib as _hashlib
+import secrets as _secrets
+
+
+def _generate_api_key() -> tuple[str, str, str]:
+    """Generate an API key. Returns (full_key, key_hash, key_prefix)."""
+    raw = _secrets.token_urlsafe(32)
+    full_key = f"ag_{raw}"
+    key_hash = _hashlib.sha256(full_key.encode()).hexdigest()
+    key_prefix = full_key[:10]
+    return full_key, key_hash, key_prefix
+
+
+def verify_api_key(request: Request) -> dict | None:
+    """Check X-API-Key header against the api_keys table. Returns key row or None."""
+    key = request.headers.get("X-API-Key", "")
+    if not key:
+        return None
+    key_hash = _hashlib.sha256(key.encode()).hexdigest()
+    with get_db() as conn:
+        row = conn.execute("SELECT * FROM api_keys WHERE key_hash = ? AND active = 1", (key_hash,)).fetchone()
+        if row:
+            conn.execute("UPDATE api_keys SET last_used = ? WHERE id = ?", (datetime.utcnow().isoformat(), row["id"]))
+            return dict(row)
+    return None
+
+
+class CreateApiKeyRequest(BaseModel):
+    name: str
+    agent_id: str = ""  # optional: scope key to a specific agent
+
+
+@app.post("/api/keys")
+def create_api_key(req: CreateApiKeyRequest, user: dict = Depends(get_current_user)):
+    """Generate a new API key for agent authentication."""
+    full_key, key_hash, key_prefix = _generate_api_key()
+    key_id = uuid.uuid4().hex[:12]
+
+    with get_db() as conn:
+        conn.execute(
+            "INSERT INTO api_keys (id, key_hash, key_prefix, name, created_by, agent_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (key_id, key_hash, key_prefix, req.name, user["email"], req.agent_id or None, datetime.utcnow().isoformat()),
+        )
+        log_audit(conn, user["sub"], user["email"], "CREATE_API_KEY", resource=key_id,
+                  detail=f"Key '{req.name}' for agent={req.agent_id or 'any'}")
+
+    # Return full key only once — it's never stored in plaintext
+    return {"id": key_id, "key": full_key, "prefix": key_prefix, "name": req.name,
+            "message": "Save this key — it won't be shown again."}
+
+
+@app.get("/api/keys")
+def list_api_keys(user: dict = Depends(get_current_user)):
+    """List all API keys (shows prefix only, not the full key)."""
+    with get_db() as conn:
+        rows = conn.execute(
+            "SELECT id, key_prefix, name, agent_id, active, last_used, created_at, created_by FROM api_keys ORDER BY created_at DESC"
+        ).fetchall()
+    return {"keys": [dict(r) for r in rows]}
+
+
+@app.delete("/api/keys/{key_id}")
+def revoke_api_key(key_id: str, user: dict = Depends(get_current_user)):
+    """Revoke an API key."""
+    with get_db() as conn:
+        row = conn.execute("SELECT * FROM api_keys WHERE id = ?", (key_id,)).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="API key not found")
+        conn.execute("UPDATE api_keys SET active = 0 WHERE id = ?", (key_id,))
+        log_audit(conn, user["sub"], user["email"], "REVOKE_API_KEY", resource=key_id,
+                  detail=f"Revoked key '{row['name']}'")
+    return {"message": "API key revoked"}
 
 
 # ── Health ──────────────────────────────────────────────────────────────────

@@ -11,9 +11,18 @@ from fastapi import HTTPException, Request
 
 from db import get_db, log_audit
 
+import logging as _logging
+
 SECRET_KEY = os.getenv("JWT_SECRET", "actiongate-demo-secret-key-change-in-prod")
 ALGORITHM = "HS256"
 TOKEN_EXPIRY_HOURS = 24
+
+if SECRET_KEY == "actiongate-demo-secret-key-change-in-prod":
+    _logger = _logging.getLogger("actiongate.auth")
+    _logger.warning(
+        "JWT_SECRET is using the default demo value. Set JWT_SECRET env var in production. "
+        "This is insecure and will allow anyone to forge authentication tokens."
+    )
 
 
 def hash_password(password: str) -> str:
