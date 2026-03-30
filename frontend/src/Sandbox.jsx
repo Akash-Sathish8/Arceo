@@ -1,14 +1,28 @@
 import { useState, useEffect, useRef, useMemo } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { createPortal } from "react-dom";
+import { Link, useSearchParams, useNavigate } from "react-router-dom";
 import { apiFetch } from "./api.js";
 import { toast } from "./Toast.jsx";
 import "./Sandbox.css";
 
 function Tooltip({ text, children }) {
+  const [coords, setCoords] = useState(null);
+  const ref = useRef(null);
+  const show = () => {
+    if (ref.current) {
+      const r = ref.current.getBoundingClientRect();
+      setCoords({ top: r.top, left: r.left + r.width / 2 });
+    }
+  };
   return (
-    <span className="tooltip-wrap">
+    <span ref={ref} className="tooltip-wrap" onMouseEnter={show} onMouseLeave={() => setCoords(null)}>
       {children}
-      <span className="tooltip-bubble">{text}</span>
+      {coords && createPortal(
+        <span className="tooltip-bubble" style={{ top: coords.top, left: coords.left, transform: "translate(-50%, calc(-100% - 8px))" }}>
+          {text}
+        </span>,
+        document.body
+      )}
     </span>
   );
 }
@@ -81,6 +95,7 @@ const DECISION_STYLE = {
 export default function Sandbox() {
   const [searchParams] = useSearchParams();
   const preselectedAgent = searchParams.get("agent");
+  const navigate = useNavigate();
 
   const [scenarios, setScenarios] = useState([]);
   const [agents, setAgents] = useState([]);
@@ -214,28 +229,13 @@ export default function Sandbox() {
 
     if (allResults.length > 0) {
       const lastData = allResults[allResults.length - 1].data;
-      setResult(lastData);
-      const simData = await apiFetch("/api/sandbox/simulations");
-      setSimulations(simData.simulations);
-      if (allResults.length > 1) {
-        const scores = allResults.map((r) => r.data.report?.risk_score ?? 0);
-        const peak = Math.max(...scores);
-        const avg = Math.round(scores.reduce((a, b) => a + b, 0) / scores.length);
-        toast(`${allResults.length} scenarios done — peak risk: ${peak}, avg: ${avg}`, peak >= 70 ? "error" : "info");
-      } else {
-        const score = lastData.report?.risk_score ?? lastData.risk_score;
-        if (score !== undefined) {
-          const label = score >= 70 ? "Critical" : score >= 25 ? "Warning" : "Safe";
-          toast(`Simulation complete — Risk score: ${score} (${label})`, score >= 70 ? "error" : "info");
-        } else {
-          toast("Simulation complete");
-        }
-      }
+      setRunning(false);
+      navigate(`/sandbox/${lastData.simulation_id}`);
     } else {
       setRunError("All simulations failed");
       toast("All simulations failed", "error");
+      setRunning(false);
     }
-    setRunning(false);
   };
 
   if (loading) {
@@ -268,29 +268,6 @@ export default function Sandbox() {
         <p>Run AI agents against mock APIs. Watch what they do. See what goes wrong.</p>
       </header>
 
-      {/* Summary Stats */}
-      <div className="sandbox-stats">
-        <div className="sandbox-stat">
-          <div className="sandbox-stat-number">{scenarios.filter((s) => s.category !== "adversarial" && s.category !== "chain_exploit").length}</div>
-          <div className="sandbox-stat-label">Scenarios</div>
-        </div>
-        <div className="sandbox-stat">
-          <div className="sandbox-stat-number">{agents.length}</div>
-          <div className="sandbox-stat-label">Agents</div>
-        </div>
-        <div className="sandbox-stat">
-          <div className="sandbox-stat-number">{simulations.length}</div>
-          <div className="sandbox-stat-label">Runs</div>
-        </div>
-        <div className="sandbox-stat">
-          <div className="sandbox-stat-number">{scenarios.filter((s) => s.category === "normal").length}</div>
-          <div className="sandbox-stat-label">Normal</div>
-        </div>
-        <div className="sandbox-stat">
-          <div className="sandbox-stat-number">{scenarios.filter((s) => s.category === "edge_case").length}</div>
-          <div className="sandbox-stat-label">Edge Cases</div>
-        </div>
-      </div>
 
       {/* Run Simulation — top of page */}
       <section className="run-section" id="run-section">
@@ -458,9 +435,9 @@ export default function Sandbox() {
 
       {/* Scenarios (auto-generated from selected agent) */}
       {selectedAgent && (
-        <section style={{ marginTop: 56, marginBottom: 48 }}>
+        <section style={{ marginTop: 28, marginBottom: 48 }}>
           {/* Queue bar — always visible */}
-          <div className="run-queue-bar" style={{ marginBottom: 24 }}>
+          <div className="run-queue-bar" style={{ marginBottom: 28 }}>
             <span className="rsb-label">
               {selectedScenarios.length + queuedCustomPrompts.length} queued
             </span>

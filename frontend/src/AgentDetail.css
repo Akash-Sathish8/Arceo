@@ -209,14 +209,14 @@
 .detail-stats {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
-  gap: 8px;
+  gap: 10px;
   margin-bottom: 40px;
   animation: fadeInUp 0.45s cubic-bezier(0.4, 0, 0.2, 1) 0.08s both;
 }
 
 .d-stat {
   text-align: center;
-  padding: 16px 6px;
+  padding: 18px 8px;
   background: var(--white);
   border: 1px solid var(--border);
   border-radius: var(--radius);

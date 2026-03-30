@@ -1,14 +1,28 @@
 import { useState, useEffect, useMemo, useRef } from "react";
+import { createPortal } from "react-dom";
 import { Link, useSearchParams } from "react-router-dom";
 import { apiFetch } from "./api.js";
 import { toast } from "./Toast.jsx";
 import "./Authority.css";
 
 function Tooltip({ text, children }) {
+  const [coords, setCoords] = useState(null);
+  const ref = useRef(null);
+  const show = () => {
+    if (ref.current) {
+      const r = ref.current.getBoundingClientRect();
+      setCoords({ top: r.top, left: r.left + r.width / 2 });
+    }
+  };
   return (
-    <span className="tooltip-wrap">
+    <span ref={ref} className="tooltip-wrap" onMouseEnter={show} onMouseLeave={() => setCoords(null)}>
       {children}
-      <span className="tooltip-bubble">{text}</span>
+      {coords && createPortal(
+        <span className="tooltip-bubble" style={{ top: coords.top, left: coords.left, transform: "translate(-50%, calc(-100% - 8px))" }}>
+          {text}
+        </span>,
+        document.body
+      )}
     </span>
   );
 }
