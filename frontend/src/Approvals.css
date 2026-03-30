@@ -253,3 +253,49 @@
   background: #fef2f2;
   border-color: #dc2626;
 }
+
+/* ── Action Parameters ───────────────────────────────────────────── */
+
+.approval-params {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 10px 14px;
+}
+
+.approval-params-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--text-muted);
+  margin-bottom: 7px;
+}
+
+.approval-params-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.approval-param-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.approval-param-key {
+  font-size: 12px;
+  color: var(--text-muted);
+  text-transform: capitalize;
+  min-width: 80px;
+  flex-shrink: 0;
+}
+
+.approval-param-val {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  font-family: "SF Mono", "Fira Code", "Menlo", monospace;
+  word-break: break-all;
+}

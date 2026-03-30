@@ -331,7 +331,7 @@ export default function Authority() {
       <div className="authority-page">
         <div className="loading-state">
           <div className="spinner" />
-          <p>Loading authority data...</p>
+          <p>Loading agents...</p>
         </div>
       </div>
     );
@@ -491,7 +491,7 @@ export default function Authority() {
     return (
       <div className="authority-page">
         <div className="onboarding">
-          <h1>Welcome to ActionGate</h1>
+          <h1>Welcome to Arceo</h1>
           <p className="onboarding-sub">Tell us what your AI agent can do. We'll show you what can go wrong.</p>
 
           <div className="onboarding-steps">
@@ -543,7 +543,7 @@ export default function Authority() {
           {showMcpConnect && (
             <form className="mcp-connect-form" onSubmit={handleMcpConnect}>
               <h3>Connect to MCP Server</h3>
-              <p className="mcp-connect-desc">Enter your MCP server's HTTP URL. ActionGate will call tools/list and import all tools automatically.</p>
+              <p className="mcp-connect-desc">Enter your MCP server's HTTP URL. Arceo will call tools/list and import all tools automatically.</p>
               <div className="form-row">
                 <div className="form-group">
                   <label>MCP Server URL</label>
@@ -580,7 +580,7 @@ export default function Authority() {
       <header className="auth-header">
         <div className="auth-header-row">
           <div>
-            <h1>Dashboard</h1>
+            <h1>Agents</h1>
             <p>See what your AI agents can do — and what they could do wrong — before it happens in production.</p>
           </div>
           <div className="header-buttons">
@@ -646,7 +646,7 @@ export default function Authority() {
             {connectTab === "mcp" && (
               <form onSubmit={handleMcpConnect}>
                 <p className="connect-tab-desc">
-                  Point to your MCP server URL — ActionGate auto-discovers all tools and imports them instantly.
+                  Point to your MCP server URL — Arceo auto-discovers all tools and imports them instantly.
                 </p>
                 <div className="form-row">
                   <div className="form-group">

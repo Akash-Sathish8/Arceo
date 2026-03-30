@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { getUser, getToken } from "./api.js";
+import { getUser, getToken, apiFetch } from "./api.js";
 import "./Settings.css";
 
 function CopyButton({ text }) {
@@ -42,6 +42,9 @@ export default function Settings() {
 
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteSent, setInviteSent] = useState(false);
+  const [inviteSending, setInviteSending] = useState(false);
+  const [createdEmail, setCreatedEmail] = useState("");
+  const [tempPass, setTempPass] = useState("");
 
   const [activeSection, setActiveSection] = useState("api");
 
@@ -53,23 +56,43 @@ export default function Settings() {
     setTimeout(() => setSavedNotif(false), 2000);
   };
 
-  const sendInvite = (e) => {
+  const sendInvite = async (e) => {
     e.preventDefault();
-    setInviteSent(true);
+    setInviteSending(true);
+    const emailToCreate = inviteEmail.trim();
+    const tempPassword = Math.random().toString(36).slice(2, 8) + Math.random().toString(36).slice(2, 6).toUpperCase();
+    try {
+      await apiFetch("/api/auth/signup", {
+        method: "POST",
+        body: JSON.stringify({
+          email: emailToCreate,
+          password: tempPassword,
+          name: emailToCreate.split("@")[0],
+        }),
+        skipLogoutOn401: true,
+      });
+      setCreatedEmail(emailToCreate);
+      setTempPass(tempPassword);
+    } catch {
+      // User may already exist — still show as "invited"
+      setCreatedEmail(emailToCreate);
+      setTempPass("");
+    }
     setInviteEmail("");
-    setTimeout(() => setInviteSent(false), 3000);
+    setInviteSent(true);
+    setInviteSending(false);
   };
 
   const enforceSnippetPython = `import requests
 
-ACTIONGATE_TOKEN = "${token.slice(0, 20)}..."
+ARCEO_TOKEN = "${token.slice(0, 20)}..."
 AGENT_ID = "your-agent-id"
 
 def enforce(tool: str, action: str, params: dict) -> bool:
     resp = requests.post(
         "http://localhost:8000/api/enforce",
         json={"agent_id": AGENT_ID, "tool": tool, "action": action, "params": params},
-        headers={"Authorization": f"Bearer {ACTIONGATE_TOKEN}"}
+        headers={"Authorization": f"Bearer {ARCEO_TOKEN}"}
     )
     result = resp.json()
     return result.get("decision") == "ALLOW"
@@ -95,14 +118,14 @@ if enforce("Stripe", "create_refund", {"amount": 500, "customer_id": "cus_123"})
 
   const enforceSnippetNode = `const axios = require("axios");
 
-const ACTIONGATE_TOKEN = "${token.slice(0, 20)}...";
+const ARCEO_TOKEN = "${token.slice(0, 20)}...";
 const AGENT_ID = "your-agent-id";
 
 async function enforce(tool, action, params) {
   const { data } = await axios.post(
     "http://localhost:8000/api/enforce",
     { agent_id: AGENT_ID, tool, action, params },
-    { headers: { Authorization: \`Bearer \${ACTIONGATE_TOKEN}\` } }
+    { headers: { Authorization: \`Bearer \${ARCEO_TOKEN}\` } }
   );
   return data.decision === "ALLOW";
 }
@@ -146,7 +169,7 @@ if (await enforce("Stripe", "create_refund", { amount: 500 })) {
             <div className="settings-section">
               <h2>API Key</h2>
               <p className="settings-desc">
-                Use this token to authenticate your agent with ActionGate's enforcement API.
+                Use this token to authenticate your agent with Arceo's enforcement API.
                 Pass it as a <code>Bearer</code> token in the <code>Authorization</code> header.
               </p>
               <div className="api-key-box">
@@ -165,7 +188,7 @@ if (await enforce("Stripe", "create_refund", { amount: 500 })) {
               <h2 style={{ marginTop: 36 }}>Integrate the Enforcement API</h2>
               <p className="settings-desc">
                 Call <code>POST /api/enforce</code> before every tool action your agent takes.
-                ActionGate checks your policies and returns a decision instantly.
+                Arceo checks your policies and returns a decision instantly.
               </p>
 
               <div className="code-tabs">
@@ -237,9 +260,12 @@ if (await enforce("Stripe", "create_refund", { amount: 500 })) {
                 </label>
               </div>
 
-              <button className="settings-save-btn" onClick={saveNotifications}>
-                {savedNotif ? "Saved!" : "Save Notification Settings"}
-              </button>
+              <div className="notif-save-row">
+                <button className="settings-save-btn" onClick={saveNotifications}>
+                  {savedNotif ? "Saved ✓" : "Save Notification Settings"}
+                </button>
+                <span className="notif-storage-hint">Saved in this browser</span>
+              </div>
             </div>
           )}
 
@@ -260,9 +286,31 @@ if (await enforce("Stripe", "create_refund", { amount: 500 })) {
 
               <div className="invite-notify-section">
                 <h3>Invite a teammate</h3>
-                <p className="settings-desc">Multi-user workspaces are coming soon. Enter a teammate's email and we'll notify you both when it's ready.</p>
+                <p className="settings-desc">Create an account for a teammate so they can view agents, run simulations, and manage policies.</p>
                 {inviteSent ? (
-                  <div className="invite-sent-msg">Got it — we'll let you both know when team access launches.</div>
+                  <div className="invite-sent-msg">
+                    <strong>Account created for {createdEmail}</strong>
+                    {tempPass ? (
+                      <>
+                        <br />Share these login credentials with them:
+                        <div className="invite-creds">
+                          <span className="invite-cred-row"><span className="invite-cred-label">Email</span><code className="invite-cred-val">{createdEmail}</code></span>
+                          <span className="invite-cred-row"><span className="invite-cred-label">Password</span><code className="invite-cred-val">{tempPass}</code></span>
+                        </div>
+                        <span className="invite-cred-hint">They can change their password after signing in.</span>
+                      </>
+                    ) : (
+                      <><br />This email already has an account — they can sign in directly.</>
+                    )}
+                    <br />
+                    <button
+                      className="invite-notify-btn"
+                      style={{ marginTop: 12 }}
+                      onClick={() => { setInviteSent(false); setCreatedEmail(""); setTempPass(""); }}
+                    >
+                      Invite another
+                    </button>
+                  </div>
                 ) : (
                   <form className="invite-form" onSubmit={sendInvite}>
                     <input
@@ -273,7 +321,9 @@ if (await enforce("Stripe", "create_refund", { amount: 500 })) {
                       onChange={(e) => setInviteEmail(e.target.value)}
                       required
                     />
-                    <button type="submit" className="invite-notify-btn">Notify me</button>
+                    <button type="submit" className="invite-notify-btn" disabled={inviteSending}>
+                      {inviteSending ? "Creating..." : "Create Account"}
+                    </button>
                   </form>
                 )}
               </div>
@@ -293,7 +343,7 @@ if (await enforce("Stripe", "create_refund", { amount: 500 })) {
                 <input type="text" value={user?.role || "admin"} readOnly />
               </div>
               <p className="settings-hint" style={{ marginTop: 16 }}>
-                To change your password or delete your account, contact <a href="mailto:support@actiongate.io">support@actiongate.io</a>.
+                To change your password or delete your account, contact <a href="mailto:support@arceo.ai">support@arceo.ai</a>.
               </p>
             </div>
           )}

@@ -306,6 +306,75 @@ function ActionPicker({ tools, selectedPatterns, onAdd }) {
   );
 }
 
+// ── Condition Builder ─────────────────────────────────────────────────────
+
+function ConditionBuilder({ conditions, onChange }) {
+  const STANDARD_OPS = [
+    { value: "gt",  label: ">" },
+    { value: "gte", label: "≥" },
+    { value: "lt",  label: "<" },
+    { value: "lte", label: "≤" },
+    { value: "eq",  label: "=" },
+    { value: "neq", label: "≠" },
+  ];
+  const add = () => onChange([...conditions, { field: "", op: "gt", value: "" }]);
+  const addPrior = () => onChange([...conditions, { op: "requires_prior", value: "" }]);
+  const remove = (i) => onChange(conditions.filter((_, j) => j !== i));
+  const update = (i, key, val) => {
+    const next = [...conditions];
+    next[i] = { ...next[i], [key]: val };
+    onChange(next);
+  };
+  return (
+    <div className="condition-builder">
+      {conditions.map((c, i) => (
+        <div key={i} className="condition-row">
+          {c.op === "requires_prior" ? (
+            <>
+              <span className="condition-label-text">requires prior action</span>
+              <input
+                className="condition-input condition-input-wide"
+                placeholder="e.g. pagerduty.get_incident"
+                value={c.value}
+                onChange={(e) => update(i, "value", e.target.value)}
+              />
+            </>
+          ) : (
+            <>
+              <input
+                className="condition-input"
+                placeholder="field (e.g. amount)"
+                value={c.field}
+                onChange={(e) => update(i, "field", e.target.value)}
+              />
+              <select
+                className="condition-op"
+                value={c.op}
+                onChange={(e) => update(i, "op", e.target.value)}
+              >
+                {STANDARD_OPS.map((o) => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+              </select>
+              <input
+                className="condition-input condition-input-val"
+                placeholder="value (e.g. 100)"
+                value={c.value}
+                onChange={(e) => update(i, "value", e.target.value)}
+              />
+            </>
+          )}
+          <button type="button" className="condition-remove" onClick={() => remove(i)}>×</button>
+        </div>
+      ))}
+      <div className="condition-add-row">
+        <button type="button" className="condition-add-btn" onClick={add}>+ Parameter condition</button>
+        <button type="button" className="condition-add-btn" onClick={addPrior}>+ Requires prior action</button>
+      </div>
+    </div>
+  );
+}
+
 // ── Effect Toggle ─────────────────────────────────────────────────────────
 
 function EffectToggle({ value, onChange }) {
@@ -371,6 +440,14 @@ export default function AgentDetail() {
   const [newPatterns, setNewPatterns] = useState([]);
   const [newEffect, setNewEffect] = useState("BLOCK");
   const [newReason, setNewReason] = useState("");
+  const [newConditions, setNewConditions] = useState([]);
+  const [showConditions, setShowConditions] = useState(false);
+
+  // Agent edit
+  const [editMode, setEditMode] = useState(false);
+  const [editName, setEditName] = useState("");
+  const [editDesc, setEditDesc] = useState("");
+  const [editSaving, setEditSaving] = useState(false);
 
   const addPattern = (p) => { if (!newPatterns.includes(p)) setNewPatterns((prev) => [...prev, p]); };
   const removePattern = (p) => setNewPatterns((prev) => prev.filter((x) => x !== p));
@@ -401,6 +478,23 @@ export default function AgentDetail() {
     return () => document.removeEventListener("mousedown", handler);
   }, [showRecsMenu]);
 
+  const handleEdit = async (e) => {
+    e.preventDefault();
+    setEditSaving(true);
+    try {
+      await apiFetch(`/api/authority/agent/${agentId}`, {
+        method: "PUT",
+        body: JSON.stringify({ name: editName, description: editDesc }),
+      });
+      toast("Agent updated");
+      setEditMode(false);
+      loadData();
+    } catch (err) {
+      toast("Failed to update: " + err.message, "error");
+    }
+    setEditSaving(false);
+  };
+
   const handleDelete = async () => {
     if (!confirmDelete) { setConfirmDelete(true); return; }
     try {
@@ -420,12 +514,25 @@ export default function AgentDetail() {
         newPatterns.map((pattern) =>
           apiFetch(`/api/authority/agent/${agentId}/policies`, {
             method: "POST",
-            body: JSON.stringify({ action_pattern: pattern, effect: newEffect, reason: newReason }),
+            body: JSON.stringify({
+              action_pattern: pattern,
+              effect: newEffect,
+              reason: newReason,
+              ...(newConditions.filter((c) =>
+                c.op === "requires_prior" ? c.value.trim() : c.field.trim() && String(c.value).trim()
+              ).length > 0 && {
+                conditions: newConditions.filter((c) =>
+                  c.op === "requires_prior" ? c.value.trim() : c.field.trim() && String(c.value).trim()
+                ),
+              }),
+            }),
           })
         )
       );
       setNewPatterns([]);
       setNewReason("");
+      setNewConditions([]);
+      setShowConditions(false);
       setPolicyAdded(true);
       toast(`${newPatterns.length} polic${newPatterns.length !== 1 ? "ies" : "y"} added`);
       loadData();
@@ -567,6 +674,14 @@ export default function AgentDetail() {
         <Link to="/" className="back-link">&larr; All Agents</Link>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
           <Link to={`/sandbox?agent=${agentId}`} className="sandbox-agent-btn sandbox-agent-btn-primary">Simulate in Sandbox →</Link>
+          {!editMode && !confirmDelete && (
+            <button
+              className="sandbox-agent-btn"
+              onClick={() => { setEditName(agent.name); setEditDesc(agent.description); setEditMode(true); setConfirmDelete(false); }}
+            >
+              Edit
+            </button>
+          )}
           {confirmDelete ? (
             <>
               <span style={{ fontSize: 13, color: "var(--text-muted)" }}>Are you sure?</span>
@@ -574,21 +689,45 @@ export default function AgentDetail() {
               <button className="delete-agent-btn cancel" onClick={() => setConfirmDelete(false)}>Cancel</button>
             </>
           ) : (
-            <button className="delete-agent-btn" onClick={handleDelete}>Delete Agent</button>
+            !editMode && <button className="delete-agent-btn" onClick={handleDelete}>Delete Agent</button>
           )}
         </div>
       </div>
 
       <div className="detail-header">
-        <div>
-          <h1>{agent.name}</h1>
-          <p>{agent.description}</p>
-          <div className="detail-tools">
-            {agent.tools.map((t) => (
-              <span key={t.name} className="tool-chip-lg">{t.service}</span>
-            ))}
+        {editMode ? (
+          <form className="edit-agent-form" onSubmit={handleEdit}>
+            <input
+              className="edit-agent-input edit-agent-name-input"
+              value={editName}
+              onChange={(e) => setEditName(e.target.value)}
+              placeholder="Agent name"
+              required
+            />
+            <input
+              className="edit-agent-input"
+              value={editDesc}
+              onChange={(e) => setEditDesc(e.target.value)}
+              placeholder="Description"
+            />
+            <div className="edit-agent-actions">
+              <button type="submit" className="sandbox-agent-btn sandbox-agent-btn-primary" disabled={editSaving || !editName.trim()}>
+                {editSaving ? "Saving..." : "Save Changes"}
+              </button>
+              <button type="button" className="sandbox-agent-btn" onClick={() => setEditMode(false)}>Cancel</button>
+            </div>
+          </form>
+        ) : (
+          <div>
+            <h1>{agent.name}</h1>
+            <p>{agent.description}</p>
+            <div className="detail-tools">
+              {agent.tools.map((t) => (
+                <span key={t.name} className="tool-chip-lg">{t.service}</span>
+              ))}
+            </div>
           </div>
-        </div>
+        )}
         <div className="detail-score" style={{ color: scoreColor }}>
           <svg className="detail-score-svg" viewBox="0 0 110 110">
             <circle cx="55" cy="55" r={ringR} fill="none" stroke="currentColor" strokeWidth="7" opacity="0.12" />
@@ -628,7 +767,7 @@ export default function AgentDetail() {
         <div className="chain-section-header">
           <h2>
             Enforcement Policies ({sortedPolicies.length})
-            <Tooltip text="Rules that tell ActionGate what to do when this agent attempts specific actions — block them outright, require a human to approve first, or explicitly allow them.">
+            <Tooltip text="Rules that tell Arceo what to do when this agent attempts specific actions — block them outright, require a human to approve first, or explicitly allow them.">
               <span className="jargon-hint">?</span>
             </Tooltip>
           </h2>
@@ -658,6 +797,17 @@ export default function AgentDetail() {
                     <span className="policy-effect-label" style={{ background: es.bg, color: es.color }}>{effectLabel}</span>
                   </div>
                   {!allSamePolicyReason && p.reason && <span className="policy-reason">{p.reason}</span>}
+                  {p.conditions && p.conditions.length > 0 && (
+                    <div className="policy-conditions-display">
+                      {p.conditions.map((c, ci) => (
+                        <span key={ci} className="policy-condition-chip">
+                          {c.op === "requires_prior"
+                            ? `if prior: ${c.value}`
+                            : `${c.field} ${c.op} ${c.value}`}
+                        </span>
+                      ))}
+                    </div>
+                  )}
                 </div>
                 <button className="policy-delete" onClick={() => handleDeletePolicy(p.id)}>Remove</button>
               </div>
@@ -734,6 +884,26 @@ export default function AgentDetail() {
               onChange={(e) => setNewReason(e.target.value)}
             />
           )}
+          <div className="policy-form-conditions-section">
+            <button
+              type="button"
+              className="conditions-toggle-btn"
+              onClick={() => setShowConditions((v) => !v)}
+            >
+              {showConditions ? "▾" : "▸"} Conditions (optional)
+              {newConditions.length > 0 && (
+                <span className="condition-count-badge">{newConditions.length}</span>
+              )}
+            </button>
+            {showConditions && (
+              <>
+                <p className="policy-form-conditions-hint">
+                  Only trigger this policy when specific parameters match — e.g. only block charges over $500, or only require approval for new customers.
+                </p>
+                <ConditionBuilder conditions={newConditions} onChange={setNewConditions} />
+              </>
+            )}
+          </div>
           <button type="submit" className="policy-submit-btn" disabled={newPatterns.length === 0 || (newEffect !== "ALLOW" && !newReason.trim())}>
             {newPatterns.length > 1 ? `Add ${newPatterns.length} Policies` : "Add Policy"}
           </button>
@@ -979,7 +1149,7 @@ export default function AgentDetail() {
         {showIntegration && (
           <div className="integration-guide-body">
             <p className="integration-guide-desc">
-              Call <code>POST /api/enforce</code> before every tool action this agent takes. Use the agent ID below — ActionGate checks your policies and returns a decision in &lt;10ms.
+              Call <code>POST /api/enforce</code> before every tool action this agent takes. Use the agent ID below — Arceo checks your policies and returns a decision in &lt;10ms.
             </p>
             <div className="integration-agent-id-row">
               <span className="integration-label">Agent ID</span>

@@ -100,7 +100,7 @@ function Sidebar({ collapsed, onToggle }) {
       <div className="sidebar-top">
         {!collapsed && (
           <Link to="/" className="sidebar-logo">
-            ActionGate<span className="logo-dot" />
+            Arceo<span className="logo-dot" />
           </Link>
         )}
         <button className="sidebar-collapse-btn" onClick={onToggle} title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}>
@@ -157,7 +157,7 @@ function Sidebar({ collapsed, onToggle }) {
               </div>
             </div>
             <div className="sidebar-footer-actions">
-              <a href="mailto:support@actiongate.io" className="sidebar-help-link">Help &amp; support</a>
+              <a href="mailto:support@arceo.ai" className="sidebar-help-link">Help &amp; support</a>
               <button className="sidebar-logout" onClick={logout}>Sign out</button>
             </div>
           </>

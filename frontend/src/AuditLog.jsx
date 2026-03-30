@@ -19,7 +19,7 @@ export default function AuditLog() {
   return (
     <div className="log-page">
       <h1>Audit Log</h1>
-      <p className="log-subtitle">Every action taken in ActionGate is recorded here.</p>
+      <p className="log-subtitle">Every action taken in Arceo is recorded here.</p>
 
       <table className="log-table">
         <thead>
