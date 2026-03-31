@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { getUser, getToken, apiFetch } from "./api.js";
 import "./Settings.css";
 
@@ -35,9 +35,10 @@ export default function Settings() {
   const maskedToken = token ? token.slice(0, 16) + "••••••••••••••••••••••••" : "—";
   const [showToken, setShowToken] = useState(false);
 
-  const [slackUrl, setSlackUrl] = useState(() => localStorage.getItem("ag_slack_url") || "");
-  const [alertEmail, setAlertEmail] = useState(() => localStorage.getItem("ag_alert_email") || "");
-  const [blockAlerts, setBlockAlerts] = useState(() => localStorage.getItem("ag_block_alerts") !== "false");
+  const [slackUrl, setSlackUrl] = useState("");
+  const [alertEmail, setAlertEmail] = useState("");
+  const [blockAlerts, setBlockAlerts] = useState(true);
+  const [notifLoading, setNotifLoading] = useState(true);
   const [savedNotif, setSavedNotif] = useState(false);
 
   const [inviteEmail, setInviteEmail] = useState("");
@@ -48,12 +49,47 @@ export default function Settings() {
 
   const [activeSection, setActiveSection] = useState("api");
 
-  const saveNotifications = () => {
-    localStorage.setItem("ag_slack_url", slackUrl);
-    localStorage.setItem("ag_alert_email", alertEmail);
-    localStorage.setItem("ag_block_alerts", blockAlerts);
-    setSavedNotif(true);
-    setTimeout(() => setSavedNotif(false), 2000);
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [pwChanging, setPwChanging] = useState(false);
+  const [pwError, setPwError] = useState(null);
+  const [pwSuccess, setPwSuccess] = useState(false);
+
+  const [firstAgentId, setFirstAgentId] = useState("");
+
+  useEffect(() => {
+    apiFetch("/api/authority/agents")
+      .then((d) => { if (d.agents?.[0]) setFirstAgentId(d.agents[0].id); })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    apiFetch("/api/notifications/settings")
+      .then((d) => {
+        setSlackUrl(d.slack_webhook_url || "");
+        setAlertEmail(d.alert_email || "");
+        setBlockAlerts(d.notify_on_block !== false);
+        setNotifLoading(false);
+      })
+      .catch(() => setNotifLoading(false));
+  }, []);
+
+  const saveNotifications = async () => {
+    try {
+      await apiFetch("/api/notifications/settings", {
+        method: "POST",
+        body: JSON.stringify({
+          slack_webhook_url: slackUrl,
+          alert_email: alertEmail,
+          notify_on_block: blockAlerts,
+        }),
+      });
+      setSavedNotif(true);
+      setTimeout(() => setSavedNotif(false), 2000);
+    } catch {
+      setSavedNotif(false);
+    }
   };
 
   const sendInvite = async (e) => {
@@ -86,7 +122,7 @@ export default function Settings() {
   const enforceSnippetPython = `import requests
 
 ARCEO_TOKEN = "${token.slice(0, 20)}..."
-AGENT_ID = "your-agent-id"
+AGENT_ID = "${firstAgentId || "your-agent-id"}"
 
 def enforce(tool: str, action: str, params: dict) -> bool:
     resp = requests.post(
@@ -105,7 +141,7 @@ if enforce("Stripe", "create_refund", {"amount": 500, "customer_id": "cus_123"})
   -H "Authorization: Bearer ${token.slice(0, 20)}..." \\
   -H "Content-Type: application/json" \\
   -d '{
-    "agent_id": "your-agent-id",
+    "agent_id": "${firstAgentId || "your-agent-id"}",
     "tool": "Stripe",
     "action": "create_refund",
     "params": {"amount": 500, "customer_id": "cus_123"}
@@ -119,7 +155,7 @@ if enforce("Stripe", "create_refund", {"amount": 500, "customer_id": "cus_123"})
   const enforceSnippetNode = `const axios = require("axios");
 
 const ARCEO_TOKEN = "${token.slice(0, 20)}...";
-const AGENT_ID = "your-agent-id";
+const AGENT_ID = "${firstAgentId || "your-agent-id"}";
 
 async function enforce(tool, action, params) {
   const { data } = await axios.post(
@@ -134,6 +170,34 @@ async function enforce(tool, action, params) {
 if (await enforce("Stripe", "create_refund", { amount: 500 })) {
   await stripe.refunds.create({ ... });
 }`;
+
+  const handleChangePassword = async (e) => {
+    e.preventDefault();
+    if (newPassword !== confirmPassword) {
+      setPwError("New passwords do not match");
+      return;
+    }
+    if (newPassword.length < 6) {
+      setPwError("New password must be at least 6 characters");
+      return;
+    }
+    setPwChanging(true);
+    setPwError(null);
+    try {
+      await apiFetch("/api/auth/change-password", {
+        method: "POST",
+        body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
+      });
+      setPwSuccess(true);
+      setCurrentPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
+      setTimeout(() => setPwSuccess(false), 3000);
+    } catch (err) {
+      setPwError(err.message.replace(/^\d+:\s*/, ""));
+    }
+    setPwChanging(false);
+  };
 
   const sections = [
     { id: "api",     label: "API & Integration" },
@@ -264,7 +328,7 @@ if (await enforce("Stripe", "create_refund", { amount: 500 })) {
                 <button className="settings-save-btn" onClick={saveNotifications}>
                   {savedNotif ? "Saved ✓" : "Save Notification Settings"}
                 </button>
-                <span className="notif-storage-hint">Saved in this browser</span>
+                <span className="notif-storage-hint">Alerts fire in real time on every blocked action</span>
               </div>
             </div>
           )}
@@ -342,9 +406,45 @@ if (await enforce("Stripe", "create_refund", { amount: 500 })) {
                 <label>Role</label>
                 <input type="text" value={user?.role || "admin"} readOnly />
               </div>
-              <p className="settings-hint" style={{ marginTop: 16 }}>
-                To change your password or delete your account, contact <a href="mailto:support@arceo.ai">support@arceo.ai</a>.
-              </p>
+
+              <h2 style={{ marginTop: 32 }}>Change Password</h2>
+              <form className="pw-change-form" onSubmit={handleChangePassword}>
+                <div className="settings-field">
+                  <label>Current Password</label>
+                  <input
+                    type="password"
+                    value={currentPassword}
+                    onChange={(e) => { setCurrentPassword(e.target.value); setPwError(null); }}
+                    placeholder="Your current password"
+                    required
+                  />
+                </div>
+                <div className="settings-field">
+                  <label>New Password</label>
+                  <input
+                    type="password"
+                    value={newPassword}
+                    onChange={(e) => { setNewPassword(e.target.value); setPwError(null); }}
+                    placeholder="At least 6 characters"
+                    required
+                  />
+                </div>
+                <div className="settings-field">
+                  <label>Confirm New Password</label>
+                  <input
+                    type="password"
+                    value={confirmPassword}
+                    onChange={(e) => { setConfirmPassword(e.target.value); setPwError(null); }}
+                    placeholder="Repeat new password"
+                    required
+                  />
+                </div>
+                {pwError && <div className="pw-error">{pwError}</div>}
+                {pwSuccess && <div className="pw-success">Password updated successfully</div>}
+                <button type="submit" className="settings-save-btn" disabled={pwChanging}>
+                  {pwChanging ? "Updating..." : "Update Password"}
+                </button>
+              </form>
             </div>
           )}
 

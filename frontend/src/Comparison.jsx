@@ -121,6 +121,7 @@ function SimulationPicker({ afterId, afterData }) {
 
 export default function Comparison() {
   const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
   const beforeId = searchParams.get("before");
   const afterId = searchParams.get("after");
 
@@ -131,7 +132,17 @@ export default function Comparison() {
 
   useEffect(() => {
     if (!beforeId && !afterId) {
-      setLoading(false);
+      // Auto-navigate to the last two completed simulations if available
+      apiFetch("/api/sandbox/simulations")
+        .then((d) => {
+          const completed = (d.simulations || []).filter((s) => s.status === "completed");
+          if (completed.length >= 2) {
+            navigate(`/compare?before=${completed[1].simulation_id}&after=${completed[0].simulation_id}`, { replace: true });
+          } else {
+            setLoading(false);
+          }
+        })
+        .catch(() => setLoading(false));
       return;
     }
     if (!beforeId && afterId) {

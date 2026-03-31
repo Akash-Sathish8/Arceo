@@ -12,6 +12,7 @@ import SimulationDetail from './SimulationDetail.jsx'
 import Comparison from './Comparison.jsx'
 import Settings from './Settings.jsx'
 import Approvals from './Approvals.jsx'
+import SweepDetail from './SweepDetail.jsx'
 import ErrorBoundary from './ErrorBoundary.jsx'
 import { ToastContainer } from './Toast.jsx'
 
@@ -202,6 +203,7 @@ createRoot(document.getElementById('root')).render(
             <Route path="/audit" element={<Navigate to="/history" replace />} />
             <Route path="/sandbox" element={<ProtectedRoute><Sandbox /></ProtectedRoute>} />
             <Route path="/sandbox/:simulationId" element={<ProtectedRoute><SimulationDetail /></ProtectedRoute>} />
+            <Route path="/sweep/:sweepId" element={<ProtectedRoute><SweepDetail /></ProtectedRoute>} />
             <Route path="/compare" element={<ProtectedRoute><Comparison /></ProtectedRoute>} />
             <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
             <Route path="/approvals" element={<ProtectedRoute><Approvals /></ProtectedRoute>} />
