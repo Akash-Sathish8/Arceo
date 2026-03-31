@@ -482,7 +482,12 @@ export default function SimulationDetail() {
       {/* Violations */}
       {report.violations.length > 0 && (
         <div className="sim-section">
-          <h2>Violations ({report.violations.length})</h2>
+          <div className="sim-section-heading">
+            <h2>Violations ({report.violations.length})</h2>
+            <Link to={`/agent/${data.agent_id}`} className="sim-fix-link">
+              Fix in production →
+            </Link>
+          </div>
           <div className="sim-violations">
             {[...report.violations]
               .sort((a, b) => (SEVERITY_ORDER[a.severity] ?? 99) - (SEVERITY_ORDER[b.severity] ?? 99))

@@ -666,6 +666,29 @@ def me(user: dict = Depends(get_current_user)):
     return {"user": {"id": user["sub"], "email": user["email"], "role": user["role"]}}
 
 
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str
+
+
+@app.post("/api/auth/change-password")
+def change_password(req: ChangePasswordRequest, user: dict = Depends(get_current_user)):
+    """Change the current user's password."""
+    from auth import verify_password, hash_password
+    if len(req.new_password) < 6:
+        raise HTTPException(status_code=400, detail="New password must be at least 6 characters")
+    with get_db() as conn:
+        row = conn.execute("SELECT * FROM users WHERE id = ?", (user["sub"],)).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="User not found")
+        if not verify_password(req.current_password, row["password_hash"]):
+            raise HTTPException(status_code=401, detail="Current password is incorrect")
+        new_hash = hash_password(req.new_password)
+        conn.execute("UPDATE users SET password_hash = ? WHERE id = ?", (new_hash, user["sub"]))
+        log_audit(conn, user["sub"], user["email"], "CHANGE_PASSWORD", detail="Password changed")
+    return {"message": "Password updated"}
+
+
 # ── Authority Engine: READ endpoints ────────────────────────────────────────
 
 @app.get("/api/authority/agents")
@@ -1365,6 +1388,33 @@ class EnforceRequest(BaseModel):
     session_context: list[str] = []  # prior actions: ["pagerduty.get_incident", "aws.list_instances"]
 
 
+def _fire_block_notification(agent_id: str, tool: str, action: str, reason: str):
+    """Fire Slack webhook when an action is blocked. Never raises — notification failures must not break enforcement."""
+    try:
+        with get_db() as conn:
+            row = conn.execute("SELECT * FROM workspace_settings WHERE id = 1").fetchone()
+        if not row or not row["notify_on_block"]:
+            return
+        slack_url = row["slack_webhook_url"] or ""
+        if not slack_url:
+            return
+        import httpx
+        payload = {
+            "blocks": [
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": f":shield: *Arceo blocked an action*\n*Agent:* `{agent_id}`\n*Action:* `{tool}.{action}`\n*Reason:* {reason or 'Policy match'}",
+                    },
+                }
+            ]
+        }
+        httpx.post(slack_url, json=payload, timeout=4)
+    except Exception:
+        pass  # Never let notification failures break enforcement
+
+
 def enforce_check(agent_id: str, tool: str, action: str, params: dict = None, session_context: list = None) -> dict:
     """Shared enforce logic — used by the endpoint, proxy, and sandbox executor."""
     action_key = f"{tool}.{action}"
@@ -1387,6 +1437,9 @@ def enforce_check(agent_id: str, tool: str, action: str, params: dict = None, se
                       policy_id=matched_policy["id"] if matched_policy else None,
                       detail=matched_policy["reason"] if matched_policy else "No matching policy")
 
+        if status == "BLOCKED":
+            _fire_block_notification(agent_id, tool, action, matched_policy["reason"] if matched_policy else "")
+
         return {
             "decision": effect,
             "action": action_key,
@@ -1405,6 +1458,48 @@ def enforce_action(req: EnforceRequest):
     """
     check_rate_limit(f"enforce:{req.agent_id}")
     return enforce_check(req.agent_id, req.tool, req.action, req.params or None, req.session_context or None)
+
+
+# ── Notification Settings ───────────────────────────────────────────────────
+
+class NotificationSettingsRequest(BaseModel):
+    slack_webhook_url: str = ""
+    alert_email: str = ""
+    notify_on_block: bool = True
+
+
+@app.get("/api/notifications/settings")
+def get_notification_settings(user: dict = Depends(get_current_user)):
+    """Get workspace notification settings."""
+    with get_db() as conn:
+        row = conn.execute("SELECT * FROM workspace_settings WHERE id = 1").fetchone()
+    if not row:
+        return {"slack_webhook_url": "", "alert_email": "", "notify_on_block": True}
+    return {
+        "slack_webhook_url": row["slack_webhook_url"] or "",
+        "alert_email": row["alert_email"] or "",
+        "notify_on_block": bool(row["notify_on_block"]),
+    }
+
+
+@app.post("/api/notifications/settings")
+def save_notification_settings(req: NotificationSettingsRequest, user: dict = Depends(get_current_user)):
+    """Save workspace notification settings."""
+    now = datetime.utcnow().isoformat()
+    with get_db() as conn:
+        existing = conn.execute("SELECT id FROM workspace_settings WHERE id = 1").fetchone()
+        if existing:
+            conn.execute(
+                "UPDATE workspace_settings SET slack_webhook_url=?, alert_email=?, notify_on_block=?, updated_at=? WHERE id=1",
+                (req.slack_webhook_url, req.alert_email, 1 if req.notify_on_block else 0, now),
+            )
+        else:
+            conn.execute(
+                "INSERT INTO workspace_settings (id, slack_webhook_url, alert_email, notify_on_block, updated_at) VALUES (1, ?, ?, ?, ?)",
+                (req.slack_webhook_url, req.alert_email, 1 if req.notify_on_block else 0, now),
+            )
+        log_audit(conn, user["sub"], user["email"], "UPDATE_NOTIFICATIONS", detail="Notification settings updated")
+    return {"message": "Saved"}
 
 
 # ── Audit Log ───────────────────────────────────────────────────────────────

@@ -103,31 +103,29 @@ npm run dev
 
 ## Frontend Status (update this section after every session)
 
-**YC Demo Readiness: ~76/100** — Last updated: 2026-03-30
+**YC Demo Readiness: ~84/100** — Last updated: 2026-03-31
 
 ### Component Status
 
 | Component | Polish | What's real | What's fake / missing |
 |-----------|--------|-------------|----------------------|
-| `Authority.jsx` | ✅ High | Empty state w/ templates, setup checklist, today stats + 7-day chart, fleet stats, recent activity feed, critical chains banner, agent grid, Sort/filter/search | — |
-| `AgentDetail.jsx` | ✅ High | Authority map graph, policy condition builder (ConditionBuilder component), inline agent edit (PUT endpoint), execution history tab, chain display, risk stats, recommendations | Policy conflict detection (endpoint exists: GET /api/authority/agent/{id}/policy-conflicts) |
-| `Sandbox.jsx` | ✅ High | Scenario selection, batch run with progress bar, dry-run + LLM modes, before/after comparison banner on re-run, custom prompt queue, past sims list | No "Full Sweep" button (backend: POST /api/sandbox/sweep runs all 28 scenarios) |
-| `SimulationDetail.jsx` | ✅ High | Timeline trace with expandable steps, risk breakdown bars, violations list, chains triggered, data flows, simple+raw toggle | Violations have no "Block this in production →" CTA to AgentDetail |
-| `History.jsx` | ✅ High | Stats row (total/executed/blocked/pending), filter chips, time filter, search, risk legend, table with tool color chips, CSV export, audit log tab | — |
-| `Approvals.jsx` | ✅ High | Queue auto-refreshes 10s, params display, approve/reject with note field | — |
-| `Settings.jsx` | ✅ Med | Real JWT token display/copy, code snippets (Python/curl/Node.js), real team invite creates accounts via signup API | Code snippets say `"your-agent-id"` (should load real agent ID from API); notifications are localStorage-only (no real delivery) |
-| `Login.jsx` | ✅ High | 3-step onboarding flow, real signup on "Get started", demo login shortcut | Step 2 agent type selection is ignored — should auto-create agent from template |
-| `Comparison.jsx` | ✅ High | Animated metric counters, different-agents warning banner | No default to last two sims when accessed directly |
-| `main.jsx` (sidebar) | ✅ High | Pending approvals badge (polls /api/approvals 15s), org name from email domain, sign out | — |
+| `Authority.jsx` | ✅ High | Empty state w/ templates, setup checklist, today stats + 7-day chart, fleet stats, recent activity feed, critical chains banner, agent grid, sort/filter/search | — |
+| `AgentDetail.jsx` | ✅ High | Authority map graph, policy condition builder, inline agent edit (PUT), execution history tab, chain display, risk stats, recommendations, policy conflict banner (amber, calls /policy-conflicts) | — |
+| `Sandbox.jsx` | ✅ High | Scenario selection, batch run with progress bar, dry-run + LLM modes, before/after comparison, custom prompt queue, past sims list, Full Scan button (runs all scenarios in dry-run) | — |
+| `SimulationDetail.jsx` | ✅ High | Timeline trace, risk breakdown, violations + "Fix in production →" link to AgentDetail, chains triggered, data flows, simple+raw toggle | — |
+| `History.jsx` | ✅ High | Stats row (total/executed/blocked/pending), filter chips, time filter, search, risk legend, CSV export, audit log tab | — |
+| `Approvals.jsx` | ✅ High | Queue auto-refreshes 10s, params display, approve/reject with note | — |
+| `Settings.jsx` | ✅ High | Real JWT token display/copy, code snippets w/ real agent ID (loads from API), real team invite creates accounts | Notifications are localStorage-only (no real delivery) |
+| `Login.jsx` | ✅ High | 3-step onboarding, auto-creates agent from template for selected type(s) after login, real signup, demo shortcut | — |
+| `Comparison.jsx` | ✅ High | Animated metric counters, different-agents warning, auto-navigates to last 2 sims when accessed without query params | — |
+| `main.jsx` (sidebar) | ✅ High | Pending approvals badge (polls 15s), org name from email domain, sign out | — |
 
 ### Remaining Gaps (ordered by demo impact)
 
-1. **Login step 2**: Selected agent types are thrown away — should auto-create agent from template after login
-2. **Settings**: Code snippets hardcode `"your-agent-id"` — load `GET /api/authority/agents` and use `agents[0].id`
-3. **SimulationDetail**: No "Block this in production →" link on violations — should link to `/agent/{agent_id}`
-4. **Sandbox**: No "Full Sweep" button — `POST /api/sandbox/sweep` runs all 28 scenarios, great demo feature
-5. **AgentDetail**: No policy conflict UI — `GET /api/authority/agent/{id}/policy-conflicts` endpoint unused
-6. **Comparison**: No smart default — should auto-load last two simulations when accessed without query params
+1. **Notifications**: Slack/email alerts are localStorage-only — no real delivery without backend webhook support
+2. **No password change flow** — Account tab in Settings shows email only; no way to rotate credentials
+3. **No sweep detail page** — Full Scan navigates to last simulation, not an aggregate sweep report
+4. **Comparison picker** — SimulationPicker shows all agents' sims, not filtered to same agent first
 
 ### Design System Notes
 - CSS custom properties: `var(--text-primary)`, `var(--text-secondary)`, `var(--text-muted)`, `var(--border)`, `var(--bg)`, `var(--white)`

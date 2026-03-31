@@ -460,12 +460,20 @@ export default function AgentDetail() {
   const [showRecsMenu, setShowRecsMenu] = useState(false);
   const [selectedRecs, setSelectedRecs] = useState(new Set());
   const [appliedRecIndices, setAppliedRecIndices] = useState(new Set());
+  const [policyConflicts, setPolicyConflicts] = useState([]);
 
   const loadData = () => {
     setLoading(true);
     setError(null);
-    apiFetch(`/api/authority/agent/${agentId}`)
-      .then((d) => { setData(d); setLoading(false); })
+    Promise.all([
+      apiFetch(`/api/authority/agent/${agentId}`),
+      apiFetch(`/api/authority/agent/${agentId}/policy-conflicts`).catch(() => ({ conflicts: [] })),
+    ])
+      .then(([d, c]) => {
+        setData(d);
+        setPolicyConflicts(c.conflicts || []);
+        setLoading(false);
+      })
       .catch((err) => { setError(err.message); setLoading(false); });
   };
 
@@ -814,6 +822,31 @@ export default function AgentDetail() {
             );
           })}
         </div>
+        {policyConflicts.length > 0 && (
+          <div className="policy-conflict-banner">
+            <div className="pcb-icon">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                <path d="M12 9v4M12 17h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" stroke="#b45309" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </div>
+            <div className="pcb-body">
+              <strong>{policyConflicts.length} policy conflict{policyConflicts.length !== 1 ? "s" : ""} detected</strong>
+              <span>Overlapping rules — only the highest-priority policy applies per action.</span>
+              <div className="pcb-conflicts">
+                {policyConflicts.slice(0, 3).map((c, i) => (
+                  <div key={i} className="pcb-conflict-row">
+                    <code>{c.winner?.action_pattern || c.pattern || "—"}</code>
+                    <span className="pcb-overrides">overrides</span>
+                    <code>{c.loser?.action_pattern || "—"}</code>
+                  </div>
+                ))}
+                {policyConflicts.length > 3 && (
+                  <span className="pcb-more">+{policyConflicts.length - 3} more</span>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
         {sortedPolicies.length === 0 && (
           <div className="zero-policies-callout">
             <div className="zpc-icon">

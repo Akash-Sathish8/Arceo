@@ -533,3 +533,26 @@
   color: var(--text-muted);
   font-style: italic;
 }
+
+/* Password change form */
+.pw-change-form {
+  max-width: 400px;
+}
+.pw-error {
+  background: #fef2f2;
+  color: #dc2626;
+  border: 1px solid #fecaca;
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-size: 13px;
+  margin-bottom: 12px;
+}
+.pw-success {
+  background: #f0fdf4;
+  color: #16a34a;
+  border: 1px solid #bbf7d0;
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-size: 13px;
+  margin-bottom: 12px;
+}

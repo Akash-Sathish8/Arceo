@@ -1126,3 +1126,27 @@
 }
 
 .sim-recs-header h2 { margin: 0; }
+
+.sim-section-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.sim-section-heading h2 {
+  margin-bottom: 0;
+}
+.sim-fix-link {
+  font-size: 13px;
+  font-weight: 600;
+  color: #2563eb;
+  text-decoration: none;
+  padding: 5px 12px;
+  border: 1.5px solid #bfdbfe;
+  border-radius: 6px;
+  background: #eff6ff;
+  transition: background 0.15s;
+}
+.sim-fix-link:hover {
+  background: #dbeafe;
+}

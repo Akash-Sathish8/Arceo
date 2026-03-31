@@ -130,6 +130,8 @@ export default function Sandbox() {
   const [previousResult, setPreviousResult] = useState(null);
   const [runError, setRunError] = useState(null);
   const [lastRunMode, setLastRunMode] = useState("");
+  const [sweeping, setSweeping] = useState(false);
+  const [sweepError, setSweepError] = useState(null);
 
   useEffect(() => {
     Promise.all([
@@ -239,6 +241,24 @@ export default function Sandbox() {
       toast("All simulations failed", "error");
       setRunning(false);
     }
+  };
+
+  const handleFullScan = async () => {
+    if (!selectedAgent || running || sweeping) return;
+    setSweeping(true);
+    setSweepError(null);
+    try {
+      const data = await apiFetch("/api/sandbox/sweep", {
+        method: "POST",
+        body: JSON.stringify({ agent_id: selectedAgent, dry_run: true }),
+      });
+      toast(`Scan complete — ${data.total_scenarios} scenarios, risk ${Math.round(data.overall_risk_score)}`);
+      navigate(`/sweep/${data.sweep_id}`);
+    } catch (err) {
+      setSweepError(err.message);
+      toast("Full scan failed: " + err.message, "error");
+    }
+    setSweeping(false);
   };
 
   if (loading) {
@@ -376,6 +396,26 @@ export default function Sandbox() {
             </button>
           </div>
         </div>
+        {scenarios.length > 0 && (
+          <button
+            className="run-btn sweep-btn"
+            onClick={handleFullScan}
+            disabled={!selectedAgent || running || sweeping}
+            title={`Run all ${scenarios.length} scenarios for this agent in dry-run mode`}
+          >
+            <span>
+              {sweeping
+                ? (runProgress ? `Scanning ${runProgress.current}/${runProgress.total}...` : "Scanning...")
+                : `Full Scan (${scenarios.length})`}
+            </span>
+            <span className="run-btn-sub">all scenarios · dry run</span>
+          </button>
+        )}
+        {sweepError && (
+          <div className="run-error" style={{ marginTop: 8 }}>
+            <strong>Scan failed:</strong> {sweepError}
+          </div>
+        )}
 
         {/* Custom prompt input */}
         <div className="custom-prompt-section">
@@ -426,6 +466,17 @@ export default function Sandbox() {
                 <p className="run-progress-sub">Enforcing policies · calling mock APIs · capturing trace</p>
               </div>
             )}
+          </div>
+        )}
+
+        {sweeping && (
+          <div className="run-loading">
+            <div className="run-progress-wrap">
+              <div className="run-progress-track">
+                <div className="run-progress-fill run-progress-indeterminate" />
+              </div>
+              <p className="run-progress-sub">Running all scenarios in dry-run mode — this may take 20–30 seconds...</p>
+            </div>
           </div>
         )}
 

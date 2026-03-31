@@ -141,6 +141,14 @@ def init_db():
                 report_json TEXT,
                 created_at TEXT
             );
+
+            CREATE TABLE IF NOT EXISTS workspace_settings (
+                id INTEGER PRIMARY KEY DEFAULT 1,
+                slack_webhook_url TEXT DEFAULT '',
+                alert_email TEXT DEFAULT '',
+                notify_on_block INTEGER DEFAULT 1,
+                updated_at TEXT
+            );
         """)
 
         # Seed demo user if none exist
