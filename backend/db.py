@@ -150,7 +150,7 @@ def init_db():
 
 
 def _seed_demo_user(conn):
-    """Seed the demo login user and default ops agent."""
+    """Seed only the demo login user. No agents."""
     from auth import hash_password
     now = datetime.utcnow().isoformat()
     pw_hash = hash_password("admin123")
@@ -158,9 +158,6 @@ def _seed_demo_user(conn):
         "INSERT INTO users (id, email, password_hash, name, role, created_at) VALUES (?, ?, ?, ?, ?, ?)",
         (str(uuid.uuid4()), "admin@actiongate.io", pw_hash, "Admin", "admin", now),
     )
-
-    # Seed default ops agent
-    _seed_ops_agent(conn, now)
 
 
 def _seed_ops_agent(conn, now: str):

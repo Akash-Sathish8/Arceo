@@ -25,27 +25,42 @@ logger = logging.getLogger(__name__)
 KEYWORD_RULES: dict[str, list[str]] = {
     "deletes_data": [
         "delete", "remove", "drop", "purge", "destroy", "truncate", "erase", "wipe",
+        "void", "close_period", "revoke",
     ],
     "sends_external": [
-        "send", "email", "notify", "post", "message", "sms", "webhook",
-        "publish", "broadcast", "alert",
+        "send", "notify", "message", "sms", "webhook",
+        "publish", "broadcast", "alert", "forward", "export",
+        "dunning",
     ],
     "moves_money": [
-        "pay", "charge", "refund", "invoice", "transfer", "billing",
-        "payout", "debit", "credit", "subscription", "price",
+        "pay", "charge", "refund", "transfer",
+        "payout", "debit", "credit",
+        "create_invoice", "finalize_invoice", "create_refund",
+        "create_payment", "void_payment", "create_payout", "create_transfer",
+        "retry_payment", "credit_memo", "journal_entry",
     ],
     "touches_pii": [
-        "customer", "user", "contact", "personal", "profile", "account",
+        "customer", "user", "contact", "personal", "profile",
         "pii", "address", "phone", "ssn", "identity",
+        "employee", "patient", "compensation",
     ],
     "changes_production": [
         "deploy", "merge", "release", "production", "infrastructure",
         "instance", "scale", "terminate", "rollback", "migrate", "provision",
+        "reboot", "restart",
     ],
 }
 
+# Read-only action prefixes — these reduce risk even when they match other keywords
+# "list_payment_intents" matches "payment" (money keyword) but is a read operation
+READ_ACTION_PREFIXES = (
+    "get_", "list_", "read_", "search_", "query_", "check_",
+    "describe_", "fetch_", "lookup_", "find_", "show_",
+)
+
 IRREVERSIBLE_KEYWORDS: list[str] = [
     "delete", "send", "terminate", "purge", "destroy", "drop", "cancel", "remove",
+    "void", "finalize", "close_period", "dunning", "forward", "export",
 ]
 
 PII_SCHEMA_KEYS: list[str] = [
@@ -62,19 +77,61 @@ def _text_matches_keywords(text: str, keywords: list[str]) -> bool:
     return any(kw in text_lower for kw in keywords)
 
 
+_KNOWN_PREFIXES = {
+    "stripe", "gmail", "sendgrid", "ses", "mailgun", "aws", "slack",
+    "salesforce", "zendesk", "hubspot", "github", "pagerduty", "twilio",
+    "datadog", "jira", "netsuite", "quickbooks", "bamboohr", "clearbit",
+    "docusign", "calendly", "snowflake", "okta", "shopify", "square",
+    "paypal", "braintree", "segment", "amplitude", "intercom",
+    "aws_ec2", "aws_s3", "aws_rds", "aws_iam", "aws_ecs", "aws_ecr",
+    "aws_cloudtrail", "google_workspace", "google_sheets",
+}
+
+
+def _strip_service_prefix(action_name: str) -> str:
+    """Strip known service prefixes from MCP-style names.
+
+    stripe_get_customer → get_customer
+    netsuite_create_journal_entry → create_journal_entry
+    aws_ec2_terminate_instances → terminate_instances
+    """
+    lower = action_name.lower()
+    for svc in sorted(_KNOWN_PREFIXES, key=len, reverse=True):
+        if lower.startswith(svc + "_") and len(lower) > len(svc) + 1:
+            return lower[len(svc) + 1:]
+    return lower
+
+
+def _is_read_action(action_name: str) -> bool:
+    """Check if action is read-only, handling service-prefixed names."""
+    stripped = _strip_service_prefix(action_name)
+    return stripped.startswith(READ_ACTION_PREFIXES)
+
+
 def classify_action(action_name: str, description: str = "") -> tuple[list[str], bool]:
     """Classify an action by keyword heuristics.
 
+    Handles service-prefixed names (stripe_get_customer).
+    Read-only actions that match money/PII keywords get those labels
+    stripped (reading payment history != moving money).
+
     Returns (risk_labels, reversible).
     """
-    combined = f"{action_name} {description}".lower()
+    # Strip service prefix for better matching
+    stripped = _strip_service_prefix(action_name)
+    combined = f"{stripped} {action_name} {description}".lower()
+    is_read = _is_read_action(action_name)
 
     risk_labels = []
     for label, keywords in KEYWORD_RULES.items():
         if any(kw in combined for kw in keywords):
+            # Read-only actions: keep PII label (reading PII matters for chain detection)
+            # but drop money/production labels (reading payment history != moving money)
+            if is_read and label in ("moves_money", "changes_production"):
+                continue
             risk_labels.append(label)
 
-    reversible = not any(kw in combined for kw in IRREVERSIBLE_KEYWORDS)
+    reversible = is_read or not any(kw in combined for kw in IRREVERSIBLE_KEYWORDS)
 
     return risk_labels, reversible
 

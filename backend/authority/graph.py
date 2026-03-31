@@ -75,27 +75,49 @@ def build_agent_graph(agent: AgentConfig, action_overrides: dict | None = None) 
 # This means one irreversible delete outscores many reversible reads.
 
 LABEL_WEIGHTS = {
-    "moves_money": 15,
-    "touches_pii": 5,
-    "deletes_data": 18,
-    "sends_external": 8,
-    "changes_production": 14,
+    "moves_money": 12,
+    "touches_pii": 4,
+    "deletes_data": 15,
+    "sends_external": 7,
+    "changes_production": 12,
 }
 
-IRREVERSIBLE_MULTIPLIER = 2.5
-READ_PREFIXES = ("get_", "list_", "read_", "search_", "query_", "check_")
+IRREVERSIBLE_MULTIPLIER = 2.0
+READ_PREFIXES = ("get_", "list_", "read_", "search_", "query_", "check_",
+                 "describe_", "fetch_", "lookup_", "find_", "show_")
+
+
+def _is_read_only(action_name: str) -> bool:
+    """Check if an action is read-only, handling service-prefixed names.
+
+    Handles both 'get_customer' and 'stripe_get_customer'.
+    """
+    lower = action_name.lower()
+    # Direct match
+    if lower.startswith(READ_PREFIXES):
+        return True
+    # Service-prefixed: stripe_get_customer, netsuite_get_customer_balance
+    parts = lower.split("_", 1)
+    if len(parts) == 2 and parts[1].startswith(READ_PREFIXES):
+        return True
+    # Deeper prefix: aws_ec2_describe_instances
+    for i in range(len(lower)):
+        if lower[i] == "_":
+            rest = lower[i + 1:]
+            if rest.startswith(READ_PREFIXES):
+                return True
+    return False
 
 
 def _score_action(action: MappedAction) -> float:
-    """Score a single action by its labels and reversibility.
+    """Score a single action by its labels, reversibility, and read/write nature.
 
-    Read-only actions get a minimal score. Irreversible write actions
-    get a large multiplier. This ensures terminate_instance vastly
-    outscores get_customer.
+    Read-only actions score minimally even if they touch PII (reading PII is
+    lower risk than writing/sending it). Irreversible write actions get a
+    multiplier. Actions with no risk labels score 0.
     """
-    # Read-only actions contribute minimally
-    if action.action.startswith(READ_PREFIXES):
-        return sum(LABEL_WEIGHTS.get(l, 0) for l in action.risk_labels) * 0.2
+    if _is_read_only(action.action):
+        return sum(LABEL_WEIGHTS.get(l, 0) for l in action.risk_labels) * 0.15
 
     base = sum(LABEL_WEIGHTS.get(l, 0) for l in action.risk_labels)
 
@@ -106,11 +128,13 @@ def _score_action(action: MappedAction) -> float:
 
 
 def calculate_blast_radius(agent: AgentConfig, action_overrides: dict | None = None) -> BlastRadius:
-    """Calculate blast radius using per-action danger scoring.
+    """Calculate blast radius with realistic scoring.
 
-    Each action is scored individually (labels + reversibility + read/write),
-    then summed and normalized. This means an agent with one irreversible
-    terminate_instance scores higher than an agent with 5 reversible get_* calls.
+    Accounts for:
+    - Per-action scoring (labels + reversibility + read/write)
+    - Danger density (% of actions that are dangerous vs total)
+    - Diminishing returns (20th dangerous action adds less than 1st)
+    - Scaled for enterprise agents with 15-30+ tools
     """
     all_actions: list[MappedAction] = []
     for tool in agent.tools:
@@ -127,12 +151,26 @@ def calculate_blast_radius(agent: AgentConfig, action_overrides: dict | None = N
     changes_prod = sum(1 for a in all_actions if "changes_production" in a.risk_labels)
     irreversible = sum(1 for a in all_actions if not a.reversible)
 
-    # Sum per-action scores
-    total_score = sum(_score_action(a) for a in all_actions)
+    # Score each action individually
+    action_scores = sorted((_score_action(a) for a in all_actions), reverse=True)
 
-    # Normalize: 0-100 scale. Cap assumes a worst-case agent with ~15 high-risk
-    # irreversible actions across multiple services (~500 raw).
-    score = min(100.0, round((total_score / 500) * 100, 1))
+    # Diminishing returns: each subsequent dangerous action contributes less
+    # 1st action: 100%, 2nd: 90%, 3rd: 82%, ... converges
+    weighted_total = 0.0
+    for i, score in enumerate(action_scores):
+        decay = 1.0 / (1 + i * 0.12)  # gentle decay
+        weighted_total += score * decay
+
+    # Danger density: what fraction of actions are write + risky?
+    dangerous_count = sum(1 for a in all_actions if not _is_read_only(a.action) and a.risk_labels)
+    density = dangerous_count / max(total, 1)
+
+    # Blend: raw score (what can go wrong) + density (how concentrated the danger is)
+    # An agent with 3 dangerous tools out of 3 is scarier than 3 out of 30
+    raw_normalized = min(100.0, (weighted_total / 800) * 100)
+    density_bonus = density * 20  # up to +20 for an all-dangerous agent
+
+    score = min(100.0, round(raw_normalized + density_bonus, 1))
 
     return BlastRadius(
         agent_id=agent.id,
