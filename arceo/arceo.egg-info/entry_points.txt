@@ -1,0 +1,3 @@
+[console_scripts]
+arceo = arceo.cli:main
+

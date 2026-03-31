@@ -1,0 +1,18 @@
+agents:
+  - name: "support-agent"
+    entry: "agents/support.py"
+    decorator: "arceo.monitor"
+  - name: "devops-agent"
+    entry: "agents/devops.py"
+    decorator: "arceo.monitor"
+
+policy:
+  max_blast_radius: 60
+  block_chains: true
+  require_approval_for:
+    - "create_refund"
+    - "delete_*"
+    - "terminate_*"
+    - "provision_vms"
+
+arceo_url: "http://localhost:8000"

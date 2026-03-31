@@ -1,0 +1,14 @@
+agents:
+  - name: "support-agent"
+    entry: "agents/support.py"
+  - name: "devops-agent"
+    entry: "agents/devops.py"
+
+policy:
+  max_blast_radius: 60
+  block_chains: true
+  require_approval_for:
+    - "create_refund"
+    - "delete_*"
+
+arceo_url: "http://localhost:8000"

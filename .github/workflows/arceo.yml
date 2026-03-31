@@ -1,0 +1,52 @@
+name: Arceo Agent Scan
+
+on:
+  pull_request:
+    paths:
+      - "agents/**"
+      - "arceo.yaml"
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run Arceo scan
+        id: arceo
+        uses: ./
+        with:
+          arceo_url: ${{ secrets.ARCEO_URL }}
+          arceo_api_key: ${{ secrets.ARCEO_API_KEY }}
+          config: arceo.yaml
+
+      - name: Comment PR with results
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const body = `${{ steps.arceo.outputs.report }}`;
+
+            // Find existing Arceo comment
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            const existing = comments.find(c => c.body.includes('Arceo Scan Results'));
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body: body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: body,
+              });
+            }

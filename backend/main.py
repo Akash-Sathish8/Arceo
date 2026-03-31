@@ -216,6 +216,100 @@ class PostHocReport(BaseModel):
     actions: list[ReportAction]
 
 
+class SDKTraceStep(BaseModel):
+    tool: str
+    action: str
+    params: dict = {}
+    result: dict = {}
+    error: Union[str, None] = None
+    duration_ms: float = 0.0
+    timestamp: str = ""
+
+
+class SDKTraceInput(BaseModel):
+    agent_name: str = "unknown"
+    prompt: str = ""
+    steps: list[SDKTraceStep] = []
+    tools_detected: list[str] = []
+    started_at: str = ""
+    completed_at: str = ""
+
+
+@app.post("/api/sdk/analyze-trace")
+def analyze_sdk_trace(req: SDKTraceInput):
+    """Arceo SDK endpoint — accepts a captured trace, auto-registers the agent,
+    runs full analysis, and returns a risk report."""
+    from sandbox.models import SimulationTrace, TraceStep
+    from sandbox.analyzer import analyze_trace
+    from authority.risk_classifier import classify_with_fallback
+    from dataclasses import asdict
+
+    # Auto-register agent from detected tools
+    agent_id = req.agent_name.lower().replace(" ", "-").replace("_", "-")
+
+    # Build tool manifest from trace steps
+    tools_from_trace: dict[str, set] = {}
+    for step in req.steps:
+        tools_from_trace.setdefault(step.tool, set()).add(step.action)
+
+    reg_tools = []
+    for tool_name, actions in tools_from_trace.items():
+        reg_tools.append({
+            "name": tool_name,
+            "service": tool_name.replace("-", " ").replace("_", " ").title(),
+            "description": tool_name,
+            "actions": [{"name": a, "description": a} for a in sorted(actions)],
+        })
+
+    with get_db() as conn:
+        _upsert_agent(conn, agent_id, req.agent_name, req.agent_name, reg_tools, "arceo-sdk")
+        agent = get_agent_from_db(conn, agent_id)
+
+    # Get blast radius
+    summary = _compute_agent_summary(agent)
+
+    # Build simulation trace for analysis
+    trace = SimulationTrace(
+        simulation_id=uuid.uuid4().hex[:12],
+        agent_id=agent_id,
+        agent_name=req.agent_name,
+        scenario_id="sdk-trace",
+        scenario_name="SDK Captured Trace",
+        prompt=req.prompt,
+    )
+
+    for i, step in enumerate(req.steps):
+        trace.steps.append(TraceStep(
+            step_index=i,
+            tool=step.tool,
+            action=step.action,
+            params=step.params,
+            enforce_decision="ALLOW",
+            enforce_policy=None,
+            result=step.result,
+            error=step.error or None,
+            timestamp=step.timestamp or "",
+        ))
+
+    report = analyze_trace(trace)
+
+    # Store as simulation
+    with get_db() as conn:
+        conn.execute(
+            "INSERT INTO simulations (id, agent_id, scenario_id, status, trace_json, report_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (trace.simulation_id, agent_id, "sdk-trace", "completed",
+             json.dumps(asdict(trace), default=str),
+             json.dumps(asdict(report), default=str),
+             datetime.utcnow().isoformat()),
+        )
+
+    return {
+        "agent_id": agent_id,
+        "blast_radius": summary["blast_radius"],
+        "report": asdict(report),
+    }
+
+
 @app.post("/api/report")
 def submit_post_hoc_report(req: PostHocReport):
     """Agent reports what it did after the fact. No enforcement, full analysis."""

@@ -1,0 +1,69 @@
+name: "Arceo Agent Scan"
+description: "Scan AI agents for dangerous tool patterns, policy violations, and blast radius"
+branding:
+  icon: "shield"
+  color: "purple"
+
+inputs:
+  config:
+    description: "Path to arceo.yaml config file"
+    required: false
+    default: "arceo.yaml"
+  arceo_url:
+    description: "Arceo backend URL"
+    required: true
+  arceo_api_key:
+    description: "Arceo API key"
+    required: false
+    default: ""
+  python_version:
+    description: "Python version to use"
+    required: false
+    default: "3.11"
+
+outputs:
+  passed:
+    description: "Whether all agents passed policy checks"
+    value: ${{ steps.scan.outputs.passed }}
+  report:
+    description: "Full scan report as markdown"
+    value: ${{ steps.scan.outputs.report }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ inputs.python_version }}
+
+    - name: Install Arceo SDK
+      shell: bash
+      run: |
+        pip install httpx click pyyaml
+        pip install -e ${{ github.action_path }}/arceo
+
+    - name: Run Arceo scan
+      id: scan
+      shell: bash
+      env:
+        ARCEO_URL: ${{ inputs.arceo_url }}
+        ARCEO_API_KEY: ${{ inputs.arceo_api_key }}
+      run: |
+        set +e
+        REPORT=$(arceo scan --config ${{ inputs.config }} --format github --url $ARCEO_URL 2>&1)
+        EXIT_CODE=$?
+        set -e
+
+        echo "report<<EOF" >> $GITHUB_OUTPUT
+        echo "$REPORT" >> $GITHUB_OUTPUT
+        echo "EOF" >> $GITHUB_OUTPUT
+
+        if [ $EXIT_CODE -eq 0 ]; then
+          echo "passed=true" >> $GITHUB_OUTPUT
+        else
+          echo "passed=false" >> $GITHUB_OUTPUT
+        fi
+
+        echo "$REPORT"
+        exit $EXIT_CODE
