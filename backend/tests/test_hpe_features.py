@@ -30,8 +30,31 @@ def auth_headers(client):
 
 
 @pytest.fixture(scope="module")
-def ops_agent(client):
-    """The seeded ops-agent should exist from init_db."""
+def ops_agent(client, auth_headers):
+    """Register an ops agent for testing."""
+    client.post("/api/authority/agents/register", json={
+        "name": "Ops Agent",
+        "tools": [
+            {"name": "github", "description": "GitHub", "actions": [
+                {"name": "merge_pull_request", "description": "Merge PR"},
+                {"name": "trigger_workflow", "description": "Trigger CI"},
+            ]},
+            {"name": "aws", "description": "AWS", "actions": [
+                {"name": "list_instances", "description": "List"},
+                {"name": "terminate_instance", "description": "Terminate"},
+                {"name": "scale_service", "description": "Scale"},
+            ]},
+            {"name": "slack", "description": "Slack", "actions": [
+                {"name": "send_message", "description": "Send"},
+            ]},
+            {"name": "pagerduty", "description": "PagerDuty", "actions": [
+                {"name": "create_incident", "description": "Create"},
+                {"name": "acknowledge_incident", "description": "Ack"},
+                {"name": "resolve_incident", "description": "Resolve"},
+                {"name": "get_oncall", "description": "On-call"},
+            ]},
+        ],
+    })
     return "ops-agent"
 
 
@@ -343,7 +366,7 @@ class TestOpsScenarios:
         assert "adversarial" in categories
         assert "chain_exploit" in categories
 
-    def test_ops_agent_seeded_in_db(self, client, auth_headers):
+    def test_ops_agent_in_db(self, client, auth_headers, ops_agent):
         resp = client.get("/api/authority/agent/ops-agent", headers=auth_headers)
         assert resp.status_code == 200
         data = resp.json()
