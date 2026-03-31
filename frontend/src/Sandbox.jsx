@@ -95,6 +95,7 @@ const DECISION_STYLE = {
 export default function Sandbox() {
   const [searchParams] = useSearchParams();
   const preselectedAgent = searchParams.get("agent");
+  const worstCase = searchParams.get("worst_case") === "1";
   const navigate = useNavigate();
 
   const [scenarios, setScenarios] = useState([]);
@@ -131,7 +132,6 @@ export default function Sandbox() {
   const [runError, setRunError] = useState(null);
   const [lastRunMode, setLastRunMode] = useState("");
   const [sweeping, setSweeping] = useState(false);
-  const [sweepError, setSweepError] = useState(null);
 
   useEffect(() => {
     Promise.all([
@@ -162,6 +162,14 @@ export default function Sandbox() {
     apiFetch(`/api/sandbox/agent/${selectedAgent}/scenarios`)
       .then((d) => {
         setScenarios(d.scenarios);
+        if (worstCase && d.scenarios?.length > 0) {
+          const adversarial = d.scenarios.filter(
+            (s) => s.category === "adversarial" || s.category === "chain_exploit"
+          );
+          const toSelect = adversarial.length > 0 ? adversarial : [d.scenarios[d.scenarios.length - 1]];
+          setSelectedScenarios(toSelect.map((s) => s.id));
+          setCategoryFilter("adversarial");
+        }
         setLoadingScenarios(false);
       })
       .catch(() => {
@@ -243,20 +251,21 @@ export default function Sandbox() {
     }
   };
 
-  const handleFullScan = async () => {
-    if (!selectedAgent || running || sweeping) return;
+  const handleSweep = async (dryRun = true) => {
+    if (!selectedAgent) return;
     setSweeping(true);
-    setSweepError(null);
+    setRunError(null);
     try {
       const data = await apiFetch("/api/sandbox/sweep", {
         method: "POST",
-        body: JSON.stringify({ agent_id: selectedAgent, dry_run: true }),
+        body: JSON.stringify({ agent_id: selectedAgent, dry_run: dryRun }),
       });
-      toast(`Scan complete — ${data.total_scenarios} scenarios, risk ${Math.round(data.overall_risk_score)}`);
-      navigate(`/sweep/${data.sweep_id}`);
+      toast(`Full sweep complete — ${data.total_scenarios} scenarios, risk score ${Math.round(data.overall_risk_score)}`);
+      // Reload simulations list
+      const simsData = await apiFetch("/api/sandbox/simulations");
+      setSimulations(simsData.simulations || []);
     } catch (err) {
-      setSweepError(err.message);
-      toast("Full scan failed: " + err.message, "error");
+      toast("Sweep failed: " + err.message, "error");
     }
     setSweeping(false);
   };
@@ -371,7 +380,7 @@ export default function Sandbox() {
             <button
               className="run-btn primary"
               onClick={() => handleRun(true)}
-              disabled={(selectedScenarios.length === 0 && queuedCustomPrompts.length === 0) || !selectedAgent || running}
+              disabled={(selectedScenarios.length === 0 && queuedCustomPrompts.length === 0) || !selectedAgent || running || sweeping}
               title="Dry run — enforces policies, calls mock APIs, no LLM cost"
             >
               <span>
@@ -384,7 +393,7 @@ export default function Sandbox() {
             <button
               className="run-btn llm-btn"
               onClick={() => handleRun(false)}
-              disabled={(selectedScenarios.length === 0 && queuedCustomPrompts.length === 0) || !selectedAgent || running}
+              disabled={(selectedScenarios.length === 0 && queuedCustomPrompts.length === 0) || !selectedAgent || running || sweeping}
               title="Uses Claude to reason and decide which tools to call (~$0.05/run)"
             >
               <span>
@@ -394,28 +403,17 @@ export default function Sandbox() {
               </span>
               <span className="run-btn-sub">Claude decides · ~$0.05</span>
             </button>
+            <button
+              className="run-btn sweep-btn"
+              onClick={() => handleSweep(true)}
+              disabled={!selectedAgent || running || sweeping}
+              title="Run ALL scenarios for this agent — full risk coverage report"
+            >
+              <span>{sweeping ? "Sweeping... (30–60 seconds)" : "Full Sweep"}</span>
+              <span className="run-btn-sub">{sweeping ? "running all scenarios" : "all scenarios · dry run · free"}</span>
+            </button>
           </div>
         </div>
-        {scenarios.length > 0 && (
-          <button
-            className="run-btn sweep-btn"
-            onClick={handleFullScan}
-            disabled={!selectedAgent || running || sweeping}
-            title={`Run all ${scenarios.length} scenarios for this agent in dry-run mode`}
-          >
-            <span>
-              {sweeping
-                ? (runProgress ? `Scanning ${runProgress.current}/${runProgress.total}...` : "Scanning...")
-                : `Full Scan (${scenarios.length})`}
-            </span>
-            <span className="run-btn-sub">all scenarios · dry run</span>
-          </button>
-        )}
-        {sweepError && (
-          <div className="run-error" style={{ marginTop: 8 }}>
-            <strong>Scan failed:</strong> {sweepError}
-          </div>
-        )}
 
         {/* Custom prompt input */}
         <div className="custom-prompt-section">
@@ -466,17 +464,6 @@ export default function Sandbox() {
                 <p className="run-progress-sub">Enforcing policies · calling mock APIs · capturing trace</p>
               </div>
             )}
-          </div>
-        )}
-
-        {sweeping && (
-          <div className="run-loading">
-            <div className="run-progress-wrap">
-              <div className="run-progress-track">
-                <div className="run-progress-fill run-progress-indeterminate" />
-              </div>
-              <p className="run-progress-sub">Running all scenarios in dry-run mode — this may take 20–30 seconds...</p>
-            </div>
           </div>
         )}
 

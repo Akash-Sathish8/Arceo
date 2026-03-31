@@ -563,6 +563,19 @@
   box-shadow: 0 4px 12px rgba(15, 20, 25, 0.15);
 }
 
+.run-btn.sweep-btn {
+  background: var(--white);
+  color: #7c3aed;
+  border: 1.5px solid #7c3aed;
+}
+
+.run-btn.sweep-btn:hover:not(:disabled) {
+  background: #7c3aed;
+  color: var(--white);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(124, 58, 237, 0.2);
+}
+
 .run-btn:disabled {
   opacity: 0.4;
   cursor: not-allowed;

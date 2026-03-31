@@ -128,12 +128,15 @@ def detect_chains_local(tool_calls) -> list:
 
     tool_calls: list of ArceoToolCall objects
     Returns list of chain dicts.
+
+    A chain requires at least one non-read-only step — pure read sequences
+    (e.g. list_customers → get_customer) are not flagged as dangerous.
     """
     if len(tool_calls) < 2:
         return []
 
-    # Build (index, risk_hints) pairs
-    steps = [(i, set(tc.inferred_risk_hints)) for i, tc in enumerate(tool_calls)]
+    # Build (index, risk_hints, is_read_only) triples
+    steps = [(i, set(tc.inferred_risk_hints), tc.is_read_only) for i, tc in enumerate(tool_calls)]
 
     chains = []
     seen = set()
@@ -141,11 +144,14 @@ def detect_chains_local(tool_calls) -> list:
     for from_label, to_label, chain_name, severity in LABEL_TRANSITIONS:
         if chain_name in seen:
             continue
-        for i, (idx_a, hints_a) in enumerate(steps):
+        for i, (idx_a, hints_a, ro_a) in enumerate(steps):
             if from_label not in hints_a:
                 continue
-            for idx_b, hints_b in steps[i + 1:]:
+            for idx_b, hints_b, ro_b in steps[i + 1:]:
                 if to_label not in hints_b:
+                    continue
+                # Skip chains where both steps are read-only — not actually dangerous
+                if ro_a and ro_b:
                     continue
                 # Same label needs different operations
                 if from_label == to_label:

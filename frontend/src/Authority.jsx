@@ -72,6 +72,13 @@ function RiskBar({ label, count, max, color }) {
   );
 }
 
+function blastLabel(score) {
+  if (score >= 76) return "Critical — irreversible real-world damage";
+  if (score >= 56) return "High risk — moves money or deletes data";
+  if (score >= 31) return "Medium risk — modifies records or sends externally";
+  return "Low risk — read-only actions";
+}
+
 function AgentCard({ agent }) {
   const br = agent.blast_radius;
   const scoreColor = br.score >= 70 ? '#dc2626' : br.score >= 40 ? '#f59e0b' : '#16a34a';
@@ -106,6 +113,7 @@ function AgentCard({ agent }) {
           <div className="blast-number">{br.score}</div>
           <div className="blast-label">Risk Score</div>
           <div className="blast-level">{riskLevel}</div>
+          <div className="blast-desc">{blastLabel(br.score)}</div>
         </div>
       </div>
 

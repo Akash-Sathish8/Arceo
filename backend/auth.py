@@ -59,7 +59,17 @@ def verify_token(token: str) -> dict:
 
 
 def get_current_user(request: Request) -> dict:
-    """Extract and verify user from Authorization header."""
+    """Extract and verify user from Authorization header.
+
+    When DEMO_MODE=true, auth is bypassed and the admin user is returned
+    without checking JWT — so any YC partner can open the URL directly.
+    """
+    if os.getenv("DEMO_MODE", "").lower() == "true":
+        with get_db() as conn:
+            row = conn.execute("SELECT * FROM users WHERE role = 'admin' ORDER BY created_at LIMIT 1").fetchone()
+            if row:
+                return {"sub": row["id"], "email": row["email"], "role": row["role"]}
+        return {"sub": "demo", "email": "admin@actiongate.io", "role": "admin"}
     auth = request.headers.get("Authorization", "")
     if not auth.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Missing authorization header")

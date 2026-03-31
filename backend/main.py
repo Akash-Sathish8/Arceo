@@ -63,6 +63,12 @@ def startup():
     init_db()
 
 
+@app.get("/api/demo-mode")
+def demo_mode_status():
+    """Unauthenticated — lets the frontend know if DEMO_MODE is active."""
+    return {"demo": os.getenv("DEMO_MODE", "").lower() == "true"}
+
+
 @app.get("/api/services")
 def list_available_services():
     """Return all known services and their actions for the service picker."""
@@ -1845,6 +1851,202 @@ def run_multi_agent_simulation(req: MultiSimulateRequest, user: dict = Depends(g
         },
         "report": _asdict(report),
     }
+
+
+class WorkflowOptimizeRequest(BaseModel):
+    agent_ids: list[str]
+    coordinator_id: str
+    workflow_description: str  # Plain-English description of what this workflow does
+    dry_run: bool = True
+
+
+@app.post("/api/workflows/optimize")
+def optimize_workflow_permissions(req: WorkflowOptimizeRequest, user: dict = Depends(get_current_user)):
+    """Analyze a multi-agent workflow and recommend per-agent permission changes.
+
+    Runs a dry-run simulation with the workflow description, then compares
+    each agent's registered actions vs. what it actually used. Returns:
+    - overprivileged: risky actions never called — candidates for removal/restriction
+    - permission_gaps: blocked actions the workflow needed — review policies
+    - approval_gates: cross-agent chains that need REQUIRE_APPROVAL policies
+    - per-agent optimization score (0-100, lower = better optimized)
+    """
+    from sandbox.multi_runner import run_multi_simulation_dry
+    from sandbox.analyzer import analyze_multi_trace
+    from sandbox.prompts.scenarios import Scenario
+    from authority.chain_detector import LABEL_TRANSITIONS
+    from dataclasses import asdict as _asdict
+
+    if req.coordinator_id not in req.agent_ids:
+        raise HTTPException(status_code=400, detail="coordinator_id must be in agent_ids")
+    if not req.workflow_description.strip():
+        raise HTTPException(status_code=400, detail="workflow_description is required")
+
+    # Load all agent configs
+    agent_configs = {}
+    with get_db() as conn:
+        for aid in req.agent_ids:
+            agent = get_agent_from_db(conn, aid)
+            if not agent:
+                raise HTTPException(status_code=404, detail=f"Agent '{aid}' not found")
+            agent_configs[aid] = agent
+
+    # Run dry-run simulation with the workflow description as the prompt
+    scenario = Scenario(
+        id="workflow-optimize", name="Workflow Optimization Analysis",
+        description="Analyzes actual permission usage across the workflow",
+        agent_type="ops", category="normal", severity="info",
+        prompt=req.workflow_description,
+    )
+    multi_trace = run_multi_simulation_dry(agent_configs, req.coordinator_id, scenario)
+    report = analyze_multi_trace(multi_trace, agent_configs)
+
+    # Track per-agent action usage from the simulation trace
+    agent_used = {aid: set() for aid in req.agent_ids}
+    agent_blocked = {aid: set() for aid in req.agent_ids}
+    agent_needed_approval = {aid: set() for aid in req.agent_ids}
+
+    for step in multi_trace.unified_steps:
+        aid = step.source_agent_id or req.coordinator_id
+        if aid not in agent_used:
+            continue
+        key = f"{step.tool}.{step.action}"
+        if step.enforce_decision == "ALLOW":
+            agent_used[aid].add(key)
+        elif step.enforce_decision == "BLOCK":
+            agent_blocked[aid].add(key)
+        elif step.enforce_decision == "REQUIRE_APPROVAL":
+            agent_needed_approval[aid].add(key)
+            agent_used[aid].add(key)  # Still "used" — workflow needed it
+
+    # Build cross-agent chains from static analysis
+    agent_labels = {}
+    for aid, agent in agent_configs.items():
+        labels = set()
+        for t in agent.get("tools", []):
+            for a in t.get("actions", []):
+                for lbl in a.get("risk_labels", []):
+                    labels.add(lbl)
+        agent_labels[aid] = labels
+
+    cross_chains = []
+    ids = list(req.agent_ids)
+    for from_label, to_label, chain_name, severity in LABEL_TRANSITIONS:
+        for from_id in ids:
+            if from_label not in agent_labels.get(from_id, set()):
+                continue
+            for to_id in ids:
+                if to_id == from_id:
+                    continue
+                if to_label not in agent_labels.get(to_id, set()):
+                    continue
+                cross_chains.append({
+                    "chain_name": chain_name, "severity": severity,
+                    "from_agent_id": from_id, "from_agent": agent_configs[from_id]["name"],
+                    "to_agent_id": to_id, "to_agent": agent_configs[to_id]["name"],
+                    "from_label": from_label, "to_label": to_label,
+                })
+
+    # Per-agent analysis
+    agent_analysis = {}
+    for aid, agent in agent_configs.items():
+        all_registered = {}
+        for t in agent.get("tools", []):
+            for a in t.get("actions", []):
+                key = f"{t['name']}.{a['action']}"
+                all_registered[key] = {
+                    "tool": t["name"], "action": a["action"],
+                    "description": a.get("description", ""),
+                    "risk_labels": a.get("risk_labels", []),
+                    "reversible": a.get("reversible", True),
+                }
+
+        used = agent_used[aid]
+        blocked = agent_blocked[aid]
+        needed_approval = agent_needed_approval[aid]
+
+        # Overprivileged: registered risky/irreversible actions never called in this workflow
+        overprivileged = []
+        for key, info in all_registered.items():
+            if key in used or key in blocked:
+                continue  # Used by workflow
+            is_risky = bool(info["risk_labels"]) or not info["reversible"]
+            if not is_risky:
+                continue
+            severity = "high" if any(l in ("moves_money", "deletes_data", "changes_production") for l in info["risk_labels"]) else "medium"
+            if not info["reversible"]:
+                severity = "high"
+            overprivileged.append({
+                "action": key, "tool": info["tool"], "action_name": info["action"],
+                "description": info["description"], "risk_labels": info["risk_labels"],
+                "reversible": info["reversible"], "severity": severity,
+                "recommendation": "BLOCK",
+                "reason": f"Not needed for this workflow — creates unnecessary {'irreversible ' if not info['reversible'] else ''}{'/'.join(info['risk_labels']) or 'risk'} exposure",
+            })
+
+        # Permission gaps: blocked actions the workflow actually tried to call
+        permission_gaps = []
+        for key in blocked:
+            info = all_registered.get(key, {"tool": key.split(".")[0], "action": key.split(".")[-1], "description": "", "risk_labels": [], "reversible": True})
+            permission_gaps.append({
+                "action": key, "description": info.get("description", ""),
+                "risk_labels": info.get("risk_labels", []),
+                "recommendation": "REVIEW_POLICY",
+                "reason": f"Workflow tried to call this action but it was blocked — review if the blocking policy should allow it",
+            })
+
+        # Approval gates: cross-agent chains involving this agent
+        my_chains = [c for c in cross_chains if c["from_agent_id"] == aid or c["to_agent_id"] == aid]
+
+        # Optimization score: 0=perfectly tight, 100=extremely overprivileged
+        total_risky = sum(1 for info in all_registered.values() if info["risk_labels"] or not info["reversible"])
+        over_count = len(overprivileged)
+        opt_score = int((over_count / max(total_risky, 1)) * 100) if total_risky > 0 else 0
+
+        agent_analysis[aid] = {
+            "agent_id": aid,
+            "agent_name": agent["name"],
+            "total_registered_actions": len(all_registered),
+            "actions_used": sorted(used),
+            "actions_blocked": sorted(blocked),
+            "optimization_score": opt_score,  # 0=tight, 100=very overprivileged
+            "overprivileged": sorted(overprivileged, key=lambda x: (0 if x["severity"] == "high" else 1, x["action"])),
+            "permission_gaps": permission_gaps,
+            "approval_gates_needed": [c for c in my_chains if c["from_agent_id"] == aid],
+            "summary": _build_agent_summary(agent["name"], over_count, len(permission_gaps), len(my_chains)),
+        }
+
+    overall_opt_score = int(sum(a["optimization_score"] for a in agent_analysis.values()) / max(len(agent_analysis), 1))
+    total_over = sum(len(a["overprivileged"]) for a in agent_analysis.values())
+    total_gaps = sum(len(a["permission_gaps"]) for a in agent_analysis.values())
+
+    return {
+        "simulation_id": multi_trace.simulation_id,
+        "workflow_description": req.workflow_description,
+        "agents": agent_analysis,
+        "cross_agent_chains": cross_chains,
+        "overall_optimization_score": overall_opt_score,
+        "total_overprivileged": total_over,
+        "total_permission_gaps": total_gaps,
+        "verdict": (
+            "Well optimized — minimal unnecessary permissions" if overall_opt_score < 20 else
+            "Moderately overprivileged — review flagged actions" if overall_opt_score < 50 else
+            "Significantly overprivileged — agents have more permissions than this workflow needs"
+        ),
+    }
+
+
+def _build_agent_summary(name: str, over: int, gaps: int, chains: int) -> str:
+    parts = []
+    if over > 0:
+        parts.append(f"{over} overprivileged action{'s' if over != 1 else ''}")
+    if gaps > 0:
+        parts.append(f"{gaps} permission gap{'s' if gaps != 1 else ''}")
+    if chains > 0:
+        parts.append(f"{chains} cross-agent chain{'s' if chains != 1 else ''} needing approval gates")
+    if not parts:
+        return f"{name} is well-scoped for this workflow"
+    return f"{name}: {', '.join(parts)}"
 
 
 @app.get("/api/sandbox/simulate/stream")

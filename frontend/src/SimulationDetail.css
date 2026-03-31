@@ -808,6 +808,22 @@
   flex-wrap: wrap;
 }
 
+.sim-violation-cta {
+  display: inline-block;
+  margin-top: 10px;
+  font-size: 12px;
+  font-weight: 600;
+  text-decoration: none;
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid;
+  transition: opacity 0.15s;
+}
+
+.sim-violation-cta:hover {
+  opacity: 0.75;
+}
+
 .sim-chain-paths {
   display: flex;
   flex-direction: column;

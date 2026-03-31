@@ -26,6 +26,7 @@ export default function Approvals() {
   const [loading, setLoading] = useState(true);
   const [deciding, setDeciding] = useState({});
   const [notes, setNotes] = useState({});
+  const [decided, setDecided] = useState({}); // id → "approve" | "reject" (post-decision flash)
 
   const load = useCallback(() => {
     apiFetch("/api/approvals")
@@ -47,7 +48,11 @@ export default function Approvals() {
         body: JSON.stringify({ decision, reason: notes[id] || "" }),
       });
       toast(decision === "approve" ? "Action approved" : "Action rejected");
-      setApprovals((prev) => prev.filter((a) => a.id !== id));
+      setDecided((p) => ({ ...p, [id]: decision }));
+      setTimeout(() => {
+        setApprovals((prev) => prev.filter((a) => a.id !== id));
+        setDecided((p) => { const n = { ...p }; delete n[id]; return n; });
+      }, 2000);
     } catch (e) {
       toast("Failed: " + e.message, "error");
     } finally {
@@ -97,8 +102,14 @@ export default function Approvals() {
         <div className="approvals-list">
           {approvals.map((a) => {
             const isBusy = !!deciding[a.id];
+            const postDecision = decided[a.id];
             return (
-              <div key={a.id} className="approval-card">
+              <div key={a.id} className={`approval-card${postDecision ? " approval-card-decided" : ""}`}>
+                {postDecision && (
+                  <div className={`approval-decision-flash ${postDecision === "approve" ? "approved" : "rejected"}`}>
+                    {postDecision === "approve" ? "✓ Agent resumed" : "✗ Agent blocked"}
+                  </div>
+                )}
                 <div className="approval-card-header">
                   <div className="approval-meta">
                     <Link to={`/agent/${a.agent_id}`} className="approval-agent-link">

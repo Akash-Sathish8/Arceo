@@ -299,3 +299,31 @@
   font-family: "SF Mono", "Fira Code", "Menlo", monospace;
   word-break: break-all;
 }
+
+/* ── Post-decision flash ─────────────────────────────────────────────────── */
+
+.approval-card-decided {
+  opacity: 0.75;
+  transition: opacity 0.4s;
+}
+
+.approval-decision-flash {
+  padding: 10px 16px;
+  font-size: 14px;
+  font-weight: 700;
+  border-radius: 6px 6px 0 0;
+  text-align: center;
+  letter-spacing: 0.2px;
+}
+
+.approval-decision-flash.approved {
+  background: #f0fdf4;
+  color: #16a34a;
+  border-bottom: 1px solid #bbf7d0;
+}
+
+.approval-decision-flash.rejected {
+  background: #fef2f2;
+  color: #dc2626;
+  border-bottom: 1px solid #fecaca;
+}

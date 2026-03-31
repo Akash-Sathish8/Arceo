@@ -12,7 +12,7 @@ import SimulationDetail from './SimulationDetail.jsx'
 import Comparison from './Comparison.jsx'
 import Settings from './Settings.jsx'
 import Approvals from './Approvals.jsx'
-import SweepDetail from './SweepDetail.jsx'
+import Workflows from './Workflows.jsx'
 import ErrorBoundary from './ErrorBoundary.jsx'
 import { ToastContainer } from './Toast.jsx'
 
@@ -72,6 +72,16 @@ const ApprovalIcon = () => (
   </svg>
 )
 
+const WorkflowsIcon = () => (
+  <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
+    <circle cx="3" cy="4" r="2" stroke="currentColor" strokeWidth="1.4"/>
+    <circle cx="12" cy="4" r="2" stroke="currentColor" strokeWidth="1.4"/>
+    <circle cx="7.5" cy="11" r="2" stroke="currentColor" strokeWidth="1.4"/>
+    <path d="M3 6v1.5a2 2 0 002 2h5a2 2 0 002-2V6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+    <path d="M7.5 9v0" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
+  </svg>
+)
+
 const CollapseIcon = ({ collapsed }) => (
   <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
     {collapsed
@@ -127,6 +137,9 @@ function Sidebar({ collapsed, onToggle }) {
       <nav className="sidebar-nav">
         <NavLink to="/" end title="Agents" className={({ isActive }) => isActive ? 'active' : ''}>
           <DashboardIcon />{!collapsed && ' Agents'}
+        </NavLink>
+        <NavLink to="/workflows" title="Workflows — multi-agent risk analysis" className={({ isActive }) => isActive ? 'active' : ''}>
+          <WorkflowsIcon />{!collapsed && ' Workflows'}
         </NavLink>
         <NavLink to="/sandbox" title="Sandbox — simulate agent behavior" className={({ isActive }) => isActive ? 'active' : ''}>
           <SandboxIcon />{!collapsed && ' Sandbox'}
@@ -201,9 +214,9 @@ createRoot(document.getElementById('root')).render(
             <Route path="/history" element={<ProtectedRoute><History /></ProtectedRoute>} />
             <Route path="/executions" element={<Navigate to="/history" replace />} />
             <Route path="/audit" element={<Navigate to="/history" replace />} />
+            <Route path="/workflows" element={<ProtectedRoute><Workflows /></ProtectedRoute>} />
             <Route path="/sandbox" element={<ProtectedRoute><Sandbox /></ProtectedRoute>} />
             <Route path="/sandbox/:simulationId" element={<ProtectedRoute><SimulationDetail /></ProtectedRoute>} />
-            <Route path="/sweep/:sweepId" element={<ProtectedRoute><SweepDetail /></ProtectedRoute>} />
             <Route path="/compare" element={<ProtectedRoute><Comparison /></ProtectedRoute>} />
             <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
             <Route path="/approvals" element={<ProtectedRoute><Approvals /></ProtectedRoute>} />

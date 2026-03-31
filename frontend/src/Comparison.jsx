@@ -121,7 +121,6 @@ function SimulationPicker({ afterId, afterData }) {
 
 export default function Comparison() {
   const [searchParams] = useSearchParams();
-  const navigate = useNavigate();
   const beforeId = searchParams.get("before");
   const afterId = searchParams.get("after");
 
@@ -130,9 +129,11 @@ export default function Comparison() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
+  const navigate = useNavigate();
+
   useEffect(() => {
     if (!beforeId && !afterId) {
-      // Auto-navigate to the last two completed simulations if available
+      // Auto-load last 2 completed simulations so /compare always shows something
       apiFetch("/api/sandbox/simulations")
         .then((d) => {
           const completed = (d.simulations || []).filter((s) => s.status === "completed");

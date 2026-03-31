@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
-import { useParams, Link, useNavigate } from "react-router-dom";
+import { useParams, Link, useNavigate, useSearchParams } from "react-router-dom";
 import { apiFetch, getToken } from "./api.js";
 import { toast } from "./Toast.jsx";
 import "./AgentDetail.css";
@@ -189,6 +189,95 @@ function AuthorityMap({ graph }) {
           </div>
         );
       })}
+    </div>
+  );
+}
+
+// ── Blast Radius Plain-English Label ─────────────────────────────────────
+
+function blastLabel(score) {
+  if (score >= 76) return "Critical — can cause irreversible real-world damage";
+  if (score >= 56) return "High risk — can move money, delete data, or affect production";
+  if (score >= 31) return "Medium risk — can send emails, modify records";
+  return "Low risk — read-only actions, no irreversible capabilities";
+}
+
+// ── Worst Case Panel ──────────────────────────────────────────────────────
+
+const CHAIN_PLAIN_ENGLISH = {
+  "pii-exfiltration":           "Read customer data → send it outside your organization",
+  "unsupervised-refund":        "Look up customer payment info → issue an unsupervised refund",
+  "data-destruction":           "Access data → permanently delete it",
+  "infrastructure-destruction": "Change production config → terminate infrastructure",
+  "financial-destruction":      "Read financial records → delete them permanently",
+  "privilege-escalation":       "Modify production settings → delete sensitive data",
+  "external-financial":         "Move money → send confirmation externally without approval",
+  "pii-financial":              "Read customer PII → initiate financial transaction",
+  "production-external":        "Change production → notify external systems",
+};
+
+function WorstCasePanel({ br, chains, policies, onScrollToPolicies, agentId }) {
+  const navigate = useNavigate();
+  if (!br || (br.score < 30 && chains.length === 0)) return null;
+
+  const topChain = chains.find((c) => c.severity === "critical") || chains.find((c) => c.severity === "high") || chains[0];
+  const irreversibleCount = br.irreversible_actions || 0;
+  const hasCoveringPolicy = (policies || []).some((p) => p.effect === "BLOCK" || p.effect === "REQUIRE_APPROVAL");
+  const chainText = topChain
+    ? (CHAIN_PLAIN_ENGLISH[topChain.chain_name] || topChain.description || `${(topChain.from_label || "").replace(/_/g, " ")} → ${(topChain.to_label || "").replace(/_/g, " ")}`)
+    : null;
+
+  return (
+    <div className="worst-case-panel">
+      <div className="wcp-header">
+        <span className="wcp-icon">⚠</span>
+        <strong>Worst Case Scenario</strong>
+        {hasCoveringPolicy && <span className="wcp-covered-badge">Partially covered by policies</span>}
+      </div>
+
+      {chainText && (
+        <div className="wcp-chain-row">
+          <span className="wcp-chain-icon">⛓</span>
+          <div>
+            <div className="wcp-chain-text">{chainText}</div>
+            <div className="wcp-chain-meta">
+              <span className="wcp-sev-chip" style={{ background: topChain.severity === "critical" ? "#fef2f2" : "#fff7ed", color: topChain.severity === "critical" ? "#dc2626" : "#ea580c" }}>
+                {topChain.severity?.toUpperCase()}
+              </span>
+              <span className="wcp-chain-name">{topChain.chain_name}</span>
+              {!hasCoveringPolicy && <span className="wcp-no-policy">No policy</span>}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {irreversibleCount > 0 && (
+        <div className="wcp-irreversible-row">
+          <span className="wcp-chain-icon">🔒</span>
+          <span>{irreversibleCount} irreversible action{irreversibleCount !== 1 ? "s" : ""} — cannot be undone once triggered</span>
+        </div>
+      )}
+
+      <div className="wcp-footer">
+        <div className="wcp-score">
+          <span className="wcp-score-num" style={{ color: br.score >= 70 ? "#dc2626" : br.score >= 40 ? "#ea580c" : "#16a34a" }}>
+            {br.score}
+          </span>
+          <span className="wcp-score-label">Risk Score — {blastLabel(br.score)}</span>
+        </div>
+        <div className="wcp-cta-row">
+          {agentId && (
+            <button className="wcp-cta secondary" onClick={() => navigate(`/sandbox?agent=${agentId}&worst_case=1`)}>
+              Simulate Worst Case →
+            </button>
+          )}
+          {!hasCoveringPolicy && (
+            <button className="wcp-cta" onClick={onScrollToPolicies}>
+              Add Policies →
+            </button>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
@@ -431,6 +520,8 @@ function EffectToggle({ value, onChange }) {
 export default function AgentDetail() {
   const { agentId } = useParams();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const policySectionRef = useRef(null);
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -478,6 +569,13 @@ export default function AgentDetail() {
   };
 
   useEffect(() => { loadData(); }, [agentId]);
+
+  // Auto-scroll to policies section when coming from "Block this in production →"
+  useEffect(() => {
+    if (searchParams.get("tab") === "policies" && policySectionRef.current && data) {
+      setTimeout(() => policySectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 200);
+    }
+  }, [searchParams, data]);
 
   useEffect(() => {
     if (!showRecsMenu) return;
@@ -770,8 +868,17 @@ export default function AgentDetail() {
         ))}
       </div>
 
+      {/* Worst Case Panel */}
+      <WorstCasePanel
+        br={br}
+        chains={chains}
+        policies={policies}
+        agentId={agentId}
+        onScrollToPolicies={() => policySectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
+      />
+
       {/* Enforcement Policies */}
-      <div className="detail-section" style={{ position: "relative", zIndex: 2 }}>
+      <div className="detail-section" ref={policySectionRef} style={{ position: "relative", zIndex: 2 }}>
         <div className="chain-section-header">
           <h2>
             Enforcement Policies ({sortedPolicies.length})

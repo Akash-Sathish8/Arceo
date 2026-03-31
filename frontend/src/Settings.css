@@ -519,19 +519,84 @@
   color: var(--text-muted);
 }
 
-/* ── Notification save row ───────────────────────────────────────── */
+/* ── Notifications coming-soon ───────────────────────────────────── */
 
-.notif-save-row {
+.notif-coming-soon {
   display: flex;
-  align-items: center;
   gap: 14px;
-  flex-wrap: wrap;
+  background: #f8fafc;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 16px;
+  align-items: flex-start;
 }
 
-.notif-storage-hint {
+.notif-cs-icon {
+  font-size: 22px;
+  flex-shrink: 0;
+}
+
+.notif-cs-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: 6px;
+}
+
+.notif-cs-desc {
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.notif-cs-link {
+  color: #2563eb;
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.notif-cs-link:hover {
+  text-decoration: underline;
+}
+
+.notif-workaround {
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  border-radius: 8px;
+  padding: 16px;
+}
+
+.notif-wa-label {
   font-size: 12px;
-  color: var(--text-muted);
-  font-style: italic;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #16a34a;
+  margin-bottom: 8px;
+}
+
+.notif-workaround p {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin: 0 0 12px;
+  line-height: 1.5;
+}
+
+.notif-cs-btn {
+  display: inline-block;
+  font-size: 13px;
+  font-weight: 600;
+  color: #16a34a;
+  text-decoration: none;
+  border: 1.5px solid #86efac;
+  border-radius: 6px;
+  padding: 6px 14px;
+  transition: background 0.15s;
+}
+
+.notif-cs-btn:hover {
+  background: #dcfce7;
 }
 
 /* Password change form */

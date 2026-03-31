@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { apiFetch, setToken, setUser } from "./api.js";
 import "./Login.css";
@@ -10,26 +10,27 @@ const AGENT_TYPES = [
   { id: "custom",  label: "Custom / other",         desc: "I'll configure the tools and actions myself" },
 ];
 
-const TYPE_TEMPLATES = {
+// Maps agent type → template tool config (mirrors Authority.jsx TEMPLATES)
+const AGENT_TYPE_TEMPLATES = {
   support: {
     name: "Customer Support Agent",
     description: "Handles tickets, refunds, account lookups, and customer emails",
-    toolsText: "Stripe: get_customer, list_payments, create_refund, create_charge, cancel_subscription\nZendesk: get_ticket, update_ticket, close_ticket, add_comment, delete_ticket\nSalesforce: query_contacts, get_account, update_record, delete_record\nSendGrid: send_email, send_template_email",
+    tools: "Stripe: get_customer, list_payments, create_refund, create_charge, cancel_subscription\nZendesk: get_ticket, update_ticket, close_ticket, add_comment, delete_ticket\nSalesforce: query_contacts, get_account, update_record, delete_record\nSendGrid: send_email, send_template_email",
   },
   devops: {
     name: "DevOps Agent",
     description: "Manages deployments, infrastructure, incidents, and team notifications",
-    toolsText: "GitHub: list_repos, get_pull_request, merge_pull_request, create_branch, delete_branch, trigger_workflow, create_release\nAWS: list_instances, start_instance, stop_instance, terminate_instance, scale_service, update_security_group, delete_snapshot\nSlack: send_message, send_channel_message\nPagerDuty: create_incident, acknowledge_incident, resolve_incident, escalate_incident",
+    tools: "GitHub: list_repos, get_pull_request, merge_pull_request, create_branch, delete_branch, trigger_workflow, create_release\nAWS: list_instances, start_instance, stop_instance, terminate_instance, scale_service, update_security_group, delete_snapshot\nSlack: send_message, send_channel_message\nPagerDuty: create_incident, acknowledge_incident, resolve_incident, escalate_incident",
   },
   sales: {
     name: "Sales Agent",
     description: "Manages leads, outreach, deals, meetings, and pipeline updates",
-    toolsText: "HubSpot: get_contact, create_contact, update_contact, delete_contact, list_deals, update_deal, create_deal, query_contacts\nGmail: send_email, read_inbox, search_emails, create_draft, send_draft\nSlack: send_message, send_channel_message\nCalendly: list_events, create_invite_link, cancel_event, get_availability",
+    tools: "HubSpot: get_contact, create_contact, update_contact, delete_contact, list_deals, update_deal, create_deal, query_contacts\nGmail: send_email, read_inbox, search_emails, create_draft, send_draft\nSlack: send_message, send_channel_message\nCalendly: list_events, create_invite_link, cancel_event, get_availability",
   },
 };
 
-const buildAgentTools = (toolsText) =>
-  toolsText.trim().split("\n").filter(Boolean).map((line) => {
+function templateToTools(toolsString) {
+  return toolsString.trim().split("\n").filter(Boolean).map((line) => {
     const [toolPart, actionsPart] = line.split(":").map((s) => s.trim());
     const actions = (actionsPart || "").split(",").map((a) => a.trim()).filter(Boolean);
     return {
@@ -44,16 +45,35 @@ const buildAgentTools = (toolsText) =>
       })),
     };
   });
+}
 
 export default function Login() {
   const [onboardStep, setOnboardStep] = useState(0); // 0 = login form, 1 = welcome, 2 = agent type
   const [selectedTypes, setSelectedTypes] = useState([]);
   const [email, setEmail]       = useState("");
   const [password, setPassword] = useState("");
-  const [name, setName]         = useState("");
   const [error, setError]       = useState(null);
   const [loading, setLoading]   = useState(false);
   const navigate = useNavigate();
+
+  // Auto-login when DEMO_MODE is active — no login screen shown
+  useEffect(() => {
+    apiFetch("/api/demo-mode", { skipLogoutOn401: true })
+      .then((data) => {
+        if (data?.demo) {
+          apiFetch("/api/auth/login", {
+            method: "POST",
+            body: JSON.stringify({ email: "admin@actiongate.io", password: "admin123" }),
+            skipLogoutOn401: true,
+          }).then((d) => {
+            setToken(d.token);
+            setUser(d.user);
+            navigate("/");
+          }).catch(() => {});
+        }
+      })
+      .catch(() => {});
+  }, [navigate]);
 
   const doLogin = async () => {
     setLoading(true);
@@ -109,22 +129,25 @@ export default function Login() {
       });
       setToken(data.token);
       setUser(data.user);
-      // Auto-create agents for selected types (skip "custom")
-      const typesToCreate = selectedTypes.filter((t) => t !== "custom");
-      for (const type of typesToCreate) {
-        const tmpl = TYPE_TEMPLATES[type];
-        if (!tmpl) continue;
+
+      // Auto-create agents from selected types (skip "custom" — user configures manually)
+      const typesToCreate = selectedTypes.filter((id) => id !== "custom" && AGENT_TYPE_TEMPLATES[id]);
+      for (const typeId of typesToCreate) {
+        const tmpl = AGENT_TYPE_TEMPLATES[typeId];
         try {
           await apiFetch("/api/authority/agents", {
             method: "POST",
             body: JSON.stringify({
               name: tmpl.name,
               description: tmpl.description,
-              tools: buildAgentTools(tmpl.toolsText),
+              tools: templateToTools(tmpl.tools),
             }),
           });
-        } catch (_) { /* ignore — agent may already exist */ }
+        } catch {
+          // Non-fatal — agent may already exist
+        }
       }
+
       navigate("/");
     } catch {
       setError("Invalid email or password");

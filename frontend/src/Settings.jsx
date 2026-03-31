@@ -35,11 +35,6 @@ export default function Settings() {
   const maskedToken = token ? token.slice(0, 16) + "••••••••••••••••••••••••" : "—";
   const [showToken, setShowToken] = useState(false);
 
-  const [slackUrl, setSlackUrl] = useState("");
-  const [alertEmail, setAlertEmail] = useState("");
-  const [blockAlerts, setBlockAlerts] = useState(true);
-  const [notifLoading, setNotifLoading] = useState(true);
-  const [savedNotif, setSavedNotif] = useState(false);
 
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteSent, setInviteSent] = useState(false);
@@ -48,49 +43,17 @@ export default function Settings() {
   const [tempPass, setTempPass] = useState("");
 
   const [activeSection, setActiveSection] = useState("api");
-
-  const [currentPassword, setCurrentPassword] = useState("");
-  const [newPassword, setNewPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
-  const [pwChanging, setPwChanging] = useState(false);
-  const [pwError, setPwError] = useState(null);
-  const [pwSuccess, setPwSuccess] = useState(false);
-
-  const [firstAgentId, setFirstAgentId] = useState("");
+  const [firstAgentId, setFirstAgentId] = useState("your-agent-id");
 
   useEffect(() => {
     apiFetch("/api/authority/agents")
-      .then((d) => { if (d.agents?.[0]) setFirstAgentId(d.agents[0].id); })
+      .then((data) => {
+        const agents = data?.agents || (Array.isArray(data) ? data : []);
+        if (agents.length > 0) setFirstAgentId(agents[0].id);
+      })
       .catch(() => {});
   }, []);
 
-  useEffect(() => {
-    apiFetch("/api/notifications/settings")
-      .then((d) => {
-        setSlackUrl(d.slack_webhook_url || "");
-        setAlertEmail(d.alert_email || "");
-        setBlockAlerts(d.notify_on_block !== false);
-        setNotifLoading(false);
-      })
-      .catch(() => setNotifLoading(false));
-  }, []);
-
-  const saveNotifications = async () => {
-    try {
-      await apiFetch("/api/notifications/settings", {
-        method: "POST",
-        body: JSON.stringify({
-          slack_webhook_url: slackUrl,
-          alert_email: alertEmail,
-          notify_on_block: blockAlerts,
-        }),
-      });
-      setSavedNotif(true);
-      setTimeout(() => setSavedNotif(false), 2000);
-    } catch {
-      setSavedNotif(false);
-    }
-  };
 
   const sendInvite = async (e) => {
     e.preventDefault();
@@ -122,7 +85,7 @@ export default function Settings() {
   const enforceSnippetPython = `import requests
 
 ARCEO_TOKEN = "${token.slice(0, 20)}..."
-AGENT_ID = "${firstAgentId || "your-agent-id"}"
+AGENT_ID = "${firstAgentId}"
 
 def enforce(tool: str, action: str, params: dict) -> bool:
     resp = requests.post(
@@ -141,7 +104,7 @@ if enforce("Stripe", "create_refund", {"amount": 500, "customer_id": "cus_123"})
   -H "Authorization: Bearer ${token.slice(0, 20)}..." \\
   -H "Content-Type: application/json" \\
   -d '{
-    "agent_id": "${firstAgentId || "your-agent-id"}",
+    "agent_id": "${firstAgentId}",
     "tool": "Stripe",
     "action": "create_refund",
     "params": {"amount": 500, "customer_id": "cus_123"}
@@ -155,7 +118,7 @@ if enforce("Stripe", "create_refund", {"amount": 500, "customer_id": "cus_123"})
   const enforceSnippetNode = `const axios = require("axios");
 
 const ARCEO_TOKEN = "${token.slice(0, 20)}...";
-const AGENT_ID = "${firstAgentId || "your-agent-id"}";
+const AGENT_ID = "${firstAgentId}";
 
 async function enforce(tool, action, params) {
   const { data } = await axios.post(
@@ -170,34 +133,6 @@ async function enforce(tool, action, params) {
 if (await enforce("Stripe", "create_refund", { amount: 500 })) {
   await stripe.refunds.create({ ... });
 }`;
-
-  const handleChangePassword = async (e) => {
-    e.preventDefault();
-    if (newPassword !== confirmPassword) {
-      setPwError("New passwords do not match");
-      return;
-    }
-    if (newPassword.length < 6) {
-      setPwError("New password must be at least 6 characters");
-      return;
-    }
-    setPwChanging(true);
-    setPwError(null);
-    try {
-      await apiFetch("/api/auth/change-password", {
-        method: "POST",
-        body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
-      });
-      setPwSuccess(true);
-      setCurrentPassword("");
-      setNewPassword("");
-      setConfirmPassword("");
-      setTimeout(() => setPwSuccess(false), 3000);
-    } catch (err) {
-      setPwError(err.message.replace(/^\d+:\s*/, ""));
-    }
-    setPwChanging(false);
-  };
 
   const sections = [
     { id: "api",     label: "API & Integration" },
@@ -289,46 +224,22 @@ if (await enforce("Stripe", "create_refund", { amount: 500 })) {
           {activeSection === "notif" && (
             <div className="settings-section">
               <h2>Notifications</h2>
-              <p className="settings-desc">Get alerted when your agents are blocked or trigger high-risk actions.</p>
+              <p className="settings-desc">Get alerted in real-time when your agents are blocked, trigger high-risk chains, or require human approval.</p>
 
-              <div className="settings-field">
-                <label>Slack Webhook URL</label>
-                <input
-                  type="url"
-                  value={slackUrl}
-                  onChange={(e) => setSlackUrl(e.target.value)}
-                  placeholder="https://hooks.slack.com/services/..."
-                />
-                <span className="settings-field-hint">Paste your Slack incoming webhook to receive block alerts in a channel.</span>
+              <div className="notif-coming-soon">
+                <div className="notif-cs-icon">🔔</div>
+                <div>
+                  <div className="notif-cs-title">Webhook &amp; email alerts — coming soon</div>
+                  <div className="notif-cs-desc">
+                    Slack webhooks, email digests, and PagerDuty escalations are on the roadmap. For now, monitor blocked actions in the <a href="/history" className="notif-cs-link">History</a> tab and pending approvals in the <a href="/approvals" className="notif-cs-link">Approvals</a> queue.
+                  </div>
+                </div>
               </div>
 
-              <div className="settings-field">
-                <label>Alert Email</label>
-                <input
-                  type="email"
-                  value={alertEmail}
-                  onChange={(e) => setAlertEmail(e.target.value)}
-                  placeholder="you@yourcompany.com"
-                />
-                <span className="settings-field-hint">Receive an email summary of blocked actions every hour.</span>
-              </div>
-
-              <div className="settings-field">
-                <label className="settings-toggle-label">
-                  <input
-                    type="checkbox"
-                    checked={blockAlerts}
-                    onChange={(e) => setBlockAlerts(e.target.checked)}
-                  />
-                  Send alert on every blocked action
-                </label>
-              </div>
-
-              <div className="notif-save-row">
-                <button className="settings-save-btn" onClick={saveNotifications}>
-                  {savedNotif ? "Saved ✓" : "Save Notification Settings"}
-                </button>
-                <span className="notif-storage-hint">Alerts fire in real time on every blocked action</span>
+              <div className="notif-workaround">
+                <div className="notif-wa-label">Interim: use the Approvals queue</div>
+                <p>The Approvals tab refreshes every 10 seconds and shows all pending actions waiting for human review. Each action can be approved or rejected with a note.</p>
+                <a href="/approvals" className="notif-cs-btn">Go to Approvals →</a>
               </div>
             </div>
           )}
@@ -406,45 +317,9 @@ if (await enforce("Stripe", "create_refund", { amount: 500 })) {
                 <label>Role</label>
                 <input type="text" value={user?.role || "admin"} readOnly />
               </div>
-
-              <h2 style={{ marginTop: 32 }}>Change Password</h2>
-              <form className="pw-change-form" onSubmit={handleChangePassword}>
-                <div className="settings-field">
-                  <label>Current Password</label>
-                  <input
-                    type="password"
-                    value={currentPassword}
-                    onChange={(e) => { setCurrentPassword(e.target.value); setPwError(null); }}
-                    placeholder="Your current password"
-                    required
-                  />
-                </div>
-                <div className="settings-field">
-                  <label>New Password</label>
-                  <input
-                    type="password"
-                    value={newPassword}
-                    onChange={(e) => { setNewPassword(e.target.value); setPwError(null); }}
-                    placeholder="At least 6 characters"
-                    required
-                  />
-                </div>
-                <div className="settings-field">
-                  <label>Confirm New Password</label>
-                  <input
-                    type="password"
-                    value={confirmPassword}
-                    onChange={(e) => { setConfirmPassword(e.target.value); setPwError(null); }}
-                    placeholder="Repeat new password"
-                    required
-                  />
-                </div>
-                {pwError && <div className="pw-error">{pwError}</div>}
-                {pwSuccess && <div className="pw-success">Password updated successfully</div>}
-                <button type="submit" className="settings-save-btn" disabled={pwChanging}>
-                  {pwChanging ? "Updating..." : "Update Password"}
-                </button>
-              </form>
+              <p className="settings-hint" style={{ marginTop: 16 }}>
+                To change your password or delete your account, contact <a href="mailto:support@arceo.ai">support@arceo.ai</a>.
+              </p>
             </div>
           )}
 

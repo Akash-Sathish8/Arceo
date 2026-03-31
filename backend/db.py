@@ -1,4 +1,11 @@
-"""SQLite database — agents, policies, audit log, execution log, users."""
+"""SQLite database — agents, policies, audit log, execution log, users.
+
+Storage note: SQLite is used intentionally for zero-config local development
+and single-server deployments (sufficient for teams up to ~50 agents and
+thousands of executions/day). For multi-node deployments or higher write
+throughput, swap get_conn() / get_db() for a PostgreSQL connection pool
+(psycopg2 / asyncpg) — the schema is ANSI SQL and requires no changes.
+"""
 
 from __future__ import annotations
 
@@ -155,7 +162,6 @@ def init_db():
         user_count = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
         if user_count == 0:
             _seed_demo_user(conn)
-
 
 def _seed_demo_user(conn):
     """Seed only the demo login user. No agents."""

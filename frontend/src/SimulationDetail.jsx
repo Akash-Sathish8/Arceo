@@ -512,6 +512,15 @@ export default function SimulationDetail() {
                         </a>
                       ))}
                     </div>
+                    {data?.agent_id && (
+                      <Link
+                        to={`/agent/${data.agent_id}?tab=policies&violation=${encodeURIComponent(v.title)}`}
+                        className="sim-violation-cta"
+                        style={{ color: sev.color, borderColor: `${sev.color}44` }}
+                      >
+                        Block this in production →
+                      </Link>
+                    )}
                   </div>
                 );
               })}
