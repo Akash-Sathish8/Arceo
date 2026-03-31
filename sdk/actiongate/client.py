@@ -35,9 +35,11 @@ class ActionGateClient:
         self.agent_id = agent_id
         self.server = server.rstrip("/")
         self.mode = mode
+        self.auto_session = auto_session
         self.session_id: str | None = None
         self._http = httpx.Client(timeout=30.0)
         self._live_tools: dict[str, Callable] = {}
+        self._session_context: list[str] = []  # auto-tracks "tool.action" calls made this session
 
         if mode == "sandbox" and auto_session:
             self.start_session()
@@ -67,11 +69,22 @@ class ActionGateClient:
         """
         self._live_tools[f"{tool}.{action}"] = fn
 
-    def check_enforce(self, tool: str, action: str) -> dict:
-        """Check enforcement policy for a tool.action. Returns the enforce response."""
+    def check_enforce(self, tool: str, action: str, params: dict | None = None) -> dict:
+        """Check enforcement policy for a tool.action.
+
+        Automatically includes session context (prior tool calls this session)
+        to support conditional policies like requires_prior.
+        Also passes params so amount/value-based conditions can be evaluated.
+        """
         resp = self._http.post(
             f"{self.server}/api/enforce",
-            json={"agent_id": self.agent_id, "tool": tool, "action": action},
+            json={
+                "agent_id": self.agent_id,
+                "tool": tool,
+                "action": action,
+                "params": params or {},
+                "session_context": list(self._session_context),
+            },
         )
         resp.raise_for_status()
         return resp.json()
@@ -81,11 +94,21 @@ class ActionGateClient:
 
         Sandbox mode: routes to POST /mock/{tool}/{action}
         Live mode: checks enforce first, then calls the real function if allowed
+
+        Session context is automatically updated after each ALLOW decision,
+        enabling requires_prior conditional policies.
         """
+        p = params or {}
         if self.mode == "live":
-            return self._call_live(tool, action, params or {})
+            result = self._call_live(tool, action, p)
         else:
-            return self._call_sandbox(tool, action, params or {})
+            result = self._call_sandbox(tool, action, p)
+
+        # Track in session context only on non-blocked calls
+        if not (isinstance(result, dict) and (result.get("blocked") or result.get("pending_approval"))):
+            self._session_context.append(f"{tool}.{action}")
+
+        return result
 
     def _call_sandbox(self, tool: str, action: str, params: dict) -> dict:
         """Sandbox mode: call through ActionGate's mock endpoints."""
@@ -105,7 +128,7 @@ class ActionGateClient:
 
     def _call_live(self, tool: str, action: str, params: dict) -> Any:
         """Live mode: check enforce, then call the real tool if allowed."""
-        enforce = self.check_enforce(tool, action)
+        enforce = self.check_enforce(tool, action, params=params)
         decision = enforce.get("decision", "ALLOW")
 
         if decision == "BLOCK":
@@ -134,6 +157,20 @@ class ActionGateClient:
                 f"No live tool registered for {key}. "
                 f"Call gate.register_live_tool('{tool}', '{action}', your_function)"
             )
+
+    def reset_session(self):
+        """Clear session context for a new conversation or task.
+
+        Call this between separate agent conversations to prevent
+        session context from one task affecting another.
+        """
+        self._session_context = []
+        if self.mode == "sandbox" and self.auto_session:
+            self.start_session()
+
+    def get_session_context(self) -> list[str]:
+        """Return the current session context (list of tool.action strings called so far)."""
+        return list(self._session_context)
 
     def get_trace(self) -> dict:
         """Get the full trace for the current session (sandbox mode only)."""

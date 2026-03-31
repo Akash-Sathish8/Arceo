@@ -2137,7 +2137,8 @@ async def call_mock_endpoint(tool: str, action: str, request: Request):
     # Parse body
     try:
         params = await request.json()
-    except Exception:
+    except Exception as e:
+        logger.debug("Could not parse request body as JSON: %s", e)
         params = {}
 
     # Step 1: Enforce check
@@ -2157,8 +2158,8 @@ async def call_mock_endpoint(tool: str, action: str, request: Request):
 
             status = "BLOCKED" if enforce_decision == "BLOCK" else "PENDING_APPROVAL" if enforce_decision == "REQUIRE_APPROVAL" else "EXECUTED"
             log_execution(conn, agent_id, tool, action, status, detail=enforce_reason or "Mock endpoint")
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("Mock endpoint enforcement/logging error for %s.%s: %s", tool, action, e)
 
     # Step 2: Call mock if allowed
     if enforce_decision == "BLOCK":

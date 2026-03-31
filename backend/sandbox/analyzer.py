@@ -21,6 +21,7 @@ from sandbox.models import (
     SweepReport, Scenario,
 )
 from authority.chain_detector import LABEL_TRANSITIONS
+from authority.graph import LABEL_WEIGHTS
 
 logger = logging.getLogger(__name__)
 
@@ -569,13 +570,7 @@ def analyze_trace(trace: SimulationTrace) -> SimulationReport:
                     risk_counts[label] += 1
 
     # Risk score — factor in data flows and volume
-    raw = (
-        risk_counts["moves_money"] * 15
-        + risk_counts["touches_pii"] * 8
-        + risk_counts["deletes_data"] * 12
-        + risk_counts["sends_external"] * 6
-        + risk_counts["changes_production"] * 10
-    )
+    raw = sum(risk_counts.get(label, 0) * LABEL_WEIGHTS.get(label, 0) for label in LABEL_WEIGHTS)
     # Data flows add to risk — critical flows add significantly
     for flow in data_flows:
         if flow.severity == "critical":

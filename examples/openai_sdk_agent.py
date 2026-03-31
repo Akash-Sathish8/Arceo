@@ -1,21 +1,33 @@
-"""Example: OpenAI SDK agent tested through ActionGate.
+"""Example: OpenAI SDK agent with ActionGate enforcement.
 
-Proves ActionGate is LLM-agnostic — works with GPT-4, not just Claude.
+Proves ActionGate is LLM-agnostic — works with GPT-4o, not just Claude.
 
-This script:
-1. Defines a support agent with the same tools as the Anthropic example
-2. Registers it with ActionGate
-3. Runs a GPT-4 agent loop with tool calls routed through ActionGate mocks
-4. Prints the trace
+Shows both SANDBOX mode (free, mock APIs) and LIVE mode (real APIs, enforcement applies).
+
+SANDBOX MODE — default, free, good for development:
+  - Tool calls go to ActionGate's mock APIs
+  - No real API keys needed beyond OPENAI_API_KEY
+
+LIVE MODE — real APIs, enforcement still applies:
+  - Tool calls hit real Stripe, Zendesk, etc.
+  - ActionGate checks policies BEFORE each real call
+  - Blocked calls never reach the real API
 
 Usage:
+    # Sandbox mode (default):
     export OPENAI_API_KEY=sk-...
+    python examples/openai_sdk_agent.py
+
+    # Live mode:
+    export OPENAI_API_KEY=sk-...
+    export ACTIONGATE_MODE=live
     python examples/openai_sdk_agent.py
 
 Requires: pip install openai httpx
 """
 
 import json
+import os
 import httpx
 
 try:
@@ -24,7 +36,8 @@ except ImportError:
     print("Install openai: pip install openai")
     exit(1)
 
-ACTIONGATE_URL = "http://localhost:8000"
+ACTIONGATE_URL = os.getenv("ACTIONGATE_URL", "http://localhost:8000")
+MODE = os.getenv("ACTIONGATE_MODE", "sandbox")  # "sandbox" or "live"
 
 # ── Tools in OpenAI function-calling format ──────────────────────────────
 
@@ -97,12 +110,12 @@ TOOLS = [
 ]
 
 
-# ── ActionGate helpers ───────────────────────────────────────────────────
+# ── Step 1: Register agent with ActionGate ───────────────────────────────
 
 def register_agent():
     resp = httpx.post(f"{ACTIONGATE_URL}/api/authority/agents/register", json={
         "name": "OpenAI SDK Agent",
-        "description": "Support agent using OpenAI GPT-4",
+        "description": "Support agent using OpenAI GPT-4o",
         "tools": [
             {"name": "stripe", "description": "Payments", "actions": [
                 {"name": "get_customer", "description": "Lookup"},
@@ -119,16 +132,18 @@ def register_agent():
         ],
     })
     data = resp.json()
-    print(f"Registered: {data['id']} (blast radius: {data['blast_radius']['score']})")
+    print(f"Registered: {data['id']} (blast radius score: {data['blast_radius'].get('score', '?')})")
     return data["id"]
 
+
+# ── Step 2a: Sandbox tool execution (mocks, free) ────────────────────────
 
 def create_session(agent_id):
     resp = httpx.post(f"{ACTIONGATE_URL}/mock/session", json={"agent_id": agent_id})
     return resp.json()["session_id"]
 
 
-def call_tool(agent_id, session_id, tool_name, params):
+def call_tool_sandbox(agent_id, session_id, tool_name, params):
     parts = tool_name.split("__", 1)
     tool, action = (parts[0], parts[1]) if len(parts) == 2 else (tool_name, tool_name)
     resp = httpx.post(
@@ -139,13 +154,85 @@ def call_tool(agent_id, session_id, tool_name, params):
     return resp.json()
 
 
-# ── Agent loop ───────────────────────────────────────────────────────────
+# ── Step 2b: Live tool execution (real APIs, enforcement still applies) ──
+
+# Session context is tracked here so requires_prior conditions work correctly.
+_live_session_context: list[str] = []
+
+# Real tool functions — replace these lambdas with actual SDK calls.
+# ActionGate checks enforcement BEFORE calling these. Blocked calls never run.
+def _make_live_tools(agent_id: str) -> dict:
+    return {
+        "stripe.get_customer": lambda p: {"id": p["customer_id"], "name": "Bob Smith", "email": "bob@example.com"},
+        "stripe.list_payments": lambda p: {"payments": [{"id": "py_001", "amount": 99.0}]},
+        # To use real Stripe: lambda p: stripe.Customer.retrieve(p["customer_id"])
+        "stripe.create_refund": lambda p: {"id": "re_001", "amount": p.get("amount"), "status": "succeeded"},
+        "zendesk.get_ticket": lambda p: {"id": p["ticket_id"], "subject": "Billing issue", "status": "open"},
+        "zendesk.update_ticket": lambda p: {"id": p["ticket_id"], "status": p.get("status", "updated")},
+        "email.send_email": lambda p: {"message_id": "msg_001", "status": "sent", "to": p["to"]},
+    }
+
+
+def call_tool_live(agent_id, tool_name, params):
+    """Check enforcement, then call real tool function if allowed."""
+    parts = tool_name.split("__", 1)
+    tool, action = (parts[0], parts[1]) if len(parts) == 2 else (tool_name, tool_name)
+    action_key = f"{tool}.{action}"
+
+    # Check enforcement — passes params and session context for conditional policies
+    enforce_resp = httpx.post(f"{ACTIONGATE_URL}/api/enforce", json={
+        "agent_id": agent_id,
+        "tool": tool,
+        "action": action,
+        "params": params,
+        "session_context": list(_live_session_context),
+    })
+    enforce = enforce_resp.json()
+    decision = enforce.get("decision", "ALLOW")
+
+    if decision == "BLOCK":
+        print(f"  BLOCKED: {action_key} — {enforce.get('message', 'Blocked by policy')}")
+        return {
+            "blocked": True,
+            "action": action_key,
+            "reason": enforce.get("message", "Blocked by ActionGate policy"),
+        }
+
+    if decision == "REQUIRE_APPROVAL":
+        print(f"  PENDING APPROVAL: {action_key} — {enforce.get('message', 'Requires approval')}")
+        return {
+            "pending_approval": True,
+            "action": action_key,
+            "reason": enforce.get("message", "Action requires human approval before proceeding"),
+        }
+
+    # ALLOW — call the real function
+    live_tools = _make_live_tools(agent_id)
+    fn = live_tools.get(action_key)
+    if not fn:
+        return {"error": f"No live implementation registered for {action_key}"}
+
+    result = fn(params)
+    _live_session_context.append(action_key)
+    return result
+
+
+# ── Step 3: Unified dispatcher ───────────────────────────────────────────
+
+def call_tool(agent_id, session_id, tool_name, params):
+    if MODE == "live":
+        return call_tool_live(agent_id, tool_name, params)
+    else:
+        return call_tool_sandbox(agent_id, session_id, tool_name, params)
+
+
+# ── Step 4: Agent loop ───────────────────────────────────────────────────
 
 def run_agent(agent_id, session_id, prompt):
     client = OpenAI()
-
     messages = [
-        {"role": "system", "content": "You are a customer support agent. Use tools to resolve issues."},
+        {"role": "system", "content": "You are a customer support agent. Use tools to resolve issues. "
+                                      "If a tool is blocked or requires approval, inform the user and stop that action."},
         {"role": "user", "content": prompt},
     ]
     print(f"\nUser: {prompt}\n")
@@ -174,6 +261,7 @@ def run_agent(agent_id, session_id, prompt):
             result = call_tool(agent_id, session_id, fn.name, params)
             print(f"  Result: {json.dumps(result)[:120]}")
 
+            # Feed blocked/pending responses back to GPT so it can explain to user
             messages.append({
                 "role": "tool",
                 "tool_call_id": tool_call.id,
@@ -181,7 +269,13 @@ def run_agent(agent_id, session_id, prompt):
             })
 
 
+# ── Step 5: Print trace (sandbox only) ──────────────────────────────────
+
 def print_trace(session_id):
+    if MODE == "live":
+        print(f"\nSession context (actions taken): {_live_session_context}")
+        return
+
     resp = httpx.get(f"{ACTIONGATE_URL}/mock/session/{session_id}/trace")
     trace = resp.json()
     print(f"\n{'='*60}")
@@ -193,9 +287,20 @@ def print_trace(session_id):
         print(f"  {icon} {step['tool']}.{step['action']} → {decision}")
 
 
+# ── Main ─────────────────────────────────────────────────────────────────
+
 if __name__ == "__main__":
+    print(f"Mode: {MODE.upper()}")
+    print(f"ActionGate: {ACTIONGATE_URL}\n")
+
     agent_id = register_agent()
-    session_id = create_session(agent_id)
+
+    if MODE == "sandbox":
+        session_id = create_session(agent_id)
+        print(f"Sandbox session: {session_id}")
+    else:
+        session_id = None
+        print("Live mode: enforcement checks real APIs")
 
     run_agent(
         agent_id, session_id,
