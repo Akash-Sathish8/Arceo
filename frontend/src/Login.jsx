@@ -29,6 +29,7 @@ export default function Login() {
       const data = await apiFetch("/api/auth/login", {
         method: "POST",
         body: JSON.stringify({ email: loginEmail, password: loginPassword }),
+        skipLogoutOn401: true,
       });
       setToken(data.token);
       setUser(data.user);
@@ -44,6 +45,42 @@ export default function Login() {
     await doLogin();
   };
 
+  const doGetStarted = async () => {
+    setLoading(true);
+    setError(null);
+    const loginEmail    = email    || "admin@actiongate.io";
+    const loginPassword = password || "admin123";
+    // Attempt signup first if user provided their own credentials
+    if (email.trim() && password.trim()) {
+      try {
+        await apiFetch("/api/auth/signup", {
+          method: "POST",
+          body: JSON.stringify({
+            email: email.trim(),
+            password: password.trim(),
+            name: email.split("@")[0],
+          }),
+          skipLogoutOn401: true,
+        });
+      } catch {
+        // Expected if user already exists — proceed to login below
+      }
+    }
+    try {
+      const data = await apiFetch("/api/auth/login", {
+        method: "POST",
+        body: JSON.stringify({ email: loginEmail, password: loginPassword }),
+        skipLogoutOn401: true,
+      });
+      setToken(data.token);
+      setUser(data.user);
+      navigate("/");
+    } catch {
+      setError("Invalid email or password");
+    }
+    setLoading(false);
+  };
+
   const toggleType = (id) => {
     setSelectedTypes((prev) =>
       prev.includes(id) ? prev.filter((t) => t !== id) : [...prev, id]
@@ -55,7 +92,7 @@ export default function Login() {
     return (
       <div className="ob-page">
         <div className="ob-topbar">
-          <div className="ob-logo">ActionGate</div>
+          <div className="ob-logo">Arceo</div>
           <div className="ob-progress">
             <div className="ob-progress-fill" style={{ width: "33%" }} />
           </div>
@@ -64,7 +101,7 @@ export default function Login() {
         <div className="ob-body">
           <div className="ob-left">
             <h1 className="ob-heading">
-              <strong>Get started with ActionGate.</strong> Your workspace is a safe environment to audit AI agent risk before anything runs in production.
+              <strong>Get started with Arceo.</strong> Your workspace is a safe environment to audit AI agent risk before anything runs in production.
             </h1>
 
             <ol className="ob-steps">
@@ -94,7 +131,7 @@ export default function Login() {
 
           <div className="ob-right">
             <div className="ob-preview">
-              <div className="ob-preview-header">Authority Engine</div>
+              <div className="ob-preview-header">Risk Analysis</div>
               <div className="ob-preview-content">
                 <div className="ob-preview-card">
                   <div className="ob-preview-card-top">
@@ -144,7 +181,7 @@ export default function Login() {
     return (
       <div className="ob-page">
         <div className="ob-topbar">
-          <div className="ob-logo">ActionGate</div>
+          <div className="ob-logo">Arceo</div>
           <div className="ob-progress">
             <div className="ob-progress-fill" style={{ width: "66%" }} />
           </div>
@@ -176,7 +213,7 @@ export default function Login() {
           <button className="ob-back" onClick={() => setOnboardStep(1)}>← Back</button>
           <div style={{ display: "flex", gap: 10 }}>
             <button className="ob-skip" onClick={doLogin} disabled={loading}>Skip</button>
-            <button className="ob-primary" onClick={doLogin} disabled={loading}>
+            <button className="ob-primary" onClick={doGetStarted} disabled={loading}>
               {loading ? "Getting started..." : "Get started →"}
             </button>
           </div>
@@ -189,9 +226,9 @@ export default function Login() {
   return (
     <div className="login-page">
       <div className="login-brand-panel">
-        <div className="login-brand-logo">ActionGate</div>
+        <div className="login-brand-logo">Arceo</div>
         <h1 className="login-brand-headline">Know what your AI agents can do before they do it.</h1>
-        <p className="login-brand-sub">Map every tool, score the blast radius, catch dangerous chains — before a single action runs in production.</p>
+        <p className="login-brand-sub">Map every tool, score the risk exposure, catch dangerous chains — before a single action runs in production.</p>
         <div className="login-brand-features">
           <div className="login-brand-feature">
             <span className="login-brand-feature-label">Authority</span>
@@ -209,7 +246,7 @@ export default function Login() {
       </div>
       <div className="login-form-panel">
         <form className="login-form" onSubmit={handleLoginSubmit}>
-          <div className="login-brand">ActionGate</div>
+          <div className="login-brand">Arceo</div>
           <p className="login-subtitle">Sign in to your workspace</p>
 
           {error && <div className="login-error">{error}</div>}

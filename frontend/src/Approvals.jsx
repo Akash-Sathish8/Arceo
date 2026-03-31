@@ -90,7 +90,7 @@ export default function Approvals() {
             <br />
             When an agent triggers a <code>REQUIRE_APPROVAL</code> policy, it will pause here until you decide.
             <br /><br />
-            <Link to="/agent" className="approvals-link">Set up a policy on an agent →</Link>
+            <Link to="/" className="approvals-link">Set up a policy on an agent →</Link>
           </div>
         </div>
       ) : (
@@ -117,6 +117,22 @@ export default function Approvals() {
 
                 {a.detail && (
                   <div className="approval-detail">{a.detail}</div>
+                )}
+
+                {a.params && Object.keys(a.params).length > 0 && (
+                  <div className="approval-params">
+                    <div className="approval-params-label">Parameters</div>
+                    <div className="approval-params-grid">
+                      {Object.entries(a.params).map(([k, v]) => (
+                        <div key={k} className="approval-param-row">
+                          <span className="approval-param-key">{k.replace(/_/g, " ")}</span>
+                          <span className="approval-param-val">
+                            {typeof v === "object" ? JSON.stringify(v) : String(v)}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
                 )}
 
                 <div className="approval-footer">

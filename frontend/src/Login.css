@@ -229,20 +229,12 @@
   margin: 0 0 12px;
 }
 
-.login-toggle span {
-  color: var(--text-primary);
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.login-toggle span:hover {
-  text-decoration: underline;
-}
-
 .login-toggle-btn {
   background: none;
   border: none;
   padding: 0;
+  width: auto;
+  margin-bottom: 0;
   font: inherit;
   font-size: 13px;
   font-weight: 600;

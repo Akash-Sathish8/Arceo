@@ -180,7 +180,6 @@ export default function Sandbox() {
       return exists ? prev.filter((x) => x.id !== s.id) : [...prev, s];
     });
     setCustomPrompt("");
-    setUseCustomPrompt(false);
   };
 
   const addAllToQueue = () => {
@@ -206,6 +205,7 @@ export default function Sandbox() {
     ];
     if (toRun.length === 0) return;
     const allResults = [];
+    let failedCount = 0;
 
     for (let i = 0; i < toRun.length; i++) {
       setRunProgress({ current: i + 1, total: toRun.length });
@@ -220,7 +220,7 @@ export default function Sandbox() {
         const data = await apiFetch("/api/sandbox/simulate", { method: "POST", body: JSON.stringify(body) });
         allResults.push({ scenario: toRun[i].type === "scenario" ? toRun[i].scenario : null, data });
       } catch (_) {
-        // continue with remaining scenarios
+        failedCount++;
       }
     }
 
@@ -229,10 +229,13 @@ export default function Sandbox() {
 
     if (allResults.length > 0) {
       const lastData = allResults[allResults.length - 1].data;
+      if (failedCount > 0) {
+        toast(`${failedCount} scenario${failedCount > 1 ? "s" : ""} failed — showing last successful result`, "error");
+      }
       setRunning(false);
       navigate(`/sandbox/${lastData.simulation_id}`);
     } else {
-      setRunError("All simulations failed");
+      setRunError(`All ${toRun.length} simulation${toRun.length > 1 ? "s" : ""} failed — check the agent is configured correctly`);
       toast("All simulations failed", "error");
       setRunning(false);
     }

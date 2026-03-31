@@ -1499,3 +1499,197 @@
   flex-shrink: 0;
   margin-left: auto;
 }
+
+/* ── Agent Edit Form ──────────────────────────────────────────────── */
+
+.edit-agent-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  flex: 1;
+  max-width: 480px;
+}
+
+.edit-agent-input {
+  padding: 10px 14px;
+  font-size: 14px;
+  font-family: inherit;
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--white);
+  color: var(--text-primary);
+  transition: border-color 0.2s;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.edit-agent-input:focus {
+  outline: none;
+  border-color: var(--text-primary);
+}
+
+.edit-agent-name-input {
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.3px;
+}
+
+.edit-agent-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+/* ── Condition Builder ────────────────────────────────────────────── */
+
+.policy-form-conditions-section {
+  margin-top: 12px;
+  margin-bottom: 4px;
+}
+
+.conditions-toggle-btn {
+  background: none;
+  border: none;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 6px 0;
+  font-family: inherit;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  transition: color 0.15s;
+}
+
+.conditions-toggle-btn:hover { color: var(--text-primary); }
+
+.condition-count-badge {
+  font-size: 11px;
+  font-weight: 700;
+  background: #e0e7ff;
+  color: #4338ca;
+  padding: 1px 7px;
+  border-radius: 10px;
+}
+
+.policy-form-conditions-hint {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin: 6px 0 10px;
+  line-height: 1.5;
+}
+
+.condition-builder {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.condition-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 7px 10px;
+  flex-wrap: wrap;
+}
+
+.condition-label-text {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  flex-shrink: 0;
+}
+
+.condition-input {
+  padding: 5px 9px;
+  font-size: 13px;
+  font-family: inherit;
+  border: 1.5px solid var(--border);
+  border-radius: 5px;
+  background: var(--white);
+  color: var(--text-primary);
+  width: 120px;
+  transition: border-color 0.2s;
+}
+
+.condition-input:focus { outline: none; border-color: var(--text-primary); }
+.condition-input::placeholder { color: var(--text-muted); }
+.condition-input-wide { width: 220px; }
+.condition-input-val { width: 90px; }
+
+.condition-op {
+  padding: 5px 7px;
+  font-size: 14px;
+  font-family: inherit;
+  border: 1.5px solid var(--border);
+  border-radius: 5px;
+  background: var(--white);
+  color: var(--text-primary);
+  cursor: pointer;
+  width: 54px;
+}
+
+.condition-remove {
+  background: none;
+  border: none;
+  font-size: 16px;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 0 4px;
+  margin-left: auto;
+  font-family: inherit;
+  transition: color 0.15s;
+  flex-shrink: 0;
+}
+
+.condition-remove:hover { color: var(--red); }
+
+.condition-add-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.condition-add-btn {
+  background: none;
+  border: 1.5px dashed var(--border);
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 6px 14px;
+  font-family: inherit;
+  transition: border-color 0.15s, color 0.15s;
+}
+
+.condition-add-btn:hover {
+  border-color: var(--text-primary);
+  color: var(--text-primary);
+}
+
+/* ── Conditions on existing policies ─────────────────────────────── */
+
+.policy-conditions-display {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 5px;
+}
+
+.policy-condition-chip {
+  font-size: 11px;
+  font-weight: 600;
+  background: #eef2ff;
+  color: #4338ca;
+  border: 1px solid #c7d2fe;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-family: "SF Mono", "Fira Code", monospace;
+}

@@ -209,6 +209,8 @@ export default function Comparison() {
   const bTrace = beforeData.trace;
   const aTrace = afterData.trace;
 
+  const differentAgents = bTrace?.agent_id !== aTrace?.agent_id;
+
   const scoreBefore = bReport.risk_score ?? 0;
   const scoreAfter = aReport.risk_score ?? 0;
   const scoreImproved = scoreAfter < scoreBefore;
@@ -236,6 +238,12 @@ export default function Comparison() {
   return (
     <div className="cmp-page">
       <Link to="/sandbox" className="cmp-back">← Sandbox</Link>
+
+      {differentAgents && (
+        <div className="cmp-agent-warning">
+          <strong>Different agents</strong> — Before: <em>{bTrace?.agent_name}</em> · After: <em>{aTrace?.agent_name}</em>. Comparing different agents may produce misleading results.
+        </div>
+      )}
 
       {/* Headline banner */}
       <div className={`cmp-banner ${overallImproved ? "cmp-banner-success" : "cmp-banner-neutral"}`}>

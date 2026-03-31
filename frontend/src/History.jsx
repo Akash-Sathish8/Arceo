@@ -206,7 +206,19 @@ export default function History() {
   };
 
   if (loading) return <div className="log-page"><div className="log-loading"><div className="spinner" />Loading...</div></div>;
-  if (error) return <div className="log-page"><div className="log-error">{error}</div></div>;
+  if (error) return (
+    <div className="log-page">
+      <div className="log-error">
+        {error}
+        <button
+          style={{ marginLeft: 16, padding: "4px 14px", fontSize: 12, fontWeight: 600, background: "var(--text-primary)", color: "var(--white)", border: "none", borderRadius: 6, cursor: "pointer", fontFamily: "inherit" }}
+          onClick={() => window.location.reload()}
+        >
+          Retry
+        </button>
+      </div>
+    </div>
+  );
 
   const CHIPS = [
     { value: "all",              label: "All",     count: total },
@@ -228,7 +240,7 @@ export default function History() {
           <p className="log-subtitle">
             {view === "executions"
               ? "Real-time API calls your agents made — and which ones were blocked or approved."
-              : "Every configuration change made in ActionGate."}
+              : "Every configuration change made in Arceo."}
           </p>
         </div>
         {/* View toggle — replaces <select> */}
