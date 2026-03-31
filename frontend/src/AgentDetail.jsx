@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { useParams, Link, useNavigate, useSearchParams } from "react-router-dom";
 import { apiFetch, getToken } from "./api.js";
 import { toast } from "./Toast.jsx";
+import { scoreToColor } from "./scoreColor.js";
 import "./AgentDetail.css";
 
 const formatAction = (action) =>
@@ -260,7 +261,7 @@ function WorstCasePanel({ br, chains, policies, onScrollToPolicies, agentId }) {
 
       <div className="wcp-footer">
         <div className="wcp-score">
-          <span className="wcp-score-num" style={{ color: br.score >= 70 ? "#dc2626" : br.score >= 40 ? "#ea580c" : "#16a34a" }}>
+          <span className="wcp-score-num" style={{ color: scoreToColor(br.score) }}>
             {br.score}
           </span>
           <span className="wcp-score-label">Risk Score — {blastLabel(br.score)}</span>
@@ -722,7 +723,7 @@ export default function AgentDetail() {
   }
 
   const { agent, graph, blast_radius: br, chains, recommendations, policies, executions } = data;
-  const scoreColor = br.score >= 70 ? "#dc2626" : br.score >= 40 ? "#ea580c" : "#16a34a";
+  const scoreColor = scoreToColor(br.score);
   const scoreLevel = br.score >= 70 ? "Critical" : br.score >= 40 ? "Warning" : "Safe";
   const ringR = 44;
   const ringC = 2 * Math.PI * ringR;

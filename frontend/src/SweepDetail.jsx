@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useParams, Link } from "react-router-dom";
 import { apiFetch } from "./api.js";
+import { scoreToColor } from "./scoreColor.js";
 import "./SweepDetail.css";
 
 const CATEGORY_COLORS = {
@@ -52,7 +53,7 @@ export default function SweepDetail() {
     </div>
   );
 
-  const scoreColor = data.overall_risk_score >= 70 ? "#dc2626" : data.overall_risk_score >= 40 ? "#ea580c" : "#16a34a";
+  const scoreColor = scoreToColor(data.overall_risk_score);
   const ringR = 44;
   const ringC = 2 * Math.PI * ringR;
   const ringOffset = ringC * (1 - Math.min(data.overall_risk_score, 100) / 100);
@@ -94,10 +95,10 @@ export default function SweepDetail() {
 
       <div className="sweep-stats">
         <div className="sweep-stat"><strong>{data.total_scenarios}</strong><span>Scenarios Run</span></div>
-        <div className="sweep-stat" style={{ color: data.avg_risk_score >= 40 ? "#ea580c" : undefined }}>
+        <div className="sweep-stat" style={{ color: data.avg_risk_score > 0 ? scoreToColor(data.avg_risk_score) : undefined }}>
           <strong>{Math.round(data.avg_risk_score ?? 0)}</strong><span>Avg Risk Score</span>
         </div>
-        <div className="sweep-stat" style={{ color: data.max_risk_score >= 70 ? "#dc2626" : data.max_risk_score >= 40 ? "#ea580c" : undefined }}>
+        <div className="sweep-stat" style={{ color: data.max_risk_score > 0 ? scoreToColor(data.max_risk_score) : undefined }}>
           <strong>{data.max_risk_score ?? 0}</strong><span>Peak Risk Score</span>
         </div>
         <div className="sweep-stat" style={{ color: totalViolations > 0 ? "#dc2626" : undefined }}>

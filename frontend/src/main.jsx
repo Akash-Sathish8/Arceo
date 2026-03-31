@@ -9,6 +9,7 @@ import AgentDetail from './AgentDetail.jsx'
 import History from './History.jsx'
 import Sandbox from './Sandbox.jsx'
 import SimulationDetail from './SimulationDetail.jsx'
+import SweepDetail from './SweepDetail.jsx'
 import Comparison from './Comparison.jsx'
 import Settings from './Settings.jsx'
 import Approvals from './Approvals.jsx'
@@ -217,6 +218,7 @@ createRoot(document.getElementById('root')).render(
             <Route path="/workflows" element={<ProtectedRoute><Workflows /></ProtectedRoute>} />
             <Route path="/sandbox" element={<ProtectedRoute><Sandbox /></ProtectedRoute>} />
             <Route path="/sandbox/:simulationId" element={<ProtectedRoute><SimulationDetail /></ProtectedRoute>} />
+            <Route path="/sweep/:sweepId" element={<ProtectedRoute><SweepDetail /></ProtectedRoute>} />
             <Route path="/compare" element={<ProtectedRoute><Comparison /></ProtectedRoute>} />
             <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
             <Route path="/approvals" element={<ProtectedRoute><Approvals /></ProtectedRoute>} />

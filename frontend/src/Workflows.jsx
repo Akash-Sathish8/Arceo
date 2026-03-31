@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { apiFetch } from "./api.js";
 import { toast } from "./Toast.jsx";
+import { scoreToColor } from "./scoreColor.js";
 import "./Workflows.css";
 
 const AGENT_COLORS = ["#2563eb", "#16a34a", "#ea580c", "#7c3aed", "#0d9488"];
@@ -25,9 +26,7 @@ function blastLabel(score) {
   return "Low risk";
 }
 
-function blastColor(score) {
-  return score >= 70 ? "#dc2626" : score >= 40 ? "#ea580c" : "#16a34a";
-}
+const blastColor = scoreToColor;
 
 // ── Cross-agent chain analysis (static, no LLM) ───────────────────────────
 

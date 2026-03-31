@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { Link, useSearchParams, useNavigate } from "react-router-dom";
 import { apiFetch } from "./api.js";
 import { toast } from "./Toast.jsx";
+import { scoreToColor } from "./scoreColor.js";
 import "./Sandbox.css";
 
 function Tooltip({ text, children }) {
@@ -261,9 +262,7 @@ export default function Sandbox() {
         body: JSON.stringify({ agent_id: selectedAgent, dry_run: dryRun }),
       });
       toast(`Full sweep complete — ${data.total_scenarios} scenarios, risk score ${Math.round(data.overall_risk_score)}`);
-      // Reload simulations list
-      const simsData = await apiFetch("/api/sandbox/simulations");
-      setSimulations(simsData.simulations || []);
+      navigate(`/sweep/${data.sweep_id}`);
     } catch (err) {
       toast("Sweep failed: " + err.message, "error");
     }
@@ -313,7 +312,7 @@ export default function Sandbox() {
             ) : (() => {
               const sel = agents.find((a) => a.id === selectedAgent);
               const sc = sel?.blast_radius?.score ?? 0;
-              const scColor = sc >= 70 ? "#dc2626" : sc >= 40 ? "#ea580c" : "#16a34a";
+              const scColor = scoreToColor(sc);
               return (
                 <div className={`agent-selector ${agentOpen ? "open" : ""}`}>
                   <div className="agent-selector-current" onClick={() => setAgentOpen((v) => !v)}>
@@ -339,7 +338,7 @@ export default function Sandbox() {
                     <div className="agent-selector-dropdown">
                       {agents.map((a) => {
                         const s = a.blast_radius?.score ?? 0;
-                        const c = s >= 70 ? "#dc2626" : s >= 40 ? "#ea580c" : "#16a34a";
+                        const c = scoreToColor(s);
                         return (
                           <div
                             key={a.id}
@@ -606,7 +605,7 @@ export default function Sandbox() {
             const peak = Math.max(...scores);
             const avg = Math.round(scores.reduce((a, b) => a + b, 0) / scores.length);
             const totalViol = queueResults.reduce((s, r) => s + r.data.report.violations.length, 0);
-            const peakColor = peak >= 70 ? "#dc2626" : peak >= 25 ? "#ea580c" : "#16a34a";
+            const peakColor = scoreToColor(peak);
             return (
               <div className="batch-summary">
                 <div className="batch-summary-header">
@@ -620,7 +619,7 @@ export default function Sandbox() {
                 <div className="batch-rows">
                   {queueResults.map(({ scenario, data: d }, i) => {
                     const sc = d.report?.risk_score ?? 0;
-                    const col = sc >= 70 ? "#dc2626" : sc >= 25 ? "#ea580c" : "#16a34a";
+                    const col = scoreToColor(sc);
                     const isActive = d === result;
                     return (
                       <div
@@ -701,7 +700,7 @@ export default function Sandbox() {
             <div className="result-stat risk-score-stat">
               <div
                 className="result-stat-number"
-                style={{ color: result.report.risk_score >= 50 ? "#dc2626" : result.report.risk_score >= 25 ? "#ea580c" : "#16a34a" }}
+                style={{ color: scoreToColor(result.report.risk_score) }}
               >
                 {result.report.risk_score}
               </div>
@@ -915,7 +914,7 @@ export default function Sandbox() {
               })
               .map((sim) => {
               const score = sim.risk_score ?? 0;
-              const scoreColor = score >= 50 ? "#dc2626" : score >= 25 ? "#ea580c" : "#16a34a";
+              const scoreColor = scoreToColor(score);
               const agentName = agents.find((a) => a.id === sim.agent_id)?.name ||
                 sim.agent_id.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
               const scenarioLabel = sim.scenario_id

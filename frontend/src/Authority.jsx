@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { Link, useSearchParams } from "react-router-dom";
 import { apiFetch } from "./api.js";
 import { toast } from "./Toast.jsx";
+import { scoreToColor } from "./scoreColor.js";
 import "./Authority.css";
 
 function Tooltip({ text, children }) {
@@ -81,7 +82,7 @@ function blastLabel(score) {
 
 function AgentCard({ agent }) {
   const br = agent.blast_radius;
-  const scoreColor = br.score >= 70 ? '#dc2626' : br.score >= 40 ? '#f59e0b' : '#16a34a';
+  const scoreColor = scoreToColor(br.score);
   const riskLevel = br.score >= 70 ? "Critical" : br.score >= 40 ? "Warning" : "Safe";
   const radius = 32;
   const circumference = 2 * Math.PI * radius;
@@ -113,7 +114,6 @@ function AgentCard({ agent }) {
           <div className="blast-number">{br.score}</div>
           <div className="blast-label">Risk Score</div>
           <div className="blast-level">{riskLevel}</div>
-          <div className="blast-desc">{blastLabel(br.score)}</div>
         </div>
       </div>
 

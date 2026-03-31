@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useParams, Link } from "react-router-dom";
 import { apiFetch } from "./api.js";
 import { toast } from "./Toast.jsx";
+import { scoreToColor } from "./scoreColor.js";
 import "./SimulationDetail.css";
 
 function SimpleView({ data, depth = 0 }) {
@@ -164,7 +165,7 @@ export default function SimulationDetail() {
 
   const { trace, report } = data;
   const riskScore = report.risk_score;
-  const scoreColor = riskScore >= 50 ? "#dc2626" : riskScore >= 25 ? "#ea580c" : "#16a34a";
+  const scoreColor = scoreToColor(riskScore);
 
   // Ring geometry
   const ringR = 44;

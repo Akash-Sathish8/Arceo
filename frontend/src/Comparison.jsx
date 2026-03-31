@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { Link, useSearchParams, useNavigate } from "react-router-dom";
 import { apiFetch } from "./api.js";
+import { scoreToColor } from "./scoreColor.js";
 import "./Comparison.css";
 
 function AnimatedNumber({ value, duration = 1200 }) {
@@ -74,7 +75,7 @@ function SimulationPicker({ afterId, afterData }) {
 
   const candidates = sims.filter((s) => s.simulation_id !== afterId && s.status === "completed");
 
-  const scoreColor = (s) => s >= 70 ? "#dc2626" : s >= 40 ? "#ea580c" : "#16a34a";
+  const scoreColor = scoreToColor;
 
   return (
     <div className="cmp-page">
@@ -245,7 +246,7 @@ export default function Comparison() {
   const newlyBlocked = blockedInAfter.filter(s => !blockedInBefore.has(`${s.tool}.${s.action}`));
   const uniqueNewlyBlocked = [...new Map(newlyBlocked.map(s => [`${s.tool}.${s.action}`, s])).values()];
 
-  const scoreColor = (s) => s >= 70 ? "#dc2626" : s >= 40 ? "#ea580c" : "#16a34a";
+  const scoreColor = scoreToColor;
 
   return (
     <div className="cmp-page">
