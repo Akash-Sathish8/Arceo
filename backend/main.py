@@ -748,9 +748,23 @@ def get_agent_detail(agent_id: str, user: dict = Depends(get_current_user)):
         "blast_radius": asdict(radius),
         "chains": flagged,
         "recommendations": recommendations,
-        "policies": [dict(p) for p in policies],
+        "policies": [_parse_policy(p) for p in policies],
         "executions": [dict(e) for e in executions],
     }
+
+
+def _parse_policy(p) -> dict:
+    """Convert a policy row to dict with conditions parsed from JSON string."""
+    d = dict(p)
+    cond = d.get("conditions")
+    if isinstance(cond, str):
+        try:
+            d["conditions"] = json.loads(cond)
+        except (json.JSONDecodeError, TypeError):
+            d["conditions"] = []
+    elif cond is None:
+        d["conditions"] = []
+    return d
 
 
 @app.get("/api/authority/chains")
