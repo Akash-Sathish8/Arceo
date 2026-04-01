@@ -149,14 +149,14 @@ export default function Navbar() {
             )}
           </div>
 
-          <a href="#features" className="nav-link">Enterprise</a>
+          <a href="#pricing" className="nav-link">Enterprise</a>
           <a href="#pricing" className="nav-link">Pricing</a>
           <a href={`${APP_URL}/login?signup=true`} className="nav-link">Request a demo</a>
         </nav>
 
         <div className="nav-actions">
-          <a href={`${APP_URL}/login?signup=true`} className="btn-nav-primary">Get Arceo free</a>
           <a href={`${APP_URL}/login`} className="btn-nav-ghost">Log in</a>
+          <a href={`${APP_URL}/login?signup=true`} className="btn-nav-primary">Get Arceo free</a>
         </div>
 
         {/* Hamburger */}

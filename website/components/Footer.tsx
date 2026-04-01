@@ -32,6 +32,8 @@ export default function Footer() {
           <a href={`${APP_URL}/login`} className="footer-link">Sign in</a>
           <a href={`${APP_URL}/login?signup=true`} className="footer-link">Get started</a>
           <a href="mailto:support@arceo.ai" className="footer-link">Support</a>
+          <a href="#" className="footer-link">Privacy</a>
+          <a href="#" className="footer-link">Terms</a>
         </nav>
 
         <div className="footer-social">

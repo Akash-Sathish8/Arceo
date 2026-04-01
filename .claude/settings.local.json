@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(claude update:*)",
+      "Bash(node -e \"console.log\\(''syntax check''\\)\")",
+      "Bash(npx tsc:*)",
+      "Bash(npm run:*)",
+      "Bash(npm list:*)",
+      "Bash(npm outdated:*)",
+      "Bash(netstat -ano)",
+      "Bash(xargs -I{} taskkill /PID {} /F)",
+      "Bash(taskkill:*)",
+      "Bash(cmd /c \"taskkill /PID 25164 /F\" 2>&1)",
+      "Bash(npm install:*)",
+      "Bash(cmd /c \"taskkill /F /PID 25164 2>&1\")",
+      "Bash(cmd /c \"for /f \\\\\"tokens=5\\\\\" %a in \\('netstat -ano ^| findstr :3000 ^| findstr LISTENING'\\) do taskkill /F /PID %a\" 2>&1)",
+      "Bash(powershell -Command \"Stop-Process -Id 25164 -Force\" 2>&1)",
+      "Bash(powershell -Command \"Stop-Process -Id 29660 -Force\" 2>&1)"
+    ]
+  }
+}

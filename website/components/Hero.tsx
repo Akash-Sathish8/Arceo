@@ -48,9 +48,10 @@ export default function Hero() {
               <h2 className="hero-card-title">
                 Control what your AI agents can do.
               </h2>
-              <a href={`${APP_URL}/login?signup=true`} className="hero-card-arrow" title="Get started free">
-                <span>→</span>
-              </a>
+              <div className="hero-card-ctas">
+                <a href={`${APP_URL}/login?signup=true`} className="hero-card-btn-primary">Get started free</a>
+                <a href="#features" className="hero-card-btn-ghost">See how it works →</a>
+              </div>
             </div>
 
             <div className="hero-feature-list">

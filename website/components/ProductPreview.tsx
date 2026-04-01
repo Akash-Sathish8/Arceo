@@ -6,8 +6,15 @@ import { fetchDemoAgent, runDemoScan, fetchDemoScenario, type DemoAgent, type Sc
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:5173";
 
 function scoreToColor(score: number) {
-  const s = Math.max(0, Math.min(100, score));
-  return `hsl(${Math.round(120 - s * 1.2)}, 65%, 42%)`;
+  if (score >= 70) return "#dc2626";  // red   — high risk
+  if (score >= 40) return "#f59e0b";  // amber — medium risk
+  return "#16a34a";                   // green — low risk
+}
+
+function riskLevel(score: number) {
+  if (score >= 70) return { label: "High Risk",   color: "#dc2626", bg: "#fef2f2" };
+  if (score >= 40) return { label: "Medium Risk", color: "#d97706", bg: "#fffbeb" };
+  return                { label: "Low Risk",    color: "#16a34a", bg: "#f0fdf4" };
 }
 
 const RISK_BARS = [
@@ -119,6 +126,7 @@ export default function ProductPreview() {
   const totalActions = agent.tool_count ?? 10;
   const score = status === "done" && result ? result.risk_score : agent.blast_radius_score;
   const color = scoreToColor(score);
+  const level = riskLevel(score);
 
   return (
     <div className="pp-root">
@@ -136,7 +144,10 @@ export default function ProductPreview() {
       {/* Score bar */}
       <div className="pp-score-section">
         <div className="pp-score-row">
-          <span className="pp-score-label">Blast radius</span>
+          <div className="pp-score-left">
+            <span className="pp-score-label">Blast radius</span>
+            <span className="pp-risk-badge" style={{ color: level.color, background: level.bg }}>{level.label}</span>
+          </div>
           <span className="pp-score-num" style={{ color }}>{Math.round(score)}<span className="pp-score-denom">/100</span></span>
         </div>
         <div className="pp-bar-track">
@@ -151,7 +162,10 @@ export default function ProductPreview() {
           const pct = totalActions > 0 ? (count / totalActions) * 100 : 0;
           return (
             <div key={key} className="pp-risk-row">
-              <span className="pp-risk-label">{label}</span>
+              <span className="pp-risk-label">
+                <span className="pp-risk-dot" style={{ background: c }} />
+                {label}
+              </span>
               <div className="pp-risk-track">
                 <div className="pp-risk-fill" style={{ width: `${pct}%`, background: c }} />
               </div>
@@ -209,6 +223,24 @@ export default function ProductPreview() {
           )}
         </button>
       )}
+
+      {/* Footer stats — fills dead space and adds context */}
+      <div className="pp-stats-footer">
+        <div className="pp-stat-item">
+          <span className="pp-stat-num">{agent.tool_count ?? 0}</span>
+          <span className="pp-stat-label">Tools mapped</span>
+        </div>
+        <div className="pp-stat-divider" />
+        <div className="pp-stat-item">
+          <span className="pp-stat-num">{agent.risk_labels?.length ?? 0}</span>
+          <span className="pp-stat-label">Risk categories</span>
+        </div>
+        <div className="pp-stat-divider" />
+        <div className="pp-stat-item">
+          <span className="pp-stat-num">14</span>
+          <span className="pp-stat-label">Chain patterns</span>
+        </div>
+      </div>
     </div>
   );
 }
