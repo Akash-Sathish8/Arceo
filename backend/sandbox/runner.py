@@ -1,12 +1,18 @@
-"""Simulation runner — orchestrates agent + mocks + enforce + trace capture."""
+"""Simulation runner — orchestrates agent + mocks + enforce + trace capture.
+
+Supports multiple LLM providers via model router:
+  - claude-*       → Anthropic SDK
+  - gpt-*          → OpenAI SDK
+  - ollama/*       → Local Ollama (OpenAI-compatible API at localhost:11434)
+"""
 
 from __future__ import annotations
 
 import json
+import os
 import uuid
 from datetime import datetime
-
-import anthropic
+from dataclasses import dataclass
 
 from sandbox.models import SimulationTrace, TraceStep
 from sandbox.mocks.registry import MockState
@@ -51,6 +57,212 @@ SYSTEM_PROMPTS = {
     ),
 }
 
+DEFAULT_MODEL = "claude-sonnet-4-20250514"
+
+
+# ── Model Router ─────────────────────────────────────────────────────────
+
+@dataclass
+class LLMResponse:
+    """Unified response from any LLM provider."""
+    text_blocks: list[dict]     # [{"type": "text", "text": "..."}]
+    tool_calls: list[dict]      # [{"id": "...", "name": "...", "input": {...}}]
+    stop_reason: str            # "end_of_turn", "tool_use", "stop"
+    raw: object = None
+
+
+def _to_openai_tools(anthropic_tools: list[dict]) -> list[dict]:
+    """Convert Anthropic tool format to OpenAI function-calling format."""
+    return [
+        {
+            "type": "function",
+            "function": {
+                "name": t["name"],
+                "description": t.get("description", ""),
+                "parameters": t.get("input_schema", {"type": "object", "properties": {}}),
+            },
+        }
+        for t in anthropic_tools
+    ]
+
+
+def _call_llm(
+    model: str,
+    system_prompt: str,
+    messages: list[dict],
+    tools: list[dict],
+    api_key: str = None,
+) -> LLMResponse:
+    """Route to the right LLM provider based on model name prefix."""
+
+    if model.startswith("claude"):
+        return _call_anthropic(model, system_prompt, messages, tools, api_key)
+    elif model.startswith("gpt") or model.startswith("o1") or model.startswith("o3"):
+        return _call_openai(model, system_prompt, messages, tools)
+    elif model.startswith("ollama/"):
+        return _call_ollama(model, system_prompt, messages, tools)
+    else:
+        # Default to Anthropic
+        return _call_anthropic(model, system_prompt, messages, tools, api_key)
+
+
+def _call_anthropic(model, system_prompt, messages, tools, api_key=None):
+    """Call Anthropic Messages API."""
+    import anthropic
+    client = anthropic.Anthropic(api_key=api_key) if api_key else anthropic.Anthropic()
+
+    response = client.messages.create(
+        model=model,
+        max_tokens=4096,
+        system=system_prompt,
+        tools=tools,
+        messages=messages,
+    )
+
+    text_blocks = []
+    tool_calls = []
+    for block in response.content:
+        if block.type == "text":
+            text_blocks.append({"type": "text", "text": block.text})
+        elif block.type == "tool_use":
+            tool_calls.append({"id": block.id, "name": block.name, "input": block.input})
+
+    stop = "end_of_turn" if response.stop_reason == "end_of_turn" else "tool_use"
+    return LLMResponse(text_blocks=text_blocks, tool_calls=tool_calls, stop_reason=stop, raw=response)
+
+
+def _call_openai(model, system_prompt, messages, tools):
+    """Call OpenAI Chat Completions API."""
+    try:
+        from openai import OpenAI
+    except ImportError:
+        raise RuntimeError("openai package required for GPT models. pip install openai")
+
+    client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+    openai_tools = _to_openai_tools(tools)
+
+    # Convert Anthropic message format to OpenAI format
+    oai_messages = [{"role": "system", "content": system_prompt}]
+    for msg in messages:
+        if msg["role"] == "assistant":
+            # Convert content blocks to text + tool_calls
+            content = msg.get("content", [])
+            if isinstance(content, list):
+                text_parts = [b["text"] for b in content if b.get("type") == "text"]
+                tc_parts = [b for b in content if b.get("type") == "tool_use"]
+
+                oai_msg = {"role": "assistant", "content": " ".join(text_parts) or None}
+                if tc_parts:
+                    oai_msg["tool_calls"] = [
+                        {"id": b["id"], "type": "function", "function": {"name": b["name"], "arguments": json.dumps(b["input"])}}
+                        for b in tc_parts
+                    ]
+                oai_messages.append(oai_msg)
+            else:
+                oai_messages.append({"role": "assistant", "content": str(content)})
+
+        elif msg["role"] == "user":
+            content = msg.get("content", "")
+            if isinstance(content, list):
+                # Tool results
+                for item in content:
+                    if item.get("type") == "tool_result":
+                        oai_messages.append({
+                            "role": "tool",
+                            "tool_call_id": item["tool_use_id"],
+                            "content": item.get("content", ""),
+                        })
+                    else:
+                        oai_messages.append({"role": "user", "content": str(item)})
+            else:
+                oai_messages.append({"role": "user", "content": str(content)})
+
+    response = client.chat.completions.create(
+        model=model,
+        messages=oai_messages,
+        tools=openai_tools if openai_tools else None,
+        max_tokens=4096,
+    )
+
+    choice = response.choices[0]
+    text_blocks = []
+    tool_calls = []
+
+    if choice.message.content:
+        text_blocks.append({"type": "text", "text": choice.message.content})
+
+    if choice.message.tool_calls:
+        for tc in choice.message.tool_calls:
+            try:
+                args = json.loads(tc.function.arguments)
+            except (json.JSONDecodeError, TypeError):
+                args = {}
+            tool_calls.append({"id": tc.id, "name": tc.function.name, "input": args})
+
+    stop = "end_of_turn" if choice.finish_reason == "stop" else "tool_use"
+    return LLMResponse(text_blocks=text_blocks, tool_calls=tool_calls, stop_reason=stop, raw=response)
+
+
+def _call_ollama(model, system_prompt, messages, tools):
+    """Call local Ollama instance (OpenAI-compatible API)."""
+    import httpx
+
+    ollama_model = model.replace("ollama/", "", 1)
+    base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+    openai_tools = _to_openai_tools(tools)
+
+    # Build OpenAI-compatible messages
+    oai_messages = [{"role": "system", "content": system_prompt}]
+    for msg in messages:
+        if msg["role"] == "user":
+            content = msg.get("content", "")
+            if isinstance(content, str):
+                oai_messages.append({"role": "user", "content": content})
+            elif isinstance(content, list):
+                # Tool results — Ollama may not support tool role, send as user
+                parts = []
+                for item in content:
+                    if isinstance(item, dict) and item.get("type") == "tool_result":
+                        parts.append("Tool result: " + item.get("content", ""))
+                    else:
+                        parts.append(str(item))
+                oai_messages.append({"role": "user", "content": "\n".join(parts)})
+        elif msg["role"] == "assistant":
+            content = msg.get("content", [])
+            if isinstance(content, list):
+                text = " ".join(b.get("text", "") for b in content if b.get("type") == "text")
+                oai_messages.append({"role": "assistant", "content": text or "ok"})
+            else:
+                oai_messages.append({"role": "assistant", "content": str(content)})
+
+    body = {"model": ollama_model, "messages": oai_messages, "stream": False}
+    if openai_tools:
+        body["tools"] = openai_tools
+
+    resp = httpx.post(f"{base_url}/v1/chat/completions", json=body, timeout=60.0)
+    resp.raise_for_status()
+    data = resp.json()
+
+    choice = data.get("choices", [{}])[0]
+    message = choice.get("message", {})
+
+    text_blocks = []
+    tool_calls = []
+
+    if message.get("content"):
+        text_blocks.append({"type": "text", "text": message["content"]})
+
+    for tc in message.get("tool_calls", []):
+        fn = tc.get("function", {})
+        try:
+            args = json.loads(fn.get("arguments", "{}"))
+        except (json.JSONDecodeError, TypeError):
+            args = {}
+        tool_calls.append({"id": tc.get("id", uuid.uuid4().hex[:8]), "name": fn.get("name", ""), "input": args})
+
+    stop = "end_of_turn" if choice.get("finish_reason") == "stop" else "tool_use"
+    return LLMResponse(text_blocks=text_blocks, tool_calls=tool_calls, stop_reason=stop)
+
 
 def run_simulation(
     agent_config: dict,
@@ -89,13 +301,13 @@ def run_simulation(
     # Initialize mock state for this simulation (with custom data if provided)
     state = MockState(custom_data=custom_data)
 
-    # Build Anthropic tool definitions from agent config
+    # Build tool definitions (Anthropic format — router converts if needed)
     tool_defs = build_tool_definitions(agent_config)
 
-    # Initialize Anthropic client
-    client = anthropic.Anthropic(api_key=api_key) if api_key else anthropic.Anthropic()
+    # Determine model: agent preference → default
+    model = agent_config.get("simulation_model") or DEFAULT_MODEL
 
-    # Determine system prompt based on agent type (fallback to agent description for custom types)
+    # Determine system prompt
     agent_type = scenario.agent_type
     system_prompt = SYSTEM_PROMPTS.get(agent_type)
     if not system_prompt:
@@ -106,49 +318,33 @@ def run_simulation(
     step_index = 0
 
     for turn in range(max_turns):
-        # Call Claude
         try:
-            response = client.messages.create(
-                model="claude-sonnet-4-20250514",
-                max_tokens=4096,
-                system=system_prompt,
-                tools=tool_defs,
-                messages=messages,
-            )
+            response = _call_llm(model, system_prompt, messages, tool_defs, api_key=api_key)
         except Exception as e:
             trace.status = "error"
-            trace.error = f"LLM API error: {str(e)}"
+            trace.error = f"LLM API error ({model}): {str(e)}"
             trace.completed_at = datetime.utcnow().isoformat()
             return trace
 
-        # Record assistant message
-        assistant_content = []
-        for block in response.content:
-            if block.type == "text":
-                assistant_content.append({"type": "text", "text": block.text})
-            elif block.type == "tool_use":
-                assistant_content.append({
-                    "type": "tool_use",
-                    "id": block.id,
-                    "name": block.name,
-                    "input": block.input,
-                })
+        # Record assistant message (unified format from router)
+        assistant_content = list(response.text_blocks)
+        for tc in response.tool_calls:
+            assistant_content.append({
+                "type": "tool_use", "id": tc["id"],
+                "name": tc["name"], "input": tc["input"],
+            })
 
         messages.append({"role": "assistant", "content": assistant_content})
         trace.messages.append({"role": "assistant", "content": assistant_content})
 
-        # If no tool use, the agent is done
         if response.stop_reason == "end_of_turn":
             break
 
         # Process tool calls
         tool_results = []
-        for block in response.content:
-            if block.type != "tool_use":
-                continue
-
-            tool_name, action_name = parse_tool_name(block.name)
-            params = block.input if isinstance(block.input, dict) else {}
+        for tc in response.tool_calls:
+            tool_name, action_name = parse_tool_name(tc["name"])
+            params = tc["input"] if isinstance(tc["input"], dict) else {}
 
             # Execute with enforcement and mock
             step = execute_tool_call(
@@ -163,10 +359,10 @@ def run_simulation(
             trace.steps.append(step)
             step_index += 1
 
-            # Build tool result for Claude
+            # Build tool result for conversation
             tool_results.append({
                 "type": "tool_result",
-                "tool_use_id": block.id,
+                "tool_use_id": tc["id"],
                 "content": json.dumps(step.result) if step.result else '{"error": "Action blocked by policy"}',
             })
 

@@ -21,13 +21,16 @@ def capture_message(response, trace: ArceoTrace, model: str = "", duration_ms: f
             tool, action = parse_tool_name(block.name)
             args = block.input if isinstance(block.input, dict) else {}
             hints, read_only = infer_risk(tool, action, list(args.keys()))
-            trace.tool_calls.append(ArceoToolCall(
+            tc_obj = ArceoToolCall(
                 tool_name=tool, action_name=action,
                 arguments=args, argument_keys=list(args.keys()),
                 framework="anthropic", model_used=model,
                 inferred_verb=infer_verb(action),
                 inferred_risk_hints=hints, is_read_only=read_only,
-            ))
+            )
+            trace.tool_calls.append(tc_obj)
+            if trace._on_tool_call:
+                trace._on_tool_call(tc_obj)
 
     usage = getattr(response, "usage", None)
     in_tok = getattr(usage, "input_tokens", 0) if usage else 0

@@ -93,6 +93,7 @@ class ArceoTrace:
 
     input_prompt: str = ""
     output: str = ""
+    _on_tool_call: object = None  # callback: fn(ArceoToolCall) called after each capture
 
     def __post_init__(self):
         if not self.trace_id:

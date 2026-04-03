@@ -4,10 +4,39 @@ from __future__ import annotations
 
 import sys
 import functools
+import threading
 
-from arceo.models import ArceoTrace
+from arceo.models import ArceoTrace, ArceoToolCall
 from arceo.tracing.context import set_trace, clear_trace
 from arceo.analysis.risk import detect_chains_local
+
+
+# ── Live streaming ───────────────────────────────────────────────────────
+
+def _emit_live(api_url: str, api_key: str, agent_name: str, tool_call: ArceoToolCall):
+    """Fire-and-forget POST to /api/traces/live. Runs in background thread."""
+    def _send():
+        try:
+            import httpx
+            payload = {
+                "agent_id": agent_name,
+                "tool": tool_call.tool_name,
+                "action": tool_call.action_name,
+                "params": tool_call.arguments,
+                "result": {"summary": tool_call.result_summary[:200]} if tool_call.result_summary else {},
+                "decision": "ALLOW",
+                "duration_ms": tool_call.duration_ms,
+                "risk_labels": tool_call.inferred_risk_hints,
+                "timestamp": "",
+            }
+            headers = {"Content-Type": "application/json"}
+            if api_key:
+                headers["X-API-Key"] = api_key
+            httpx.post("%s/api/traces/live" % api_url, json=payload, headers=headers, timeout=2.0)
+        except Exception:
+            pass  # fire and forget — never block the agent
+
+    threading.Thread(target=_send, daemon=True).start()
 from arceo.report import print_report
 
 
@@ -36,6 +65,10 @@ def monitor(
         def wrapper(*args, **kwargs):
             framework = _detect_framework() if auto_detect else ""
             trace = ArceoTrace(agent_name=fn.__name__, framework=framework)
+
+            # Set up live streaming callback
+            if not local_only and api_url:
+                trace._on_tool_call = lambda tc: _emit_live(api_url, api_key, fn.__name__, tc)
 
             # Capture input prompt
             if args and isinstance(args[0], str):

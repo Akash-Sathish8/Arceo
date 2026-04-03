@@ -1,0 +1,86 @@
+# Arceo Cost Model — Default Configuration
+#
+# These are PLACEHOLDER ranges. Customers must configure actual values
+# based on their business context, regulatory environment, and risk appetite.
+#
+# To override: POST /api/agents/{id}/cost-config with your values,
+# or set ARCEO_COST_CONFIG=/path/to/your/config.yaml
+
+# Cost categories: what kind of damage each capability causes
+capability_mapping:
+  moves_money:
+    category: direct_financial_loss
+    description: "Direct monetary loss from unauthorized transactions"
+    breach_scenarios:
+      - "Unauthorized refund issued to attacker-controlled account"
+      - "Subscription cancelled causing revenue loss"
+      - "Fraudulent charge created against customer"
+
+  touches_pii:
+    category: regulatory_fine
+    description: "Regulatory penalties and legal costs from PII exposure"
+    breach_scenarios:
+      - "Customer PII exposed to unauthorized recipient"
+      - "Bulk export of personal data without consent"
+      - "PII sent to external system without encryption"
+
+  deletes_data:
+    category: operational_disruption
+    description: "Business disruption from data loss or corruption"
+    breach_scenarios:
+      - "Customer records permanently deleted"
+      - "Backup snapshots destroyed during incident"
+      - "Audit trail entries removed"
+
+  sends_external:
+    category: reputation_damage
+    description: "Brand and trust damage from unauthorized communications"
+    breach_scenarios:
+      - "Spam or phishing sent from company systems"
+      - "Internal data leaked via external email"
+      - "Customer contacted with incorrect information"
+
+  changes_production:
+    category: operational_disruption
+    description: "Service outage or degradation from infrastructure changes"
+    breach_scenarios:
+      - "Production instance terminated causing outage"
+      - "Security group opened exposing internal services"
+      - "Unreviewed code deployed to production"
+
+# Severity multipliers per cost category
+# These define the RANGE of potential cost per incident
+# Customers MUST configure these for their business
+severity_ranges:
+  direct_financial_loss:
+    per_incident_min_usd: 0        # configure: your average transaction size
+    per_incident_max_usd: 0        # configure: your max single transaction
+    description: "Set to your average and maximum transaction amounts"
+
+  regulatory_fine:
+    per_incident_min_usd: 0        # configure: minimum expected fine per record
+    per_incident_max_usd: 0        # configure: maximum fine (GDPR: up to 4% annual revenue)
+    description: "Depends on jurisdiction. GDPR: €20M or 4% revenue. CCPA: $7,500/violation. HIPAA: $50K/violation."
+
+  operational_disruption:
+    per_incident_min_usd: 0        # configure: cost per minute of downtime
+    per_incident_max_usd: 0        # configure: worst case extended outage cost
+    description: "Set to your revenue-per-minute and worst case outage duration"
+
+  reputation_damage:
+    per_incident_min_usd: 0        # configure: estimated brand damage per incident
+    per_incident_max_usd: 0        # configure: worst case (viral incident)
+    description: "Hard to quantify. Consider customer churn rate after incidents."
+
+# Exposure window: how many times per day this agent runs
+# Used to calculate annualized risk
+exposure:
+  daily_runs: 0                    # configure: how many times this agent executes per day
+  days_per_year: 365
+  description: "Set daily_runs to your actual agent execution frequency"
+
+# Confidence levels based on data quality
+confidence:
+  with_real_traces: "high"         # cost estimate based on observed behavior
+  with_simulation: "medium"        # cost estimate based on simulated behavior
+  static_only: "low"               # cost estimate based on capability analysis only

@@ -53,25 +53,31 @@ def tool(service="", risk="", name=""):
                 result_str = str(result)[:500] if result else ""
 
                 if trace:
-                    trace.tool_calls.append(ArceoToolCall(
+                    tc_obj = ArceoToolCall(
                         tool_name=t, action_name=a,
                         arguments=call_args, argument_keys=list(call_args.keys()),
                         result_summary=result_str, result_type="success",
                         duration_ms=duration, framework="vanilla",
                         inferred_verb=infer_verb(a),
                         inferred_risk_hints=hints, is_read_only=read_only,
-                    ))
+                    )
+                    trace.tool_calls.append(tc_obj)
+                    if trace._on_tool_call:
+                        trace._on_tool_call(tc_obj)
                 return result
             except Exception as e:
                 duration = (time.time() - start) * 1000
                 if trace:
-                    trace.tool_calls.append(ArceoToolCall(
+                    tc_obj = ArceoToolCall(
                         tool_name=t, action_name=a,
                         arguments=call_args, result_summary=str(e)[:500],
                         result_type="error", duration_ms=duration, framework="vanilla",
                         inferred_verb=infer_verb(a),
                         inferred_risk_hints=hints, is_read_only=read_only,
-                    ))
+                    )
+                    trace.tool_calls.append(tc_obj)
+                    if trace._on_tool_call:
+                        trace._on_tool_call(tc_obj)
                 raise
 
         wrapper._arceo_tool = True

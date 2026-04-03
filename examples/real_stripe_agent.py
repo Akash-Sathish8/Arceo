@@ -9,11 +9,15 @@ Usage:
 """
 
 import json
+import os
 import stripe
 import anthropic
 from arceo import monitor, tool
 
-STRIPE_KEY = "sk_test_51TGs94BJbhiRrGivcSZOesBwF324u3EJmWMtG408kOcX9Ps7C6NJcOjq0pRrA4ArK2HMREOpsQSZWHkBx0DfjoRH00pusg79rQ"
+STRIPE_KEY = os.getenv("STRIPE_SECRET_KEY", "")
+if not STRIPE_KEY:
+    print("Set STRIPE_SECRET_KEY env var. Get a test key from dashboard.stripe.com")
+    exit(1)
 stripe.api_key = STRIPE_KEY
 
 

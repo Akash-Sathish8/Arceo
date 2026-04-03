@@ -29,13 +29,16 @@ def capture_completion(response, trace: ArceoTrace, model: str = "", duration_ms
                 except (json.JSONDecodeError, TypeError):
                     args = {"raw": str(fn.arguments)}
                 hints, read_only = infer_risk(tool, action, list(args.keys()))
-                trace.tool_calls.append(ArceoToolCall(
+                tc_obj = ArceoToolCall(
                     tool_name=tool, action_name=action,
                     arguments=args, argument_keys=list(args.keys()),
                     framework="openai", model_used=model,
                     inferred_verb=infer_verb(action),
                     inferred_risk_hints=hints, is_read_only=read_only,
-                ))
+                )
+                trace.tool_calls.append(tc_obj)
+                if trace._on_tool_call:
+                    trace._on_tool_call(tc_obj)
 
     # LLM call record
     usage = getattr(response, "usage", None)

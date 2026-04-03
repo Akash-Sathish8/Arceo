@@ -15,7 +15,22 @@
       "Bash(cmd /c \"taskkill /F /PID 25164 2>&1\")",
       "Bash(cmd /c \"for /f \\\\\"tokens=5\\\\\" %a in \\('netstat -ano ^| findstr :3000 ^| findstr LISTENING'\\) do taskkill /F /PID %a\" 2>&1)",
       "Bash(powershell -Command \"Stop-Process -Id 25164 -Force\" 2>&1)",
-      "Bash(powershell -Command \"Stop-Process -Id 29660 -Force\" 2>&1)"
+      "Bash(powershell -Command \"Stop-Process -Id 29660 -Force\" 2>&1)",
+      "Bash(git stash:*)",
+      "Bash(python3 -m uvicorn main:app --reload --port 8000)",
+      "Bash(curl -s localhost:8000/api/health)",
+      "Bash(curl -s -o /dev/null -w \" dashboard:%{http_code}\" localhost:5173)",
+      "Bash(curl -s -o /dev/null -w \" website:%{http_code}\" localhost:3000)",
+      "Bash(open http://localhost:3000)",
+      "Bash(open http://localhost:5173)",
+      "Bash(git push:*)",
+      "WebSearch",
+      "Bash(python3 -m pytest tests/ --tb=short)",
+      "Bash(python3 -m pytest tests/test_api.py -v --tb=line)",
+      "Bash(python3 -m pytest tests/test_api.py tests/test_new_features.py tests/test_hpe_features.py -v --tb=line)",
+      "Bash(python3 -m pytest tests/ --tb=line)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)"
     ]
   }
 }

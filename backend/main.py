@@ -11,7 +11,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 load_dotenv()
 
-from fastapi import FastAPI, HTTPException, Depends, Request
+from fastapi import FastAPI, HTTPException, Depends, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -20,7 +20,7 @@ from pydantic import BaseModel
 from auth import get_current_user, login_user
 from db import (
     get_db, init_db, get_agent_from_db, get_all_agents_from_db,
-    log_audit, log_execution,
+    log_audit, log_execution, DEFAULT_ORG_ID,
 )
 from authority.chain_detector import detect_chains as _detect_chains
 from authority.graph import build_agent_graph, calculate_blast_radius, graph_to_dict
@@ -37,6 +37,11 @@ app = FastAPI(title="ActionGate", version="0.4.0")
 _rate_limits: dict[str, list[float]] = defaultdict(list)
 RATE_LIMIT_MAX = int(os.getenv("RATE_LIMIT_MAX", "100"))  # requests per window
 RATE_LIMIT_WINDOW = int(os.getenv("RATE_LIMIT_WINDOW", "60"))  # seconds
+
+
+def _org(user: dict) -> str:
+    """Extract org_id from authenticated user. Every query uses this."""
+    return user.get("org_id", DEFAULT_ORG_ID)
 
 
 def check_rate_limit(key: str):
@@ -149,6 +154,13 @@ async def proxy_request(service: str, path: str, request: Request):
     """
     import httpx as _httpx
 
+    # Require API key if any keys exist in the system
+    key_info = verify_api_key(request)
+    with get_db() as conn:
+        key_count = conn.execute("SELECT COUNT(*) FROM api_keys WHERE active = 1").fetchone()[0]
+    if key_count > 0 and not key_info:
+        raise HTTPException(status_code=401, detail="X-API-Key header required. Generate a key at /api/keys")
+
     agent_id = request.headers.get("X-Agent-ID", "")
     if not agent_id:
         raise HTTPException(status_code=400, detail="X-Agent-ID header required for proxy requests")
@@ -242,9 +254,17 @@ class SDKTraceInput(BaseModel):
 
 
 @app.post("/api/sdk/analyze-trace")
-def analyze_sdk_trace(req: SDKTraceInput):
+def analyze_sdk_trace(req: SDKTraceInput, request: Request = None):
     """Arceo SDK endpoint — accepts a captured trace, auto-registers the agent,
-    runs full analysis, and returns a risk report."""
+    runs full analysis, and returns a risk report. Requires API key if keys exist."""
+    # Require API key if any exist
+    if request:
+        key_info = verify_api_key(request)
+        with get_db() as conn:
+            key_count = conn.execute("SELECT COUNT(*) FROM api_keys WHERE active = 1").fetchone()[0]
+        if key_count > 0 and not key_info:
+            raise HTTPException(status_code=401, detail="X-API-Key required")
+
     from sandbox.models import SimulationTrace, TraceStep
     from sandbox.analyzer import analyze_trace
     from authority.risk_classifier import classify_with_fallback
@@ -302,11 +322,11 @@ def analyze_sdk_trace(req: SDKTraceInput):
     # Store as simulation
     with get_db() as conn:
         conn.execute(
-            "INSERT INTO simulations (id, agent_id, scenario_id, status, trace_json, report_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO simulations (id, agent_id, scenario_id, status, trace_json, report_json, org_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             (trace.simulation_id, agent_id, "sdk-trace", "completed",
              json.dumps(asdict(trace), default=str),
              json.dumps(asdict(report), default=str),
-             datetime.utcnow().isoformat()),
+             DEFAULT_ORG_ID, datetime.utcnow().isoformat()),
         )
 
     return {
@@ -317,8 +337,15 @@ def analyze_sdk_trace(req: SDKTraceInput):
 
 
 @app.post("/api/report")
-def submit_post_hoc_report(req: PostHocReport):
-    """Agent reports what it did after the fact. No enforcement, full analysis."""
+def submit_post_hoc_report(req: PostHocReport, request: Request = None):
+    """Agent reports what it did after the fact. Requires API key if keys exist."""
+    if request:
+        key_info = verify_api_key(request)
+        with get_db() as conn:
+            key_count = conn.execute("SELECT COUNT(*) FROM api_keys WHERE active = 1").fetchone()[0]
+        if key_count > 0 and not key_info:
+            raise HTTPException(status_code=401, detail="X-API-Key required")
+
     from sandbox.models import SimulationTrace, TraceStep
     from sandbox.analyzer import analyze_trace
     from dataclasses import asdict
@@ -360,11 +387,11 @@ def submit_post_hoc_report(req: PostHocReport):
             return obj
 
         conn.execute(
-            "INSERT INTO simulations (id, agent_id, scenario_id, status, trace_json, report_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO simulations (id, agent_id, scenario_id, status, trace_json, report_json, org_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             (trace.simulation_id, req.agent_id, "post-hoc", "completed",
              json.dumps(asdict(trace), default=str),
              json.dumps(asdict(report), default=str),
-             datetime.utcnow().isoformat()),
+             DEFAULT_ORG_ID, datetime.utcnow().isoformat()),
         )
         log_audit(conn, None, req.agent_id, "POST_HOC_REPORT",
                   resource=req.agent_id,
@@ -701,7 +728,7 @@ def change_password(req: ChangePasswordRequest, user: dict = Depends(get_current
 def list_agents(user: dict = Depends(get_current_user)):
     with get_db() as conn:
         log_audit(conn, user["sub"], user["email"], "LIST_AGENTS")
-        agents = get_all_agents_from_db(conn)
+        agents = get_all_agents_from_db(conn, org_id=_org(user))
 
     with get_db() as conn:
         results = []
@@ -734,7 +761,7 @@ def list_agents(user: dict = Depends(get_current_user)):
 @app.get("/api/authority/agent/{agent_id}")
 def get_agent_detail(agent_id: str, user: dict = Depends(get_current_user)):
     with get_db() as conn:
-        agent = get_agent_from_db(conn, agent_id)
+        agent = get_agent_from_db(conn, agent_id, org_id=_org(user))
         if not agent:
             raise HTTPException(status_code=404, detail=f"Agent '{agent_id}' not found")
 
@@ -747,7 +774,7 @@ def get_agent_detail(agent_id: str, user: dict = Depends(get_current_user)):
 
         # Get execution logs for this agent
         executions = conn.execute(
-            "SELECT * FROM execution_log WHERE agent_id = ? ORDER BY timestamp DESC LIMIT 50", (agent_id,)
+            "SELECT * FROM execution_log WHERE agent_id = ? AND org_id = ? ORDER BY timestamp DESC LIMIT 50", (agent_id, _org(user))
         ).fetchall()
 
     config = _db_agent_to_config(agent)
@@ -799,7 +826,7 @@ def _parse_policy(p) -> dict:
 @app.get("/api/authority/chains")
 def list_all_chains(user: dict = Depends(get_current_user)):
     with get_db() as conn:
-        agents = get_all_agents_from_db(conn)
+        agents = get_all_agents_from_db(conn, org_id=_org(user))
 
     output = []
     for agent in agents:
@@ -850,8 +877,8 @@ def create_agent(req: AgentInput, user: dict = Depends(get_current_user)):
             agent_id = f"{agent_id}-{uuid.uuid4().hex[:6]}"
 
         conn.execute(
-            "INSERT INTO agents (id, name, description, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
-            (agent_id, req.name, req.description, now, now),
+            "INSERT INTO agents (id, name, description, org_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+            (agent_id, req.name, req.description, _org(user), now, now),
         )
 
         for tool in req.tools:
@@ -993,8 +1020,8 @@ def _upsert_agent(conn, agent_id: str, name: str, description: str, tools: list[
         status = "updated"
     else:
         conn.execute(
-            "INSERT INTO agents (id, name, description, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
-            (agent_id, name, description, now, now),
+            "INSERT INTO agents (id, name, description, org_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+            (agent_id, name, description, DEFAULT_ORG_ID, now, now),
         )
         status = "created"
 
@@ -1514,7 +1541,8 @@ def save_notification_settings(req: NotificationSettingsRequest, user: dict = De
 def get_audit_log(user: dict = Depends(get_current_user)):
     with get_db() as conn:
         rows = conn.execute(
-            "SELECT * FROM audit_log ORDER BY timestamp DESC LIMIT 100"
+            "SELECT * FROM audit_log WHERE org_id = ? ORDER BY timestamp DESC LIMIT 100",
+            (_org(user),)
         ).fetchall()
     return {"entries": [dict(r) for r in rows]}
 
@@ -1525,7 +1553,8 @@ def get_audit_log(user: dict = Depends(get_current_user)):
 def get_execution_log(user: dict = Depends(get_current_user)):
     with get_db() as conn:
         rows = conn.execute(
-            "SELECT * FROM execution_log ORDER BY timestamp DESC LIMIT 100"
+            "SELECT * FROM execution_log WHERE org_id = ? ORDER BY timestamp DESC LIMIT 100",
+            (_org(user),)
         ).fetchall()
     return {"entries": [dict(r) for r in rows]}
 
@@ -1534,7 +1563,7 @@ def get_execution_log(user: dict = Depends(get_current_user)):
 def get_agent_executions(agent_id: str, user: dict = Depends(get_current_user)):
     with get_db() as conn:
         rows = conn.execute(
-            "SELECT * FROM execution_log WHERE agent_id = ? ORDER BY timestamp DESC LIMIT 50",
+            "SELECT * FROM execution_log WHERE agent_id = ? AND org_id = ? ORDER BY timestamp DESC LIMIT 50",
             (agent_id,),
         ).fetchall()
     return {"entries": [dict(r) for r in rows]}
@@ -1579,7 +1608,7 @@ def decide_approval(execution_id: int, body: ApprovalDecision, user: dict = Depe
             "UPDATE execution_log SET status = ?, detail = ? WHERE id = ?",
             (new_status, existing_detail + detail_suffix, execution_id),
         )
-        log_audit(conn, user["email"], body.decision.upper() + "_EXECUTION", "execution", str(execution_id),
+        log_audit(conn, user["sub"], user["email"], body.decision.upper() + "_EXECUTION", str(execution_id),
                   f"{'Approved' if body.decision == 'approve' else 'Rejected'} execution #{execution_id}")
     return {"id": execution_id, "status": new_status}
 
@@ -1689,7 +1718,7 @@ def get_agent_scenarios(agent_id: str, user: dict = Depends(get_current_user)):
     from sandbox.prompts.scenarios import generate_scenarios_for_agent
 
     with get_db() as conn:
-        agent = get_agent_from_db(conn, agent_id)
+        agent = get_agent_from_db(conn, agent_id, org_id=_org(user))
         if not agent:
             raise HTTPException(status_code=404, detail=f"Agent '{agent_id}' not found")
 
@@ -1714,7 +1743,7 @@ def run_sandbox_simulation(req: SimulateRequest, user: dict = Depends(get_curren
 
     # Load agent config
     with get_db() as conn:
-        agent = get_agent_from_db(conn, req.agent_id)
+        agent = get_agent_from_db(conn, req.agent_id, org_id=_org(user))
         if not agent:
             raise HTTPException(status_code=404, detail=f"Agent '{req.agent_id}' not found")
         log_audit(conn, user["sub"], user["email"], "RUN_SIMULATION",
@@ -1754,12 +1783,12 @@ def run_sandbox_simulation(req: SimulateRequest, user: dict = Depends(get_curren
     # Store simulation in DB
     with get_db() as conn:
         conn.execute("""
-            INSERT INTO simulations (id, agent_id, scenario_id, status, trace_json, report_json, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO simulations (id, agent_id, scenario_id, status, trace_json, report_json, org_id, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             trace.simulation_id, trace.agent_id, trace.scenario_id,
             trace.status, json.dumps(_asdict(trace)), json.dumps(_asdict(report)),
-            trace.started_at,
+            _org(user), trace.started_at,
         ))
 
     return {
@@ -1797,7 +1826,7 @@ def run_multi_agent_simulation(req: MultiSimulateRequest, user: dict = Depends(g
     agent_configs = {}
     with get_db() as conn:
         for aid in req.agent_ids:
-            agent = get_agent_from_db(conn, aid)
+            agent = get_agent_from_db(conn, aid, org_id=_org(user))
             if not agent:
                 raise HTTPException(status_code=404, detail=f"Agent '{aid}' not found")
             agent_configs[aid] = agent
@@ -1831,11 +1860,11 @@ def run_multi_agent_simulation(req: MultiSimulateRequest, user: dict = Depends(g
     # Store simulation
     with get_db() as conn:
         conn.execute(
-            "INSERT INTO simulations (id, agent_id, scenario_id, status, trace_json, report_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO simulations (id, agent_id, scenario_id, status, trace_json, report_json, org_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             (multi_trace.simulation_id, req.coordinator_id, scenario.id, multi_trace.status,
              json.dumps(_asdict(multi_trace), default=str),
              json.dumps(_asdict(report), default=str),
-             datetime.utcnow().isoformat()),
+             _org(user), datetime.utcnow().isoformat()),
         )
         log_audit(conn, user["sub"], user["email"], "MULTI_SIMULATE", resource=req.coordinator_id,
                   detail=f"Multi-agent sim with {len(req.agent_ids)} agents, dry_run={req.dry_run}")
@@ -2050,8 +2079,8 @@ def _build_agent_summary(name: str, over: int, gaps: int, chains: int) -> str:
 
 
 @app.get("/api/sandbox/simulate/stream")
-def run_sandbox_simulation_stream(agent_id: str, scenario_id: str, request: Request):
-    """SSE endpoint: stream simulation steps as they happen."""
+def run_sandbox_simulation_stream(agent_id: str, scenario_id: str, request: Request, user: dict = Depends(get_current_user)):
+    """SSE endpoint: stream simulation steps as they happen. Requires auth."""
     from sandbox.prompts.scenarios import get_scenario
     from sandbox.analyzer import analyze_trace
     from sandbox.mocks.registry import MockState
@@ -2062,7 +2091,7 @@ def run_sandbox_simulation_stream(agent_id: str, scenario_id: str, request: Requ
 
     # Validate inputs
     with get_db() as conn:
-        agent = get_agent_from_db(conn, agent_id)
+        agent = get_agent_from_db(conn, agent_id, org_id=_org(user))
         if not agent:
             raise HTTPException(status_code=404, detail=f"Agent '{agent_id}' not found")
 
@@ -2116,12 +2145,12 @@ def run_sandbox_simulation_stream(agent_id: str, scenario_id: str, request: Requ
         # Store in DB
         with get_db() as conn:
             conn.execute("""
-                INSERT INTO simulations (id, agent_id, scenario_id, status, trace_json, report_json, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO simulations (id, agent_id, scenario_id, status, trace_json, report_json, org_id, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 trace.simulation_id, trace.agent_id, trace.scenario_id,
                 trace.status, json.dumps(_asdict(trace)), json.dumps(_asdict(report)),
-                trace.started_at,
+                DEFAULT_ORG_ID, trace.started_at,
             ))
 
         yield f"data: {json.dumps({'type': 'complete', 'simulation_id': simulation_id, 'report': _asdict(report)})}\n\n"
@@ -2134,7 +2163,8 @@ def list_simulations(user: dict = Depends(get_current_user)):
     """List past simulation runs."""
     with get_db() as conn:
         rows = conn.execute(
-            "SELECT id, agent_id, scenario_id, status, created_at, report_json FROM simulations ORDER BY created_at DESC LIMIT 50"
+            "SELECT id, agent_id, scenario_id, status, created_at, report_json FROM simulations WHERE org_id = ? ORDER BY created_at DESC LIMIT 50",
+            (_org(user),)
         ).fetchall()
     simulations = []
     for r in rows:
@@ -2166,6 +2196,442 @@ def get_simulation(simulation_id: str, user: dict = Depends(get_current_user)):
     }
 
 
+# ── Trace Ingestion (LangSmith, LangFuse, Generic) ───────────────────────
+
+class LangSmithIngest(BaseModel):
+    agent_name: str
+    runs: list[dict]
+
+
+class LangFuseIngest(BaseModel):
+    agent_name: str
+    traces: list[dict]
+
+
+class GenericIngest(BaseModel):
+    agent_name: str
+    actions: list[dict]
+
+
+@app.post("/api/ingest/langsmith")
+def ingest_langsmith(req: LangSmithIngest, user: dict = Depends(get_current_user)):
+    """Ingest traces from LangSmith. Auto-registers agent, analyzes, stores on dashboard."""
+    from ingestion.langsmith import normalize_langsmith
+    from ingestion.base import ingest_trace
+
+    normalized = normalize_langsmith(req.runs)
+    if not normalized:
+        raise HTTPException(status_code=400, detail="No tool runs found in LangSmith data")
+    return ingest_trace(
+        agent_name=req.agent_name, normalized_steps=normalized,
+        org_id=_org(user), user_id=user["sub"], user_email=user["email"], source="langsmith",
+    )
+
+
+@app.post("/api/ingest/langfuse")
+def ingest_langfuse(req: LangFuseIngest, user: dict = Depends(get_current_user)):
+    """Ingest traces from LangFuse. Auto-registers agent, analyzes, stores on dashboard."""
+    from ingestion.langfuse import normalize_langfuse
+    from ingestion.base import ingest_trace
+
+    normalized = normalize_langfuse(req.traces)
+    if not normalized:
+        raise HTTPException(status_code=400, detail="No tool spans found in LangFuse data")
+    return ingest_trace(
+        agent_name=req.agent_name, normalized_steps=normalized,
+        org_id=_org(user), user_id=user["sub"], user_email=user["email"], source="langfuse",
+    )
+
+
+@app.post("/api/ingest/generic")
+def ingest_generic(req: GenericIngest, user: dict = Depends(get_current_user)):
+    """Ingest raw traces. Format: [{tool, action, params, result, timestamp}]."""
+    from ingestion.base import ingest_trace
+
+    normalized = []
+    for a in req.actions:
+        tool = a.get("tool", "unknown")
+        action = a.get("action", a.get("name", "unknown"))
+        if "." in action and tool == "unknown":
+            parts = action.split(".", 1)
+            tool, action = parts[0], parts[1]
+        normalized.append({
+            "tool": tool, "action": action,
+            "params": a.get("params", a.get("args", {})),
+            "result": a.get("result", a.get("output", {})),
+            "timestamp": a.get("timestamp", ""),
+            "duration_ms": a.get("duration_ms", 0.0),
+        })
+    if not normalized:
+        raise HTTPException(status_code=400, detail="No actions provided")
+    return ingest_trace(
+        agent_name=req.agent_name, normalized_steps=normalized,
+        org_id=_org(user), user_id=user["sub"], user_email=user["email"], source="generic",
+    )
+
+
+# ── Pre-Launch Audit (One Endpoint, Everything Tested) ────────────────────
+
+class PrelaunchRequest(BaseModel):
+    daily_runs: int = 0
+    historical_traces: list[dict] = []
+
+
+@app.post("/api/prelaunch/{agent_id}")
+def run_prelaunch_audit_endpoint(agent_id: str, req: PrelaunchRequest = None, user: dict = Depends(get_current_user)):
+    """Run every test and return a single prioritized fix list.
+
+    Runs: boundary test + regression test + cost model + trace replay.
+    Returns: ready_for_production (bool), prioritized fixes with exact actions,
+    and auto-fixable policy suggestions you can apply with one click.
+    """
+    from analysis.prelaunch import run_prelaunch_audit, report_to_dict
+
+    with get_db() as conn:
+        agent = get_agent_from_db(conn, agent_id, org_id=_org(user))
+        if not agent:
+            raise HTTPException(status_code=404, detail=f"Agent '{agent_id}' not found")
+        policies = conn.execute("SELECT * FROM policies WHERE agent_id = ?", (agent_id,)).fetchall()
+
+    body = req or PrelaunchRequest()
+
+    report = run_prelaunch_audit(
+        agent_config=agent,
+        policies=[dict(p) for p in policies],
+        historical_traces=body.historical_traces or None,
+        daily_runs=body.daily_runs,
+    )
+
+    with get_db() as conn:
+        log_audit(conn, user["sub"], user["email"], "PRELAUNCH_AUDIT", resource=agent_id,
+                  detail="ready=%s issues=%d coverage=%.0f%%" % (report.ready_for_production, report.total_issues, report.policy_coverage))
+
+    return report_to_dict(report)
+
+
+@app.post("/api/prelaunch/{agent_id}/auto-fix")
+def apply_prelaunch_fixes(agent_id: str, user: dict = Depends(get_current_user)):
+    """Apply all auto-fixable policy suggestions from the pre-launch audit.
+
+    Runs the audit, then creates policies for every fix marked auto_fixable=True.
+    """
+    from analysis.prelaunch import run_prelaunch_audit
+
+    with get_db() as conn:
+        agent = get_agent_from_db(conn, agent_id, org_id=_org(user))
+        if not agent:
+            raise HTTPException(status_code=404, detail=f"Agent '{agent_id}' not found")
+        policies = conn.execute("SELECT * FROM policies WHERE agent_id = ?", (agent_id,)).fetchall()
+
+    report = run_prelaunch_audit(agent_config=agent, policies=[dict(p) for p in policies])
+
+    applied = []
+    with get_db() as conn:
+        for fix in report.fixes:
+            if not fix.auto_fixable or not fix.policy_suggestion:
+                continue
+            ps = fix.policy_suggestion
+            # Check if policy already exists
+            existing = conn.execute(
+                "SELECT id FROM policies WHERE agent_id = ? AND action_pattern = ? AND effect = ?",
+                (agent_id, ps["action_pattern"], ps["effect"]),
+            ).fetchone()
+            if existing:
+                continue
+
+            priority = {"BLOCK": 100, "REQUIRE_APPROVAL": 50, "ALLOW": 10}.get(ps["effect"], 0)
+            conn.execute(
+                "INSERT INTO policies (agent_id, action_pattern, effect, reason, conditions, priority, created_by, created_at) VALUES (?, ?, ?, ?, '[]', ?, ?, ?)",
+                (agent_id, ps["action_pattern"], ps["effect"], ps["reason"], priority, user["email"], datetime.utcnow().isoformat()),
+            )
+            applied.append({"action_pattern": ps["action_pattern"], "effect": ps["effect"]})
+
+        if applied:
+            log_audit(conn, user["sub"], user["email"], "PRELAUNCH_AUTO_FIX", resource=agent_id,
+                      detail="Applied %d policies" % len(applied))
+
+    return {"applied": applied, "count": len(applied)}
+
+
+# ── Live Trace Streaming ──────────────────────────────────────────────────
+
+import asyncio
+import threading
+
+# In-memory buffer: agent_id → list of events (auto-expire after 5 min)
+_live_traces: dict[str, list[dict]] = {}
+_live_trace_lock = threading.Lock()
+_ws_subscribers: dict[str, list[WebSocket]] = {}
+
+# TTL cleanup
+_TRACE_TTL_SECONDS = 300
+
+
+def _cleanup_old_events():
+    """Remove events older than TTL."""
+    cutoff = time.time() - _TRACE_TTL_SECONDS
+    with _live_trace_lock:
+        for agent_id in list(_live_traces.keys()):
+            _live_traces[agent_id] = [e for e in _live_traces[agent_id] if e.get("_ts", 0) > cutoff]
+            if not _live_traces[agent_id]:
+                del _live_traces[agent_id]
+
+
+class LiveTraceEvent(BaseModel):
+    agent_id: str
+    tool: str
+    action: str
+    params: dict = {}
+    result: dict = {}
+    decision: str = "ALLOW"
+    duration_ms: float = 0.0
+    risk_labels: list[str] = []
+    timestamp: str = ""
+
+
+@app.post("/api/traces/live")
+async def push_live_trace(event: LiveTraceEvent):
+    """SDK pushes individual tool call events as they happen."""
+    entry = {
+        "agent_id": event.agent_id,
+        "tool": event.tool,
+        "action": event.action,
+        "params": event.params,
+        "result": event.result,
+        "decision": event.decision,
+        "duration_ms": event.duration_ms,
+        "risk_labels": event.risk_labels,
+        "timestamp": event.timestamp or datetime.utcnow().isoformat(),
+        "_ts": time.time(),
+    }
+
+    with _live_trace_lock:
+        if event.agent_id not in _live_traces:
+            _live_traces[event.agent_id] = []
+        _live_traces[event.agent_id].append(entry)
+
+    # Broadcast to WebSocket subscribers
+    subs = _ws_subscribers.get(event.agent_id, [])
+    dead = []
+    for ws in subs:
+        try:
+            await ws.send_json(entry)
+        except Exception:
+            dead.append(ws)
+    for ws in dead:
+        subs.remove(ws)
+
+    # Periodic cleanup
+    if len(_live_traces) > 100:
+        _cleanup_old_events()
+
+    return {"status": "ok"}
+
+
+@app.get("/api/traces/live/{agent_id}")
+def get_live_traces(agent_id: str):
+    """Poll for recent live events. Returns and clears the buffer."""
+    with _live_trace_lock:
+        events = _live_traces.pop(agent_id, [])
+    # Strip internal timestamps
+    for e in events:
+        e.pop("_ts", None)
+    return {"agent_id": agent_id, "events": events, "count": len(events)}
+
+
+@app.websocket("/ws/traces/{agent_id}")
+async def ws_live_traces(websocket: WebSocket, agent_id: str):
+    """WebSocket: subscribe to live trace events for an agent."""
+    await websocket.accept()
+
+    if agent_id not in _ws_subscribers:
+        _ws_subscribers[agent_id] = []
+    _ws_subscribers[agent_id].append(websocket)
+
+    try:
+        while True:
+            # Keep connection alive, wait for client messages (ping/close)
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        pass
+    finally:
+        if agent_id in _ws_subscribers:
+            try:
+                _ws_subscribers[agent_id].remove(websocket)
+            except ValueError:
+                pass
+
+
+# ── Cost-of-Breach Report ─────────────────────────────────────────────────
+
+@app.get("/api/agents/{agent_id}/cost-report")
+def get_cost_report(agent_id: str, daily_runs: int = 0, user: dict = Depends(get_current_user)):
+    """Generate cost-of-breach report for an agent.
+
+    Maps each risky capability to a cost category and breach scenario.
+    All dollar amounts are $0 until the customer configures their values
+    in cost_defaults.yaml (average transaction size, regulatory fine ranges, etc.).
+
+    Pass ?daily_runs=500 to set the agent's execution frequency for annualized risk.
+    """
+    from analysis.cost_model import generate_cost_report, report_to_dict
+
+    with get_db() as conn:
+        agent = get_agent_from_db(conn, agent_id, org_id=_org(user))
+        if not agent:
+            raise HTTPException(status_code=404, detail=f"Agent '{agent_id}' not found")
+        policies = conn.execute(
+            "SELECT * FROM policies WHERE agent_id = ?", (agent_id,)
+        ).fetchall()
+
+    report = generate_cost_report(agent, policies=[dict(p) for p in policies], daily_runs=daily_runs)
+    return report_to_dict(report)
+
+
+# ── Regression Testing (CI/CD Safety Gate) ───────────────────────────────
+
+@app.post("/api/regression-test/{agent_id}")
+def run_regression_test_endpoint(agent_id: str, create_baseline: bool = False, user: dict = Depends(get_current_user)):
+    """Run regression test against stored baseline. CI-friendly — returns pass/fail.
+
+    First call with ?create_baseline=true to establish the baseline.
+    Subsequent calls compare current policies against the baseline.
+    Returns 200 with passed=true/false. CI should check the passed field.
+    """
+    from testing.regression import run_regression_test, create_baseline_from_boundary_test, report_to_dict, _get_latest_baseline
+
+    with get_db() as conn:
+        agent = get_agent_from_db(conn, agent_id, org_id=_org(user))
+        if not agent:
+            raise HTTPException(status_code=404, detail=f"Agent '{agent_id}' not found")
+
+    if create_baseline:
+        result = create_baseline_from_boundary_test(agent_id, agent)
+        with get_db() as conn:
+            log_audit(conn, user["sub"], user["email"], "REGRESSION_BASELINE", resource=agent_id,
+                      detail=f"Created baseline v{result['version']} with {result['tests']} tests")
+        return {"status": "baseline_created", **result}
+
+    # Check baseline exists
+    baseline = _get_latest_baseline(agent_id)
+    if not baseline:
+        raise HTTPException(status_code=404, detail=f"No baseline for '{agent_id}'. Call with ?create_baseline=true first.")
+
+    report = run_regression_test(agent_id, agent)
+
+    with get_db() as conn:
+        log_audit(conn, user["sub"], user["email"], "REGRESSION_TEST", resource=agent_id,
+                  detail=f"v{report.baseline_version}→v{report.current_version}: {'PASSED' if report.passed else 'FAILED'}, {report.regressions_found} regressions")
+
+    return report_to_dict(report)
+
+
+@app.get("/api/regression-test/{agent_id}/history")
+def get_regression_history(agent_id: str, user: dict = Depends(get_current_user)):
+    """Get regression test history for an agent."""
+    from testing.regression import _get_baseline_history
+    return {"agent_id": agent_id, "history": _get_baseline_history(agent_id)}
+
+
+# ── Trace Replay (Historical Policy Evaluation) ──────────────────────────
+
+class ReplayRequest(BaseModel):
+    agent_id: str
+    traces: list[dict]  # accepts LangSmith, LangFuse, or simple format
+
+
+@app.post("/api/replay")
+def replay_traces_endpoint(req: ReplayRequest, user: dict = Depends(get_current_user)):
+    """Replay historical traces against current policies.
+
+    Accepts traces in LangSmith format (run_type, name, inputs, outputs),
+    LangFuse format (name, input, output, startTime), or simple format
+    (tool, action, params). No external APIs called — pure policy evaluation.
+
+    Shows what would have been BLOCKED or REQUIRE_APPROVAL if policies
+    had been in place when the trace was recorded.
+    """
+    from sandbox.trace_replay import replay_traces, report_to_dict
+
+    with get_db() as conn:
+        agent = get_agent_from_db(conn, req.agent_id, org_id=_org(user))
+        if not agent:
+            raise HTTPException(status_code=404, detail=f"Agent '{req.agent_id}' not found")
+
+    report = replay_traces(req.agent_id, req.traces)
+
+    with get_db() as conn:
+        log_audit(conn, user["sub"], user["email"], "TRACE_REPLAY", resource=req.agent_id,
+                  detail=f"Replayed {report.total_actions} actions, {report.dangerous_actions_unprotected} dangerous unprotected, coverage {report.policy_coverage}%")
+
+    return report_to_dict(report)
+
+
+# ── Red Team Testing ─────────────────────────────────────────────────────
+
+class RedTeamRequest(BaseModel):
+    system_prompt: str = ""  # optional: test with the agent's actual prompt
+
+
+@app.post("/api/red-team/{agent_id}")
+def run_red_team_endpoint(agent_id: str, req: RedTeamRequest = None, user: dict = Depends(get_current_user)):
+    """Run adversarial red team test against an agent.
+
+    Generates prompt injections, social engineering, authority escalation,
+    data exfiltration, and chain exploit attacks. Runs each through the
+    agent's LLM loop with enforcement. Reports which attacks bypassed policies.
+
+    Requires ANTHROPIC_API_KEY.
+    """
+    from sandbox.red_team import run_red_team, report_to_dict
+
+    api_key = os.getenv("ANTHROPIC_API_KEY")
+    if not api_key:
+        raise HTTPException(status_code=400, detail="ANTHROPIC_API_KEY required for red team testing")
+
+    with get_db() as conn:
+        agent = get_agent_from_db(conn, agent_id, org_id=_org(user))
+        if not agent:
+            raise HTTPException(status_code=404, detail=f"Agent '{agent_id}' not found")
+
+    system_prompt = ""
+    if req:
+        system_prompt = req.system_prompt
+
+    report = run_red_team(agent, system_prompt=system_prompt, api_key=api_key)
+
+    with get_db() as conn:
+        log_audit(conn, user["sub"], user["email"], "RED_TEAM", resource=agent_id,
+                  detail=f"{report.total_attacks} attacks, {report.total_bypassed} bypassed, resilience {report.resilience_score}%")
+
+    return report_to_dict(report)
+
+
+# ── Boundary Testing (Policy Penetration Test) ───────────────────────────
+
+@app.post("/api/boundary-test/{agent_id}")
+def run_boundary_test_endpoint(agent_id: str, user: dict = Depends(get_current_user)):
+    """Exhaustively test every dangerous action sequence against policies.
+
+    Returns a matrix of {sequence, decision, matched_rule, gap_detected}.
+    A gap is any dangerous action or chain that gets ALLOW.
+    """
+    from sandbox.boundary_tester import run_boundary_test, report_to_dict
+
+    with get_db() as conn:
+        agent = get_agent_from_db(conn, agent_id, org_id=_org(user))
+        if not agent:
+            raise HTTPException(status_code=404, detail=f"Agent '{agent_id}' not found")
+
+    report = run_boundary_test(agent)
+
+    with get_db() as conn:
+        log_audit(conn, user["sub"], user["email"], "BOUNDARY_TEST", resource=agent_id,
+                  detail=f"Tested {report.total_sequences_tested} sequences, {report.total_gaps} gaps found, coverage {report.coverage_score}%")
+
+    return report_to_dict(report)
+
+
 # ── Sweep (Full Agent Scan) ───────────────────────────────────────────────
 
 class SweepRequest(BaseModel):
@@ -2184,7 +2650,7 @@ def run_sweep(req: SweepRequest, user: dict = Depends(get_current_user)):
     from dataclasses import asdict as _asdict
 
     with get_db() as conn:
-        agent = get_agent_from_db(conn, req.agent_id)
+        agent = get_agent_from_db(conn, req.agent_id, org_id=_org(user))
         if not agent:
             raise HTTPException(status_code=404, detail=f"Agent '{req.agent_id}' not found")
 
@@ -2243,10 +2709,10 @@ def run_sweep(req: SweepRequest, user: dict = Depends(get_current_user)):
     # Store
     with get_db() as conn:
         conn.execute(
-            "INSERT INTO sweeps (id, agent_id, status, total_scenarios, completed, report_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO sweeps (id, agent_id, status, total_scenarios, completed, report_json, org_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             (sweep_id, req.agent_id, "completed", sweep_report.total_scenarios,
              sweep_report.completed, json.dumps(_asdict(sweep_report), default=str),
-             datetime.utcnow().isoformat()),
+             _org(user), datetime.utcnow().isoformat()),
         )
         log_audit(conn, user["sub"], user["email"], "SWEEP", resource=req.agent_id,
                   detail=f"Sweep: {sweep_report.total_scenarios} scenarios, risk={sweep_report.overall_risk_score}")
@@ -2259,7 +2725,8 @@ def list_sweeps(user: dict = Depends(get_current_user)):
     """List past sweep runs."""
     with get_db() as conn:
         rows = conn.execute(
-            "SELECT id, agent_id, status, total_scenarios, completed, created_at, report_json FROM sweeps ORDER BY created_at DESC LIMIT 50"
+            "SELECT id, agent_id, status, total_scenarios, completed, created_at, report_json FROM sweeps WHERE org_id = ? ORDER BY created_at DESC LIMIT 50",
+            (_org(user),)
         ).fetchall()
     sweeps = []
     for r in rows:
@@ -2582,8 +3049,8 @@ def create_api_key(req: CreateApiKeyRequest, user: dict = Depends(get_current_us
 
     with get_db() as conn:
         conn.execute(
-            "INSERT INTO api_keys (id, key_hash, key_prefix, name, created_by, agent_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (key_id, key_hash, key_prefix, req.name, user["email"], req.agent_id or None, datetime.utcnow().isoformat()),
+            "INSERT INTO api_keys (id, key_hash, key_prefix, name, created_by, agent_id, org_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (key_id, key_hash, key_prefix, req.name, user["email"], req.agent_id or None, _org(user), datetime.utcnow().isoformat()),
         )
         log_audit(conn, user["sub"], user["email"], "CREATE_API_KEY", resource=key_id,
                   detail=f"Key '{req.name}' for agent={req.agent_id or 'any'}")
@@ -2598,7 +3065,8 @@ def list_api_keys(user: dict = Depends(get_current_user)):
     """List all API keys (shows prefix only, not the full key)."""
     with get_db() as conn:
         rows = conn.execute(
-            "SELECT id, key_prefix, name, agent_id, active, last_used, created_at, created_by FROM api_keys ORDER BY created_at DESC"
+            "SELECT id, key_prefix, name, agent_id, active, last_used, created_at, created_by FROM api_keys WHERE org_id = ? ORDER BY created_at DESC",
+            (_org(user),)
         ).fetchall()
     return {"keys": [dict(r) for r in rows]}
 

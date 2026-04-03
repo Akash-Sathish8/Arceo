@@ -1,10 +1,6 @@
-"""SQLite database — agents, policies, audit log, execution log, users.
+"""SQLite database — agents, policies, audit log, execution log, users, organizations.
 
-Storage note: SQLite is used intentionally for zero-config local development
-and single-server deployments (sufficient for teams up to ~50 agents and
-thousands of executions/day). For multi-node deployments or higher write
-throughput, swap get_conn() / get_db() for a PostgreSQL connection pool
-(psycopg2 / asyncpg) — the schema is ANSI SQL and requires no changes.
+Multi-tenant: every table has org_id. All queries filter by org_id.
 """
 
 from __future__ import annotations
@@ -17,6 +13,8 @@ from datetime import datetime
 from pathlib import Path
 
 DB_PATH = Path(__file__).parent / "actiongate.db"
+
+DEFAULT_ORG_ID = "default"
 
 
 def get_conn() -> sqlite3.Connection:
@@ -40,12 +38,19 @@ def init_db():
     """Create tables and seed sample data if empty."""
     with get_db() as conn:
         conn.executescript("""
+            CREATE TABLE IF NOT EXISTS organizations (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                created_at TEXT
+            );
+
             CREATE TABLE IF NOT EXISTS users (
                 id TEXT PRIMARY KEY,
                 email TEXT UNIQUE NOT NULL,
                 password_hash TEXT NOT NULL,
                 name TEXT NOT NULL,
                 role TEXT DEFAULT 'viewer',
+                org_id TEXT DEFAULT 'default' REFERENCES organizations(id),
                 created_at TEXT
             );
 
@@ -54,6 +59,8 @@ def init_db():
                 name TEXT NOT NULL,
                 description TEXT,
                 tenant_id TEXT,
+                org_id TEXT DEFAULT 'default',
+                simulation_model TEXT,
                 created_at TEXT,
                 updated_at TEXT
             );
@@ -83,6 +90,7 @@ def init_db():
                 reason TEXT,
                 conditions TEXT DEFAULT '[]',
                 priority INTEGER DEFAULT 0,
+                org_id TEXT DEFAULT 'default',
                 created_by TEXT,
                 created_at TEXT
             );
@@ -94,6 +102,7 @@ def init_db():
                 action TEXT NOT NULL,
                 resource TEXT,
                 detail TEXT,
+                org_id TEXT DEFAULT 'default',
                 timestamp TEXT
             );
 
@@ -105,6 +114,7 @@ def init_db():
                 status TEXT,
                 policy_id INTEGER,
                 detail TEXT,
+                org_id TEXT DEFAULT 'default',
                 timestamp TEXT
             );
 
@@ -123,6 +133,7 @@ def init_db():
                 status TEXT,
                 trace_json TEXT,
                 report_json TEXT,
+                org_id TEXT DEFAULT 'default',
                 created_at TEXT
             );
 
@@ -135,6 +146,7 @@ def init_db():
                 agent_id TEXT,
                 scopes TEXT DEFAULT '["enforce","register","report"]',
                 active INTEGER DEFAULT 1,
+                org_id TEXT DEFAULT 'default',
                 last_used TEXT,
                 created_at TEXT
             );
@@ -146,6 +158,7 @@ def init_db():
                 total_scenarios INTEGER,
                 completed INTEGER,
                 report_json TEXT,
+                org_id TEXT DEFAULT 'default',
                 created_at TEXT
             );
 
@@ -154,86 +167,55 @@ def init_db():
                 slack_webhook_url TEXT DEFAULT '',
                 alert_email TEXT DEFAULT '',
                 notify_on_block INTEGER DEFAULT 1,
+                org_id TEXT DEFAULT 'default',
                 updated_at TEXT
+            );
+
+            CREATE TABLE IF NOT EXISTS regression_baselines (
+                id TEXT PRIMARY KEY,
+                agent_id TEXT,
+                version INTEGER DEFAULT 1,
+                baseline_json TEXT NOT NULL,
+                result_json TEXT,
+                regressions_json TEXT,
+                status TEXT DEFAULT 'baseline',
+                org_id TEXT DEFAULT 'default',
+                created_at TEXT
             );
         """)
 
-        # Seed demo user if none exist
+        # Seed default org and demo user if empty
+        org_count = conn.execute("SELECT COUNT(*) FROM organizations").fetchone()[0]
+        if org_count == 0:
+            conn.execute(
+                "INSERT INTO organizations (id, name, created_at) VALUES (?, ?, ?)",
+                (DEFAULT_ORG_ID, "Default Organization", datetime.utcnow().isoformat()),
+            )
+
         user_count = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
         if user_count == 0:
             _seed_demo_user(conn)
 
+
 def _seed_demo_user(conn):
-    """Seed only the demo login user. No agents."""
+    """Seed only the demo login user in the default org."""
     from auth import hash_password
     now = datetime.utcnow().isoformat()
     pw_hash = hash_password("admin123")
     conn.execute(
-        "INSERT INTO users (id, email, password_hash, name, role, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-        (str(uuid.uuid4()), "admin@actiongate.io", pw_hash, "Admin", "admin", now),
+        "INSERT INTO users (id, email, password_hash, name, role, org_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (str(uuid.uuid4()), "admin@actiongate.io", pw_hash, "Admin", "admin", DEFAULT_ORG_ID, now),
     )
 
 
-def _seed_ops_agent(conn, now: str):
-    """Seed a default ops agent with GitHub, AWS, Slack, PagerDuty."""
-    agent_id = "ops-agent"
-    conn.execute(
-        "INSERT OR IGNORE INTO agents (id, name, description, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
-        (agent_id, "Ops Agent", "Infrastructure health, incident response, and remediation", now, now),
-    )
+# ── Query helpers (all org-scoped) ────────────────────────────────────────
 
-    ops_tools = [
-        ("github", "GitHub", "CI/CD and code changes", [
-            ("get_pull_request", "View PR details", '[]', True),
-            ("merge_pull_request", "Merge a PR", '["changes_production"]', False),
-            ("trigger_workflow", "Run CI/CD pipeline", '["changes_production"]', True),
-            ("get_workflow_status", "Check pipeline status", '[]', True),
-            ("create_release", "Create a release", '["changes_production"]', False),
-            ("rollback_release", "Rollback a release", '["changes_production"]', False),
-        ]),
-        ("aws", "AWS", "Infrastructure management", [
-            ("list_instances", "List EC2 instances", '[]', True),
-            ("start_instance", "Start an instance", '["changes_production"]', True),
-            ("stop_instance", "Stop an instance", '["changes_production"]', True),
-            ("terminate_instance", "Terminate an instance", '["changes_production", "deletes_data"]', False),
-            ("scale_service", "Scale a service", '["changes_production"]', True),
-            ("get_logs", "Retrieve logs", '[]', True),
-            ("update_security_group", "Modify firewall rules", '["changes_production"]', False),
-            ("create_snapshot", "Create backup", '[]', True),
-            ("delete_snapshot", "Delete backup", '["deletes_data"]', False),
-        ]),
-        ("slack", "Slack", "Team notifications", [
-            ("send_message", "Send Slack message", '["sends_external"]', False),
-            ("send_channel_message", "Post to channel", '["sends_external"]', False),
-        ]),
-        ("pagerduty", "PagerDuty", "Incident management", [
-            ("create_incident", "Create incident", '["changes_production"]', True),
-            ("acknowledge_incident", "Acknowledge incident", '[]', True),
-            ("resolve_incident", "Resolve incident", '[]', True),
-            ("get_oncall", "Get on-call schedule", '[]', True),
-            ("escalate_incident", "Escalate incident", '["changes_production"]', True),
-            ("list_incidents", "List incidents", '[]', True),
-        ]),
-    ]
-
-    for tool_name, service, desc, actions in ops_tools:
-        cur = conn.execute(
-            "INSERT INTO agent_tools (agent_id, name, service, description) VALUES (?, ?, ?, ?)",
-            (agent_id, tool_name, service, desc),
-        )
-        tool_id = cur.lastrowid
-        for action_name, action_desc, risk_labels, reversible in actions:
-            conn.execute(
-                "INSERT INTO tool_actions (tool_id, action, description, risk_labels, reversible) VALUES (?, ?, ?, ?, ?)",
-                (tool_id, action_name, action_desc, risk_labels, reversible),
-            )
-
-
-# ── Query helpers ───────────────────────────────────────────────────────────
-
-def get_agent_from_db(conn, agent_id: str) -> dict | None:
-    """Load a full agent config from the database."""
-    row = conn.execute("SELECT * FROM agents WHERE id = ?", (agent_id,)).fetchone()
+def get_agent_from_db(conn, agent_id: str, org_id: str = None) -> dict | None:
+    """Load a full agent config from the database, scoped to org."""
+    if org_id:
+        row = conn.execute("SELECT * FROM agents WHERE id = ? AND org_id = ?", (agent_id, org_id)).fetchone()
+    else:
+        row = conn.execute("SELECT * FROM agents WHERE id = ?", (agent_id,)).fetchone()
     if not row:
         return None
 
@@ -245,6 +227,8 @@ def get_agent_from_db(conn, agent_id: str) -> dict | None:
         "id": row["id"],
         "name": row["name"],
         "description": row["description"],
+        "org_id": row["org_id"],
+        "simulation_model": row["simulation_model"] if "simulation_model" in row.keys() else None,
         "created_at": row["created_at"],
         "updated_at": row["updated_at"],
         "tools": [],
@@ -272,23 +256,26 @@ def get_agent_from_db(conn, agent_id: str) -> dict | None:
     return agent
 
 
-def get_all_agents_from_db(conn) -> list[dict]:
-    """Load all agents from the database."""
-    rows = conn.execute("SELECT id FROM agents ORDER BY name").fetchall()
+def get_all_agents_from_db(conn, org_id: str = None) -> list[dict]:
+    """Load all agents from the database, scoped to org."""
+    if org_id:
+        rows = conn.execute("SELECT id FROM agents WHERE org_id = ? ORDER BY name", (org_id,)).fetchall()
+    else:
+        rows = conn.execute("SELECT id FROM agents ORDER BY name").fetchall()
     return [get_agent_from_db(conn, r["id"]) for r in rows]
 
 
-def log_audit(conn, user_id: str | None, user_email: str | None, action: str, resource: str = None, detail: str = None):
+def log_audit(conn, user_id: str | None, user_email: str | None, action: str, resource: str = None, detail: str = None, org_id: str = DEFAULT_ORG_ID):
     """Write an audit log entry."""
     conn.execute(
-        "INSERT INTO audit_log (user_id, user_email, action, resource, detail, timestamp) VALUES (?, ?, ?, ?, ?, ?)",
-        (user_id, user_email, action, resource, detail, datetime.utcnow().isoformat()),
+        "INSERT INTO audit_log (user_id, user_email, action, resource, detail, org_id, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (user_id, user_email, action, resource, detail, org_id, datetime.utcnow().isoformat()),
     )
 
 
-def log_execution(conn, agent_id: str, tool: str, action: str, status: str, policy_id: int = None, detail: str = None):
+def log_execution(conn, agent_id: str, tool: str, action: str, status: str, policy_id: int = None, detail: str = None, org_id: str = DEFAULT_ORG_ID):
     """Write an execution log entry."""
     conn.execute(
-        "INSERT INTO execution_log (agent_id, tool, action, status, policy_id, detail, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?)",
-        (agent_id, tool, action, status, policy_id, detail, datetime.utcnow().isoformat()),
+        "INSERT INTO execution_log (agent_id, tool, action, status, policy_id, detail, org_id, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        (agent_id, tool, action, status, policy_id, detail, org_id, datetime.utcnow().isoformat()),
     )
