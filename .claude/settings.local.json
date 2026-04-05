@@ -30,7 +30,11 @@
       "Bash(python3 -m pytest tests/test_api.py tests/test_new_features.py tests/test_hpe_features.py -v --tb=line)",
       "Bash(python3 -m pytest tests/ --tb=line)",
       "Bash(git add:*)",
-      "Bash(git commit:*)"
+      "Bash(git commit:*)",
+      "Bash(git remote:*)",
+      "Bash(lsof -ti:8000)",
+      "Bash(xargs kill:*)",
+      "Bash(rm -f /Users/akashsathish/ActionGate/backend/actiongate.db)"
     ]
   }
 }

@@ -1,12 +1,32 @@
-Metadata-Version: 2.1
+Metadata-Version: 2.4
 Name: arceo
 Version: 0.1.0
 Summary: Monitor any AI agent's tool calls and get a risk report.
-Home-page: UNKNOWN
 Author: Arceo
-License: UNKNOWN
-Platform: UNKNOWN
+License: MIT
 Requires-Python: >=3.9
-
-UNKNOWN
-
+Description-Content-Type: text/markdown
+Provides-Extra: langchain
+Requires-Dist: langchain-core>=0.2; extra == "langchain"
+Provides-Extra: crewai
+Requires-Dist: crewai>=0.50; extra == "crewai"
+Provides-Extra: openai
+Requires-Dist: openai>=1.0; extra == "openai"
+Provides-Extra: anthropic
+Requires-Dist: anthropic>=0.30; extra == "anthropic"
+Provides-Extra: backend
+Requires-Dist: httpx>=0.27; extra == "backend"
+Provides-Extra: cli
+Requires-Dist: click>=8.0; extra == "cli"
+Requires-Dist: pyyaml>=6.0; extra == "cli"
+Requires-Dist: httpx>=0.27; extra == "cli"
+Provides-Extra: all
+Requires-Dist: langchain-core>=0.2; extra == "all"
+Requires-Dist: crewai>=0.50; extra == "all"
+Requires-Dist: openai>=1.0; extra == "all"
+Requires-Dist: anthropic>=0.30; extra == "all"
+Requires-Dist: httpx>=0.27; extra == "all"
+Requires-Dist: click>=8.0; extra == "all"
+Requires-Dist: pyyaml>=6.0; extra == "all"
+Dynamic: author
+Dynamic: requires-python

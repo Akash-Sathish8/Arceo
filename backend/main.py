@@ -656,11 +656,16 @@ class SignupRequest(BaseModel):
     email: str
     password: str
     name: str = ""
+    org_name: str = ""  # optional: creates a new org. If empty, uses email domain.
 
 
 @app.post("/api/auth/signup")
 def signup(req: SignupRequest):
-    """Create a new account."""
+    """Create a new account with its own organization.
+
+    Each signup creates an isolated org. Agents, policies, simulations,
+    and all data are scoped to this org. Other orgs cannot see it.
+    """
     from auth import hash_password, create_token
 
     if len(req.password) < 6:
@@ -672,20 +677,30 @@ def signup(req: SignupRequest):
             raise HTTPException(status_code=409, detail="Email already registered")
 
         user_id = str(uuid.uuid4())
+        org_id = uuid.uuid4().hex[:12]
         now = datetime.utcnow().isoformat()
         pw_hash = hash_password(req.password)
         name = req.name or req.email.split("@")[0]
+        org_name = req.org_name or req.email.split("@")[1].split(".")[0].title()
 
+        # Create org
         conn.execute(
-            "INSERT INTO users (id, email, password_hash, name, role, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-            (user_id, req.email, pw_hash, name, "admin", now),
+            "INSERT INTO organizations (id, name, created_at) VALUES (?, ?, ?)",
+            (org_id, org_name, now),
         )
-        log_audit(conn, user_id, req.email, "SIGNUP", detail="New account created")
 
-    token = create_token(user_id, req.email, "admin")
+        # Create user in that org
+        conn.execute(
+            "INSERT INTO users (id, email, password_hash, name, role, org_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (user_id, req.email, pw_hash, name, "admin", org_id, now),
+        )
+        log_audit(conn, user_id, req.email, "SIGNUP", detail=f"New account + org '{org_name}'", org_id=org_id)
+
+    token = create_token(user_id, req.email, "admin", org_id=org_id)
     return {
         "token": token,
-        "user": {"id": user_id, "email": req.email, "name": name, "role": "admin"},
+        "user": {"id": user_id, "email": req.email, "name": name, "role": "admin", "org_id": org_id},
+        "org": {"id": org_id, "name": org_name},
     }
 
 
