@@ -183,7 +183,7 @@ export default function FeatureRows() {
         <div style={{ marginBottom: 48 }}>
           <span className="eyebrow">Features</span>
           <h2 style={{ fontSize: 44, fontWeight: 600, letterSpacing: "-0.4px", color: "#2C2215" }}>
-            Cost and risk, in one report<br />your CFO will sign.
+            Cost and risk, in one report
           </h2>
         </div>
 
@@ -224,7 +224,7 @@ export default function FeatureRows() {
                   <path d="M9 13h6M9 17h6" />
                 </svg>
               ),
-              label: "CFO-readable report", sub: "Cost + worst case in one view",
+              label: "Readable financial report", sub: "Cost + worst case in one view",
             },
           ].map((t, i) => (
             <div key={t.label} style={{

@@ -58,28 +58,27 @@ export default function Hero() {
             color: "#2C2215",
             marginBottom: 20,
           }}>
-            Know what your AI agent<br />
-            costs to run, and what<br />
-            <span style={{ color: "#2C6E9E" }}>it could break.</span>
+            What your AI agent<br />
+            could break <span style={{ color: "#2C6E9E" }}>+</span><br />
+            cost to run
           </h1>
 
           <p style={{ fontSize: 20, color: "#6B5C4A", lineHeight: 1.6, marginBottom: 28, maxWidth: 520 }}>
-            Arceo gives you a straight answer on what an agent costs to run and what happens if it goes wrong. Point it at your agent (Anthropic, OpenAI, MCP, or a GitHub repo) and you get one report your finance team can actually read.
+            Arceo maps every tool your agent can call, prices what it&apos;ll cost to run, and flags the action chains that could go wrong, before you ship.
           </p>
 
           <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
             <Link href="/book-demo" className="btn-black">
               Book a demo
             </Link>
-            <Link href="/pricing" className="btn-outline">See pricing</Link>
           </div>
 
           {/* Stats — hugs CTAs */}
           <div style={{ display: "flex", alignItems: "stretch", marginTop: 24, paddingTop: 18, borderTop: "1px solid #E0D7C9" }}>
             {[
-              { n: "±15%", label: "Forecast confidence" },
-              { n: "4",    label: "Agent sources" },
-              { n: "15",   label: "Risk chain rules" },
+              { n: "Any agent",  label: "Anthropic · OpenAI · MCP · GitHub · LangChain · Custom" },
+              { n: "One report", label: "Cost and risk in one report" },
+              { n: "Minutes",    label: "Connect → report" },
             ].map((s, i) => (
               <div key={s.label} style={{
                 flex: 1,
@@ -88,7 +87,7 @@ export default function Hero() {
                 paddingLeft: i > 0 ? 20 : 0,
               }}>
                 <div style={{ fontSize: 26, fontWeight: 800, color: "#2C2215", lineHeight: 1, letterSpacing: "-0.03em", marginBottom: 4 }}>{s.n}</div>
-                <div style={{ fontSize: 12, color: "#87786A", fontWeight: 500 }}>{s.label}</div>
+                <div style={{ fontSize: 11, lineHeight: 1.4, letterSpacing: "-0.01em", color: "#87786A", fontWeight: 500 }}>{s.label}</div>
               </div>
             ))}
           </div>

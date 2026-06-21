@@ -60,8 +60,6 @@ export default function Navbar() {
           position: "absolute", left: "50%", top: "50%",
           transform: "translate(-50%, -50%)",
         }} className="desktop-nav">
-          <Link href="/pricing" className="nav-link">Pricing</Link>
-          <Link href="/security" className="nav-link">Security</Link>
         </nav>
 
         {/* Right actions */}
@@ -91,14 +89,6 @@ export default function Navbar() {
           padding: "12px 24px 20px",
           display: "flex", flexDirection: "column", gap: 2,
         }}>
-          <Link href="/pricing" onClick={() => setMobileOpen(false)}
-            style={{ fontSize: 15, fontWeight: 500, color: "#2C2215", padding: "10px 4px" }}>
-            Pricing
-          </Link>
-          <Link href="/security" onClick={() => setMobileOpen(false)}
-            style={{ fontSize: 15, fontWeight: 500, color: "#2C2215", padding: "10px 4px" }}>
-            Security
-          </Link>
           <a href={`${APP_URL}/login`}
             style={{ fontSize: 15, fontWeight: 500, color: "#2C2215", padding: "10px 4px" }}>
             Sign In

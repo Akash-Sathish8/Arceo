@@ -45,13 +45,11 @@ export default function Footer() {
       }}>
         {/* Credibility line */}
         <p style={{ fontSize: 13, fontWeight: 600, color: "#2C2215", textAlign: "center", letterSpacing: "0.01em" }}>
-          Cost and risk for AI agents, before they go live · Built for CIOs and CFOs
+          Cost and risk for AI agents, before they go live
         </p>
 
         {/* Footer links */}
         <div style={{ display: "flex", alignItems: "center", gap: 20, flexWrap: "wrap", justifyContent: "center" }}>
-          <Link href="/pricing" style={{ fontSize: 12, color: "#87786A", textDecoration: "none" }}>Pricing</Link>
-          <Link href="/security" style={{ fontSize: 12, color: "#87786A", textDecoration: "none" }}>Security</Link>
           <Link href="/book-demo" style={{ fontSize: 12, color: "#87786A", textDecoration: "none" }}>Book a demo</Link>
         </div>
 

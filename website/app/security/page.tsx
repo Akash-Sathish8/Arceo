@@ -160,9 +160,6 @@ export default function SecurityPage() {
                 </li>
               ))}
             </ul>
-            <p style={{ fontSize: 14, color: "var(--clay-body-subtle)", marginTop: 24, lineHeight: 1.6 }}>
-              All data is stored in the US (AWS us-east-1). Enterprise plans include EU and APAC data residency options. We never train any models on your data.
-            </p>
           </div>
         </section>
 
@@ -179,7 +176,6 @@ export default function SecurityPage() {
               <Link href="/book-demo" className="btn-black">
                 Book a demo
               </Link>
-              <Link href="/pricing" className="btn-outline">See pricing</Link>
             </div>
           </div>
         </section>

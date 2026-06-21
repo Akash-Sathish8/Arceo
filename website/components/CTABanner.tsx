@@ -20,9 +20,6 @@ export default function CTABanner() {
           <Link href="/book-demo" className="btn-white" style={{ padding: "16px 40px" }}>
             Book a demo
           </Link>
-          <Link href="/pricing" className="btn-white-outline" style={{ padding: "15px 40px" }}>
-            See pricing
-          </Link>
         </div>
       </div>
     </section>
