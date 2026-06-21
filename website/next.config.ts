@@ -12,12 +12,6 @@ const nextConfig: NextConfig = {
       },
     ];
   },
-  async redirects() {
-    return [
-      // The Salesforce/Agentforce wedge was retired; send the old funnel to book-demo.
-      { source: "/connect-salesforce", destination: "/book-demo", permanent: false },
-    ];
-  },
 };
 
 export default nextConfig;

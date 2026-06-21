@@ -1,5 +1,73 @@
 @import "tailwindcss";
 
+/* ════════════════════════════════════════════════════════════════
+   Claymorphism design tokens
+   Warm cream surfaces, deep-blue brand, pill shapes, clay 3D shadows.
+   Light theme only.
+   ════════════════════════════════════════════════════════════════ */
+:root {
+  /* ── Neutral / cream surfaces ──────────────────────────────── */
+  --clay-cream:        #FAF6F0;   /* neutral-primary-soft  (page / cards) */
+  --clay-cream-2:      #F3EDE4;   /* neutral-secondary-soft (alt sections) */
+  --clay-cream-3:      #EBE4D8;   /* neutral-tertiary       (hover / wells) */
+  --clay-cream-4:      #E0D7C9;   /* quaternary             (deeper wells) */
+
+  /* ── Text ──────────────────────────────────────────────────── */
+  --clay-heading:      #2C2215;   /* heading / near-black warm */
+  --clay-body:         #6B5C4A;   /* body copy */
+  --clay-body-subtle:  #87786A;   /* muted / meta */
+  --clay-disabled:     #A99880;
+
+  /* ── Brand (Carolina blue) ─────────────────────────────────── */
+  --clay-brand:        #4B9CD3;   /* Carolina blue — fills, accents, buttons */
+  --clay-brand-strong: #2C6E9E;   /* deeper Carolina — text on light, hovers */
+  --clay-brand-soft:   #BFDDF0;
+  --clay-brand-softer: #E8F3FB;
+
+  /* ── Borders ───────────────────────────────────────────────── */
+  --clay-border:        #E0D7C9;  /* border-default */
+  --clay-border-light:  #EBE4D8;  /* border-light */
+  --clay-border-strong: #2C2215;  /* border-dark */
+
+  /* ── Dark surface (announcement bar, footer wordmark, terminals) */
+  --clay-dark:         #2C2215;
+  --clay-dark-strong:  #1D1610;
+
+  /* ── Status (kept for parity; risk colors live inline) ─────── */
+  --clay-success:      #007A55;
+  --clay-danger:       #C70036;
+  --clay-warning:      #F97316;
+
+  /* ── Risk tiers (worst-case severity — authority graph) ────── */
+  --risk-critical:        #dc2626;
+  --risk-critical-fill:   #fef2f2;
+  --risk-critical-border: #fca5a5;
+  --risk-risky:           #f59e0b;
+  --risk-risky-fill:      #fffbeb;
+  --risk-risky-border:    #fde68a;
+  --risk-safe:            #9ca3af;
+  --risk-safe-fill:       #F3EDE4;
+  --risk-safe-border:     #E0D7C9;
+
+  /* ── Radius scale ──────────────────────────────────────────── */
+  --r-lg:   36px;   /* large feature surfaces, hero graphic */
+  --r-md:   24px;   /* standard cards, mockups */
+  --r-sm:   12px;   /* tiny controls */
+  --r-pill: 999px;  /* buttons, inputs, badges */
+
+  /* ── Clay shadows (outer drop + dual inner = inflated clay) ── */
+  --shadow-2xs: 2px 4px 6px rgba(0,0,0,0.06), inset -2px -2px 4px rgba(0,0,0,0.04), inset 2px 2px 4px rgba(255,255,255,0.7);
+  --shadow-xs:  3px 6px 10px rgba(0,0,0,0.08), inset -2px -3px 6px rgba(0,0,0,0.05), inset 2px 3px 6px rgba(255,255,255,0.65);
+  --shadow-sm:  4px 8px 16px rgba(0,0,0,0.10), inset -3px -4px 8px rgba(0,0,0,0.05), inset 3px 4px 8px rgba(255,255,255,0.60);
+  --shadow-md:  6px 12px 24px rgba(0,0,0,0.12), inset -4px -6px 10px rgba(0,0,0,0.05), inset 4px 6px 10px rgba(255,255,255,0.55);
+  --shadow-lg:  8px 16px 32px rgba(0,0,0,0.14), inset -5px -8px 14px rgba(0,0,0,0.05), inset 5px 8px 14px rgba(255,255,255,0.50);
+  --shadow-xl:  10px 24px 48px rgba(0,0,0,0.16), inset -6px -10px 18px rgba(0,0,0,0.05), inset 6px 10px 18px rgba(255,255,255,0.45);
+
+  /* ── Button glint (top-edge highlight + outer colour glow) ─── */
+  --color-1-400: rgba(255,255,255,0.40);
+  --color-1-700: rgba(0,0,0,0.15);
+}
+
 /* ── Reset ────────────────────────────────────────────────── */
 *, *::before, *::after {
   box-sizing: border-box;
@@ -8,12 +76,13 @@
   font-stretch: normal;
 }
 
-html { scroll-behavior: smooth; }
+html { scroll-behavior: smooth; overflow-x: clip; }
 
 body {
-  font-family: var(--font-dm-sans), system-ui, -apple-system, sans-serif;
-  background: #ffffff;
-  color: #6b7280;
+  font-family: var(--font-poppins), system-ui, -apple-system, sans-serif;
+  background: var(--clay-cream);
+  color: var(--clay-body);
+  overflow-x: clip; /* contain decorative 3D overflow (hero deck) without breaking sticky nav */
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   font-size: 16px;
@@ -21,13 +90,15 @@ body {
   font-stretch: normal;
 }
 
-/* ── Headings — DM Sans ───────────────────────────────────── */
+/* ── Headings — Poppins, warm near-black ──────────────────── */
 h1, h2, h3, h4, .display {
-  font-family: var(--font-dm-sans), system-ui, sans-serif;
-  color: #111827;
+  font-family: var(--font-poppins), system-ui, sans-serif;
+  color: var(--clay-heading);
   line-height: 1.1;
   font-stretch: normal;
 }
+h1 { font-weight: 800; letter-spacing: -0.8px; }   /* h1 is extra-bold per spec */
+h2, h3, h4 { font-weight: 600; }
 
 a { color: inherit; text-decoration: none; }
 button { cursor: pointer; font-family: inherit; font-stretch: normal; }
@@ -39,107 +110,113 @@ code, .mono {
 
 /* ── Layout ───────────────────────────────────────────────── */
 .container {
-  max-width: 1100px;
+  max-width: 1152px;
   margin: 0 auto;
-  padding: 0 32px;
+  padding: 0 24px;
 }
 
 /* ── Section defaults ─────────────────────────────────────── */
 .section {
-  padding: 96px 0;
+  padding: 112px 0;
 }
 
-/* ── Buttons ──────────────────────────────────────────────── */
+/* ── Buttons ──────────────────────────────────────────────────
+   Pill shaped, clay shadow + glint. .btn-black is the primary
+   brand CTA; .btn-outline is the soft clay secondary.            */
 .btn-black {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  background: #111827;
+  background: var(--clay-brand);
   color: #fff;
-  font-size: 14px;
-  font-weight: 600;
+  font-size: 15px;
+  font-weight: 500;
   letter-spacing: -0.1px;
-  padding: 12px 24px;
-  border-radius: 999px;
-  border: none;
+  padding: 13px 28px;
+  border-radius: var(--r-pill);
+  border: 1px solid transparent;
+  box-shadow: var(--shadow-sm), inset var(--color-1-400) 0 10px 6px -6px, var(--color-1-700) 4px 8px 18px -6px;
   transition: background 0.15s, transform 0.1s, box-shadow 0.15s;
   cursor: pointer;
   white-space: nowrap;
   text-decoration: none;
 }
 .btn-black:hover {
-  background: #1f2937;
+  background: var(--clay-brand-strong);
   transform: translateY(-1px);
-  box-shadow: 0 4px 14px rgba(0,0,0,0.18);
+  box-shadow: var(--shadow-md), inset var(--color-1-400) 0 10px 6px -6px, var(--color-1-700) 4px 10px 22px -6px;
 }
 
 .btn-outline {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  background: transparent;
-  color: #111827;
-  font-size: 14px;
-  font-weight: 600;
+  background: var(--clay-cream);
+  color: var(--clay-heading);
+  font-size: 15px;
+  font-weight: 500;
   letter-spacing: -0.1px;
-  padding: 11px 24px;
-  border-radius: 999px;
-  border: 1.5px solid #d1d5db;
-  transition: border-color 0.15s, background 0.15s, transform 0.1s;
+  padding: 13px 28px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--clay-border);
+  box-shadow: var(--shadow-sm), inset var(--color-1-400) 0 10px 6px -6px;
+  transition: background 0.15s, border-color 0.15s, transform 0.1s, box-shadow 0.15s;
   cursor: pointer;
   white-space: nowrap;
   text-decoration: none;
 }
 .btn-outline:hover {
-  border-color: #9ca3af;
-  background: #f9fafb;
+  background: var(--clay-cream-3);
   transform: translateY(-1px);
+  box-shadow: var(--shadow-md), inset var(--color-1-400) 0 10px 6px -6px;
 }
 
+/* Light pill on dark surfaces (CTA banner) */
 .btn-white {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  background: #fff;
-  color: #111827;
-  font-size: 14px;
-  font-weight: 600;
+  background: var(--clay-cream);
+  color: var(--clay-heading);
+  font-size: 15px;
+  font-weight: 500;
   letter-spacing: -0.1px;
-  padding: 12px 24px;
-  border-radius: 999px;
-  border: none;
-  transition: background 0.15s, transform 0.1s;
+  padding: 13px 28px;
+  border-radius: var(--r-pill);
+  border: 1px solid transparent;
+  box-shadow: var(--shadow-sm), inset var(--color-1-400) 0 10px 6px -6px, var(--color-1-700) 4px 8px 18px -6px;
+  transition: background 0.15s, transform 0.1s, box-shadow 0.15s;
   cursor: pointer;
   white-space: nowrap;
   text-decoration: none;
 }
-.btn-white:hover { background: #f3f4f6; transform: translateY(-1px); }
+.btn-white:hover { background: #fff; transform: translateY(-1px); }
 
 .btn-white-outline {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  background: transparent;
-  color: #fff;
-  font-size: 14px;
-  font-weight: 600;
+  background: rgba(250,246,240,0.06);
+  color: var(--clay-cream);
+  font-size: 15px;
+  font-weight: 500;
   letter-spacing: -0.1px;
-  padding: 11px 24px;
-  border-radius: 999px;
-  border: 1.5px solid rgba(255,255,255,0.35);
-  transition: border-color 0.15s, background 0.15s;
+  padding: 13px 28px;
+  border-radius: var(--r-pill);
+  border: 1px solid rgba(250,246,240,0.35);
+  transition: border-color 0.15s, background 0.15s, transform 0.1s;
   cursor: pointer;
   white-space: nowrap;
   text-decoration: none;
 }
-.btn-white-outline:hover { border-color: rgba(255,255,255,0.7); background: rgba(255,255,255,0.07); }
+.btn-white-outline:hover { border-color: rgba(250,246,240,0.7); background: rgba(250,246,240,0.12); transform: translateY(-1px); }
 
 /* ── Cards ────────────────────────────────────────────────── */
 .card {
-  background: #fff;
-  border: 1px solid #e5e7eb;
-  border-radius: 16px;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+  background: var(--clay-cream);
+  border: 1px solid var(--clay-border);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-md);
   overflow: hidden;
 }
 
@@ -148,11 +225,11 @@ code, .mono {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.03em;
-  padding: 3px 9px;
-  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  padding: 4px 12px;
+  border-radius: var(--r-pill);
   border: 1px solid transparent;
   white-space: nowrap;
 }
@@ -161,76 +238,61 @@ code, .mono {
 .eyebrow {
   display: block;
   font-size: 12px;
-  font-weight: 700;
+  font-weight: 600;
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: #9ca3af;
+  color: var(--clay-brand-strong);
   margin-bottom: 12px;
 }
 
-/* ── Halftone ─────────────────────────────────────────────── */
+/* ── Halftone (warm clay dot field) ───────────────────────── */
 .halftone {
-  background-image: radial-gradient(circle, rgba(0,0,0,0.07) 1px, transparent 1px);
+  background-image: radial-gradient(circle, rgba(44,34,21,0.06) 1px, transparent 1px);
   background-size: 12px 12px;
 }
 
-/* ── Fade-in on scroll (progressive enhancement) ──────────────
-   Content is VISIBLE by default. The hidden-then-reveal animation only
-   applies once JS has added `fade-ready` to <html> (see app/layout.tsx),
-   so text can never get stuck invisible if JS is disabled, errors out, or
-   a bfcache back-navigation fails to re-trigger the reveal. */
+/* ── Fade-in on scroll ────────────────────────────────────── */
 .fade-up {
-  opacity: 1;
-  transform: none;
-}
-html.fade-ready .fade-up {
   opacity: 0;
   transform: translateY(28px);
   transition: opacity 0.65s cubic-bezier(0.22, 1, 0.36, 1),
               transform 0.65s cubic-bezier(0.22, 1, 0.36, 1);
 }
-html.fade-ready .fade-up.visible {
+.fade-up.visible {
   opacity: 1;
   transform: translateY(0);
 }
-@media (prefers-reduced-motion: reduce) {
-  html.fade-ready .fade-up {
-    opacity: 1;
-    transform: none;
-    transition: none;
-  }
-}
 
-/* ── Hover helpers (CSS-only, no JS) ─────────────────────── */
+/* ── Hover helpers ────────────────────────────────────────── */
 .nav-link {
   font-size: 14px;
   font-weight: 500;
-  color: #6b7280;
-  padding: 6px 12px;
-  border-radius: 8px;
+  color: var(--clay-body);
+  padding: 8px 14px;
+  border-radius: var(--r-pill);
   transition: color 0.12s, background 0.12s;
 }
-.nav-link:hover { color: #111827; background: #f9fafb; }
+.nav-link:hover { color: var(--clay-heading); background: var(--clay-cream-3); }
 
 .footer-link {
   font-size: 13px;
   font-weight: 500;
-  color: #9ca3af;
+  color: var(--clay-body-subtle);
   transition: color 0.12s;
 }
-.footer-link:hover { color: #374151; }
+.footer-link:hover { color: var(--clay-heading); }
 
 .social-btn {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
-  border-radius: 8px;
-  color: #9ca3af;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--r-pill);
+  color: var(--clay-body-subtle);
   transition: color 0.12s, background 0.12s;
 }
-.social-btn:hover { color: #374151; background: #f3f4f6; }
+.social-btn:hover { color: var(--clay-heading); background: var(--clay-cream-3); }
 
 /* ── Divider ──────────────────────────────────────────────── */
-.divider { height: 1px; background: #e5e7eb; }
+.divider { height: 1px; background: var(--clay-border); }
