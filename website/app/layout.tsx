@@ -1,38 +1,28 @@
 import type { Metadata } from "next";
-import { DM_Sans } from "next/font/google";
+import { Poppins } from "next/font/google";
 import "./globals.css";
 
-const dmSans = DM_Sans({
+const poppins = Poppins({
   subsets: ["latin"],
-  variable: "--font-dm-sans",
+  variable: "--font-poppins",
   display: "swap",
-  weight: ["400", "500", "600", "700"],
+  weight: ["400", "500", "600", "700", "800"],
 });
 
 export const metadata: Metadata = {
-  title: "Arceo — Forecast AI Agent Cost & Risk",
-  description: "Arceo tells you how much your AI agent will cost — and what could go wrong with it — before you put it in production. One CFO-readable report. Any agent in.",
+  title: "Arceo · Cost and risk forecasting for AI agents",
+  description: "Arceo tells you what your AI agent will cost to run, and what happens if it goes wrong, before you put it in production. One report your finance team can read. Works with Anthropic, OpenAI, MCP, and GitHub.",
   openGraph: {
-    title: "Arceo — Forecast AI Agent Cost & Risk",
-    description: "How much will your AI agent cost, and what could go wrong? Get both in one CFO-readable report, before you deploy.",
+    title: "Arceo · Cost and risk forecasting for AI agents",
+    description: "Know what an agent costs to run and what it could break, before it goes live. One report your finance team can read.",
     type: "website",
   },
 };
 
-// Runs before first paint: marks the page "fade-ready" so the scroll-fade
-// animation plays when JS is alive, while leaving content visible-by-default
-// if it isn't. Also force-reveals every fade-up element on a bfcache back-
-// navigation (pageshow.persisted), where the React reveal can fail to re-fire
-// and Safari/Chrome may keep elements stuck at opacity:0.
-const FADE_BOOTSTRAP = `(function(){var d=document.documentElement;d.classList.add('fade-ready');window.addEventListener('pageshow',function(e){if(e.persisted){var f=document.querySelectorAll('.fade-up');for(var i=0;i<f.length;i++)f[i].classList.add('visible');}});})();`;
-
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={dmSans.variable} suppressHydrationWarning>
-      <body>
-        <script dangerouslySetInnerHTML={{ __html: FADE_BOOTSTRAP }} />
-        {children}
-      </body>
+    <html lang="en" className={poppins.variable}>
+      <body>{children}</body>
     </html>
   );
 }

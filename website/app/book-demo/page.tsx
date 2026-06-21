@@ -50,7 +50,7 @@ export default function BookDemoPage() {
           {!submitted ? (
             <>
               <h1 style={{
-                fontFamily: "var(--font-dm-sans), system-ui, sans-serif",
+                fontFamily: "var(--font-poppins), system-ui, sans-serif",
                 fontSize: 44,
                 fontWeight: 700,
                 lineHeight: 1.15,
@@ -146,7 +146,7 @@ export default function BookDemoPage() {
                 </svg>
               </div>
               <h1 style={{
-                fontFamily: "var(--font-dm-sans), system-ui, sans-serif",
+                fontFamily: "var(--font-poppins), system-ui, sans-serif",
                 fontSize: 36,
                 fontWeight: 700,
                 color: "#111827",

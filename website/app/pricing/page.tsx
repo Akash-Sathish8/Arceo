@@ -6,37 +6,56 @@ import Footer from "../../components/Footer";
 
 const PLANS = [
   {
-    name: "Pilot",
-    price: "Custom",
-    period: "",
-    description: "A scoped engagement for your first agents headed to production. Forecast, risk report, and policy recommendations — priced to your fleet.",
-    cta: "Book a demo",
-    ctaHref: "/book-demo",
-    ctaStyle: "dark" as const,
-    features: [
-      "Any agent — Anthropic, OpenAI, MCP, GitHub",
-      "Monthly cost forecast + CFO PDF",
-      "Blast-radius score + 14 chain rules",
-      "Policy recommendations",
-      "Slack alerts",
-    ],
-    highlight: true,
-    badge: "Available now",
-  },
-  {
-    name: "Scale",
-    price: "Custom",
-    period: "",
-    description: "For teams running multiple agents across platforms, with live monitoring and budget alerts.",
-    cta: "Book a demo",
-    ctaHref: "/book-demo",
+    name: "Free",
+    price: "$0",
+    period: "forever",
+    description: "For admins who want to see their blast radius for the first time.",
+    cta: "Connect Salesforce → Free scan",
+    ctaHref: "/connect-salesforce",
     ctaStyle: "outline" as const,
     features: [
-      "Everything in Pilot",
-      "Live trace ingestion",
-      "Spend anomaly + budget-cap alerts",
+      "1 Agentforce agent",
+      "Full action inventory",
+      "Blast radius score",
+      "Up to 5 chain rules checked",
+      "Read-only OAuth",
+    ],
+    highlight: false,
+  },
+  {
+    name: "SMB",
+    price: "$99",
+    period: "/ month",
+    description: "For growing Salesforce teams deploying multiple Agentforce agents.",
+    cta: "Start free trial",
+    ctaHref: "/connect-salesforce",
+    ctaStyle: "dark" as const,
+    features: [
+      "Up to 10 Agentforce agents",
+      "All 15 chain detection rules",
+      "Re-scan on metadata change",
+      "Policy recommendations",
+      "Slack / email alerts",
+      "CSV audit export",
+    ],
+    highlight: true,
+    badge: "Most popular",
+  },
+  {
+    name: "Pro",
+    price: "$299",
+    period: "/ month",
+    description: "For security-conscious orgs with complex multi-agent deployments.",
+    cta: "Start free trial",
+    ctaHref: "/connect-salesforce",
+    ctaStyle: "outline" as const,
+    features: [
+      "Unlimited agents",
       "Multi-agent chain detection",
-      "Per-org cost overrides",
+      "Human-in-the-loop approvals",
+      "Audit log + compliance export",
+      "Custom threshold alerts",
+      "Priority support",
     ],
     highlight: false,
   },
@@ -44,16 +63,17 @@ const PLANS = [
     name: "Enterprise",
     price: "Custom",
     period: "",
-    description: "For regulated buyers with SSO, audit, and compliance requirements.",
+    description: "For large orgs, ISVs, and partners with SLA and data residency requirements.",
     cta: "Book a call",
     ctaHref: "/book-demo",
     ctaStyle: "outline" as const,
     features: [
-      "Everything in Scale",
+      "Everything in Pro",
+      "Dedicated sandbox environment",
+      "Custom OAuth scope review",
+      "SLA + uptime guarantee",
       "SSO / SAML",
-      "Audit log + compliance export",
-      "SOC 2 (in progress)",
-      "Priority support",
+      "Data residency options",
     ],
     highlight: false,
   },
@@ -70,7 +90,7 @@ export default function PricingPage() {
           <div className="container" style={{ textAlign: "center" }}>
             <span style={{
               display: "inline-block",
-              fontSize: 11, fontWeight: 700, color: "#2563eb",
+              fontSize: 11, fontWeight: 700, color: "#00A1E0",
               textTransform: "uppercase", letterSpacing: "0.12em",
               marginBottom: 16,
             }}>Pricing</span>
@@ -78,7 +98,7 @@ export default function PricingPage() {
               Simple, transparent pricing
             </h1>
             <p style={{ fontSize: 16, color: "#6b7280", lineHeight: 1.7, maxWidth: 480, margin: "0 auto" }}>
-              Arceo is in design-partner pilots. We scope pricing to your fleet on a short call — no per-seat surprises.
+              Start with a free scan. Upgrade when you need more agents, chain rules, or alerts. No credit card required to connect.
             </p>
           </div>
         </section>
@@ -88,7 +108,7 @@ export default function PricingPage() {
           <div className="container">
             <div style={{
               display: "grid",
-              gridTemplateColumns: "repeat(3, 1fr)",
+              gridTemplateColumns: "repeat(4, 1fr)",
               gap: 20,
               alignItems: "stretch",
             }} className="pricing-grid">
@@ -107,7 +127,7 @@ export default function PricingPage() {
                   {plan.badge && (
                     <div style={{
                       position: "absolute", top: -12, left: "50%", transform: "translateX(-50%)",
-                      background: "#2563eb", color: "#fff",
+                      background: "#00A1E0", color: "#fff",
                       fontSize: 10, fontWeight: 700, padding: "3px 12px", borderRadius: 999,
                       letterSpacing: "0.06em", whiteSpace: "nowrap",
                     }}>
@@ -167,8 +187,8 @@ export default function PricingPage() {
 
             {/* Footer note */}
             <p style={{ textAlign: "center", fontSize: 13, color: "#9ca3af", marginTop: 40 }}>
-              Arceo runs on any agent platform — Anthropic, OpenAI, MCP, or a GitHub repo. Questions?{" "}
-              <Link href="/book-demo" style={{ color: "#374151", fontWeight: 600 }}>Talk to us</Link>
+              All plans include read-only OAuth — no data leaves your Salesforce org. Questions?{" "}
+              <Link href="/book-demo" style={{ color: "#374151", fontWeight: 600 }}>Talk to us →</Link>
             </p>
           </div>
         </section>

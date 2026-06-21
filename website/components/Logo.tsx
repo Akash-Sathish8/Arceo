@@ -1,4 +1,4 @@
-export function LogoIcon({ size = 24, color = "#111827" }: { size?: number; color?: string }) {
+export function LogoIcon({ size = 24, color = "#2C2215" }: { size?: number; color?: string }) {
   return (
     <svg
       width={size}
@@ -25,7 +25,7 @@ export function LogoIcon({ size = 24, color = "#111827" }: { size?: number; colo
 
 export default function Logo({
   size = 24,
-  color = "#111827",
+  color = "#2C2215",
   showWord = true,
   wordSize,
 }: {
@@ -39,9 +39,9 @@ export default function Logo({
       <LogoIcon size={size} color={color} />
       {showWord && (
         <span style={{
-          fontFamily: "var(--font-dm-sans), system-ui, sans-serif",
+          fontFamily: "var(--font-poppins), system-ui, sans-serif",
           fontSize: wordSize ?? Math.round(size * 0.85),
-          fontWeight: 700,
+          fontWeight: 800,
           letterSpacing: "-0.02em",
           color,
           lineHeight: 1,

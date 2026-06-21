@@ -2,7 +2,7 @@ import Link from "next/link";
 
 export default function Footer() {
   return (
-    <footer style={{ background: "#fff", borderTop: "1px solid #e5e7eb", position: "relative" }}>
+    <footer style={{ background: "#FAF6F0", borderTop: "1px solid #E0D7C9", position: "relative" }}>
       <div style={{
         overflow: "hidden",
         textAlign: "center",
@@ -12,24 +12,24 @@ export default function Footer() {
         <span style={{
           display: "inline-flex",
           alignItems: "baseline",
-          fontFamily: "var(--font-dm-sans), system-ui, sans-serif",
+          fontFamily: "var(--font-poppins), system-ui, sans-serif",
           fontSize: "clamp(80px, 10vw, 120px)",
           fontWeight: 900,
-          color: "#f3f4f6",
+          color: "#EBE4D8",
           letterSpacing: "-3px",
           lineHeight: 0.9,
         }}>
           <svg width="0.9em" height="0.9em" viewBox="0 0 32 32" fill="none" aria-hidden="true" style={{ alignSelf: "center" }}>
-            <line x1="16" y1="5"  x2="10" y2="18" stroke="#f3f4f6" strokeWidth="2" strokeLinecap="round" />
-            <line x1="16" y1="5"  x2="22" y2="18" stroke="#f3f4f6" strokeWidth="2" strokeLinecap="round" />
-            <line x1="10" y1="18" x2="22" y2="18" stroke="#f3f4f6" strokeWidth="2" strokeLinecap="round" />
-            <line x1="10" y1="18" x2="5"  y2="27" stroke="#f3f4f6" strokeWidth="2" strokeLinecap="round" />
-            <line x1="22" y1="18" x2="27" y2="27" stroke="#f3f4f6" strokeWidth="2" strokeLinecap="round" />
-            <circle cx="16" cy="5"  r="2.5" fill="#f3f4f6" />
-            <circle cx="10" cy="18" r="2.5" fill="#f3f4f6" />
-            <circle cx="22" cy="18" r="2.5" fill="#f3f4f6" />
-            <circle cx="5"  cy="27" r="2.5" fill="#f3f4f6" />
-            <circle cx="27" cy="27" r="2.5" fill="#f3f4f6" />
+            <line x1="16" y1="5"  x2="10" y2="18" stroke="#EBE4D8" strokeWidth="2" strokeLinecap="round" />
+            <line x1="16" y1="5"  x2="22" y2="18" stroke="#EBE4D8" strokeWidth="2" strokeLinecap="round" />
+            <line x1="10" y1="18" x2="22" y2="18" stroke="#EBE4D8" strokeWidth="2" strokeLinecap="round" />
+            <line x1="10" y1="18" x2="5"  y2="27" stroke="#EBE4D8" strokeWidth="2" strokeLinecap="round" />
+            <line x1="22" y1="18" x2="27" y2="27" stroke="#EBE4D8" strokeWidth="2" strokeLinecap="round" />
+            <circle cx="16" cy="5"  r="2.5" fill="#EBE4D8" />
+            <circle cx="10" cy="18" r="2.5" fill="#EBE4D8" />
+            <circle cx="22" cy="18" r="2.5" fill="#EBE4D8" />
+            <circle cx="5"  cy="27" r="2.5" fill="#EBE4D8" />
+            <circle cx="27" cy="27" r="2.5" fill="#EBE4D8" />
           </svg>
           <span style={{ marginLeft: "-0.05em" }}>rceo</span>
         </span>
@@ -44,18 +44,18 @@ export default function Footer() {
         gap: 12,
       }}>
         {/* Credibility line */}
-        <p style={{ fontSize: 13, fontWeight: 600, color: "#374151", textAlign: "center", letterSpacing: "0.01em" }}>
-          Predeployment cost + risk for AI agents · Platform-agnostic · One CFO-readable report
+        <p style={{ fontSize: 13, fontWeight: 600, color: "#2C2215", textAlign: "center", letterSpacing: "0.01em" }}>
+          Cost and risk for AI agents, before they go live · Built for CIOs and CFOs
         </p>
 
         {/* Footer links */}
         <div style={{ display: "flex", alignItems: "center", gap: 20, flexWrap: "wrap", justifyContent: "center" }}>
-          <Link href="/pricing" style={{ fontSize: 12, color: "#9ca3af", textDecoration: "none" }}>Pricing</Link>
-          <Link href="/security" style={{ fontSize: 12, color: "#9ca3af", textDecoration: "none" }}>Security</Link>
-          <Link href="/book-demo" style={{ fontSize: 12, color: "#9ca3af", textDecoration: "none" }}>Book Demo</Link>
+          <Link href="/pricing" style={{ fontSize: 12, color: "#87786A", textDecoration: "none" }}>Pricing</Link>
+          <Link href="/security" style={{ fontSize: 12, color: "#87786A", textDecoration: "none" }}>Security</Link>
+          <Link href="/book-demo" style={{ fontSize: 12, color: "#87786A", textDecoration: "none" }}>Book a demo</Link>
         </div>
 
-        <span style={{ fontSize: 12, color: "#d1d5db" }}>
+        <span style={{ fontSize: 12, color: "#C9BBA8" }}>
           © {new Date().getFullYear()} Arceo. All rights reserved.
         </span>
       </div>

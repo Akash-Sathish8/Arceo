@@ -1,18 +1,18 @@
 export default function AnnouncementBar() {
   return (
     <div style={{
-      background: "#0a0f1e",
-      padding: "8px 24px",
+      background: "#2C2215",
+      padding: "9px 24px",
       textAlign: "center",
-      borderBottom: "1px solid rgba(255,255,255,0.06)",
+      borderBottom: "1px solid rgba(250,246,240,0.06)",
     }}>
       <span style={{
         fontSize: 13.5,
         fontWeight: 500,
-        color: "#ffffff",
+        color: "#FAF6F0",
         letterSpacing: "0.01em",
       }}>
-        Forecast AI agent cost and risk — before you put it in production
+        We help CIOs and CFOs sign off on AI agents before they go live
       </span>
     </div>
   );
