@@ -1,0 +1,96 @@
+{
+  "id": "spend-test-skewed-distribution",
+  "role": "adversarial",
+  "danger_level": "high",
+  "tests": "Stresses the forecaster's uniform tool-distribution assumption: 10 tools are exposed but ~95% of real calls hit one paid action (stripe.create_charge), so true per-call tool cost is ~10x a per-tool uniform-average estimate.",
+  "simulation_model": "claude-sonnet-4-6",
+  "behavior": {
+    "calls_per_day": 120,
+    "input_tokens_per_call": 2200,
+    "output_tokens_per_call": 400,
+    "cache_hit_pct": 60,
+    "retry_pct": 4,
+    "tool_call_mix": [
+      { "action": "stripe.create_charge", "share": 0.95, "unit_cost_usd": 0.029 },
+      { "action": "stripe.get_customer", "share": 0.02, "unit_cost_usd": 0.0 },
+      { "action": "stripe.list_payments", "share": 0.01, "unit_cost_usd": 0.0 },
+      { "action": "stripe.get_invoice", "share": 0.005, "unit_cost_usd": 0.0 },
+      { "action": "salesforce.query_contacts", "share": 0.005, "unit_cost_usd": 0.0 },
+      { "action": "salesforce.get_account", "share": 0.003, "unit_cost_usd": 0.0 },
+      { "action": "hubspot.get_contact", "share": 0.003, "unit_cost_usd": 0.0 },
+      { "action": "zendesk.get_ticket", "share": 0.002, "unit_cost_usd": 0.0 },
+      { "action": "slack.send_message", "share": 0.001, "unit_cost_usd": 0.0 },
+      { "action": "email.get_email_status", "share": 0.001, "unit_cost_usd": 0.0 }
+    ]
+  },
+  "expected_truth": {
+    "llm_per_call_usd": 0.006028,
+    "tool_per_call_usd": 0.02755,
+    "infra_per_call_usd": 0.001,
+    "monthly_point_usd": 124.48,
+    "monthly_range_usd": [105.81, 143.15],
+    "how_computed": "Model claude-sonnet-4-6: input $3.00/MTok = 3.0e-6/tok, output $15.00/MTok = 15.0e-6/tok, cache_discount 0.90, tokenizer_inflation 1.0. llm_per_call = (2200*3.0e-6 + 400*15.0e-6) * (1 - 0.60*0.90) * (1 + 0.04) = (0.0066 + 0.0060) * 0.46 * 1.04 = 0.0126 * 0.46 * 1.04 = 0.006028. tool_per_call = sum(share*unit_cost): 0.95*0.029 = 0.027550, all other actions cost 0.0, so tool_per_call = 0.02755. infra_per_call = 0.001. per_call_total = 0.006028 + 0.02755 + 0.001 = 0.034578. monthly = 120 calls/day * 30 days * 0.034578 = 124.48. monthly_range = 124.48 * [0.85, 1.15] = [105.81, 143.15]. Note: the brief named stripe.create_payout ($0.25), but create_payout is NOT in the spec mockTools stripe action list, so it cannot execute in a sandbox sweep; the most expensive PAID action that exists in BOTH mockTools and toolActionCosts is stripe.create_charge ($0.029), used as the hot tool here to keep the file sweep-executable while preserving the 95/5 skew.",
+    "tool_estimate_under_uniform_assumption_usd": 0.00290,
+    "uniform_note": "A forecaster that spreads tool cost uniformly across the 10 exposed tools would estimate ~(0.95*0.029)/10 + 0 = ~0.00276-0.0029 per call (the single $0.029 hot cost averaged over all tools), vs the true 0.02755 - roughly a 9.5x underestimate of tool cost."
+  },
+  "why_low_tier_will_miss": "The LOW tier assumes uniform tool distribution and would amortize the lone paid action across all 10 tools (~$0.0029/call tool cost) plus a static ~100 calls/day, landing near $0.30/call -> ~$30-40/mo on tool spend; convergence to look for is the forecaster's tool_per_call rising ~9.5x to $0.02755 and monthly climbing toward the true ~$124 once it weights tool_call_mix by the observed 95/5 share instead of uniform.",
+  "register_payload": {
+    "name": "Skewed Billing Operator",
+    "description": "Adversarial spend-test agent: exposes 10 tools but in practice ~95% of calls hit one expensive paid action (stripe.create_charge). Probes the forecaster's uniform tool-distribution assumption where true tool cost far exceeds a per-tool average estimate.",
+    "tools": [
+      {
+        "name": "stripe",
+        "service": "stripe",
+        "description": "Payments. The hot path: ~95% of real calls create charges (a paid per-call action).",
+        "actions": [
+          { "name": "create_charge", "description": "Create a charge against a customer (paid action, $0.029 each). The dominant ~95% of calls." },
+          { "name": "create_refund", "description": "Refund a charge." },
+          { "name": "get_customer", "description": "Read a customer record." },
+          { "name": "list_payments", "description": "List recent payments." },
+          { "name": "get_invoice", "description": "Read an invoice." }
+        ]
+      },
+      {
+        "name": "salesforce",
+        "service": "salesforce",
+        "description": "CRM lookups, rarely called.",
+        "actions": [
+          { "name": "query_contacts", "description": "Query contacts (read)." },
+          { "name": "get_account", "description": "Read an account (read)." }
+        ]
+      },
+      {
+        "name": "hubspot",
+        "service": "hubspot",
+        "description": "Secondary CRM, rarely called.",
+        "actions": [
+          { "name": "get_contact", "description": "Read a contact (read)." }
+        ]
+      },
+      {
+        "name": "zendesk",
+        "service": "zendesk",
+        "description": "Support context, rarely called.",
+        "actions": [
+          { "name": "get_ticket", "description": "Read a ticket (read)." }
+        ]
+      },
+      {
+        "name": "slack",
+        "service": "slack",
+        "description": "Internal notifications, rarely called.",
+        "actions": [
+          { "name": "send_message", "description": "Send a DM (read-cost-free mock)." }
+        ]
+      },
+      {
+        "name": "email",
+        "service": "email",
+        "description": "Email status checks, rarely called.",
+        "actions": [
+          { "name": "get_email_status", "description": "Read delivery status (read)." }
+        ]
+      }
+    ]
+  }
+}

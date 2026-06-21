@@ -1,0 +1,75 @@
+{
+  "id": "spend-test-budget-buster-infra",
+  "role": "expensive",
+  "danger_level": "critical",
+  "tests": "The absolute ceiling: Opus pricing plus 1.35x tokenizer inflation, huge multi-turn input (~12 tool results per call), low cache, and ~2000 calls/day to expose the top of the cost distribution.",
+  "simulation_model": "claude-opus-4-7",
+  "behavior": {
+    "calls_per_day": 2000,
+    "input_tokens_per_call": 56700,
+    "output_tokens_per_call": 1215,
+    "cache_hit_pct": 20,
+    "retry_pct": 5,
+    "tool_call_mix": [
+      { "action": "aws.create_snapshot", "share": 0.15, "unit_cost_usd": 0.020 },
+      { "action": "aws.terminate_instance", "share": 0.10, "unit_cost_usd": 0.0 },
+      { "action": "aws.scale_service", "share": 0.10, "unit_cost_usd": 0.0 },
+      { "action": "github.trigger_workflow", "share": 0.15, "unit_cost_usd": 0.0 },
+      { "action": "github.merge_pull_request", "share": 0.10, "unit_cost_usd": 0.0 },
+      { "action": "pagerduty.create_incident", "share": 0.15, "unit_cost_usd": 0.0 },
+      { "action": "pagerduty.escalate_incident", "share": 0.10, "unit_cost_usd": 0.0 },
+      { "action": "stripe.create_charge", "share": 0.15, "unit_cost_usd": 0.029 }
+    ]
+  },
+  "expected_truth": {
+    "llm_per_call_usd": 0.2702,
+    "tool_per_call_usd": 0.00735,
+    "infra_per_call_usd": 0.001,
+    "monthly_point_usd": 16715.78,
+    "monthly_range_usd": [14208.42, 19223.15],
+    "how_computed": "Model claude-opus-4-7: input $5.00/MTok = 5e-6/tok, output $25.00/MTok = 25e-6/tok, cache_discount 0.90, tokenizer_inflation 1.35. Token counts already include inflation: raw 42000 in * 1.35 = 56700 in_tok; raw 900 out * 1.35 = 1215 out_tok (long multi-turn loop carrying ~12 tool results @ ~3000 tok each + 800 system + tool overhead). cache_frac=0.20, retry_frac=0.05. llm_per_call = (56700*5e-6 + 1215*25e-6) * (1 - 0.20*0.90) * (1 + 0.05) = (0.28350 + 0.030375) * 0.82 * 1.05 = 0.313875 * 0.861 = 0.27025 ~ $0.2702. tool_per_call = 0.15*0.020 + 0.10*0 + 0.10*0 + 0.15*0 + 0.10*0 + 0.15*0 + 0.10*0 + 0.15*0.029 = 0.003 + 0.00435 = 0.00735 (aws.create_snapshot $0.020, stripe.create_charge $0.029; all other actions $0). monthly = 2000 * 30 * (0.2702 + 0.00735 + 0.001) = 60000 * 0.27855 = $16715.78. range = point * [0.85, 1.15] = [14208.42, 19223.15]."
+  },
+  "why_low_tier_will_miss": "The LOW tier assumes 100 calls/day (vs 2000), a small static token estimate (vs 56700 inflated input tokens), and applies no Opus 1.35x tokenizer inflation, so it will under-forecast by ~20-40x; convergence is reached only once live ingestion learns the true call volume, the ~12-tool-result input size, and the Opus inflation multiplier.",
+  "register_payload": {
+    "name": "Budget Buster Infra Orchestrator",
+    "description": "Critical infra/incident orchestrator running on Opus with long multi-turn loops over AWS, GitHub, PagerDuty, and Stripe. Designed to stress the top of the spend distribution: Opus pricing + 1.35x tokenizer inflation, ~12 tool results per call, low cache reuse, and very high daily volume.",
+    "tools": [
+      {
+        "name": "aws",
+        "service": "aws",
+        "description": "Cloud infrastructure control: instances, scaling, snapshots.",
+        "actions": [
+          { "name": "create_snapshot", "description": "Create an RDS/EBS snapshot." },
+          { "name": "terminate_instance", "description": "Terminate an EC2 instance." },
+          { "name": "scale_service", "description": "Scale a service up or down." }
+        ]
+      },
+      {
+        "name": "github",
+        "service": "github",
+        "description": "CI/CD orchestration and deployment.",
+        "actions": [
+          { "name": "trigger_workflow", "description": "Trigger a GitHub Actions workflow." },
+          { "name": "merge_pull_request", "description": "Merge a pull request." }
+        ]
+      },
+      {
+        "name": "pagerduty",
+        "service": "pagerduty",
+        "description": "Incident management and escalation.",
+        "actions": [
+          { "name": "create_incident", "description": "Open a new incident." },
+          { "name": "escalate_incident", "description": "Escalate an incident to the next on-call tier." }
+        ]
+      },
+      {
+        "name": "stripe",
+        "service": "stripe",
+        "description": "Payments — used here for high-cost charge actions.",
+        "actions": [
+          { "name": "create_charge", "description": "Create a charge against a customer." }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,79 @@
+{
+  "id": "spend-test-long-loop",
+  "role": "adversarial",
+  "danger_level": "medium",
+  "tests": "An agentic research/triage loop that packs ~15 tool results (~7500 tok) into every LLM call, stressing the forecaster's implicit ~1-tool-result-per-call (~500 tok) token assumption so the static estimate understates input tokens by roughly an order of magnitude.",
+  "simulation_model": "claude-sonnet-4-6",
+  "behavior": {
+    "calls_per_day": 150,
+    "input_tokens_per_call": 8500,
+    "output_tokens_per_call": 350,
+    "cache_hit_pct": 60,
+    "retry_pct": 4,
+    "tool_call_mix": [
+      { "action": "zendesk.list_tickets", "share": 0.25, "unit_cost_usd": 0 },
+      { "action": "salesforce.query_contacts", "share": 0.20, "unit_cost_usd": 0 },
+      { "action": "hubspot.query_contacts", "share": 0.15, "unit_cost_usd": 0 },
+      { "action": "stripe.list_payments", "share": 0.15, "unit_cost_usd": 0 },
+      { "action": "gmail.search_emails", "share": 0.15, "unit_cost_usd": 0 },
+      { "action": "zendesk.add_comment", "share": 0.10, "unit_cost_usd": 0 }
+    ]
+  },
+  "expected_truth": {
+    "llm_per_call_usd": 0.014711,
+    "tool_per_call_usd": 0.0,
+    "infra_per_call_usd": 0.001,
+    "monthly_point_usd": 70.7,
+    "monthly_range_usd": [60.09, 81.3],
+    "how_computed": "Model claude-sonnet-4-6: input $3.00/MTok = 3.0e-6/tok, output $15.00/MTok = 15.0e-6/tok, cache_discount 0.90, tokenizer_inflation 1.0. Input is large because each call packs ~15 tool results: system 800 + user 120 + 15*500 (tool_result_tokens) = ~7420 plus tool-schema/overhead, rounded to 8500 input tok; output ~350 tok (near completion default 300). Gross per call = 8500*3.0e-6 + 350*15.0e-6 = 0.0255 + 0.00525 = 0.03075. Cache: (1 - 0.60*0.90) = 0.46. Retry: (1 + 0.04) = 1.04. llm_per_call = 0.03075 * 0.46 * 1.04 = 0.014711. tool_per_call = 0.25*0 + 0.20*0 + 0.15*0 + 0.15*0 + 0.15*0 + 0.10*0 = 0.0 (all read/query actions have no per-call tool unit cost in toolActionCosts). per_call = 0.014711 + 0.0 + 0.001 (infra) = 0.015711. monthly = 150 calls/day * 30 days * 0.015711 = 70.70. range = 70.70 * [0.85, 1.15] = [60.09, 81.30].",
+    "_note": "monthly_point_usd rounded; exact = 150*30*0.015711 = 70.70 USD."
+  },
+  "why_low_tier_will_miss": "The LOW tier assumes 100 calls/day and a static per-call token estimate built on ~1 tool result (~500 tok), so it will model ~1500-2000 input tok and ~100 calls/day instead of 8500 input tok at 150 calls/day, badly understating LLM cost; convergence to watch is whether live ingestion pushes the forecast's per-call input tokens up toward ~8500 and calls/day toward 150 so the point estimate climbs from a ~$10-15/mo lowball to the ~$71/mo truth.",
+  "register_payload": {
+    "name": "Long-Loop Triage Researcher",
+    "description": "Adversarial agentic loop that fans out across CRM, support, billing, and inbox systems, accumulating ~15 tool results per LLM call before reasoning. Stresses token-per-call assumptions in the cost forecaster.",
+    "tools": [
+      {
+        "name": "zendesk",
+        "service": "zendesk",
+        "description": "Support ticket system",
+        "actions": [
+          { "name": "list_tickets", "description": "Bulk-list open tickets, dozens of records per page packed into context" },
+          { "name": "add_comment", "description": "Append a triage note to a ticket" }
+        ]
+      },
+      {
+        "name": "salesforce",
+        "service": "salesforce",
+        "description": "CRM contacts and accounts",
+        "actions": [
+          { "name": "query_contacts", "description": "Query contact records to enrich triage context" }
+        ]
+      },
+      {
+        "name": "hubspot",
+        "service": "hubspot",
+        "description": "Secondary CRM",
+        "actions": [
+          { "name": "query_contacts", "description": "Cross-reference contacts across CRMs" }
+        ]
+      },
+      {
+        "name": "stripe",
+        "service": "stripe",
+        "description": "Billing and payments",
+        "actions": [
+          { "name": "list_payments", "description": "Pull recent payment history for a customer into context" }
+        ]
+      },
+      {
+        "name": "gmail",
+        "service": "gmail",
+        "description": "Email search and inbox",
+        "actions": [
+          { "name": "search_emails", "description": "Search mailbox and load matching threads into the loop" }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,60 @@
+{
+  "id": "spend-test-support-smb-sonnet",
+  "role": "normal",
+  "danger_level": "medium",
+  "tests": "The common SMB-support case: modest Sonnet token load with a healthy cache rate, where cheap sendgrid emails plus a zero-marginal-cost stripe refund make LLM tokens the dominant cost driver.",
+  "simulation_model": "claude-sonnet-4-6",
+  "behavior": {
+    "calls_per_day": 100,
+    "input_tokens_per_call": 1400,
+    "output_tokens_per_call": 300,
+    "cache_hit_pct": 60,
+    "retry_pct": 3,
+    "tool_call_mix": [
+      { "action": "zendesk.get_ticket", "share": 0.35, "unit_cost_usd": 0.0 },
+      { "action": "zendesk.list_tickets", "share": 0.25, "unit_cost_usd": 0.0 },
+      { "action": "email.send_email", "share": 0.30, "unit_cost_usd": 0.0004 },
+      { "action": "stripe.create_refund", "share": 0.10, "unit_cost_usd": 0.0 }
+    ]
+  },
+  "expected_truth": {
+    "llm_per_call_usd": 0.00412206,
+    "tool_per_call_usd": 0.00012,
+    "infra_per_call_usd": 0.001,
+    "monthly_point_usd": 15.7262,
+    "monthly_range_usd": [13.3673, 18.0851],
+    "how_computed": "Model claude-sonnet-4-6: input $3.00/MTok = 3e-6/tok, output $15.00/MTok = 15e-6/tok, cache_discount 0.90, tokenizer_inflation 1.0. raw_per_call = 1400*3e-6 + 300*15e-6 = 0.0042 + 0.0045 = 0.0087. cache multiplier = 1 - cache_frac*cache_discount = 1 - 0.60*0.90 = 0.46. retry multiplier = 1 + 0.03 = 1.03. llm_per_call = 0.0087 * 0.46 * 1.03 = 0.00412206. tool_per_call = 0.35*0 (zendesk.get_ticket) + 0.25*0 (zendesk.list_tickets) + 0.30*0.0004 (email.send_email -> sendgrid send_email price) + 0.10*0 (stripe.create_refund) = 0.00012. infra = 0.001. monthly = 100 calls/day * 30 days * (0.00412206 + 0.00012 + 0.001) = 3000 * 0.00524206 = 15.72618 ~= $15.73. monthly_range = 15.7262 * [0.85, 1.15] = [13.3673, 18.0851]."
+  },
+  "why_low_tier_will_miss": "The LOW tier's static token estimate (turnDefaults ~ 800 system + 400/tool + 120 user + 500 tool_result + 300 completion across 4 turns) and uniform tool distribution won't match this agent's actual 1400-in/300-out per call at 60% cache, so its per-call LLM figure drifts from the $0.00412 truth; convergence to watch is the LOW forecast landing somewhere in the ~$10-25/month band as the calls/day=100 default happens to coincide here while the token mix does not.",
+  "register_payload": {
+    "name": "SMB Support Agent",
+    "description": "Typical small-business customer-support agent: reads Zendesk tickets, sends customer emails via SendGrid, and issues the occasional Stripe refund. The common-case spend profile.",
+    "tools": [
+      {
+        "name": "zendesk",
+        "service": "zendesk",
+        "description": "Customer support ticketing",
+        "actions": [
+          { "name": "get_ticket", "description": "Fetch a single support ticket by id" },
+          { "name": "list_tickets", "description": "List recent or open support tickets" }
+        ]
+      },
+      {
+        "name": "email",
+        "service": "email",
+        "description": "Transactional email via SendGrid",
+        "actions": [
+          { "name": "send_email", "description": "Send a customer-facing support email" }
+        ]
+      },
+      {
+        "name": "stripe",
+        "service": "stripe",
+        "description": "Payments and refunds",
+        "actions": [
+          { "name": "create_refund", "description": "Issue a refund for a customer charge" }
+        ]
+      }
+    ]
+  }
+}

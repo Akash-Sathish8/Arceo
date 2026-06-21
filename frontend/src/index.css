@@ -1,0 +1,327 @@
+@import '@fontsource-variable/geist';
+@import '@fontsource-variable/jetbrains-mono';
+@import "tailwindcss";
+
+:root {
+  /* ── Typography ──────────────────────────────────────────────── */
+  /* Schibsted Grotesk is the redesign font. Geist is kept as a fallback
+     and is still wired in via @fontsource so older surfaces don't break. */
+  --font-sans: 'Schibsted Grotesk', 'Geist Variable', system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', 'JetBrains Mono Variable', 'Fira Code', 'Cascadia Code', monospace;
+  --font-num:  var(--font-mono);
+
+  /* ── Redesign tokens (added 2026-06-01 from design handoff). ──
+     Coexist with the existing tokens below so other pages keep working
+     while the rebuild lands page-by-page. */
+  --ink-900: #1a1d24;
+  --ink-800: #262a32;
+  --ink-700: #3a3f49;
+  --ink-600: #555b66;
+  --ink-500: #6e7682;
+  --ink-400: #99a0ac;
+  --ink-300: #c4cad2;
+  --ink-200: #dee2e8;
+
+  --paper:    #f7f8fa;
+  --paper-2:  #eef1f4;
+  --card:     #ffffff;
+  --line:     #e6e9ee;
+  --line-soft:#eef0f4;
+
+  /* Accent — Carolina blue (UNC PMS 542). */
+  --accent:        #4B9CD3;
+  --accent-ink:    #2E7BB0;
+  --accent-soft:   #ECF5FB;
+  --accent-line:   #D1E5F3;
+
+  --safe:        #3f865f; --safe-bg:     #ecf3ef; --safe-line:     #d7e7dd;
+  --caution:     #98711f; --caution-bg:  #f5eedd; --caution-line:  #e8dcbd;
+  --critical:    #cf4636; --critical-bg: #fbece8; --critical-line: #f3d6cf;
+  /* Ring/score variants — slightly punchier than the text tones. */
+  --safe-ring:     #2f8a5b;
+  --caution-ring:  #c79320;
+  --critical-ring: #c1452f;
+
+  --shadow-card-new: 0 1px 2px rgba(20,25,35,.06), 0 1px 0 rgba(20,25,35,.02);
+
+  /* ── Surfaces ────────────────────────────────────────────────── */
+  /* Aliased to handoff surfaces so legacy pages pick up the new palette. */
+  --bg-page:          var(--paper);
+  --bg-card:          var(--card);
+  --bg-sunken:        var(--paper-2);
+  --bg-overlay:       rgba(8, 9, 20, 0.52);
+
+  /* ── Sidebar ─────────────────────────────────────────────────── */
+  --sidebar-bg:            #0C0E15;
+  --sidebar-hover:         #13162A;
+  --sidebar-active:        #181C32;
+  --sidebar-border:        #1E2238;
+  --sidebar-text:          #52587A;
+  --sidebar-text-active:   #EDEEF5;
+  --sidebar-text-dim:      rgba(237, 238, 245, 0.32);
+
+  /* ── Borders ─────────────────────────────────────────────────── */
+  /* Legacy names aliased to handoff tokens so non-redesigned pages
+     automatically pick up the new visual language. */
+  --border:           var(--line);
+  --border-subtle:    var(--line-soft);
+  --border-strong:    var(--ink-300);
+  --border-focus:     var(--accent);
+
+  /* ── Text ────────────────────────────────────────────────────── */
+  --text-primary:     var(--ink-900);
+  --text-secondary:   var(--ink-500);
+  --text-muted:       var(--ink-400);
+  --text-inverse:     #FFFFFF;
+  --text-link:        var(--accent);
+
+  /* ── Accent ──────────────────────────────────────────────────── */
+  --color-cta:          var(--accent);
+  --color-cta-hover:    var(--accent-ink);
+  --color-accent:       var(--accent);
+  --color-accent-bg:    var(--accent-soft);
+  --color-accent-hover: var(--accent-ink);
+
+  /* ── Severity ────────────────────────────────────────────────── */
+  /* The handoff collapses high+medium → caution; redirect both. */
+  --severity-critical:         var(--critical);
+  --severity-critical-bg:      var(--critical-bg);
+  --severity-critical-border:  var(--critical-line);
+  --severity-high:             var(--caution);
+  --severity-high-bg:          var(--caution-bg);
+  --severity-high-border:      var(--caution-line);
+  --severity-medium:           var(--caution);
+  --severity-medium-bg:        var(--caution-bg);
+  --severity-medium-border:    var(--caution-line);
+  --severity-safe:             var(--safe);
+  --severity-safe-bg:          var(--safe-bg);
+  --severity-safe-border:      var(--safe-line);
+
+  /* ── Risk labels ─────────────────────────────────────────────── */
+  --label-moves-money:           #E53535;
+  --label-moves-money-bg:        #FEF1F1;
+  --label-touches-pii:           #7C3AED;
+  --label-touches-pii-bg:        #F5F3FF;
+  --label-deletes-data:          #D4590A;
+  --label-deletes-data-bg:       #FFF4EE;
+  --label-sends-external:        #0891B2;
+  --label-sends-external-bg:     #ECFEFF;
+  --label-changes-production:    #B45309;
+  --label-changes-production-bg: #FFFBEB;
+
+  /* ── Status ──────────────────────────────────────────────────── */
+  /* Aliased to the handoff severity tokens for cross-page consistency. */
+  --status-executed-bg:  var(--safe-bg);
+  --status-executed:     var(--safe);
+  --status-blocked-bg:   var(--critical-bg);
+  --status-blocked:      var(--critical);
+  --status-pending-bg:   var(--caution-bg);
+  --status-pending:      var(--caution);
+
+  /* ── Shadows ─────────────────────────────────────────────────── */
+  --shadow-sm:    0 1px 3px 0 rgba(8,9,20,0.07), 0 1px 2px -1px rgba(8,9,20,0.05);
+  --shadow-md:    0 4px 10px -1px rgba(8,9,20,0.10), 0 2px 4px -2px rgba(8,9,20,0.06);
+  --shadow-hover: 0 10px 24px -4px rgba(8,9,20,0.13), 0 4px 8px -2px rgba(8,9,20,0.07);
+  --shadow-lg:    0 24px 48px -8px rgba(8,9,20,0.15), 0 8px 16px -4px rgba(8,9,20,0.08);
+
+  /* ── Radii ───────────────────────────────────────────────────── */
+  --radius-sm:    4px;
+  --radius-md:    6px;
+  --radius-lg:    10px;
+  --radius-xl:    14px;
+  --radius-full:  9999px;
+
+  /* ── Chart series (forecast composition, fleet by-model) ─────── */
+  --chart-tokens:    var(--label-touches-pii);
+  --chart-tools:     var(--color-cta);
+  --chart-infra:     var(--severity-safe);
+  --chart-grid:      #F1F5F9;
+  --chart-axis:      var(--text-muted);
+}
+
+@layer base {
+  * {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+  }
+
+  *:focus-visible {
+    outline: 2px solid var(--border-focus);
+    outline-offset: 2px;
+  }
+}
+
+body {
+  font-family: var(--font-sans);
+  font-size: 14px;
+  color: var(--text-primary);
+  background: var(--bg-page);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ── Monospace contexts ──────────────────────────────────────────── */
+.mono {
+  font-family: var(--font-mono);
+}
+
+/* ── Spinner keyframe ────────────────────────────────────────────── */
+@keyframes btn-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ── Risk score count-up animation ──────────────────────────────── */
+@keyframes score-reveal {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ── Card hover elevation ────────────────────────────────────────── */
+.agent-card-link:hover {
+  box-shadow: var(--shadow-hover) !important;
+  border-color: var(--border-strong) !important;
+}
+/* ── Accent stripe at top of content area ────────────────────────── */
+.content-stripe {
+  height: 2px;
+  background: var(--color-accent);
+  flex-shrink: 0;
+}
+
+/* ── Button hover states ────────────────────────────────────────── */
+.btn-primary:hover:not(:disabled) {
+  background: var(--color-cta-hover) !important;
+  box-shadow: 0 2px 8px rgba(75, 156, 211, 0.25);
+}
+.btn-secondary:hover:not(:disabled) {
+  background: var(--bg-sunken) !important;
+  border-color: var(--text-secondary) !important;
+}
+.btn-ghost:hover:not(:disabled) {
+  background: var(--bg-sunken) !important;
+  color: var(--text-primary) !important;
+}
+.btn-ghost-dark:hover:not(:disabled) {
+  background: rgba(255,255,255,0.14) !important;
+}
+.btn-destructive:hover:not(:disabled) {
+  background: #c82828 !important;
+  box-shadow: 0 2px 8px rgba(229, 53, 53, 0.25);
+}
+
+/* ── Toast entrance animation ────────────────────────────────────── */
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(8px) scale(0.96); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* ─── Redesign primitives (handoff: tokens.css) ──────────────────── */
+.mono {
+  font-family: var(--font-num, var(--font-mono));
+  font-feature-settings: "tnum" 1;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+
+/* Interactive dashboard states from the handoff (.ag-* namespace) */
+.ag-card {
+  transition: transform .16s ease, box-shadow .16s ease, border-color .16s ease;
+}
+.ag-card:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 16px rgba(20,25,35,.08), 0 1px 2px rgba(20,25,35,.04);
+  border-color: var(--ink-300);
+}
+.ag-card:hover .ag-cardcta { color: var(--accent); }
+
+.ag-row { transition: background .12s ease; }
+.ag-row:hover { background: var(--paper-2); }
+
+.ag-input { transition: border-color .14s ease, box-shadow .14s ease; }
+.ag-input:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.ag-nav { transition: background .12s ease, color .12s ease; }
+
+.ag-tab { transition: color .14s ease, border-color .14s ease; }
+
+.ag-btn { transition: transform .12s ease, opacity .14s ease; }
+.ag-btn:active:not(:disabled) { transform: translateY(1px); }
+
+/* ── Forecast / spend surfaces ───────────────────────────────────── */
+/* Card chrome used across Cost portfolio and the spend dashboard. */
+.panel-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 24px;
+  box-shadow: var(--shadow-sm);
+}
+.panel-card--wide { grid-column: span 2; }
+
+/* Slider row: [label | track | value]. Used by LiveSlider. */
+.slider-row {
+  display: grid;
+  align-items: center;
+  gap: 16px;
+  margin: 16px 0;
+  grid-template-columns: 130px 1fr 70px;
+}
+.slider-row--select { grid-template-columns: 130px 1fr; }
+
+.slider-track {
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: var(--bg-sunken);
+  border-radius: var(--radius-full);
+  pointer-events: none;
+}
+.slider-fill {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  border-radius: var(--radius-full);
+  background: var(--color-cta);
+}
+.slider-fill--positive { background: var(--severity-safe); }
+.slider-fill--negative { background: var(--severity-critical); }
+
+.slider-knob {
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  border-radius: var(--radius-full);
+  background: var(--bg-card);
+  border: 2px solid var(--color-cta);
+  top: 50%;
+  transform: translate(-50%, -50%);
+  box-shadow: var(--shadow-sm);
+  pointer-events: none;
+}
+.slider-knob--positive { border-color: var(--severity-safe); }
+.slider-knob--negative { border-color: var(--severity-critical); }
+
+/* Sensitivity row: [label | bar | %]. */
+.sensitivity-row {
+  display: grid;
+  align-items: center;
+  gap: 16px;
+  margin: 8px 0;
+  grid-template-columns: 130px 1fr 60px;
+}
+
+/* Confidence row: [source | status]. */
+.conf-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 16px;
+  padding: 6px 0;
+}

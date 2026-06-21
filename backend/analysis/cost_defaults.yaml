@@ -1,0 +1,100 @@
+# Arceo Cost Model — Default Configuration
+#
+# These are INDUSTRY-ANCHORED DEFAULT ranges (CCPA/HIPAA/GDPR fines, B2B
+# chargeback averages, Gartner outage costs) — defensible enough to use in a
+# CFO review out of the box. Customers should still override with values
+# matched to their business context, regulatory environment, and risk appetite.
+#
+# To override: POST /api/agents/{id}/cost-config with your values,
+# or set ARCEO_COST_CONFIG=/path/to/your/config.yaml
+
+# Cost categories: what kind of damage each capability causes
+capability_mapping:
+  moves_money:
+    category: direct_financial_loss
+    description: "Direct monetary loss from unauthorized transactions"
+    breach_scenarios:
+      - "Unauthorized refund issued to attacker-controlled account"
+      - "Subscription cancelled causing revenue loss"
+      - "Fraudulent charge created against customer"
+
+  touches_pii:
+    category: regulatory_fine
+    description: "Regulatory penalties and legal costs from PII exposure"
+    breach_scenarios:
+      - "Customer PII exposed to unauthorized recipient"
+      - "Bulk export of personal data without consent"
+      - "PII sent to external system without encryption"
+
+  deletes_data:
+    category: operational_disruption
+    description: "Business disruption from data loss or corruption"
+    breach_scenarios:
+      - "Customer records permanently deleted"
+      - "Backup snapshots destroyed during incident"
+      - "Audit trail entries removed"
+
+  sends_external:
+    category: reputation_damage
+    description: "Brand and trust damage from unauthorized communications"
+    breach_scenarios:
+      - "Spam or phishing sent from company systems"
+      - "Internal data leaked via external email"
+      - "Customer contacted with incorrect information"
+
+  changes_production:
+    category: operational_disruption
+    description: "Service outage or degradation from infrastructure changes"
+    breach_scenarios:
+      - "Production instance terminated causing outage"
+      - "Security group opened exposing internal services"
+      - "Unreviewed code deployed to production"
+
+# Severity multipliers per cost category.
+#
+# Defaults are INDUSTRY-ANCHORED RANGES — defensible enough to use in a CFO
+# review out of the box, but customers should still override with their own
+# transaction sizes, regulatory exposure, and downtime cost. Sources:
+#  - CCPA: $7,500/violation
+#  - HIPAA: $50K/violation
+#  - GDPR: €20M or 4% revenue (worst case far exceeds defaults below)
+#  - B2B chargeback dispute average: $50-$200 per incident (TrueBiz 2024)
+#  - SaaS outage cost: Gartner 2023 median $5,600/min for enterprises
+#
+# Marked `configured: true` so cost-report responses are treated as live, not
+# placeholder. To customize per-tenant: POST /api/agents/{id}/cost-config.
+severity_ranges:
+  direct_financial_loss:
+    per_incident_min_usd: 50          # average disputed transaction
+    per_incident_max_usd: 10000       # large unauthorized transfer
+    description: "Override with your average transaction size and worst-case single transaction. Defaults assume typical B2B chargeback exposure."
+
+  regulatory_fine:
+    per_incident_min_usd: 500         # per-record exposure, low end
+    per_incident_max_usd: 50000       # HIPAA per-violation; GDPR can be far higher
+    description: "Depends on jurisdiction. GDPR: €20M or 4% revenue. CCPA: $7,500/violation. HIPAA: $50K/violation. Defaults assume single-record exposure under HIPAA-equivalent regimes."
+
+  operational_disruption:
+    per_incident_min_usd: 500         # short partial outage
+    per_incident_max_usd: 50000       # multi-hour service-wide outage
+    description: "Anchored on Gartner's $5,600/min enterprise outage median × typical recovery time. Override with your revenue-per-minute and worst-case duration."
+
+  reputation_damage:
+    per_incident_min_usd: 1000        # single contained PR incident
+    per_incident_max_usd: 25000       # viral incident requiring crisis response
+    description: "Hard to quantify. Defaults anchored on typical PR-firm crisis-response retainers + customer churn signal. Consider your post-incident churn rate."
+
+# Exposure window: how many times per day this agent runs.
+# Default matches the spend-forecaster's default_calls_per_day so the two
+# models agree on volume out of the box. Override per-agent via the
+# `daily_runs` query param on /api/agents/{id}/cost-report.
+exposure:
+  daily_runs: 100
+  days_per_year: 365
+  description: "Default volume; override per agent with the daily_runs query parameter on /cost-report."
+
+# Confidence levels based on data quality
+confidence:
+  with_real_traces: "high"         # cost estimate based on observed behavior
+  with_simulation: "medium"        # cost estimate based on simulated behavior
+  static_only: "low"               # cost estimate based on capability analysis only

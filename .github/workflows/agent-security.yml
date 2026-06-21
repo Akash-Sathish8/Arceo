@@ -1,0 +1,32 @@
+name: Agent Security
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    env:
+      ARCEO_API_KEY: ${{ secrets.ARCEO_API_KEY }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # full history so diff works
+
+      # Skip cleanly until ARCEO_API_KEY is configured (and the backend is deployed),
+      # so this check passes instead of hard-failing on every push with no secret.
+      - name: Arceo Agent Security Scan
+        if: ${{ env.ARCEO_API_KEY != '' }}
+        uses: ./.github/actions/scan
+        with:
+          api-key: ${{ secrets.ARCEO_API_KEY }}
+          # Optional override — leave unset to use the default (https://api.arceo.dev).
+          # Until the backend is deployed, set ARCEO_API_URL as a repo secret pointing
+          # at your local tunnel (e.g. https://abc123.ngrok.app) or staging URL.
+          api-url: ${{ secrets.ARCEO_API_URL }}
+          threshold: '60'

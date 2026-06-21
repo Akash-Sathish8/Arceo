@@ -1,0 +1,31 @@
+node_modules/
+__pycache__/
+*.db
+.env
+.env*.local
+dist/
+.DS_Store
+sdk/actiongate.egg-info/
+.gstack/
+backend/static/
+
+# Build caches added during dev (this session)
+frontend/.vite/
+website/.next/
+.claude/worktrees/
+
+# Claude Code per-user config (personal overrides, hooks, agent scripts)
+.claude/settings.local.json
+.claude/update-brain.sh
+
+# Obsidian scratch junk in the brain (audit L5)
+brain/Untitled*.base
+brain/Untitled*.canvas
+brain/Untitled.canvas
+
+# Vercel local
+.vercel/
+
+# Claude Code local config + internal Obsidian vault (not part of the product repo)
+.claude/
+brain/

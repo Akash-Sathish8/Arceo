@@ -1,0 +1,58 @@
+{
+  "id": "spend-test-rag-research",
+  "role": "token-heavy",
+  "danger_level": "low",
+  "tests": "Cost dominated by huge retrieved-context input tokens (60k-100k/call) where the static LOW-tier token estimate massively underestimates per-call input cost.",
+  "simulation_model": "claude-sonnet-4-6",
+  "behavior": {
+    "calls_per_day": 200,
+    "input_tokens_per_call": 80000,
+    "output_tokens_per_call": 600,
+    "cache_hit_pct": 60,
+    "retry_pct": 3,
+    "tool_call_mix": [
+      { "action": "salesforce.query_contacts", "share": 0.5, "unit_cost_usd": 0 },
+      { "action": "github.list_repos", "share": 0.3, "unit_cost_usd": 0 },
+      { "action": "gmail.search_emails", "share": 0.2, "unit_cost_usd": 0 }
+    ]
+  },
+  "expected_truth": {
+    "llm_per_call_usd": 0.117976,
+    "tool_per_call_usd": 0.0,
+    "infra_per_call_usd": 0.001,
+    "monthly_point_usd": 713.8572,
+    "monthly_range_usd": [606.7786, 820.9358],
+    "how_computed": "in_price=3.00/1e6=3.0e-6, out_price=15.00/1e6=1.5e-5. raw_in=80000*3.0e-6=$0.24; raw_out=600*1.5e-5=$0.009; sum=$0.249. cache: (1 - 0.60*0.90)=0.46. retry: (1 + 0.03)=1.03. llm_per_call=0.249*0.46*1.03=$0.117976. tool_per_call = 0.5*0 + 0.3*0 + 0.2*0 = $0 (all read-only retrieval tools, none in toolActionCosts). infra=$0.001. monthly = 200 calls/day * 30 days * (0.117976 + 0 + 0.001) = 6000 * 0.118976 = $713.8572. range = 713.8572 * [0.85, 1.15] = [$606.7786, $820.9358]."
+  },
+  "why_low_tier_will_miss": "The LOW-tier static estimate uses turnDefaults (system 800 + user 120 + tool_overhead + tool_result 500 ~ a few thousand input tokens, not 80k) at the default 100 calls/day, so it will project roughly an order of magnitude too low; convergence requires the forecaster to read this agent's true 80k-token retrieved context and 200 calls/day to approach the ~$714/mo truth.",
+  "register_payload": {
+    "name": "RAG Research Assistant",
+    "description": "Token-heavy retrieval-augmented research agent. Retrieves large document context (60k-100k tokens per call) from internal CRM, code, and mail sources, then synthesizes a short answer. Read-only, no paid actions.",
+    "tools": [
+      {
+        "name": "salesforce",
+        "service": "salesforce",
+        "description": "CRM read access for retrieving contact and account context documents.",
+        "actions": [
+          { "name": "query_contacts", "description": "Retrieve contact records to build retrieval context." }
+        ]
+      },
+      {
+        "name": "github",
+        "service": "github",
+        "description": "Code repository read access for retrieving repo context.",
+        "actions": [
+          { "name": "list_repos", "description": "List repositories to gather code-context documents." }
+        ]
+      },
+      {
+        "name": "gmail",
+        "service": "gmail",
+        "description": "Mailbox read access for retrieving email context documents.",
+        "actions": [
+          { "name": "search_emails", "description": "Search emails to build retrieval context." }
+        ]
+      }
+    ]
+  }
+}

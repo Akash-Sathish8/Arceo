@@ -1,0 +1,236 @@
+@import "tailwindcss";
+
+/* ── Reset ────────────────────────────────────────────────── */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  font-stretch: normal;
+}
+
+html { scroll-behavior: smooth; }
+
+body {
+  font-family: var(--font-dm-sans), system-ui, -apple-system, sans-serif;
+  background: #ffffff;
+  color: #6b7280;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-size: 16px;
+  line-height: 1.7;
+  font-stretch: normal;
+}
+
+/* ── Headings — DM Sans ───────────────────────────────────── */
+h1, h2, h3, h4, .display {
+  font-family: var(--font-dm-sans), system-ui, sans-serif;
+  color: #111827;
+  line-height: 1.1;
+  font-stretch: normal;
+}
+
+a { color: inherit; text-decoration: none; }
+button { cursor: pointer; font-family: inherit; font-stretch: normal; }
+
+code, .mono {
+  font-family: "SF Mono", "Fira Code", "Cascadia Code", monospace;
+  font-size: 0.875em;
+}
+
+/* ── Layout ───────────────────────────────────────────────── */
+.container {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 0 32px;
+}
+
+/* ── Section defaults ─────────────────────────────────────── */
+.section {
+  padding: 96px 0;
+}
+
+/* ── Buttons ──────────────────────────────────────────────── */
+.btn-black {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: #111827;
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.1px;
+  padding: 12px 24px;
+  border-radius: 999px;
+  border: none;
+  transition: background 0.15s, transform 0.1s, box-shadow 0.15s;
+  cursor: pointer;
+  white-space: nowrap;
+  text-decoration: none;
+}
+.btn-black:hover {
+  background: #1f2937;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 14px rgba(0,0,0,0.18);
+}
+
+.btn-outline {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: transparent;
+  color: #111827;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.1px;
+  padding: 11px 24px;
+  border-radius: 999px;
+  border: 1.5px solid #d1d5db;
+  transition: border-color 0.15s, background 0.15s, transform 0.1s;
+  cursor: pointer;
+  white-space: nowrap;
+  text-decoration: none;
+}
+.btn-outline:hover {
+  border-color: #9ca3af;
+  background: #f9fafb;
+  transform: translateY(-1px);
+}
+
+.btn-white {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: #fff;
+  color: #111827;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.1px;
+  padding: 12px 24px;
+  border-radius: 999px;
+  border: none;
+  transition: background 0.15s, transform 0.1s;
+  cursor: pointer;
+  white-space: nowrap;
+  text-decoration: none;
+}
+.btn-white:hover { background: #f3f4f6; transform: translateY(-1px); }
+
+.btn-white-outline {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: transparent;
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.1px;
+  padding: 11px 24px;
+  border-radius: 999px;
+  border: 1.5px solid rgba(255,255,255,0.35);
+  transition: border-color 0.15s, background 0.15s;
+  cursor: pointer;
+  white-space: nowrap;
+  text-decoration: none;
+}
+.btn-white-outline:hover { border-color: rgba(255,255,255,0.7); background: rgba(255,255,255,0.07); }
+
+/* ── Cards ────────────────────────────────────────────────── */
+.card {
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 16px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+  overflow: hidden;
+}
+
+/* ── Chip / badge ─────────────────────────────────────────── */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  padding: 3px 9px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+
+/* ── Section label ────────────────────────────────────────── */
+.eyebrow {
+  display: block;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #9ca3af;
+  margin-bottom: 12px;
+}
+
+/* ── Halftone ─────────────────────────────────────────────── */
+.halftone {
+  background-image: radial-gradient(circle, rgba(0,0,0,0.07) 1px, transparent 1px);
+  background-size: 12px 12px;
+}
+
+/* ── Fade-in on scroll (progressive enhancement) ──────────────
+   Content is VISIBLE by default. The hidden-then-reveal animation only
+   applies once JS has added `fade-ready` to <html> (see app/layout.tsx),
+   so text can never get stuck invisible if JS is disabled, errors out, or
+   a bfcache back-navigation fails to re-trigger the reveal. */
+.fade-up {
+  opacity: 1;
+  transform: none;
+}
+html.fade-ready .fade-up {
+  opacity: 0;
+  transform: translateY(28px);
+  transition: opacity 0.65s cubic-bezier(0.22, 1, 0.36, 1),
+              transform 0.65s cubic-bezier(0.22, 1, 0.36, 1);
+}
+html.fade-ready .fade-up.visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+@media (prefers-reduced-motion: reduce) {
+  html.fade-ready .fade-up {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+}
+
+/* ── Hover helpers (CSS-only, no JS) ─────────────────────── */
+.nav-link {
+  font-size: 14px;
+  font-weight: 500;
+  color: #6b7280;
+  padding: 6px 12px;
+  border-radius: 8px;
+  transition: color 0.12s, background 0.12s;
+}
+.nav-link:hover { color: #111827; background: #f9fafb; }
+
+.footer-link {
+  font-size: 13px;
+  font-weight: 500;
+  color: #9ca3af;
+  transition: color 0.12s;
+}
+.footer-link:hover { color: #374151; }
+
+.social-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  color: #9ca3af;
+  transition: color 0.12s, background 0.12s;
+}
+.social-btn:hover { color: #374151; background: #f3f4f6; }
+
+/* ── Divider ──────────────────────────────────────────────── */
+.divider { height: 1px; background: #e5e7eb; }

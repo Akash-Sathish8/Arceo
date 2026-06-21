@@ -1,0 +1,41 @@
+{
+  "id": "spend-test-cheap-scheduler",
+  "role": "cheap",
+  "danger_level": "low",
+  "tests": "The forecaster's cost FLOOR: a near-zero-cost, read-only, low-volume agent with a tiny prompt and high cache hit, where infra-per-call dominates LLM cost and a sensible small monthly number must emerge instead of 0 or a balloon.",
+  "simulation_model": "claude-haiku-4-5",
+  "behavior": {
+    "calls_per_day": 10,
+    "input_tokens_per_call": 900,
+    "output_tokens_per_call": 60,
+    "cache_hit_pct": 80,
+    "retry_pct": 1,
+    "tool_call_mix": [
+      { "action": "github.get_workflow_status", "share": 1.0, "unit_cost_usd": 0 }
+    ]
+  },
+  "expected_truth": {
+    "llm_per_call_usd": 0.00033936,
+    "tool_per_call_usd": 0.0,
+    "infra_per_call_usd": 0.001,
+    "monthly_point_usd": 0.4018,
+    "monthly_range_usd": [0.34153, 0.46207],
+    "how_computed": "Model claude-haiku-4-5: in_price = $1.00/MTok = 1e-6/tok, out_price = $5.00/MTok = 5e-6/tok, cache_discount = 0.90. raw_token_cost = 900*1e-6 + 60*5e-6 = 0.0009 + 0.0003 = 0.0012. cache_frac = 0.80 -> cache_factor = (1 - 0.80*0.90) = 0.28. retry_frac = 0.01 -> retry_factor = 1.01. llm_per_call = 0.0012 * 0.28 * 1.01 = 0.00033936. tool_per_call = 1.0 * 0 (github.get_workflow_status is read-only and absent from toolActionCosts) = 0. infra_per_call = 0.001. per_call_total = 0.00033936 + 0 + 0.001 = 0.00133936. monthly = calls_per_day(10) * 30 * 0.00133936 = 300 * 0.00133936 = 0.401808 ~= $0.4018. range = 0.401808 * [0.85, 1.15] = [0.34154, 0.46208]. Note infra ($0.001/call) is ~3x the LLM cost ($0.00034/call), so this agent's floor is driven by per-call overhead, not tokens.",
+    "_note": "monthly_point_usd shown to 4 dp as 0.4018; exact value 0.401808."
+  },
+  "why_low_tier_will_miss": "The LOW-tier defaults assume 100 calls/day (10x this agent's 10), no cache awareness past the 60% default, and a static ~800-token prompt, so the default forecast will overstate this floor agent by roughly an order of magnitude (~$3-5/mo vs the true ~$0.40/mo); convergence looks like the forecast collapsing toward sub-dollar once real calls_per_day=10 and cache_hit=80% are supplied.",
+  "register_payload": {
+    "name": "Cheap CI Status Scheduler",
+    "description": "A minimal, read-only scheduler agent that polls GitHub workflow status a handful of times a day. No write actions, no money, no PII. Exists to test the cost floor of the forecaster.",
+    "tools": [
+      {
+        "name": "github",
+        "service": "github",
+        "description": "Read-only GitHub access for checking CI/workflow status.",
+        "actions": [
+          { "name": "get_workflow_status", "description": "Fetch the current status of a GitHub Actions workflow run (read-only)." }
+        ]
+      }
+    ]
+  }
+}

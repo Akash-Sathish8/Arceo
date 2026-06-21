@@ -1,0 +1,49 @@
+{
+  "id": "spend-test-model-switcher",
+  "role": "adversarial",
+  "danger_level": "medium",
+  "tests": "Single-model cost assumption: agent declares Haiku as its simulation_model but silently escalates ~20% of triage calls to Opus, so any forecaster pricing 100% of calls at Haiku rates understates true blended LLM cost.",
+  "simulation_model": "claude-haiku-4-5",
+  "behavior": {
+    "calls_per_day": 300,
+    "input_tokens_per_call": 2500,
+    "output_tokens_per_call": 400,
+    "cache_hit_pct": 60,
+    "retry_pct": 3,
+    "tool_call_mix": [
+      { "action": "zendesk.get_ticket", "share": 0.4, "unit_cost_usd": 0 },
+      { "action": "zendesk.list_tickets", "share": 0.2, "unit_cost_usd": 0 },
+      { "action": "zendesk.add_comment", "share": 0.2, "unit_cost_usd": 0 },
+      { "action": "zendesk.assign_ticket", "share": 0.1, "unit_cost_usd": 0 },
+      { "action": "zendesk.update_ticket", "share": 0.1, "unit_cost_usd": 0 }
+    ]
+  },
+  "expected_truth": {
+    "llm_per_call_usd": 0.004584015,
+    "tool_per_call_usd": 0.0,
+    "infra_per_call_usd": 0.001,
+    "monthly_point_usd": 50.256135,
+    "monthly_range_usd": [42.71771475, 57.79455525],
+    "how_computed": "Blended 80/20 model resolution. 80% of calls run on claude-haiku-4-5 (in $1.00/MTok, out $5.00/MTok, inflation 1.0), 20% escalate to claude-opus-4-7 (in $5.00/MTok, out $25.00/MTok, tokenizer_inflation 1.35). Per call: in_tok=2500, out_tok=400. Cache factor = 1 - 0.60*0.90 = 0.46; retry factor = 1.03. HAIKU effective/call = (2500*1e-6 + 400*5e-6) * 0.46 * 1.03 = 0.0045 * 0.46 * 1.03 = 0.0021321. OPUS effective/call (tokens *1.35): in 3375*5e-6=0.016875, out 540*25e-6=0.0135, sum 0.030375 * 0.46 * 1.03 = 0.014391675. Blended llm_per_call = 0.8*0.0021321 + 0.2*0.014391675 = 0.00170568 + 0.00287834 = 0.004584015. Tool mix is all zendesk read/triage actions at $0 unit cost, so tool_per_call = 0. Monthly = 300 calls/day * 30 days * (0.004584015 + 0 + 0.001) = 9000 * 0.005584015 = $50.256135. Range = point * [0.85, 1.15] = [$42.72, $57.79].",
+    "_note_simulation_model": "simulation_model is not settable via any API; the register_payload below cannot carry it. To exercise the haiku-primary path the agents row must be patched directly: UPDATE agents SET simulation_model='claude-haiku-4-5' WHERE id=<id>. Even then the runner uses one resolved model per run, so the 20% Opus escalation modeled here is a property of the synthetic ground truth, not something the single-model sandbox runner reproduces — that gap is the point of the test."
+  },
+  "why_low_tier_will_miss": "The LOW-tier forecaster prices every call at the single declared model (Haiku, ~$0.0021/call) and assumes 100 calls/day with a uniform tool distribution, so it forecasts ~$9.6/mo against a true $50.26/mo blended cost — the divergence to look for is the forecaster converging upward only once it learns both the 3x-higher real call volume and the hidden 20% Opus escalation, which roughly doubles the per-call LLM price over the Haiku-only assumption.",
+  "register_payload": {
+    "name": "Tier-1 Triage Router",
+    "description": "Support triage agent that classifies and routes inbound Zendesk tickets. Runs Haiku for the bulk of triage classification but escalates roughly 1 in 5 ambiguous or high-severity tickets to Opus for deeper reasoning before routing.",
+    "tools": [
+      {
+        "name": "zendesk",
+        "service": "zendesk",
+        "description": "Zendesk ticketing for read, comment, assignment, and routing.",
+        "actions": [
+          { "name": "get_ticket", "description": "Fetch a single ticket and its metadata for triage." },
+          { "name": "list_tickets", "description": "List the inbound triage queue." },
+          { "name": "add_comment", "description": "Add an internal triage note to a ticket." },
+          { "name": "assign_ticket", "description": "Route the ticket to the correct queue or agent." },
+          { "name": "update_ticket", "description": "Update ticket priority/tags after classification." }
+        ]
+      }
+    ]
+  }
+}

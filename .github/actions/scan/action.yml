@@ -1,0 +1,59 @@
+name: 'Arceo Agent Security Scan'
+description: 'Scan AI agent code for blast radius and dangerous risk-label chains'
+author: 'Arceo'
+branding:
+  icon: 'shield'
+  color: 'purple'
+
+inputs:
+  api-key:
+    description: 'Arceo API key (X-API-Key). Get one from your Arceo dashboard.'
+    required: true
+  api-url:
+    description: 'Arceo backend base URL'
+    required: false
+    default: 'https://api.arceo.dev'
+  threshold:
+    description: 'Fail build if max blast radius exceeds this (0-100)'
+    required: false
+    default: '60'
+  comment-mode:
+    description: 'pr-comment | none — whether to post the report as a PR comment'
+    required: false
+    default: 'pr-comment'
+  paths:
+    description: 'Comma-separated file extensions to scan'
+    required: false
+    default: '.py,.ts,.tsx,.js,.jsx,.mjs'
+  max-files:
+    description: 'Maximum files to scan per run (cost guardrail)'
+    required: false
+    default: '25'
+  github-token:
+    description: 'GitHub token for posting PR comments. Defaults to github.token.'
+    required: false
+    default: ${{ github.token }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Install dependencies
+      shell: bash
+      run: pip install --quiet httpx
+
+    - name: Run Arceo scan
+      shell: bash
+      env:
+        ARCEO_API_KEY: ${{ inputs.api-key }}
+        ARCEO_API_URL: ${{ inputs.api-url }}
+        ARCEO_THRESHOLD: ${{ inputs.threshold }}
+        ARCEO_COMMENT_MODE: ${{ inputs.comment-mode }}
+        ARCEO_PATHS: ${{ inputs.paths }}
+        ARCEO_MAX_FILES: ${{ inputs.max-files }}
+        GITHUB_TOKEN: ${{ inputs.github-token }}
+      run: python ${{ github.action_path }}/run.py

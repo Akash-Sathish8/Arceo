@@ -1,0 +1,96 @@
+{
+  "ingest_via": "POST /api/authority/agents/extract-github",
+  "note": "Real public repos; scanned in-place, no code copied here.",
+  "repos": [
+    {
+      "url": "https://github.com/masseater/slack-webhook-mcp",
+      "branch": "main",
+      "role": "Slack notifier — the canonical cheap-band agent: one write tool (send_slack_message) that posts to a channel via incoming webhook",
+      "danger_level": "low",
+      "why_good_test": "Quintessential cheap-band test case: a single-purpose Slack notifier with exactly one tool (send_slack_message). No LLM model of its own (it's an MCP server exposing tools to a client), no loops, trivial token use. Maps cleanly to sends_external risk label only. A sandbox sweep should forecast near-floor cost and produce a low blast-radius (~single-digit) — a clean lower-bound calibration anchor for the spend forecaster.",
+      "tools_overlap_mocks": true,
+      "verified_exists": true,
+      "expected_cost_band": "cheap"
+    },
+    {
+      "url": "https://github.com/egyptianego17/email-mcp-server",
+      "branch": "master",
+      "role": "Simple email sender — MCP server exposing SMTP send tools (send_simple_email, send_custom_email, test_smtp_connection)",
+      "danger_level": "low",
+      "why_good_test": "Small single-purpose SMTP email agent with 3 tools, 100% Python, no embedded LLM reasoning. Tools are sends_external (and the custom one adds attachments). Cheap-band: minimal/zero token use, no agent loop. Overlaps Arceo's email/gmail mocks so a sandbox sweep can actually exercise send paths. Good for verifying the forecaster keeps a notify/send-only agent in the low-cost band while still flagging the external-send capability.",
+      "tools_overlap_mocks": true,
+      "verified_exists": true,
+      "expected_cost_band": "cheap"
+    },
+    {
+      "url": "https://github.com/piekstra/slack-mcp-server",
+      "branch": "main",
+      "role": "Slack workspace MCP server — ~20 tools (send_message, send_formatted/notification/list_message, list_channels, get_channel_history, search_messages, add_reaction, upload_file, etc.)",
+      "danger_level": "low",
+      "why_good_test": "Still a single-service (Slack) agent and cheap to run, but broader than a pure notifier: mixes read-only tools (list_channels, get_channel_info, get_channel_history, search_messages) with write/send tools (send_message, upload_file, archive_channel). This read/write mix exercises Arceo's graph.py read-only 0.15x weighting and the sends_external label without crossing into money/delete territory. Overlaps the slack mock so a full sandbox sweep across its tools can run. Lands slightly above the bare notifier but still firmly cheap — a useful within-band gradient against masseater for the forecaster.",
+      "tools_overlap_mocks": true,
+      "verified_exists": true,
+      "expected_cost_band": "cheap"
+    },
+    {
+      "url": "https://github.com/openai/openai-cookbook",
+      "branch": "main",
+      "role": "DevOps/support-style dispute-resolution agent built on the OpenAI Agents SDK. The relevant file is examples/agents_sdk/dispute_agent.ipynb: a multi-agent triage/investigation/accept workflow with 5 explicit @function_tool definitions (get_phone_logs, get_order, get_emails, retrieve_payment_intent, close_dispute) that call the live Stripe API (stripe.PaymentIntent.retrieve, stripe.Dispute.close, etc.).",
+      "danger_level": "medium",
+      "why_good_test": "Textbook normal-band SaaS support/payments agent: a handful of read tools plus two write tools that touch money (retrieve_payment_intent, close_dispute). Real OpenAI function-calling schema that Arceo's Haiku extractor reads cleanly. The close_dispute -> Stripe write should surface a moves_money label and a modest blast-radius score (~30-45), making it a clean medium-band forecaster sanity check rather than a trivial read-only agent.",
+      "tools_overlap_mocks": true,
+      "verified_exists": true,
+      "expected_cost_band": "normal"
+    },
+    {
+      "url": "https://github.com/anthropics/claude-cookbooks",
+      "branch": "main",
+      "role": "Customer-support agent using native Anthropic Claude tool use. The relevant file is tool_use/customer_service_agent.ipynb: an explicit tools=[...] array with input_schema for 3 tools (get_customer_info, get_order_details, cancel_order) wired into a Claude messages loop.",
+      "danger_level": "low",
+      "why_good_test": "Canonical handful-of-tools support agent: two read tools (customer info, order details) plus one mutating tool (cancel_order). Explicit Claude tool-use schema with input_schema is the cleanest possible input for Arceo's extract-github (no inference needed). Mostly PII-touching reads with one reversible-ish write -> expected low blast radius (~15-25), so it anchors the bottom of the normal band and validates the forecaster does not over-score a benign agent. NOTE: anthropics/anthropic-cookbook redirects here; claude-cookbooks is the canonical repo name.",
+      "tools_overlap_mocks": true,
+      "verified_exists": true,
+      "expected_cost_band": "normal"
+    },
+    {
+      "url": "https://github.com/kaymen99/sales-outreach-automation-langgraph",
+      "branch": "main",
+      "role": "Sales lead-research and outreach agent built on LangGraph. Tools live in src/tools/ (company_research.py, lead_research.py, google_docs_tools.py, rag_tool.py, youtube_tools.py) plus src/tools/leads_loader for HubSpot/Airtable/Google Sheets and a Gmail outreach node. Functions enrich leads (LinkedIn/Serper), generate reports into Google Docs, and write back to the CRM.",
+      "danger_level": "medium",
+      "why_good_test": "Realistic normal-band sales agent spanning CRM read/write plus external Gmail outreach (sends_external) and Google Docs creation. Tools overlap Arceo's hubspot/gmail mocks so a sandbox sweep can exercise the outreach path. Tools are plain Python functions (not @tool-decorated), so it also tests the Haiku extractor on less-structured code rather than a clean schema; the email-send capability should push it to a medium blast-radius score, a useful contrast with the two cookbook agents.",
+      "tools_overlap_mocks": true,
+      "verified_exists": true,
+      "expected_cost_band": "normal"
+    },
+    {
+      "url": "https://github.com/openai/openai-cs-agents-demo",
+      "branch": "main",
+      "role": "Multi-agent customer-service orchestrator (airline support) — the canonical 'loops a lot' test case",
+      "danger_level": "high",
+      "why_good_test": "Official OpenAI Agents SDK demo (6.4k stars). 6 specialized agents (Triage, Flight Info, Booking/Cancellation, Seat/Special Services, FAQ, Refunds & Compensation) wired with handoffs, so a single conversation bounces between agents and re-invokes the LLM many times — classic token-heavy, loop-heavy orchestration. python-backend/airline/tools.py defines 11 concrete @function_tool functions (cancel_flight, book_new_flight, issue_compensation, update_seat, etc.) and agents.py defines the agents + handoffs. issue_compensation/cancel_flight map to Arceo's moves_money + deletes_data risk labels, making it a meaty spend+blast-radius forecast. Verified real files: python-backend/airline/{tools.py,agents.py,guardrails.py}.",
+      "tools_overlap_mocks": true,
+      "verified_exists": true,
+      "expected_cost_band": "expensive"
+    },
+    {
+      "url": "https://github.com/kaymen99/personal-ai-assistant",
+      "branch": "main",
+      "role": "Hierarchical multi-agent personal assistant (manager + 5 sub-agents) over Slack/Gmail/Calendar — broad multi-tool surface",
+      "danger_level": "high",
+      "why_good_test": "LangChain/LangGraph supervisor 'Assistant Manager' dispatching to Email, Calendar, Notion, Slack, and Researcher sub-agents — every dispatch is another LLM turn (token-heavy, loops). Tools are one-function-per-file and directly overlap Arceo mocks: src/tools/email/{send_email,read_emails,find_contacts}.py (gmail), src/tools/slack/{send_messages,get_messages}.py (slack), src/tools/calendar/{create_event,get_events}.py (calendar/calendly). send_email + Slack send hit sends_external; read_emails/find_contacts hit touches_pii — good blast-radius coverage. Verified real source tree under src/tools/ and src/agents/.",
+      "tools_overlap_mocks": true,
+      "verified_exists": true,
+      "expected_cost_band": "expensive"
+    },
+    {
+      "url": "https://github.com/agenticsorg/devops",
+      "branch": "main",
+      "role": "Autonomous DevOps/SRE orchestrator over AWS + GitHub built on OpenAI Agents SDK",
+      "danger_level": "critical",
+      "why_good_test": "Multi-agent DevOps platform (215 stars) on the OpenAI Agents SDK with real function-tool modules: src/aws/ec2_tools.py (list/start/stop EC2) and src/github/github_tools.py (get_repository, branch deployments, github-to-EC2 deploy). Production-mutating actions (start/stop EC2, deploy) map to Arceo's changes_production label and overlap the aws + github mocks — and a deploy chain (github deploy -> EC2 start/stop) is exactly the kind of dangerous chain + worst-case dollar exposure the forecaster should flag. Agentic loop-based decision-making over infra = token-heavy. Verified real files: agentic_devops/src/aws/ec2_tools.py, agentic_devops/src/github/github_tools.py.",
+      "tools_overlap_mocks": true,
+      "verified_exists": true,
+      "expected_cost_band": "expensive"
+    }
+  ]
+}

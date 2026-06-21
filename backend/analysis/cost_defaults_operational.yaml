@@ -1,0 +1,292 @@
+# Operational cost defaults for Arceo's spend forecaster.
+# Distinct from cost_defaults.yaml (which models cost-of-breach).
+# Verify against vendor pricing pages quarterly — these change.
+# Last calibrated: 2026-05-29 from brain/Signals/Cost forecaster calibration data.md
+
+# Surfaced in forecast responses so the UI can show an accurate
+# "last calibrated" date instead of a hardcoded string. Update when the
+# YAML body is materially recalibrated.
+last_calibrated: "2026-05-29"
+
+# ──────────────────────────────────────────────────────────────────────────
+# 1. LLM model pricing (USD per million tokens)
+# ──────────────────────────────────────────────────────────────────────────
+models:
+  claude-opus-4-8:
+    input_per_mtok: 5.00
+    output_per_mtok: 25.00
+    cache_discount: 0.90        # cached input = 10% of input price
+    tokenizer_inflation: 1.35   # Opus uses +35% more tokens for same text
+  claude-sonnet-4-6:
+    input_per_mtok: 3.00
+    output_per_mtok: 15.00
+    cache_discount: 0.90
+    tokenizer_inflation: 1.0
+  claude-haiku-4-5:
+    input_per_mtok: 1.00
+    output_per_mtok: 5.00
+    cache_discount: 0.90
+    tokenizer_inflation: 1.0
+  gpt-5:
+    input_per_mtok: 5.00
+    output_per_mtok: 30.00
+    cache_discount: 0.50
+    tokenizer_inflation: 1.0
+  gpt-4o:
+    input_per_mtok: 2.50
+    output_per_mtok: 10.00
+    cache_discount: 0.50
+    tokenizer_inflation: 1.0
+  gpt-4o-mini:
+    input_per_mtok: 0.15
+    output_per_mtok: 0.60
+    cache_discount: 0.50
+    tokenizer_inflation: 1.0
+  gemini-2-5-pro:
+    input_per_mtok: 1.25
+    output_per_mtok: 10.00
+    cache_discount: 0.90
+    tokenizer_inflation: 1.0
+  gemini-2-5-flash:
+    input_per_mtok: 0.30
+    output_per_mtok: 2.50
+    cache_discount: 0.90
+    tokenizer_inflation: 1.0
+  gemini-2-5-flash-lite:
+    input_per_mtok: 0.10
+    output_per_mtok: 0.40
+    cache_discount: 0.90
+    tokenizer_inflation: 1.0
+  gemini-2-0-flash:
+    input_per_mtok: 0.10
+    output_per_mtok: 0.40
+    cache_discount: 0.90
+    tokenizer_inflation: 1.0
+  gemini-1-5-pro:
+    input_per_mtok: 1.25
+    output_per_mtok: 5.00
+    cache_discount: 0.90
+    tokenizer_inflation: 1.0
+  gemini-1-5-flash:
+    input_per_mtok: 0.075
+    output_per_mtok: 0.30
+    cache_discount: 0.90
+    tokenizer_inflation: 1.0
+  # OpenAI — additional families (gpt-5 / gpt-4o / gpt-4o-mini above)
+  gpt-4-1:                       # gpt-4.1
+    input_per_mtok: 2.00
+    output_per_mtok: 8.00
+    cache_discount: 0.50
+    tokenizer_inflation: 1.0
+  gpt-4-1-mini:
+    input_per_mtok: 0.40
+    output_per_mtok: 1.60
+    cache_discount: 0.50
+    tokenizer_inflation: 1.0
+  gpt-4-1-nano:
+    input_per_mtok: 0.10
+    output_per_mtok: 0.40
+    cache_discount: 0.50
+    tokenizer_inflation: 1.0
+  o3:
+    input_per_mtok: 2.00
+    output_per_mtok: 8.00
+    cache_discount: 0.50
+    tokenizer_inflation: 1.0
+  o4-mini:
+    input_per_mtok: 1.10
+    output_per_mtok: 4.40
+    cache_discount: 0.50
+    tokenizer_inflation: 1.0
+  o1:
+    input_per_mtok: 15.00
+    output_per_mtok: 60.00
+    cache_discount: 0.50
+    tokenizer_inflation: 1.0
+  # Meta Llama — typical hosted (Together/Fireworks/Groq) blended rates; no
+  # prompt caching, so cache_discount: 0.0 (a 60% cache-hit assumption yields
+  # no discount, which is correct for these endpoints).
+  llama-3-1-405b:
+    input_per_mtok: 3.50
+    output_per_mtok: 3.50
+    cache_discount: 0.0
+    tokenizer_inflation: 1.0
+  llama-3-3-70b:
+    input_per_mtok: 0.60
+    output_per_mtok: 0.60
+    cache_discount: 0.0
+    tokenizer_inflation: 1.0
+  llama-3-1-70b:
+    input_per_mtok: 0.60
+    output_per_mtok: 0.60
+    cache_discount: 0.0
+    tokenizer_inflation: 1.0
+  llama-3-1-8b:
+    input_per_mtok: 0.10
+    output_per_mtok: 0.10
+    cache_discount: 0.0
+    tokenizer_inflation: 1.0
+  # Mistral
+  mistral-large:
+    input_per_mtok: 2.00
+    output_per_mtok: 6.00
+    cache_discount: 0.0
+    tokenizer_inflation: 1.0
+  mistral-small:
+    input_per_mtok: 0.20
+    output_per_mtok: 0.60
+    cache_discount: 0.0
+    tokenizer_inflation: 1.0
+  # DeepSeek (has context caching ~0.1x on hits)
+  deepseek-v3:                   # deepseek-chat
+    input_per_mtok: 0.27
+    output_per_mtok: 1.10
+    cache_discount: 0.75
+    tokenizer_inflation: 1.0
+  deepseek-r1:                   # deepseek-reasoner
+    input_per_mtok: 0.55
+    output_per_mtok: 2.19
+    cache_discount: 0.75
+    tokenizer_inflation: 1.0
+  # Cohere
+  command-r-plus:
+    input_per_mtok: 2.50
+    output_per_mtok: 10.00
+    cache_discount: 0.0
+    tokenizer_inflation: 1.0
+  command-r:
+    input_per_mtok: 0.15
+    output_per_mtok: 0.60
+    cache_discount: 0.0
+    tokenizer_inflation: 1.0
+  # xAI
+  grok-3:
+    input_per_mtok: 3.00
+    output_per_mtok: 15.00
+    cache_discount: 0.0
+    tokenizer_inflation: 1.0
+  grok-2:
+    input_per_mtok: 2.00
+    output_per_mtok: 10.00
+    cache_discount: 0.0
+    tokenizer_inflation: 1.0
+
+default_model: claude-sonnet-4-6
+
+# ──────────────────────────────────────────────────────────────────────────
+# 2. Per-action tool API costs (USD per action call)
+# Skip tools that are effectively free at agent volumes.
+# Tool names match what extractor / parser produces.
+# ──────────────────────────────────────────────────────────────────────────
+tool_action_costs:
+  sendgrid:
+    send_email: 0.0004
+    send_template_email: 0.0004
+    create_campaign: 0.0010
+  twilio:
+    send_sms: 0.0079
+    make_call: 0.014
+  stripe:
+    create_refund: 0.0
+    create_payout: 0.25
+    create_transfer: 0.25
+    create_charge: 0.029
+    void_invoice: 0.0
+  aws_lambda:
+    invocation: 0.0000002
+  aws_s3:
+    put_object: 0.000005
+    get_object: 0.0000004
+  aws_rds:
+    create_snapshot: 0.020
+    delete_snapshot: 0.0
+  pinecone:
+    query: 0.00000825
+    upsert: 0.000002
+  openai_embeddings:
+    embed: 0.00000013
+  browserbase:
+    create_session: 0.0017
+
+# ──────────────────────────────────────────────────────────────────────────
+# 3. Default token usage per LLM turn (no calibration data)
+# ──────────────────────────────────────────────────────────────────────────
+turn_defaults:
+  system_prompt_tokens: 800       # typical Arceo-style system prompt
+  tool_overhead_per_tool: 400     # MCP tool definitions ~400 tok each
+  user_message_tokens: 120        # avg user input
+  tool_result_tokens: 500         # avg result returned to model
+  completion_tokens: 300          # avg model response
+  history_growth_per_turn: 1500   # conversation context accumulated per extra turn
+                                  # (averaged across the run in the static estimate)
+
+# ──────────────────────────────────────────────────────────────────────────
+# 4. Scenario shape defaults
+# Used when no sandbox traces or live traces exist.
+# Calibrates further once data flows in.
+# ──────────────────────────────────────────────────────────────────────────
+scenario_defaults:
+  default_calls_per_day: 100      # conservative — UX should ask user (= RUNS/day)
+  avg_turns_per_run: 4            # fallback LLM round-trips per run (see archetype map below)
+  default_runtime_seconds: 4.2
+  default_cache_hit_rate: 0.60    # 60% — common with Anthropic auto-caching
+  default_retry_rate: 0.03        # 3%
+
+# Cold-start turns/run by inferred archetype — a scheduler isn't a devops loop.
+# Refined automatically once a sandbox sweep / live traces measure real turns;
+# the CFO can also override via the "Turns per run" slider or expected_turns_per_run.
+default_turns_per_run_by_archetype:
+  scheduler: 2
+  support: 4
+  sales: 4
+  devops: 8
+  ops: 8
+  default: 4
+
+# ──────────────────────────────────────────────────────────────────────────
+# 5. Confidence bands (multiplier on point estimate)
+# Wider for low-confidence tier; tighter for high.
+# Source: brain/Signals/Cost forecaster calibration data.md
+# ──────────────────────────────────────────────────────────────────────────
+confidence_bands:
+  low:                              # static — capability tree only
+    low_multiplier: 0.50
+    high_multiplier: 1.80
+  medium:                           # sandbox simulation traces available
+    low_multiplier: 0.72
+    high_multiplier: 1.28
+  high:                             # live production traces ≥7 days
+    low_multiplier: 0.85
+    high_multiplier: 1.15
+
+# ──────────────────────────────────────────────────────────────────────────
+# 6. Per-call infrastructure overhead (compute, mocks, observability)
+# Split: a fixed overhead + a runtime-proportional compute cost. The compute
+# rate (~2 vCPU serverless, ~$0.65/hr ≈ $0.00018/s) makes runtime a real cost
+# lever. At the 4.2s default runtime this nets ~$0.00096/call (≈ the prior flat
+# $0.001), so existing forecasts barely move.
+# ──────────────────────────────────────────────────────────────────────────
+infrastructure:
+  per_call_overhead_usd: 0.0002
+  compute_cost_per_second_usd: 0.00018
+
+# ──────────────────────────────────────────────────────────────────────────
+# 7. Sensitivity ranking (which inputs affect cost most)
+# These are roughly constant across agents — see methodology signal.
+# ──────────────────────────────────────────────────────────────────────────
+sensitivity_ranking:
+  - label: "Calls per day"
+    pct: 76
+    color: "linear-gradient(90deg, #fecaca, #ef4444)"
+  - label: "Model choice"
+    pct: 42
+    color: "linear-gradient(90deg, #fde68a, #f59e0b)"
+  - label: "Cache hit rate"
+    pct: 23
+    color: "linear-gradient(90deg, #fde68a, #f59e0b)"
+  - label: "Runtime / call"
+    pct: 18
+    color: "linear-gradient(90deg, #d1d5db, #9ca3af)"
+  - label: "Retry rate"
+    pct: 10
+    color: "linear-gradient(90deg, #d1d5db, #9ca3af)"
