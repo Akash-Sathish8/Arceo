@@ -87,7 +87,7 @@ const STEPS = [
         <path d="M8 11l2 2 4-4"/>
       </svg>
     ),
-    title: "Hand the CFO one number",
+    title: "Get the danger/cost report",
     desc: "You get the monthly cost with a confidence range, the worst case in dollars if a risky chain fires, and a budget cap you can actually enforce. It's one report, written so a CFO can sign it.",
     mockup: (
       <div className="card" style={{ padding: "18px 20px" }}>
@@ -176,7 +176,7 @@ export default function HowItWorks() {
         <div style={{ textAlign: "center", marginBottom: 56 }}>
           <span className="eyebrow">How It Works</span>
           <h2 style={{ fontSize: 44, fontWeight: 600, letterSpacing: "-0.4px", color: "#2C2215" }}>
-            From connected agent to a report your CFO can read, in minutes
+            From connected agent, to a report you can read. In minutes.
           </h2>
         </div>
 
