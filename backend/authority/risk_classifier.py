@@ -89,6 +89,75 @@ PII_SCHEMA_KEYS: list[str] = [
 VALID_LABELS = {"moves_money", "touches_pii", "deletes_data", "sends_external", "changes_production"}
 
 
+# ── Agent / dev primitives ───────────────────────────────────────────────────
+# The SaaS-flavoured keywords above miss the primitives that matter most for code
+# agents: arbitrary shell/code execution, file mutation, and browser automation.
+# These are matched on WHOLE TOKENS (so "rm" fires on the action `rm` but not on
+# "form"/"transform") plus a few specific multi-word compounds. Arbitrary
+# execution is treated as the highest-risk primitive so an LLM miss can never
+# under-rate a `bash` tool — the exact gap that let a code agent score "medium".
+
+# Arbitrary code/shell execution → can change prod AND delete data, irreversible.
+# NOTE: generic verbs ("execute"/"execution"/"run") are deliberately NOT tokens —
+# "Execute a web search" in a description must not read as shell execution. The
+# specific tokens below plus the compounds are unambiguous.
+CODE_EXEC_TOKENS = {
+    "bash", "sh", "zsh", "shell", "exec", "eval",
+    "spawn", "subprocess", "popen", "kubectl", "ssh", "terminal", "repl",
+}
+CODE_EXEC_COMPOUNDS = (
+    "run_code", "run_command", "execute_code", "execute_command", "shell_command",
+    "code_execution", "code_interpreter", "code_exec", "system_command",
+    "arbitrary_code", "command_exec",
+)
+# File mutation primitives.
+FILE_WRITE_TOKENS = {"write", "edit", "patch", "overwrite", "chmod", "chown"}
+FILE_WRITE_COMPOUNDS = ("write_file", "edit_file", "create_file", "put_object", "save_file")
+FILE_DELETE_TOKENS = {"rm", "rmdir", "unlink", "rmtree"}
+FILE_DELETE_COMPOUNDS = ("delete_file", "remove_file", "delete_object")
+# Browser/UI automation — interacts with a page; benign on its own, but the LLM
+# layer tends to over-label it (e.g. select → deletes_data). Used to suppress
+# that escalation, NOT to add labels.
+UI_AUTOMATION_TOKENS = {
+    "navigate", "click", "hover", "scroll", "screenshot", "select", "fill",
+    "type", "press", "goto", "snapshot", "focus", "drag", "puppeteer",
+    "playwright", "browser", "evaluate",
+}
+
+
+def _name_has(name: str, tokens: set[str], compounds: tuple = ()) -> bool:
+    """Match tokens against the ACTION NAME only (high signal), plus specific
+    multi-word compounds. Names drive these decisions, not free-text descriptions
+    where generic verbs ("execute a search") cause false positives."""
+    toks = set(re.split(r"[^a-z0-9]+", name.lower()))
+    if toks & tokens:
+        return True
+    nl = name.lower()
+    return any(c in nl for c in compounds)
+
+
+def _primitive_labels(action_name: str, description: str, is_read: bool) -> tuple[set[str], bool, bool]:
+    """Deterministic labels for agent/dev primitives the SaaS keywords miss.
+
+    Returns (labels, irreversible, is_ui_automation). Arbitrary execution
+    (bash/exec/shell/...) maps to changes_production + deletes_data, irreversible.
+    Matched on the action NAME (not description) to avoid verb false positives.
+    """
+    name = action_name
+    labels: set[str] = set()
+    irreversible = False
+    if not is_read and _name_has(name, CODE_EXEC_TOKENS, CODE_EXEC_COMPOUNDS):
+        labels.update({"changes_production", "deletes_data"})
+        irreversible = True
+    if not is_read and _name_has(name, FILE_WRITE_TOKENS, FILE_WRITE_COMPOUNDS):
+        labels.add("changes_production")
+    if not is_read and _name_has(name, FILE_DELETE_TOKENS, FILE_DELETE_COMPOUNDS):
+        labels.add("deletes_data")
+        irreversible = True
+    is_ui = _name_has(name, UI_AUTOMATION_TOKENS)
+    return labels, irreversible, is_ui
+
+
 def _text_matches_keywords(text: str, keywords: list[str]) -> bool:
     """Check if any keyword appears as a substring in the text."""
     text_lower = text.lower()
@@ -169,7 +238,24 @@ def classify_action(action_name: str, description: str = "") -> tuple[list[str],
                 continue
             risk_labels.append(label)
 
+    # Agent/dev primitives the SaaS keywords miss (bash, exec, file write/delete).
+    prim_labels, prim_irreversible, is_ui = _primitive_labels(stripped, description, is_read)
+    for lbl in prim_labels:
+        if lbl not in risk_labels:
+            risk_labels.append(lbl)
+
     reversible = is_read or not any(kw in combined for kw in IRREVERSIBLE_KEYWORDS)
+    if prim_irreversible:
+        reversible = False
+
+    # Browser/UI automation (click, select, navigate, screenshot…) is a benign
+    # page interaction. Loose substring keyword matches ("drop" inside "dropdown")
+    # otherwise mislabel it as deletion/money — the false "critical" we saw on a
+    # real repo. Strip the physical-world labels unless a real code-exec/file
+    # primitive actually fired.
+    if is_ui and not prim_labels:
+        risk_labels = [l for l in risk_labels if l not in ("deletes_data", "moves_money", "changes_production")]
+        reversible = True
 
     return risk_labels, reversible
 
@@ -299,8 +385,15 @@ def classify_with_fallback(
     # benign substring locks to the (possibly wrong) keyword label forever.
     combined = f"{_strip_service_prefix(action_name)} {action_name} {description}".lower()
     is_read = _is_read_action(action_name)
-    strong = _strong_labels(combined) | set(schema_labels)
+    # Agent/dev primitives are high-signal: a matched code-exec/file label is
+    # trusted (counts as strong) so we never depend on the LLM to flag a `bash`
+    # tool. Benign browser automation is suppressed from LLM escalation, which
+    # otherwise invents labels (e.g. puppeteer_select → deletes_data).
+    prim_labels, _, is_ui = _primitive_labels(_strip_service_prefix(action_name), description, is_read)
+    strong = _strong_labels(combined) | set(schema_labels) | prim_labels
     low_confidence = (not risk_labels) or (not is_read and not strong)
+    if is_ui and not risk_labels and not prim_labels:
+        low_confidence = False
 
     if low_confidence:
         llm_result = classify_with_llm(action_name, description, props or None)

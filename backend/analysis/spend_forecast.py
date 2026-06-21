@@ -1059,12 +1059,29 @@ def _compute_per_agent_sensitivity(
         return []  # can't perturb a zero baseline — return nothing, never canned %
 
     sd = defaults["scenario_defaults"]
-    base_calls = float(_first_set(
-        overrides.get("runs_per_day"),
-        overrides.get("calls_per_day"),
-        agent_config.get("expected_calls_per_day"),
-        default=sd["default_calls_per_day"],
-    ))
+    # Perturb the SAME volume key the baseline forecast is driven by. At the
+    # high (live) tier, volume is observed `llm_calls_per_day`; perturbing
+    # `runs_per_day` there flips the forecast onto a runs×turns basis (a totally
+    # different volume), which produced absurd swings (e.g. 2000%). On the live
+    # basis we perturb `llm_calls_per_day`; otherwise `runs_per_day`.
+    _live_calls = overrides.get("llm_calls_per_day")
+    _on_live_basis = (
+        _live_calls is not None
+        and overrides.get("runs_per_day") is None
+        and overrides.get("calls_per_day") is None
+        and overrides.get("turns_per_run") is None
+    )
+    if _on_live_basis:
+        base_calls = float(_live_calls)
+        _volume_key = "llm_calls_per_day"
+    else:
+        base_calls = float(_first_set(
+            overrides.get("runs_per_day"),
+            overrides.get("calls_per_day"),
+            agent_config.get("expected_calls_per_day"),
+            default=sd["default_calls_per_day"],
+        ))
+        _volume_key = "runs_per_day"
     base_runtime = float(overrides.get("runtime") or sd["default_runtime_seconds"])
     base_cache = float(overrides.get("cache_hit", sd["default_cache_hit_rate"] * 100))
     base_retry = float(overrides.get("retry_rate", sd["default_retry_rate"] * 100))
@@ -1098,8 +1115,8 @@ def _compute_per_agent_sensitivity(
     sensitivities: list[tuple[str, int]] = []
 
     sensitivities.append(("Calls per day", _avg_pct_change(
-        {"runs_per_day": max(1, int(round(base_calls * 1.2)))},
-        {"runs_per_day": max(1, int(round(base_calls * 0.8)))},
+        {_volume_key: max(1, int(round(base_calls * 1.2)))},
+        {_volume_key: max(1, int(round(base_calls * 0.8)))},
     )))
 
     # Model choice — spread across all available models (categorical, no ±20%)

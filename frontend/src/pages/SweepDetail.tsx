@@ -37,7 +37,15 @@ interface SweepDetailData {
     scenarios_run: number;
     scenarios_failed: number;
   };
-  recommendations: string[];
+  // Backend may return recommendation OBJECTS ({message, effect, action_pattern,
+  // reason, actionable}) or plain strings — support both to avoid a render crash.
+  recommendations: (string | {
+    message?: string;
+    reason?: string;
+    effect?: string;
+    action_pattern?: string;
+    actionable?: boolean;
+  })[];
   violations: SweepViolation[];
 }
 
@@ -355,7 +363,10 @@ export default function SweepDetail() {
             Recommendations ({recommendations.length})
           </h3>
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            {recommendations.map((rec, i) => (
+            {recommendations.map((rec, i) => {
+              const text = typeof rec === "string" ? rec : (rec.message ?? rec.reason ?? "");
+              const tag = typeof rec === "string" ? "" : (rec.effect && rec.action_pattern ? `${rec.effect} · ${rec.action_pattern}` : "");
+              return (
               <div
                 key={i}
                 style={{
@@ -370,9 +381,12 @@ export default function SweepDetail() {
                 }}
               >
                 <CheckCircle size={14} style={{ color: "var(--color-accent)", marginTop: 2, flexShrink: 0 }} />
-                {rec}
+                <div style={{ flex: 1 }}>
+                  <span>{text}</span>
+                  {tag && <span className="mono" style={{ marginLeft: 8, fontSize: 11, color: "var(--text-muted)" }}>{tag}</span>}
+                </div>
               </div>
-            ))}
+            );})}
           </div>
         </div>
       )}

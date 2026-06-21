@@ -41,6 +41,9 @@ def enforce(
     token = token or os.getenv("ARCEO_TOKEN")
     if token:
         headers["Authorization"] = f"Bearer {token}"
+    api_key = os.getenv("ARCEO_API_KEY")
+    if api_key:
+        headers["X-API-Key"] = api_key
     url = base_url.rstrip("/") + "/api/enforce"
     try:
         req = urllib.request.Request(url, data=body, headers=headers, method="POST")

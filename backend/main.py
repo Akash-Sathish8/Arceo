@@ -110,11 +110,17 @@ def validate_external_url(url: str) -> None:
             raise HTTPException(status_code=400, detail="URL resolves to a disallowed internal address")
 
 
-ALLOWED_ORIGINS = os.getenv("CORS_ORIGINS", "*")
+# Honor CORS_ORIGINS (comma-separated). Default to localhost dev origins rather
+# than "*" — a wildcard with the API's bearer-token auth is a standard pentest
+# finding. Set CORS_ORIGINS to your real origins in production (or "*" to opt back in).
+_cors_env = os.getenv("CORS_ORIGINS", "").strip()
+ALLOWED_ORIGINS = [o.strip() for o in _cors_env.split(",") if o.strip()] or [
+    "http://localhost:5173", "http://localhost:3000", "http://localhost:3002",
+]
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=ALLOWED_ORIGINS,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -1562,8 +1568,13 @@ Rules:
 - Return JSON only."""
 
 
-def _extract_and_register(content: str, filename: str = "", agent_name_hint: str = "", org_id: str = DEFAULT_ORG_ID) -> dict:
-    """Shared helper: Haiku extraction + registration. Raises HTTPException."""
+def _extract_and_register(content: str, filename: str = "", agent_name_hint: str = "", org_id: str = DEFAULT_ORG_ID, skip_if_empty: bool = False) -> dict:
+    """Shared helper: Haiku extraction + registration. Raises HTTPException.
+
+    skip_if_empty=True (used by the whole-repo scan) raises 422 instead of
+    registering a file that yields no tools/actions — so test files and 0-tool
+    base classes don't get registered as "agents".
+    """
     api_key = os.getenv("ANTHROPIC_API_KEY")
     if not api_key:
         raise HTTPException(status_code=503, detail="ANTHROPIC_API_KEY not configured on server — code extraction unavailable")
@@ -1615,6 +1626,10 @@ def _extract_and_register(content: str, filename: str = "", agent_name_hint: str
                 for a in actions if isinstance(a, dict) and a.get("name")
             ],
         })
+
+    total_actions = sum(len(t["actions"]) for t in tools_payload)
+    if skip_if_empty and total_actions == 0:
+        raise HTTPException(status_code=422, detail="No agent tools/actions found — not an agent file")
 
     # Persist the forecast inputs the extractor already recovered: the model
     # (so pricing isn't blindly Sonnet) and the system prompt. A large system
@@ -1699,7 +1714,7 @@ async def extract_agents_from_github(req: GithubExtractInput, user: dict = Depen
     if gh_token:
         headers["Authorization"] = f"Bearer {gh_token}"
 
-    async with _httpx.AsyncClient(timeout=30.0, headers=headers) as client:
+    async with _httpx.AsyncClient(timeout=30.0, headers=headers, follow_redirects=True) as client:
         # Try requested branch, then main, then master
         branches_to_try = [req.branch] if req.branch else []
         branches_to_try += ["main", "master"]
@@ -1751,7 +1766,7 @@ async def extract_agents_from_github(req: GithubExtractInput, user: dict = Depen
     for f in agent_files:
         try:
             hint = f["path"].rsplit("/", 1)[-1].rsplit(".", 1)[0]
-            extracted = _extract_and_register(f["content"], f["path"], hint, org_id=_org(user))
+            extracted = _extract_and_register(f["content"], f["path"], hint, org_id=_org(user), skip_if_empty=True)
             results.append({
                 "path": f["path"],
                 "status": "registered",
@@ -1761,7 +1776,7 @@ async def extract_agents_from_github(req: GithubExtractInput, user: dict = Depen
                 "model": extracted.get("model", ""),
             })
         except HTTPException as e:
-            results.append({"path": f["path"], "status": "failed", "error": e.detail})
+            results.append({"path": f["path"], "status": "skipped" if e.status_code == 422 else "failed", "error": e.detail})
         except Exception as e:
             results.append({"path": f["path"], "status": "failed", "error": str(e)})
 
@@ -2049,17 +2064,24 @@ def _maybe_fire_spend_anomaly_alert(agent_id: str):
 
 
 @app.post("/api/agent/{agent_id}/llm-call")
-def ingest_llm_call(agent_id: str, payload: dict):
+def ingest_llm_call(agent_id: str, payload: dict, request: Request):
     """Ingest a captured LLM API call from wrap_llm().
 
-    Stores the full request (system prompt, model, params, messages, tools) +
-    response in the audit log. Unauthenticated by design — agents call this
-    from production. Pair with API keys for hardening.
+    Stores token usage + request/response metadata in the audit log. Requires a
+    valid X-API-Key whose org owns the agent — otherwise anyone who learns an
+    agent_id could inject usage and poison the agent's cost forecast and alerts.
     """
+    key_row = verify_api_key(request)
+    if not key_row:
+        raise HTTPException(status_code=401, detail="X-API-Key required")
+    if key_row.get("agent_id") and key_row["agent_id"] != agent_id:
+        raise HTTPException(status_code=403, detail="API key is scoped to a different agent")
     with get_db() as conn:
-        agent = conn.execute("SELECT id FROM agents WHERE id = ?", (agent_id,)).fetchone()
+        agent = conn.execute("SELECT id, org_id FROM agents WHERE id = ?", (agent_id,)).fetchone()
         if not agent:
             raise HTTPException(status_code=404, detail=f"Unknown agent: {agent_id}")
+        if agent["org_id"] != key_row.get("org_id"):
+            raise HTTPException(status_code=403, detail="API key does not belong to this agent's org")
 
         provider = payload.get("provider", "unknown")
         model = payload.get("model", "unknown")
@@ -2496,12 +2518,24 @@ class EnforceRequest(BaseModel):
 
 
 @app.post("/api/enforce")
-def enforce_action(req: EnforceRequest):
+def enforce_action(req: EnforceRequest, request: Request):
     """Runtime enforcement — agents call this before executing an action.
 
-    Supports conditional policies (e.g. amount > 100) and session-aware
-    conditions (e.g. requires_prior: pagerduty.get_incident).
+    Requires auth (an X-API-Key, or a bearer JWT) whose org owns the agent —
+    without it, anyone could enumerate agent_ids to probe another tenant's policy
+    posture and inject execution rows into their approvals queue.
     """
+    key_row = verify_api_key(request)
+    if key_row:
+        if key_row.get("agent_id") and key_row["agent_id"] != req.agent_id:
+            raise HTTPException(status_code=403, detail="API key is scoped to a different agent")
+        caller_org = key_row.get("org_id")
+    else:
+        caller_org = _org(get_current_user(request))  # raises 401 if no valid bearer token
+    with get_db() as conn:
+        agent = conn.execute("SELECT org_id FROM agents WHERE id = ?", (req.agent_id,)).fetchone()
+        if agent and caller_org and agent["org_id"] != caller_org:
+            raise HTTPException(status_code=403, detail="Not authorized for this agent")
     check_rate_limit(f"enforce:{req.agent_id}")
     return enforce_check(req.agent_id, req.tool, req.action, req.params or None, req.session_context or None)
 

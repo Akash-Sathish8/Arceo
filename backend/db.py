@@ -19,6 +19,25 @@ from pathlib import Path
 DB_PATH = Path(os.environ.get("ARCEO_DB_PATH", Path(__file__).parent / "actiongate.db"))
 DB_PATH.parent.mkdir(parents=True, exist_ok=True)
 
+# Production guard: the default DB path lives on the (ephemeral) container
+# filesystem, so a redeploy silently wipes all customer data. Refuse to boot on a
+# real deploy unless ARCEO_DB_PATH points at a persistent volume.
+_PROD_MARKERS = ("RAILWAY_ENVIRONMENT", "FLY_APP_NAME", "RENDER", "PRODUCTION")
+if "ARCEO_DB_PATH" not in os.environ and any(os.getenv(k) for k in _PROD_MARKERS):
+    raise RuntimeError(
+        "ARCEO_DB_PATH is not set on a production deploy. The default DB path is on "
+        "the ephemeral container filesystem and will be wiped on redeploy. Point "
+        "ARCEO_DB_PATH at a persistent volume."
+    )
+
+# Best-effort single restore point, refreshed each process start.
+try:
+    if DB_PATH.exists() and DB_PATH.stat().st_size > 0:
+        import shutil as _shutil
+        _shutil.copy2(DB_PATH, DB_PATH.with_suffix(".db.bak"))
+except Exception:
+    pass
+
 DEFAULT_ORG_ID = "default"
 
 
@@ -26,6 +45,8 @@ def get_conn() -> sqlite3.Connection:
     conn = sqlite3.connect(str(DB_PATH))
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
+    conn.execute("PRAGMA journal_mode = WAL")
+    conn.execute("PRAGMA synchronous = NORMAL")
     return conn
 
 
@@ -279,14 +300,28 @@ def init_db():
 
 
 def _seed_demo_user(conn):
-    """Seed only the demo login user in the default org."""
+    """Seed the initial admin user in the default org.
+
+    In DEMO_MODE we use the well-known demo password so demos stay reproducible.
+    Otherwise we generate a random one-time password and log it once — a fresh
+    production DB must never boot with a publicly-known credential.
+    """
+    import secrets, logging
     from auth import hash_password
     now = datetime.utcnow().isoformat()
-    pw_hash = hash_password("admin123")
+    demo = os.getenv("DEMO_MODE", "").lower() == "true"
+    password = "admin123" if demo else secrets.token_urlsafe(16)
+    pw_hash = hash_password(password)
     conn.execute(
         "INSERT INTO users (id, email, password_hash, name, role, org_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
         (str(uuid.uuid4()), "admin@actiongate.io", pw_hash, "Admin", "admin", DEFAULT_ORG_ID, now),
     )
+    if not demo:
+        logging.getLogger("actiongate.db").warning(
+            "Seeded initial admin 'admin@actiongate.io' with a RANDOM one-time password: %s — "
+            "log in and change it immediately. (Set DEMO_MODE=true to use the demo password.)",
+            password,
+        )
 
 
 # ── Query helpers (all org-scoped) ────────────────────────────────────────

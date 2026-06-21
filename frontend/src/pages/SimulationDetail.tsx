@@ -54,7 +54,15 @@ interface SimulationDetailData {
   report: {
     violations: Violation[];
     chains: Chain[];
-    recommendations: string[];
+    // Backend returns recommendation OBJECTS ({message, actionable, effect,
+    // action_pattern, reason}); older sims returned plain strings. Support both.
+    recommendations: (string | {
+      message?: string;
+      reason?: string;
+      effect?: string;
+      action_pattern?: string;
+      actionable?: boolean;
+    })[];
     risk_score: number;
     executive_summary?: string;
   };
@@ -299,7 +307,7 @@ export default function SimulationDetail() {
           report: {
             violations: (r.violations ?? []) as Violation[],
             chains: (r.chains ?? r.chains_triggered ?? []) as Chain[],
-            recommendations: (r.recommendations ?? []) as string[],
+            recommendations: (r.recommendations ?? []) as SimulationDetailData["report"]["recommendations"],
             risk_score: Number(r.risk_score ?? 0),
             executive_summary: r.executive_summary as string | undefined,
           },
@@ -523,15 +531,24 @@ export default function SimulationDetail() {
             </Button>
           </div>
           <div className="space-y-1.5">
-            {recommendations.map((rec, i) => (
-              <div
-                key={i}
-                style={{ display: "flex", alignItems: "flex-start", gap: 8, fontSize: 13, color: "var(--text-primary)", padding: 8, background: "var(--bg-sunken)", borderRadius: 10 }}
-              >
-                <CheckCircle size={14} className="mt-0.5 flex-shrink-0" style={{ color: 'var(--color-cta)' }} />
-                {rec}
-              </div>
-            ))}
+            {recommendations.map((rec, i) => {
+              const text = typeof rec === "string" ? rec : (rec.message ?? rec.reason ?? "");
+              const tag = typeof rec === "string" ? "" : (rec.effect && rec.action_pattern ? `${rec.effect} · ${rec.action_pattern}` : "");
+              return (
+                <div
+                  key={i}
+                  style={{ display: "flex", alignItems: "flex-start", gap: 8, fontSize: 13, color: "var(--text-primary)", padding: 8, background: "var(--bg-sunken)", borderRadius: 10 }}
+                >
+                  <CheckCircle size={14} className="mt-0.5 flex-shrink-0" style={{ color: 'var(--color-cta)' }} />
+                  <div style={{ flex: 1 }}>
+                    <span>{text}</span>
+                    {tag && (
+                      <span className="mono" style={{ marginLeft: 8, fontSize: 11, color: "var(--text-muted)" }}>{tag}</span>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </div>
       )}
