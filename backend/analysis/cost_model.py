@@ -242,8 +242,13 @@ def generate_cost_report(
                     per_min *= 0.05  # 95% reduction if policy catches it
                     per_max *= 0.05
 
-                annual_min = per_min * annual_runs if annual_runs else 0
-                annual_max = per_max * annual_runs if annual_runs else 0
+                # "Annualized" must NOT assume every run is a worst-case breach —
+                # that produced indefensible $B figures (per_incident x runs x 365).
+                # Without a breach-rate model we report a conservative one-worst-case-
+                # incident-per-year exposure (= the per-incident figure). Per-incident
+                # max stays the headline number the product actually defends.
+                annual_min = per_min
+                annual_max = per_max
 
                 confidence = confidence_map.get("static_only", "low")
                 configured = per_max > 0

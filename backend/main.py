@@ -110,11 +110,17 @@ def validate_external_url(url: str) -> None:
             raise HTTPException(status_code=400, detail="URL resolves to a disallowed internal address")
 
 
-ALLOWED_ORIGINS = os.getenv("CORS_ORIGINS", "*")
+# Honor CORS_ORIGINS (comma-separated). Default to localhost dev origins rather
+# than "*" — a wildcard with the API's bearer-token auth is a standard pentest
+# finding. Set CORS_ORIGINS to your real origins in production (or "*" to opt back in).
+_cors_env = os.getenv("CORS_ORIGINS", "").strip()
+ALLOWED_ORIGINS = [o.strip() for o in _cors_env.split(",") if o.strip()] or [
+    "http://localhost:5173", "http://localhost:3000", "http://localhost:3002",
+]
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=ALLOWED_ORIGINS,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -925,7 +931,10 @@ def change_password(req: ChangePasswordRequest, user: dict = Depends(get_current
 @app.get("/api/authority/agents")
 def list_agents(user: dict = Depends(get_current_user)):
     with get_db() as conn:
-        log_audit(conn, user["sub"], user["email"], "LIST_AGENTS")
+        # No audit write here: this endpoint is polled on an interval by the
+        # dashboard + sidebar, so logging every poll turned a read into a writer
+        # competing for WAL's single writer slot — the source of the
+        # "database is locked" 500s during the agent-connect write burst.
         agents = get_all_agents_from_db(conn, org_id=_org(user))
 
     with get_db() as conn:
@@ -935,6 +944,15 @@ def list_agents(user: dict = Depends(get_current_user)):
             policy_count = conn.execute(
                 "SELECT COUNT(*) FROM policies WHERE agent_id = ?", (agent["id"],)
             ).fetchone()[0]
+            # Per-effect breakdown so the dashboard card can tell "enforced
+            # coverage" (BLOCK/ALLOW → green check) from a still-pending
+            # REQUIRE_APPROVAL gate (amber, NOT a green "approved" check).
+            policies_by_effect = {"BLOCK": 0, "REQUIRE_APPROVAL": 0, "ALLOW": 0}
+            for row in conn.execute(
+                "SELECT effect, COUNT(*) AS n FROM policies WHERE agent_id = ? GROUP BY effect",
+                (agent["id"],),
+            ).fetchall():
+                policies_by_effect[row["effect"]] = row["n"]
             pending_count = conn.execute(
                 "SELECT COUNT(*) FROM execution_log WHERE agent_id = ? AND status = 'PENDING_APPROVAL'", (agent["id"],)
             ).fetchone()[0]
@@ -948,6 +966,7 @@ def list_agents(user: dict = Depends(get_current_user)):
                 "tools": [t["service"] for t in agent["tools"]],
                 "created_at": agent["created_at"],
                 "policy_count": policy_count,
+                "policies_by_effect": policies_by_effect,
                 "pending_count": pending_count,
                 "last_execution_at": last_exec["timestamp"] if last_exec else None,
                 **summary,
@@ -963,7 +982,8 @@ def get_agent_detail(agent_id: str, user: dict = Depends(get_current_user)):
         if not agent:
             raise HTTPException(status_code=404, detail=f"Agent '{agent_id}' not found")
 
-        log_audit(conn, user["sub"], user["email"], "VIEW_AGENT", resource=agent_id)
+        # No audit write here: the agent-detail page polls this endpoint, so a
+        # VIEW_AGENT row per poll made a read contend for WAL's writer slot.
 
         # Get policies for this agent
         policies = conn.execute(
@@ -1562,8 +1582,13 @@ Rules:
 - Return JSON only."""
 
 
-def _extract_and_register(content: str, filename: str = "", agent_name_hint: str = "", org_id: str = DEFAULT_ORG_ID) -> dict:
-    """Shared helper: Haiku extraction + registration. Raises HTTPException."""
+def _extract_and_register(content: str, filename: str = "", agent_name_hint: str = "", org_id: str = DEFAULT_ORG_ID, skip_if_empty: bool = False) -> dict:
+    """Shared helper: Haiku extraction + registration. Raises HTTPException.
+
+    skip_if_empty=True (used by the whole-repo scan) raises 422 instead of
+    registering a file that yields no tools/actions — so test files and 0-tool
+    base classes don't get registered as "agents".
+    """
     api_key = os.getenv("ANTHROPIC_API_KEY")
     if not api_key:
         raise HTTPException(status_code=503, detail="ANTHROPIC_API_KEY not configured on server — code extraction unavailable")
@@ -1615,6 +1640,10 @@ def _extract_and_register(content: str, filename: str = "", agent_name_hint: str
                 for a in actions if isinstance(a, dict) and a.get("name")
             ],
         })
+
+    total_actions = sum(len(t["actions"]) for t in tools_payload)
+    if skip_if_empty and total_actions == 0:
+        raise HTTPException(status_code=422, detail="No agent tools/actions found — not an agent file")
 
     # Persist the forecast inputs the extractor already recovered: the model
     # (so pricing isn't blindly Sonnet) and the system prompt. A large system
@@ -1699,7 +1728,7 @@ async def extract_agents_from_github(req: GithubExtractInput, user: dict = Depen
     if gh_token:
         headers["Authorization"] = f"Bearer {gh_token}"
 
-    async with _httpx.AsyncClient(timeout=30.0, headers=headers) as client:
+    async with _httpx.AsyncClient(timeout=30.0, headers=headers, follow_redirects=True) as client:
         # Try requested branch, then main, then master
         branches_to_try = [req.branch] if req.branch else []
         branches_to_try += ["main", "master"]
@@ -1751,7 +1780,7 @@ async def extract_agents_from_github(req: GithubExtractInput, user: dict = Depen
     for f in agent_files:
         try:
             hint = f["path"].rsplit("/", 1)[-1].rsplit(".", 1)[0]
-            extracted = _extract_and_register(f["content"], f["path"], hint, org_id=_org(user))
+            extracted = _extract_and_register(f["content"], f["path"], hint, org_id=_org(user), skip_if_empty=True)
             results.append({
                 "path": f["path"],
                 "status": "registered",
@@ -1761,7 +1790,7 @@ async def extract_agents_from_github(req: GithubExtractInput, user: dict = Depen
                 "model": extracted.get("model", ""),
             })
         except HTTPException as e:
-            results.append({"path": f["path"], "status": "failed", "error": e.detail})
+            results.append({"path": f["path"], "status": "skipped" if e.status_code == 422 else "failed", "error": e.detail})
         except Exception as e:
             results.append({"path": f["path"], "status": "failed", "error": str(e)})
 
@@ -2049,17 +2078,24 @@ def _maybe_fire_spend_anomaly_alert(agent_id: str):
 
 
 @app.post("/api/agent/{agent_id}/llm-call")
-def ingest_llm_call(agent_id: str, payload: dict):
+def ingest_llm_call(agent_id: str, payload: dict, request: Request):
     """Ingest a captured LLM API call from wrap_llm().
 
-    Stores the full request (system prompt, model, params, messages, tools) +
-    response in the audit log. Unauthenticated by design — agents call this
-    from production. Pair with API keys for hardening.
+    Stores token usage + request/response metadata in the audit log. Requires a
+    valid X-API-Key whose org owns the agent — otherwise anyone who learns an
+    agent_id could inject usage and poison the agent's cost forecast and alerts.
     """
+    key_row = verify_api_key(request)
+    if not key_row:
+        raise HTTPException(status_code=401, detail="X-API-Key required")
+    if key_row.get("agent_id") and key_row["agent_id"] != agent_id:
+        raise HTTPException(status_code=403, detail="API key is scoped to a different agent")
     with get_db() as conn:
-        agent = conn.execute("SELECT id FROM agents WHERE id = ?", (agent_id,)).fetchone()
+        agent = conn.execute("SELECT id, org_id FROM agents WHERE id = ?", (agent_id,)).fetchone()
         if not agent:
             raise HTTPException(status_code=404, detail=f"Unknown agent: {agent_id}")
+        if agent["org_id"] != key_row.get("org_id"):
+            raise HTTPException(status_code=403, detail="API key does not belong to this agent's org")
 
         provider = payload.get("provider", "unknown")
         model = payload.get("model", "unknown")
@@ -2496,12 +2532,24 @@ class EnforceRequest(BaseModel):
 
 
 @app.post("/api/enforce")
-def enforce_action(req: EnforceRequest):
+def enforce_action(req: EnforceRequest, request: Request):
     """Runtime enforcement — agents call this before executing an action.
 
-    Supports conditional policies (e.g. amount > 100) and session-aware
-    conditions (e.g. requires_prior: pagerduty.get_incident).
+    Requires auth (an X-API-Key, or a bearer JWT) whose org owns the agent —
+    without it, anyone could enumerate agent_ids to probe another tenant's policy
+    posture and inject execution rows into their approvals queue.
     """
+    key_row = verify_api_key(request)
+    if key_row:
+        if key_row.get("agent_id") and key_row["agent_id"] != req.agent_id:
+            raise HTTPException(status_code=403, detail="API key is scoped to a different agent")
+        caller_org = key_row.get("org_id")
+    else:
+        caller_org = _org(get_current_user(request))  # raises 401 if no valid bearer token
+    with get_db() as conn:
+        agent = conn.execute("SELECT org_id FROM agents WHERE id = ?", (req.agent_id,)).fetchone()
+        if agent and caller_org and agent["org_id"] != caller_org:
+            raise HTTPException(status_code=403, detail="Not authorized for this agent")
     check_rate_limit(f"enforce:{req.agent_id}")
     return enforce_check(req.agent_id, req.tool, req.action, req.params or None, req.session_context or None)
 
@@ -3044,6 +3092,27 @@ class WorkflowOptimizeRequest(BaseModel):
     dry_run: bool = True
 
 
+def _heuristic_needed_actions(agent: dict, description: str) -> set[str]:
+    """No-LLM fallback for workflow-optimize: an action is considered "needed" by
+    the workflow if a meaningful token (>=4 chars) from its name or description
+    appears in the workflow description. Crude but description-sensitive — keeps
+    `overprivileged` non-trivial when no ANTHROPIC_API_KEY is configured (the dry
+    runner would otherwise mark every action used, hiding all overprivilege)."""
+    import re
+    desc = description.lower()
+    needed: set[str] = set()
+    for t in agent.get("tools", []):
+        for a in t.get("actions", []):
+            key = f"{t['name']}.{a['action']}"
+            tokens = {
+                tok for src in (a["action"], a.get("description", ""))
+                for tok in re.split(r"[^a-z0-9]+", src.lower()) if len(tok) >= 4
+            }
+            if any(tok in desc for tok in tokens):
+                needed.add(key)
+    return needed
+
+
 @app.post("/api/workflows/optimize")
 def optimize_workflow_permissions(req: WorkflowOptimizeRequest, user: dict = Depends(get_current_user)):
     """Analyze a multi-agent workflow and recommend per-agent permission changes.
@@ -3055,8 +3124,7 @@ def optimize_workflow_permissions(req: WorkflowOptimizeRequest, user: dict = Dep
     - approval_gates: cross-agent chains that need REQUIRE_APPROVAL policies
     - per-agent optimization score (0-100, lower = better optimized)
     """
-    from sandbox.multi_runner import run_multi_simulation_dry
-    from sandbox.analyzer import analyze_multi_trace
+    from sandbox.multi_runner import run_multi_simulation, run_multi_simulation_dry
     from sandbox.prompts.scenarios import Scenario
     from authority.chain_detector import LABEL_TRANSITIONS
 
@@ -3074,33 +3142,50 @@ def optimize_workflow_permissions(req: WorkflowOptimizeRequest, user: dict = Dep
                 raise HTTPException(status_code=404, detail=f"Agent '{aid}' not found")
             agent_configs[aid] = agent
 
-    # Run dry-run simulation with the workflow description as the prompt
     scenario = Scenario(
         id="workflow-optimize", name="Workflow Optimization Analysis",
         description="Analyzes actual permission usage across the workflow",
         agent_type="ops", category="normal", severity="info",
         prompt=req.workflow_description,
     )
-    multi_trace = run_multi_simulation_dry(agent_configs, req.coordinator_id, scenario)
-    report = analyze_multi_trace(multi_trace, agent_configs)
 
-    # Track per-agent action usage from the simulation trace
+    # Track per-agent action usage. "used" MUST reflect what the *described*
+    # workflow actually needs — otherwise overprivileged (= registered − used) is
+    # meaningless. The dry runner sweeps every action (everything → "used" →
+    # overprivileged always empty), so we only use it as a no-key fallback and
+    # derive "used" heuristically from the description in that case.
     agent_used = {aid: set() for aid in req.agent_ids}
     agent_blocked = {aid: set() for aid in req.agent_ids}
     agent_needed_approval = {aid: set() for aid in req.agent_ids}
 
-    for step in multi_trace.unified_steps:
-        aid = step.source_agent_id or req.coordinator_id
-        if aid not in agent_used:
-            continue
-        key = f"{step.tool}.{step.action}"
-        if step.enforce_decision == "ALLOW":
-            agent_used[aid].add(key)
-        elif step.enforce_decision == "BLOCK":
-            agent_blocked[aid].add(key)
-        elif step.enforce_decision == "REQUIRE_APPROVAL":
-            agent_needed_approval[aid].add(key)
-            agent_used[aid].add(key)  # Still "used" — workflow needed it
+    api_key = os.getenv("ANTHROPIC_API_KEY")
+    if api_key:
+        # LLM runner: the coordinator (and dispatched specialists) invoke only the
+        # actions the task requires, so "used" is real and prompt-sensitive.
+        analysis_mode = "simulated"
+        multi_trace = run_multi_simulation(
+            agent_configs, req.coordinator_id, scenario, api_key=api_key,
+        )
+        sim_id = multi_trace.simulation_id
+        for step in multi_trace.unified_steps:
+            aid = step.source_agent_id or req.coordinator_id
+            if aid not in agent_used:
+                continue
+            key = f"{step.tool}.{step.action}"
+            if step.enforce_decision == "ALLOW":
+                agent_used[aid].add(key)
+            elif step.enforce_decision == "BLOCK":
+                agent_blocked[aid].add(key)
+            elif step.enforce_decision == "REQUIRE_APPROVAL":
+                agent_needed_approval[aid].add(key)
+                agent_used[aid].add(key)  # Still "used" — workflow needed it
+    else:
+        # No API key: degraded heuristic — an action is "needed" if a token from
+        # its name/description appears in the workflow description.
+        analysis_mode = "heuristic"
+        sim_id = uuid.uuid4().hex[:12]
+        for aid, agent in agent_configs.items():
+            agent_used[aid] = _heuristic_needed_actions(agent, req.workflow_description)
 
     # Build cross-agent chains from static analysis
     agent_labels = {}
@@ -3114,20 +3199,22 @@ def optimize_workflow_permissions(req: WorkflowOptimizeRequest, user: dict = Dep
 
     cross_chains = []
     ids = list(req.agent_ids)
-    for from_label, to_label, chain_name, severity in LABEL_TRANSITIONS:
+    # LABEL_TRANSITIONS is a list of LabelTransition dataclasses, not tuples —
+    # use attribute access (matches the cross-agent-chains endpoint).
+    for t in LABEL_TRANSITIONS:
         for from_id in ids:
-            if from_label not in agent_labels.get(from_id, set()):
+            if t.from_label not in agent_labels.get(from_id, set()):
                 continue
             for to_id in ids:
                 if to_id == from_id:
                     continue
-                if to_label not in agent_labels.get(to_id, set()):
+                if t.to_label not in agent_labels.get(to_id, set()):
                     continue
                 cross_chains.append({
-                    "chain_name": chain_name, "severity": severity,
+                    "chain_name": t.name, "severity": t.severity,
                     "from_agent_id": from_id, "from_agent": agent_configs[from_id]["name"],
                     "to_agent_id": to_id, "to_agent": agent_configs[to_id]["name"],
-                    "from_label": from_label, "to_label": to_label,
+                    "from_label": t.from_label, "to_label": t.to_label,
                 })
 
     # Per-agent analysis
@@ -3203,7 +3290,8 @@ def optimize_workflow_permissions(req: WorkflowOptimizeRequest, user: dict = Dep
     total_gaps = sum(len(a["permission_gaps"]) for a in agent_analysis.values())
 
     return {
-        "simulation_id": multi_trace.simulation_id,
+        "simulation_id": sim_id,
+        "analysis_mode": analysis_mode,  # "simulated" (LLM) or "heuristic" (no key)
         "workflow_description": req.workflow_description,
         "agents": agent_analysis,
         "cross_agent_chains": cross_chains,

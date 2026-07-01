@@ -26,6 +26,13 @@ if SECRET_KEY == "actiongate-demo-secret-key-change-in-prod":
         "This is insecure and will allow anyone to forge authentication tokens."
     )
 
+# DEMO_MODE bypasses JWT entirely (get_current_user returns the admin user). It
+# must never run on a real deploy, where it would collapse the tenant boundary.
+if os.getenv("DEMO_MODE", "").lower() == "true":
+    if os.getenv("RAILWAY_ENVIRONMENT") or os.getenv("FLY_APP_NAME") or os.getenv("RENDER") or os.getenv("PRODUCTION"):
+        raise RuntimeError("DEMO_MODE=true is an authentication bypass and must not run in production.")
+    _logger.warning("DEMO_MODE is ON — JWT auth is bypassed and any login wipes demo data. Never set this in production.")
+
 
 def hash_password(password: str) -> str:
     return bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()

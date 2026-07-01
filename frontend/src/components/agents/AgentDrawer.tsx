@@ -8,7 +8,8 @@
  */
 
 import { useEffect, useRef, useState } from "react";
-import { ArrowLeft, FlaskConical, AlertTriangle, Lock, Link2, Bot } from "lucide-react";
+import { ArrowLeft, FlaskConical, AlertTriangle, Lock, Link2, Bot, TrendingUp } from "lucide-react";
+import { Link } from "react-router-dom";
 import { apiFetch } from "@/lib/api";
 import RiskRing from "@/components/shared/RiskRing";
 import {
@@ -293,6 +294,27 @@ export default function AgentDrawer({
           >
             <FlaskConical size={14} strokeWidth={1.7} /> Simulate in sandbox
           </button>
+          <Link
+            to={`/agent/${a.id}/spend`}
+            className="ag-btn"
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 7,
+              background: "var(--card)",
+              color: "var(--ink-800)",
+              border: "1px solid var(--line)",
+              borderRadius: 8,
+              padding: "8px 14px",
+              fontSize: 13,
+              fontWeight: 550,
+              fontFamily: "inherit",
+              cursor: "pointer",
+              textDecoration: "none",
+            }}
+          >
+            <TrendingUp size={14} strokeWidth={1.7} /> View spend forecast
+          </Link>
         </div>
 
         <div style={{ overflowY: "auto", padding: "24px 24px 40px" }}>

@@ -44,6 +44,7 @@ interface AgentListItem {
   chain_count: number
   critical_chains: number
   policy_count: number
+  policies_by_effect?: { BLOCK?: number; REQUIRE_APPROVAL?: number; ALLOW?: number }
   pending_count: number
   last_execution_at: string | null
 }
@@ -51,6 +52,7 @@ interface AgentListItem {
 interface ChainItem {
   severity: 'critical' | 'high' | 'medium'
   chain_name: string
+  agent_id: string
   agent_name: string
   description: string
   steps: string[]
@@ -83,13 +85,6 @@ const SORT_OPTIONS = [
   { value: 'actions-desc', label: 'Most Actions' },
   { value: 'chains-desc',  label: 'Most Chains' },
   { value: 'name-asc',     label: 'Name A–Z' },
-]
-
-const RISK_FILTERS = [
-  { value: 'all',      label: 'All Agents' },
-  { value: 'critical', label: 'Critical (70+)' },
-  { value: 'warning',  label: 'Warning (40–69)' },
-  { value: 'safe',     label: 'Low (<40)' },
 ]
 
 const TEMPLATES = [
@@ -151,7 +146,6 @@ export default function Authority() {
   // Filters
   const [search, setSearch] = useState('')
   const [sortBy, setSortBy] = useState('score-desc')
-  const [riskFilter, setRiskFilter] = useState('all')
   const [chainSeverityFilter, setChainSeverityFilter] = useState('all')
 
   // Create agent form
@@ -177,8 +171,8 @@ export default function Authority() {
     files_scanned: number; agents_detected: number; agents_registered: number;
     results: { path: string; status: string; agent_id?: string; tools_count?: number; model?: string; error?: string }[]
   } | null>(null)
-  const [batchQueue, setBatchQueue] = useState<{ filename: string; status: 'pending' | 'extracting' | 'done' | 'failed'; agentId?: string; toolsCount?: number; error?: string }[]>([])
-  const [batchRunning, setBatchRunning] = useState(false)
+  const [bundledFiles, setBundledFiles] = useState<{ path: string; chars: number }[]>([])
+  const [bundling, setBundling] = useState(false)
   const [proxyName, setProxyName] = useState('')
   const connectFormRef = useRef<HTMLDivElement>(null)
   const [creating, setCreating] = useState(false)
@@ -253,40 +247,97 @@ export default function Authority() {
     initialTabRef.current = true
   }, [loading, agents.length])
 
+  type PickedFile = { file: File; path: string }
+
+  const BUNDLE_CODE_EXT = /\.(py|ts|tsx|js|jsx|mjs|cjs|json|ya?ml|toml|txt|md)$/i
+  const BUNDLE_SKIP_DIR = /(^|\/)(node_modules|\.git|__pycache__|dist|build|\.next|\.venv|venv|\.turbo|coverage|\.mypy_cache|\.pytest_cache)(\/|$)/
+  const BUNDLE_SKIP_FILE = /(package-lock\.json|yarn\.lock|pnpm-lock\.yaml|poetry\.lock|Cargo\.lock|\.min\.js)$/i
+  const BUNDLE_MAX_CHARS = 150_000 // backend extractor only reads the first 150KB
+
   const handleFileUpload = async (file: File) => {
+    setBundledFiles([])
     setUploadFilename(file.name)
     const text = await file.text()
     setUploadFileContent(text)
   }
 
-  const handleMultiFileUpload = async (files: FileList) => {
-    const list = Array.from(files)
-    if (list.length === 0) return
-    if (list.length === 1) {
-      // Single file → put it in the textarea/preview, user clicks Extract
-      handleFileUpload(list[0])
+  const filesFromInput = (files: FileList): PickedFile[] =>
+    Array.from(files).map((f) => ({ file: f, path: f.webkitRelativePath || f.name }))
+
+  // Recursively pull every File out of a dropped folder. The caller must
+  // capture FileSystemEntry objects synchronously (see onDrop) — the
+  // DataTransfer is gone by the time these promises resolve.
+  const collectEntry = (entry: FileSystemEntry, prefix: string): Promise<PickedFile[]> =>
+    new Promise((resolve) => {
+      if (entry.isFile) {
+        (entry as FileSystemFileEntry).file(
+          (file) => resolve([{ file, path: prefix + file.name }]),
+          () => resolve([]),
+        )
+      } else if (entry.isDirectory) {
+        const reader = (entry as FileSystemDirectoryEntry).createReader()
+        const all: PickedFile[] = []
+        const readBatch = () => {
+          reader.readEntries(
+            (entries) => {
+              if (entries.length === 0) { resolve(all); return }
+              Promise.all(entries.map((e) => collectEntry(e, `${prefix}${entry.name}/`))).then((nested) => {
+                nested.forEach((arr) => all.push(...arr))
+                readBatch() // a directory can hand back its children across several batches
+              })
+            },
+            () => resolve(all),
+          )
+        }
+        readBatch()
+      } else {
+        resolve([])
+      }
+    })
+
+  // Bundle several files (or a whole folder) into ONE agent: concatenate every
+  // code/text file under a `# FILE:` header so the extractor sees the complete
+  // agent in a single pass, instead of registering one agent per file.
+  const bundlePickedFiles = async (picked: PickedFile[]) => {
+    const usable = picked.filter(({ file, path }) =>
+      BUNDLE_CODE_EXT.test(path) &&
+      !BUNDLE_SKIP_DIR.test(path) &&
+      !BUNDLE_SKIP_FILE.test(path) &&
+      file.size < 100_000,
+    )
+    if (usable.length === 0) {
+      toast('No code files found to bundle', 'error')
       return
     }
-    // Multi-file: extract each in sequence, show progress
-    const initial = list.map((f) => ({ filename: f.name, status: 'pending' as const }))
-    setBatchQueue(initial)
-    setBatchRunning(true)
-    for (let i = 0; i < list.length; i++) {
-      setBatchQueue((q) => q.map((item, idx) => idx === i ? { ...item, status: 'extracting' } : item))
-      try {
-        const text = await list[i].text()
-        const data: { id: string; tools_count: number } = await apiFetch('/api/authority/agents/extract', {
-          method: 'POST',
-          body: JSON.stringify({ filename: list[i].name, content: text }),
-        })
-        setBatchQueue((q) => q.map((item, idx) => idx === i ? { ...item, status: 'done', agentId: data.id, toolsCount: data.tools_count } : item))
-      } catch (err) {
-        setBatchQueue((q) => q.map((item, idx) => idx === i ? { ...item, status: 'failed', error: (err as Error).message } : item))
-      }
+    if (usable.length === 1) {
+      await handleFileUpload(usable[0].file)
+      return
     }
-    setBatchRunning(false)
-    loadData()
-    toast(`Batch upload complete`)
+    setBundling(true)
+    try {
+      usable.sort((a, b) => a.path.localeCompare(b.path))
+      const parts: string[] = []
+      const meta: { path: string; chars: number }[] = []
+      let total = 0
+      let skipped = 0
+      for (const { file, path } of usable) {
+        if (total >= BUNDLE_MAX_CHARS) { skipped++; continue }
+        const text = await file.text()
+        const header = `# ===================================================================\n# FILE: ${path}\n# ===================================================================\n\n`
+        parts.push(header + text)
+        meta.push({ path, chars: text.length })
+        total += header.length + text.length + 2
+      }
+      let content = parts.join('\n\n')
+      if (content.length > BUNDLE_MAX_CHARS) content = content.slice(0, BUNDLE_MAX_CHARS)
+      const top = usable[0].path.includes('/') ? usable[0].path.split('/')[0] : ''
+      setUploadFilename(top ? `${top} (${meta.length} files bundled)` : `bundle (${meta.length} files)`)
+      setUploadFileContent(content)
+      setBundledFiles(meta)
+      if (skipped > 0) toast(`Bundled ${meta.length} files — ${skipped} skipped (150KB extractor limit)`, 'error')
+    } finally {
+      setBundling(false)
+    }
   }
 
   const handleGithubScan = async (e: React.FormEvent) => {
@@ -390,9 +441,6 @@ export default function Authority() {
           (a.tools ?? []).some((t) => (t ?? "").toLowerCase().includes(q)),
       )
     }
-    if (riskFilter === 'critical')      result = result.filter((a) => a.blast_radius.score >= 70)
-    else if (riskFilter === 'warning')  result = result.filter((a) => (a.blast_radius.score >= 40 && a.blast_radius.score < 70) || (a.blast_radius.score < 40 && a.critical_chains > 0))
-    else if (riskFilter === 'safe')     result = result.filter((a) => a.blast_radius.score < 40 && a.critical_chains === 0)
 
     const [field, dir] = sortBy.split('-')
     result.sort((a, b) => {
@@ -406,7 +454,7 @@ export default function Authority() {
       return dir === 'asc' ? (va as number) - (vb as number) : (vb as number) - (va as number)
     })
     return result
-  }, [agents, search, sortBy, riskFilter])
+  }, [agents, search, sortBy])
 
   // ─── Loading / error ────────────────────────────────────────────────────────
 
@@ -739,7 +787,7 @@ export default function Authority() {
           {connectTab === 'upload' && (
             <div className="space-y-4">
               <p style={{ fontSize: 13, color: 'var(--text-secondary)', background: 'var(--bg-sunken)', borderRadius: 8, padding: '10px 14px', margin: 0 }}>
-                Arceo reads your agent file and extracts every action it can take.{' '}
+                Arceo reads your agent code — a single file, several files, or a whole folder (bundled into one agent) — and extracts every action it can take.{' '}
                 You'll get: <span style={{ color: 'var(--text-primary)', fontWeight: 500 }}>risk score · worst-case scenarios · recommended approval policy</span> — in ~30 seconds.
               </p>
               <form onSubmit={handleUploadSubmit} className="space-y-3">
@@ -748,7 +796,7 @@ export default function Authority() {
                   type="file"
                   accept=".py,.ts,.tsx,.js,.jsx,.json,.yaml,.yml,.txt,.md"
                   multiple
-                  onChange={(e) => { if (e.target.files) handleMultiFileUpload(e.target.files) }}
+                  onChange={(e) => { if (e.target.files) bundlePickedFiles(filesFromInput(e.target.files)) }}
                   style={{ display: 'none' }}
                 />
                 <div
@@ -757,7 +805,19 @@ export default function Authority() {
                   onDrop={(e) => {
                     e.preventDefault()
                     setDragOver(false)
-                    if (e.dataTransfer.files) handleMultiFileUpload(e.dataTransfer.files)
+                    // Capture FileSystemEntry objects synchronously — the
+                    // DataTransfer is invalidated once this handler returns.
+                    const dt = e.dataTransfer
+                    const entries = dt.items && dt.items.length
+                      ? Array.from(dt.items)
+                          .map((it) => (it.webkitGetAsEntry ? it.webkitGetAsEntry() : null))
+                          .filter((x): x is FileSystemEntry => !!x)
+                      : []
+                    if (entries.length) {
+                      Promise.all(entries.map((en) => collectEntry(en, ''))).then((nested) => bundlePickedFiles(nested.flat()))
+                    } else if (dt.files) {
+                      bundlePickedFiles(filesFromInput(dt.files))
+                    }
                   }}
                   onClick={() => fileInputRef.current?.click()}
                   className="rounded-xl text-center cursor-pointer transition-colors"
@@ -768,13 +828,24 @@ export default function Authority() {
                   }}
                 >
                   <Upload size={32} className="mx-auto mb-3" style={{ color: dragOver ? 'var(--text-primary)' : 'var(--text-muted)' }} />
-                  {uploadFilename && batchQueue.length === 0 ? (
+                  {uploadFilename ? (
                     <>
                       <p className="text-sm font-medium text-gray-900">{uploadFilename}</p>
-                      <p className="text-[11px] text-gray-500 mt-1">{uploadFileContent.length.toLocaleString()} chars loaded · click to replace</p>
+                      <p className="text-[11px] text-gray-500 mt-1">
+                        {bundledFiles.length > 0
+                          ? `${bundledFiles.length} files · ${uploadFileContent.length.toLocaleString()} chars bundled · click to replace`
+                          : `${uploadFileContent.length.toLocaleString()} chars loaded · click to replace`}
+                      </p>
                     </>
                   ) : (
-                    <p className="text-sm font-medium text-gray-900">Drag &amp; drop your agent file here, or click to browse</p>
+                    <>
+                      <p className="text-sm font-medium text-gray-900">
+                        {bundling ? 'Bundling files…' : 'Drop a file or a whole folder here, or click to browse'}
+                      </p>
+                      {!bundling && (
+                        <p className="text-[11px] text-gray-500 mt-1">A folder is bundled into one agent · drag it from Finder</p>
+                      )}
+                    </>
                   )}
                   <div className="flex items-center justify-center gap-1.5 mt-3 flex-wrap">
                     {['.py', '.ts', '.js', '.json', '.yaml'].map((ext) => (
@@ -786,21 +857,16 @@ export default function Authority() {
                     ))}
                   </div>
                 </div>
-                {batchQueue.length > 0 && (
+                {bundledFiles.length > 0 && (
                   <div className="bg-white border border-gray-200 rounded-lg p-3 space-y-1.5 max-h-60 overflow-auto">
                     <div className="text-[11px] font-semibold text-gray-700 mb-1.5">
-                      Batch upload {batchRunning ? '— extracting…' : '— complete'} ({batchQueue.filter(b => b.status === 'done').length} / {batchQueue.length})
+                      Bundled into one agent — {bundledFiles.length} files
                     </div>
-                    {batchQueue.map((b, i) => (
+                    {bundledFiles.map((b, i) => (
                       <div key={i} className="flex items-center gap-2 text-[11px]">
-                        <span style={{
-                          width: 8, height: 8, borderRadius: 4, flexShrink: 0,
-                          background: b.status === 'done' ? '#16a34a' : b.status === 'failed' ? '#dc2626' : b.status === 'extracting' ? '#f59e0b' : '#9ca3af',
-                        }} />
-                        <code className="font-mono text-gray-700 truncate flex-1">{b.filename}</code>
-                        <span className="text-gray-500">
-                          {b.status === 'done' ? `→ ${b.agentId} (${b.toolsCount} tools)` : b.status === 'failed' ? `failed: ${b.error}` : b.status === 'extracting' ? 'extracting…' : 'queued'}
-                        </span>
+                        <span style={{ width: 8, height: 8, borderRadius: 4, flexShrink: 0, background: '#16a34a' }} />
+                        <code className="font-mono text-gray-700 truncate flex-1">{b.path}</code>
+                        <span className="text-gray-500">{b.chars.toLocaleString()} chars</span>
                       </div>
                     ))}
                   </div>
@@ -1077,6 +1143,7 @@ export default function Authority() {
             chains: a.chain_count,
             critical: a.critical_chains,
             policies: a.policy_count,
+            policiesByEffect: a.policies_by_effect,
           })
         }
 
@@ -1200,10 +1267,11 @@ export default function Authority() {
                         <div
                           key={a.id}
                           className="ag-row"
-                          onClick={() => openDrawer(a)}
+                          onClick={() => navigate(`/agent/${a.id}/spend`)}
                           role="button"
                           tabIndex={0}
-                          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openDrawer(a) } }}
+                          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); navigate(`/agent/${a.id}/spend`) } }}
+                          title="View spend forecast"
                           style={{
                             display: 'grid',
                             gridTemplateColumns: '160px 1fr 56px',
@@ -1343,17 +1411,9 @@ export default function Authority() {
               icon={<Search size={13} />}
               style={{ width: 196 }}
             />
-            <div className="flex items-center gap-1.5">
-              <span className="text-[11px] text-gray-400 whitespace-nowrap">Filter:</span>
-              <select
-                value={riskFilter} onChange={(e) => setRiskFilter(e.target.value)}
-                style={{ background: 'var(--bg-sunken)', border: '2px solid transparent', borderRadius: 'var(--radius-md)', color: 'var(--text-primary)', padding: '0 12px', height: '36px', fontSize: 13, outline: 'none', fontFamily: 'inherit' }}
-                onFocus={e => (e.currentTarget.style.borderColor = 'var(--border-focus)')}
-                onBlur={e => (e.currentTarget.style.borderColor = 'transparent')}
-              >
-                {RISK_FILTERS.map((f) => <option key={f.value} value={f.value}>{f.label}</option>)}
-              </select>
-            </div>
+            {/* Risk "Filter" dropdown removed — it keyed on the same
+                blast_radius.score as Sort (which defaults to Highest Risk), so
+                the two were redundant. Search (text) + Sort (risk order) remain. */}
             <div className="flex items-center gap-1.5">
               <span className="text-[11px] text-gray-400 whitespace-nowrap">Sort:</span>
               <select
@@ -1410,6 +1470,7 @@ export default function Authority() {
                 chains: a.chain_count,
                 critical: a.critical_chains,
                 policies: a.policy_count,
+                policiesByEffect: a.policies_by_effect,
               }
               return (
                 <NewAgentCard
@@ -1440,8 +1501,10 @@ export default function Authority() {
           { k: 'warning' as const,  label: 'Warning',  count: warningCount },
         ]
 
-        const openDrawerForChain = (chainAgentName: string) => {
-          const target = agents.find((a) => a.name === chainAgentName)
+        const openDrawerForChain = (chainAgentId: string) => {
+          // Match by id (from the chain payload), not name — name-matching broke
+          // on duplicate/renamed agents.
+          const target = agents.find((a) => a.id === chainAgentId)
           if (!target) return
           const br = target.blast_radius
           setDrawerAgent({
@@ -1463,6 +1526,7 @@ export default function Authority() {
             chains: target.chain_count,
             critical: target.critical_chains,
             policies: target.policy_count,
+            policiesByEffect: target.policies_by_effect,
           })
         }
 
@@ -1514,30 +1578,52 @@ export default function Authority() {
                   <div
                     key={i}
                     className="ag-row"
-                    onClick={() => openDrawerForChain(c.agent_name)}
+                    onClick={() => openDrawerForChain(c.agent_id)}
                     role="button"
                     tabIndex={0}
-                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openDrawerForChain(c.agent_name) } }}
+                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openDrawerForChain(c.agent_id) } }}
                     style={{
-                      display: 'grid',
-                      gridTemplateColumns: '12px 1.6fr 1fr auto',
-                      alignItems: 'center',
-                      gap: 16,
+                      display: 'flex',
+                      alignItems: 'flex-start',
+                      gap: 14,
                       padding: '15px 22px',
                       borderBottom: i < visible.length - 1 ? '1px solid var(--line-soft)' : 'none',
                       cursor: 'pointer',
                       fontFamily: 'var(--font-sans)',
                     }}
                   >
-                    <span style={{ width: 8, height: 8, borderRadius: '50%', background: sevColor }} />
-                    <span style={{ fontSize: 13.5, fontWeight: 500, color: 'var(--ink-800)' }}>
-                      {chainShortLabel(c.chain_name)}
-                    </span>
-                    <span style={{ fontSize: 12.5, color: 'var(--ink-500)' }}>{c.agent_name}</span>
+                    <span style={{ width: 8, height: 8, borderRadius: '50%', background: sevColor, flexShrink: 0, marginTop: 6 }} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                        <span style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--ink-800)' }}>
+                          {chainShortLabel(c.chain_name)}
+                        </span>
+                        <span style={{ fontSize: 12, color: 'var(--ink-400)' }}>· {c.agent_name}</span>
+                      </div>
+                      {c.description && (
+                        <div style={{ fontSize: 12.5, color: 'var(--ink-600)', marginTop: 4, lineHeight: 1.4 }}>
+                          {c.description}
+                        </div>
+                      )}
+                      {c.steps && c.steps.length > 0 && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
+                          {c.steps.map((step, si) => (
+                            <span key={si} style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                              {si > 0 && <span style={{ color: 'var(--ink-300)', fontSize: 12 }}>→</span>}
+                              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11.5, color: 'var(--ink-600)' }}>
+                                <span style={{ width: 6, height: 6, borderRadius: 2, background: 'var(--ink-300)' }} />
+                                {step.replace(/_/g, ' ')}
+                              </span>
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                     <span
                       style={{
                         fontSize: 10.5, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5,
                         color: sevColor, background: sevBg, borderRadius: 5, padding: '3px 8px',
+                        flexShrink: 0, marginTop: 2,
                       }}
                     >
                       {sev}

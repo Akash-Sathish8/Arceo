@@ -19,6 +19,7 @@ import urllib.request
 from typing import Any, Optional
 
 DEFAULT_BASE_URL = os.getenv("ARCEO_BASE_URL", "http://localhost:8000")
+DEFAULT_API_KEY = os.getenv("ARCEO_API_KEY", "")
 
 
 def _post_async(url: str, payload: dict, timeout: float = 5.0) -> None:
@@ -26,8 +27,11 @@ def _post_async(url: str, payload: dict, timeout: float = 5.0) -> None:
     def _run() -> None:
         try:
             data = json.dumps(payload).encode("utf-8")
+            headers = {"Content-Type": "application/json"}
+            if DEFAULT_API_KEY:
+                headers["X-API-Key"] = DEFAULT_API_KEY
             req = urllib.request.Request(
-                url, data=data, headers={"Content-Type": "application/json"}, method="POST"
+                url, data=data, headers=headers, method="POST"
             )
             urllib.request.urlopen(req, timeout=timeout).close()
         except Exception:

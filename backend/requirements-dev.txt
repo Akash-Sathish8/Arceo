@@ -1,0 +1,4 @@
+# Dev/test dependencies (not needed at runtime).
+# Install:  venv/bin/python -m pip install -r requirements-dev.txt
+-r requirements.txt
+pytest==8.3.4

@@ -525,7 +525,6 @@ function WorstCasePanel({
   onScrollToPolicies,
   agentId,
 }: WorstCasePanelProps) {
-  const navigate = useNavigate()
   if (!br || (br.score < 30 && chains.length === 0)) return null
 
   const topChain =
@@ -634,15 +633,8 @@ function WorstCasePanel({
               Add Policies
             </button>
           )}
-          {agentId && (
-            <button
-              style={{ background: 'var(--color-cta)', color: 'var(--text-inverse)', borderRadius: 'var(--radius-full)', border: 'none', padding: '5px 14px', fontWeight: 600, fontSize: 12, fontFamily: 'inherit', cursor: 'pointer' }}
-              className="hover:opacity-80 transition-opacity"
-              onClick={() => navigate(`/sandbox?agent=${agentId}&worst_case=1`)}
-            >
-              Simulate Worst Case
-            </button>
-          )}
+          {/* "Simulate Worst Case" removed — redundant with the header's single
+              "Simulate in Sandbox" entry (same /sandbox route, just a preset). */}
         </div>
       </div>
 
@@ -1337,13 +1329,20 @@ export default function AgentDetail() {
   }
 
   const getPoliciesForRec = (rec: Recommendation, agentTools: AgentTool[]): string[] => {
+    const desc = rec.description.toLowerCase()
     const tokens: string[] = rec.description.match(/\b[a-z]+(?:_[a-z]+)+\b/g) ?? []
     const fallbackRe = /delete|terminate|cancel|charge|refund|send_email|send_template/
     return agentTools.flatMap((t) =>
       t.actions
-        .filter((a) =>
-          tokens.length > 0 ? tokens.includes(a.action) : fallbackRe.test(a.action)
-        )
+        .filter((a) => {
+          // 1) exact snake_case token match; 2) action name mentioned verbatim
+          //    (case-insensitive) — catches CamelCase delegation actions like
+          //    "ToFlightBookingAssistant" that the snake_case regex misses;
+          //    3) keyword fallback only when the description names no action.
+          if (tokens.includes(a.action)) return true
+          if (desc.includes(a.action.toLowerCase())) return true
+          return tokens.length === 0 && fallbackRe.test(a.action)
+        })
         .map((a) => `${t.name}.${a.action}`)
     )
   }
@@ -1963,6 +1962,7 @@ export default function AgentDetail() {
         agentId={agentId ?? ''}
         onScrollToPolicies={() => {
           setActiveTab('policies')
+          setShowAddPolicyForm(true) // open the add-policy form so the click isn't a no-op
           setTimeout(
             () =>
               policySectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }),
@@ -2687,7 +2687,10 @@ export default function AgentDetail() {
                   style={{ background: 'transparent', border: '1px solid var(--border-strong)', color: 'var(--text-primary)', borderRadius: 'var(--radius-full)', padding: '7px 14px', fontSize: 13, fontFamily: 'inherit', cursor: 'pointer' }}
                   className="flex items-center gap-1 hover:opacity-70 transition-opacity"
                   onClick={() => {
-                    setSelectedRecs(new Set(visibleRecs.map(({ i }) => i)))
+                    // Open with nothing pre-checked — the user opts in per rec
+                    // (pre-checking read as "already applied/approved"). "Select
+                    // all" below is available if they want everything.
+                    if (!showRecsMenu) setSelectedRecs(new Set())
                     setShowRecsMenu((v) => !v)
                   }}
                 >

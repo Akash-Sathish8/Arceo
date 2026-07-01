@@ -1,6 +1,11 @@
 node_modules/
 __pycache__/
+venv/
+.venv/
 *.db
+*.db-wal
+*.db-shm
+*.db.bak
 .env
 .env*.local
 dist/
