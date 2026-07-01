@@ -942,14 +942,16 @@ export default function Workflows() {
     ? [coordinatorId, ...specialistIds.filter((id) => id !== coordinatorId)]
     : [];
 
-  // Clearing the selection brings the auto-detected pairings back.
+  // Invalidate stale results whenever the team MEMBERSHIP changes (not just when
+  // it empties). Otherwise analyzing team [A,B] then switching to [A,C] left the
+  // old [A,B] chains/optimize output on screen — looking like the page ignored
+  // the change. Keyed on the sorted id list so any add/remove/swap clears.
+  const teamKey = [...allAgentIds].sort().join(',');
   useEffect(() => {
-    if (allAgentIds.length === 0) {
-      setStaticChains(null);
-      setResult(null);
-      setOptimizeResult(null);
-    }
-  }, [allAgentIds.length]);
+    setStaticChains(null);
+    setResult(null);
+    setOptimizeResult(null);
+  }, [teamKey]);
 
   // Stable color/name maps per agent
   const agentColors: Record<string, string> = {};
@@ -1033,43 +1035,40 @@ export default function Workflows() {
     if (!optimizeResult) return;
     setApplyingPolicies(true);
     let count = 0;
+    let failed = 0;
+    const seen = new Set<string>(); // dedupe identical (agent, pattern, effect)
+    // The policies endpoint expects {action_pattern, effect} — the old
+    // {tool, action, decision} body 422'd and the empty catch hid it, so this
+    // "applied N" toast used to be a lie. Post the real schema and surface fails.
+    const createPolicy = async (agentId: string, action_pattern: string, effect: string, reason: string) => {
+      const dedupeKey = `${agentId}|${action_pattern}|${effect}`;
+      if (seen.has(dedupeKey)) return;
+      seen.add(dedupeKey);
+      try {
+        await apiFetch(`/api/authority/agent/${agentId}/policies`, {
+          method: "POST",
+          body: JSON.stringify({ action_pattern, effect, reason }),
+        });
+        count++;
+      } catch {
+        failed++;
+      }
+    };
     for (const [agentId, analysis] of Object.entries(optimizeResult.agents)) {
       for (const item of analysis.overprivileged || []) {
-        try {
-          await apiFetch(`/api/authority/agent/${agentId}/policies`, {
-            method: "POST",
-            body: JSON.stringify({
-              tool: item.tool,
-              action: item.action_name,
-              decision: "BLOCK",
-              reason: `Auto-generated: ${item.reason}`,
-            }),
-          });
-          count++;
-        } catch {
-          // Silently skip failed policy creation
-        }
+        await createPolicy(agentId, item.action, "BLOCK", `Auto-generated: ${item.reason}`);
       }
       for (const chain of analysis.approval_gates_needed || []) {
-        try {
-          await apiFetch(`/api/authority/agent/${agentId}/policies`, {
-            method: "POST",
-            body: JSON.stringify({
-              tool: "*",
-              action: "*",
-              decision: "REQUIRE_APPROVAL",
-              reason: `Auto-generated: Cross-agent chain gate — ${chain.chain_name}`,
-            }),
-          });
-          count++;
-        } catch {
-          // Silently skip failed policy creation
-        }
+        await createPolicy(agentId, "*", "REQUIRE_APPROVAL", `Auto-generated: Cross-agent chain gate — ${chain.chain_name}`);
       }
     }
     setAppliedCount(count);
     setApplyingPolicies(false);
-    toast(`Applied ${count} policy recommendation${count !== 1 ? "s" : ""}`);
+    if (failed > 0) {
+      toast(`Applied ${count} recommendation${count !== 1 ? "s" : ""}, ${failed} failed`, "error");
+    } else {
+      toast(`Applied ${count} policy recommendation${count !== 1 ? "s" : ""}`);
+    }
   };
 
   const handleSimulate = async () => {

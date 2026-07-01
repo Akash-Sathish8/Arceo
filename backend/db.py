@@ -47,6 +47,12 @@ def get_conn() -> sqlite3.Connection:
     conn.execute("PRAGMA foreign_keys = ON")
     conn.execute("PRAGMA journal_mode = WAL")
     conn.execute("PRAGMA synchronous = NORMAL")
+    # Wait up to 10s for a held lock instead of erroring immediately with
+    # "database is locked". Without this, a write (e.g. extract/upsert) that
+    # overlaps a concurrent read poll surfaces as a 500 to the dashboard. 10s
+    # covers the agent-connect burst, where extract + a wave of sandbox-sim
+    # writes hold WAL's single writer slot back-to-back for several seconds.
+    conn.execute("PRAGMA busy_timeout = 10000")
     return conn
 
 
@@ -389,11 +395,19 @@ def get_all_agents_from_db(conn, org_id: str = None) -> list[dict]:
 
 
 def log_audit(conn, user_id: str | None, user_email: str | None, action: str, resource: str = None, detail: str = None, org_id: str = DEFAULT_ORG_ID):
-    """Write an audit log entry."""
-    conn.execute(
-        "INSERT INTO audit_log (user_id, user_email, action, resource, detail, org_id, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?)",
-        (user_id, user_email, action, resource, detail, org_id, datetime.utcnow().isoformat()),
-    )
+    """Write an audit log entry. Best-effort: audit logging must never take down
+    the caller's actual request. Under the agent-connect write burst SQLite WAL
+    has a single writer slot, so an audit INSERT can lose the race past
+    busy_timeout; swallow that rather than surfacing a 500 to the dashboard."""
+    try:
+        conn.execute(
+            "INSERT INTO audit_log (user_id, user_email, action, resource, detail, org_id, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (user_id, user_email, action, resource, detail, org_id, datetime.utcnow().isoformat()),
+        )
+    except sqlite3.OperationalError:
+        # "database is locked" / "database is busy" — drop the audit row, keep
+        # serving the request. The audit log is non-critical telemetry.
+        pass
 
 
 def log_execution(conn, agent_id: str, tool: str, action: str, status: str, policy_id: int = None, detail: str = None, org_id: str = DEFAULT_ORG_ID):

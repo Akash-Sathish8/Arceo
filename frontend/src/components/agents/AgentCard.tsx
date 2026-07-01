@@ -20,7 +20,8 @@
  * var(--paper-2), var(--accent), var(--safe|caution|critical*).
  */
 
-import { Bot, Check, ChevronRight, Lock } from "lucide-react";
+import { Bot, Check, ChevronRight, Clock, Lock } from "lucide-react";
+import { Link } from "react-router-dom";
 import RiskRing from "@/components/shared/RiskRing";
 
 export interface AgentCardData {
@@ -44,6 +45,10 @@ export interface AgentCardData {
   chains: number;
   critical: number;
   policies: number;
+  /** Per-effect policy counts. Lets the footer badge distinguish enforced
+   *  coverage (BLOCK/ALLOW → green) from a still-pending REQUIRE_APPROVAL gate
+   *  (amber — NOT a green "approved" check). */
+  policiesByEffect?: { BLOCK?: number; REQUIRE_APPROVAL?: number; ALLOW?: number };
   lastActive?: string;
 }
 
@@ -184,6 +189,11 @@ interface AgentCardProps {
 export default function AgentCard({ agent, onOpen }: AgentCardProps): React.ReactElement {
   const b = band(agent.score, agent.critical);
   const unguarded = agent.policies === 0;
+  // Enforced coverage = BLOCK or ALLOW. A REQUIRE_APPROVAL policy is a *pending*
+  // human gate, not an approval — it must not paint a green "approved" check.
+  const byEffect = agent.policiesByEffect ?? {};
+  const enforcedCount = (byEffect.BLOCK ?? 0) + (byEffect.ALLOW ?? 0);
+  const approvalOnly = !unguarded && enforcedCount === 0;
 
   return (
     <div
@@ -306,16 +316,30 @@ export default function AgentCard({ agent, onOpen }: AgentCardProps): React.Reac
         >
           Est. spend / mo
         </span>
-        {agent.spend !== null ? (
-          <span
-            className="mono"
-            style={{ fontSize: 20, fontWeight: 700, color: "var(--ink-900)", letterSpacing: -0.4 }}
-          >
-            {fmtMoney(agent.spend)}
-          </span>
-        ) : (
-          <span style={{ fontSize: 13, fontWeight: 500, color: "var(--accent)" }}>Run a sim</span>
-        )}
+        {/* Direct, obvious link to the per-agent Cost Portfolio. stopPropagation
+            so it navigates instead of also opening the card's drawer. */}
+        <Link
+          to={`/agent/${agent.id}/spend`}
+          onClick={(e) => e.stopPropagation()}
+          className="ag-spend-cta"
+          style={{
+            display: "inline-flex",
+            alignItems: "baseline",
+            gap: 5,
+            textDecoration: "none",
+            color: agent.spend !== null ? "var(--ink-900)" : "var(--accent)",
+          }}
+          title="View spend forecast"
+        >
+          {agent.spend !== null ? (
+            <span className="mono" style={{ fontSize: 20, fontWeight: 700, letterSpacing: -0.4 }}>
+              {fmtMoney(agent.spend)}
+            </span>
+          ) : (
+            <span style={{ fontSize: 13, fontWeight: 600 }}>View forecast</span>
+          )}
+          <ChevronRight size={14} strokeWidth={2} style={{ alignSelf: "center", color: "var(--accent)" }} />
+        </Link>
       </div>
 
       {/* Row 5 — Policy + chains footer (consistent badge size across cards) */}
@@ -338,6 +362,25 @@ export default function AgentCard({ agent, onOpen }: AgentCardProps): React.Reac
             }}
           >
             <Lock size={13} strokeWidth={1.8} /> No policy
+          </span>
+        ) : approvalOnly ? (
+          <span
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+              whiteSpace: "nowrap",
+              fontSize: 12,
+              fontWeight: 600,
+              color: "var(--caution)",
+              background: "var(--caution-bg)",
+              border: "1px solid var(--caution-line)",
+              borderRadius: 7,
+              padding: "4px 10px",
+              lineHeight: 1.3,
+            }}
+          >
+            <Clock size={13} strokeWidth={1.8} /> {agent.policies} require approval
           </span>
         ) : (
           <span

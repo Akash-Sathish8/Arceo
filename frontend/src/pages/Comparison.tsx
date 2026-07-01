@@ -312,8 +312,11 @@ export default function Comparison() {
   const [loading, setLoading] = useState(true);
   const [animTrigger, setAnimTrigger] = useState(false);
 
-  const idA = searchParams.get("a") ?? "";
-  const idB = searchParams.get("b") ?? "";
+  // Accept before/after too — the Sandbox "Compare Runs" banner historically
+  // linked with those keys while this page read a/b, so the preselect silently
+  // failed and fell through to the default picker.
+  const idA = searchParams.get("a") ?? searchParams.get("before") ?? "";
+  const idB = searchParams.get("b") ?? searchParams.get("after") ?? "";
 
   const animScoreA = useAnimatedNumber(Math.round(detailA?.report?.risk_score ?? 0), animTrigger);
   const animScoreB = useAnimatedNumber(Math.round(detailB?.report?.risk_score ?? 0), animTrigger);
@@ -330,7 +333,12 @@ export default function Comparison() {
           setSimA(sims.find((s) => s.id === idA) ?? null);
           setSimB(sims.find((s) => s.id === idB) ?? null);
         } else if (sims.length >= 2) {
-          const [last, prev] = sims;
+          // Prefer the two most recent COMPLETED runs — defaulting to the two
+          // newest sims often landed on errored/all-zero runs, rendering a
+          // meaningless "No change" on first load.
+          const completed = sims.filter((s) => s.status === "completed");
+          const pool = completed.length >= 2 ? completed : sims;
+          const [last, prev] = pool;
           setSimA(prev);
           setSimB(last);
           setSearchParams({ a: prev.id, b: last.id }, { replace: true });

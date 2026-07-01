@@ -234,6 +234,9 @@ body {
   border-color: var(--ink-300);
 }
 .ag-card:hover .ag-cardcta { color: var(--accent); }
+.ag-spend-cta { transition: opacity .12s ease; }
+.ag-spend-cta:hover { opacity: .72; text-decoration: none; }
+.ag-spend-cta:hover .mono { text-decoration: underline; text-underline-offset: 3px; }
 
 .ag-row { transition: background .12s ease; }
 .ag-row:hover { background: var(--paper-2); }

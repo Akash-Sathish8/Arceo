@@ -1238,13 +1238,13 @@ export default function Sandbox() {
           <div className="text-sm text-gray-700">
             <strong>You've run 2 simulations.</strong> Compare them to see the impact of your policies.
           </div>
-          <a
-            href={`/compare?before=${previousResult.simulation_id}&after=${result.simulation_id}`}
+          <Link
+            to={`/compare?a=${previousResult.simulation_id}&b=${result.simulation_id}`}
             className="flex-shrink-0 inline-flex items-center gap-1"
             style={{ background: 'var(--color-cta)', color: 'var(--text-inverse)', borderRadius: 'var(--radius-full)', border: 'none', padding: '8px 20px', fontWeight: 600, fontSize: 13, textDecoration: 'none' }}
           >
             Compare Runs <ArrowRight size={13} className="inline ml-1" />
-          </a>
+          </Link>
         </div>
       )}
 
