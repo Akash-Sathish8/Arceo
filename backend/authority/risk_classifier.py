@@ -82,7 +82,9 @@ IRREVERSIBLE_KEYWORDS: list[str] = [
 ]
 
 PII_SCHEMA_KEYS: list[str] = [
-    "email", "phone", "name", "address", "ssn", "social_security",
+    # bare "name" removed — it substring-matched filename/username/repo name and
+    # flagged infra actions (create_repository, get_label) as touches_pii.
+    "email", "phone", "address", "ssn", "social_security",
     "date_of_birth", "dob", "first_name", "last_name", "zip", "postal",
 ]
 
@@ -115,6 +117,18 @@ FILE_WRITE_TOKENS = {"write", "edit", "patch", "overwrite", "chmod", "chown"}
 FILE_WRITE_COMPOUNDS = ("write_file", "edit_file", "create_file", "put_object", "save_file")
 FILE_DELETE_TOKENS = {"rm", "rmdir", "unlink", "rmtree"}
 FILE_DELETE_COMPOUNDS = ("delete_file", "remove_file", "delete_object")
+# State-mutation write verbs the SaaS keyword lists (deploy/scale/…) miss:
+# resource + git writes like create_team, update_schedule, git_commit,
+# fork_repository, move_file. Name-anchored (whole token) to avoid substring FPs.
+# create/update ARE included on purpose: for a blast-radius tool, missing that an
+# agent can create/update a production resource (team, schedule, incident) is the
+# dangerous error — recall wins over the minor noise of flagging a benign
+# create_branch as a write. Excludes ambiguous "add"/"set" and the noun "migrate".
+GENERIC_WRITE_TOKENS = {
+    "create", "update", "modify", "commit", "merge", "push", "fork",
+    "move", "rename", "apply", "provision", "publish", "deploy", "rollback",
+    "register", "insert", "replace", "restart", "reboot", "scale",
+}
 # Browser/UI automation — interacts with a page; benign on its own, but the LLM
 # layer tends to over-label it (e.g. select → deletes_data). Used to suppress
 # that escalation, NOT to add labels.
@@ -151,9 +165,18 @@ def _primitive_labels(action_name: str, description: str, is_read: bool) -> tupl
         irreversible = True
     if not is_read and _name_has(name, FILE_WRITE_TOKENS, FILE_WRITE_COMPOUNDS):
         labels.add("changes_production")
+        # An overwrite destroys the prior contents — treat as deletes_data +
+        # irreversible (write_file: "completely overwrite an existing file").
+        if "overwrite" in name.lower() or "overwrite" in description.lower() \
+                or _name_has(name, set(), ("write_file", "put_object", "save_file")):
+            labels.add("deletes_data")
+            irreversible = True
     if not is_read and _name_has(name, FILE_DELETE_TOKENS, FILE_DELETE_COMPOUNDS):
         labels.add("deletes_data")
         irreversible = True
+    # Generic resource/git writes (create/update/commit/fork/move/…) → prod change.
+    if not is_read and _name_has(name, GENERIC_WRITE_TOKENS):
+        labels.add("changes_production")
     is_ui = _name_has(name, UI_AUTOMATION_TOKENS)
     return labels, irreversible, is_ui
 
@@ -233,8 +256,10 @@ def classify_action(action_name: str, description: str = "") -> tuple[list[str],
     for label, keywords in KEYWORD_RULES.items():
         if any(kw in combined for kw in keywords):
             # Read-only actions: keep PII label (reading PII matters for chain detection)
-            # but drop money/production labels (reading payment history != moving money)
-            if is_read and label in ("moves_money", "changes_production"):
+            # but drop money/production/external-send labels (reading payment history
+            # != moving money; a get_/list_ can't send externally even if its
+            # description mentions "messages"/"alert"/"webhook").
+            if is_read and label in ("moves_money", "changes_production", "sends_external"):
                 continue
             risk_labels.append(label)
 
@@ -393,6 +418,14 @@ def classify_with_fallback(
     strong = _strong_labels(combined) | set(schema_labels) | prim_labels
     low_confidence = (not risk_labels) or (not is_read and not strong)
     if is_ui and not risk_labels and not prim_labels:
+        low_confidence = False
+    # A confident read (get_/list_/search_) with no deterministic risk signal is
+    # benign — reading data can't move money, change prod, delete, or send. Don't
+    # escalate to the LLM, which otherwise invents touches_pii/sends_external on
+    # pure reads (the dominant false-positive source on real agents) and burns
+    # ~half the per-scan calls. Reads that DID get a keyword/schema/PII label keep
+    # it; only signal-free reads short-circuit. Writes still escalate.
+    if is_read and not risk_labels and not prim_labels:
         low_confidence = False
 
     if low_confidence:
