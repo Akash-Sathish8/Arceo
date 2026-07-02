@@ -250,11 +250,19 @@ def classify_action(action_name: str, description: str = "") -> tuple[list[str],
     # Strip service prefix for better matching
     stripped = _strip_service_prefix(action_name)
     combined = f"{stripped} {action_name} {description}".lower()
+    # PII is matched on the NAME only, never the free-text description. A
+    # description that merely mentions "the user"/"organization" (list_organizations,
+    # get_cost, add_..._review_comment) is not PII access; real PII actions carry
+    # the noun in the name (get_customer, list_users). Substring (not token) so
+    # plurals still match ("user" in "list_users"). Mirrors the name-anchoring in
+    # _strong_labels / _primitive_labels.
+    name_text = f"{stripped} {action_name}".lower()
     is_read = _is_read_action(action_name)
 
     risk_labels = []
     for label, keywords in KEYWORD_RULES.items():
-        if any(kw in combined for kw in keywords):
+        haystack = name_text if label == "touches_pii" else combined
+        if any(kw in haystack for kw in keywords):
             # Read-only actions: keep PII label (reading PII matters for chain detection)
             # but drop money/production/external-send labels (reading payment history
             # != moving money; a get_/list_ can't send externally even if its
