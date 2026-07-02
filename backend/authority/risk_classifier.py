@@ -82,7 +82,9 @@ IRREVERSIBLE_KEYWORDS: list[str] = [
 ]
 
 PII_SCHEMA_KEYS: list[str] = [
-    "email", "phone", "name", "address", "ssn", "social_security",
+    # bare "name" removed — it substring-matched filename/username/repo name and
+    # flagged infra actions (create_repository, get_label) as touches_pii.
+    "email", "phone", "address", "ssn", "social_security",
     "date_of_birth", "dob", "first_name", "last_name", "zip", "postal",
 ]
 
@@ -233,8 +235,10 @@ def classify_action(action_name: str, description: str = "") -> tuple[list[str],
     for label, keywords in KEYWORD_RULES.items():
         if any(kw in combined for kw in keywords):
             # Read-only actions: keep PII label (reading PII matters for chain detection)
-            # but drop money/production labels (reading payment history != moving money)
-            if is_read and label in ("moves_money", "changes_production"):
+            # but drop money/production/external-send labels (reading payment history
+            # != moving money; a get_/list_ can't send externally even if its
+            # description mentions "messages"/"alert"/"webhook").
+            if is_read and label in ("moves_money", "changes_production", "sends_external"):
                 continue
             risk_labels.append(label)
 
