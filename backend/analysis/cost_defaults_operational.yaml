@@ -11,6 +11,9 @@ last_calibrated: "2026-05-29"
 # ──────────────────────────────────────────────────────────────────────────
 # 1. LLM model pricing (USD per million tokens)
 # ──────────────────────────────────────────────────────────────────────────
+# Anthropic prices verified against the live model catalog on 2026-07-03
+# (opus-4-8 $5/$25, sonnet-4-6 $3/$15, haiku-4-5 $1/$5) — do not "fix" the
+# Opus ratio to the historical 5x-of-Sonnet; the 4.8 repricing is real.
 models:
   claude-opus-4-8:
     input_per_mtok: 5.00

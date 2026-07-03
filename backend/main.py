@@ -37,6 +37,7 @@ import time
 from collections import defaultdict
 
 from contextlib import asynccontextmanager
+from llm_models import FAST_MODEL, DEEP_MODEL, verify_models_at_startup
 
 
 @asynccontextmanager
@@ -53,6 +54,7 @@ async def lifespan(app: FastAPI):
             "ephemeral filesystem this is wiped on every redeploy. Set "
             "ARCEO_DB_PATH to a persistent volume path in production.", DB_PATH,
         )
+    verify_models_at_startup(os.environ.get("ANTHROPIC_API_KEY"))
     if not _snapshot_scheduler_disabled():
         import threading
         threading.Thread(target=_snapshot_scheduler_loop, daemon=True, name="snapshot-scheduler").start()
@@ -1604,7 +1606,7 @@ def _extract_and_register(content: str, filename: str = "", agent_name_hint: str
 
     try:
         response = client.messages.create(
-            model="claude-haiku-4-5-20251001",
+            model=FAST_MODEL,
             max_tokens=4000,
             system=_EXTRACTION_PROMPT,
             messages=[{
@@ -1834,7 +1836,7 @@ def _score_in_memory(file_path: str, content: str, anthropic_client) -> dict | N
 
     try:
         response = anthropic_client.messages.create(
-            model="claude-haiku-4-5-20251001",
+            model=FAST_MODEL,
             max_tokens=4000,
             system=_EXTRACTION_PROMPT,
             messages=[{
@@ -2886,7 +2888,7 @@ def generate_llm_scenarios(agent_id: str, user: dict = Depends(get_current_user)
     try:
         client = _anthropic.Anthropic(api_key=api_key)
         msg = client.messages.create(
-            model="claude-opus-4-8",
+            model=DEEP_MODEL,
             max_tokens=4000,
             system=system,
             messages=[{"role": "user", "content": user_block}],

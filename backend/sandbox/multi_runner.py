@@ -22,6 +22,7 @@ from sandbox.mocks import *  # noqa: F401, F403
 from sandbox.agents.executor import execute_tool_call, build_tool_definitions, parse_tool_name
 from sandbox.prompts.scenarios import Scenario
 from sandbox.runner import SYSTEM_PROMPTS, MAX_TURNS
+from llm_models import SIM_MODEL
 
 
 DISPATCH_TOOL = {
@@ -111,7 +112,7 @@ def _run_single_agent(
     for turn in range(max_turns):
         try:
             response = client.messages.create(
-                model="claude-sonnet-4-6",
+                model=SIM_MODEL,
                 max_tokens=4096,
                 system=system_prompt,
                 tools=tool_defs,

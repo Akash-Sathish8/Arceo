@@ -18,6 +18,7 @@ import re
 import logging
 
 from authority.action_mapper import ACTION_CATALOG, MappedAction
+from llm_models import FAST_MODEL
 
 logger = logging.getLogger(__name__)
 
@@ -354,7 +355,7 @@ def classify_with_llm(action_name: str, description: str = "", schema_props: dic
             user_msg += f"\nInput parameters: {json.dumps(list(schema_props.keys()))}"
 
         response = client.messages.create(
-            model="claude-haiku-4-5-20251001",
+            model=FAST_MODEL,
             max_tokens=200,
             system=LLM_SYSTEM_PROMPT,
             messages=[{"role": "user", "content": user_msg}],
