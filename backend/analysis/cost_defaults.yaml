@@ -93,6 +93,22 @@ exposure:
   days_per_year: 365
   description: "Default volume; override per agent with the daily_runs query parameter on /cost-report."
 
+# Mitigation multipliers applied to per-incident ranges. These are ASSUMPTIONS,
+# not measurements — they exist so a reversible or policy-guarded action doesn't
+# price like an unguarded irreversible one. They're disclosed verbatim in the
+# report's `assumptions` block; adjust them to your risk appetite.
+mitigation:
+  reversible_multiplier: 0.30
+  reversible_rationale: >-
+    A reversible action (refund can be clawed back, ticket reopened) is priced
+    at 30% of an irreversible incident — detection-and-undo usually caps the
+    damage well below worst case, but not at zero (time-to-detect, partial harm).
+  policy_multiplier: 0.05
+  policy_rationale: >-
+    An action already covered by a BLOCK or approval policy is priced at 5% —
+    the guardrail catches the incident before it completes in the common case;
+    the residual 5% covers policy gaps and mis-scoped patterns.
+
 # Confidence levels based on data quality
 confidence:
   with_real_traces: "high"         # cost estimate based on observed behavior

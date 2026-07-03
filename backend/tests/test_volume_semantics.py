@@ -202,3 +202,23 @@ def test_sandbox_tokens_used_when_nothing_declared():
     )
     assert fc["tokensPerCall"] == 3300
     assert fc["inputSources"]["tokensPerCall"] == "measured"
+
+
+def test_cost_report_discloses_assumptions():
+    """D18: every breach-cost multiplier and basis must be disclosed in plain
+    English on the report — no silent x0.3/x0.05 behind a CFO headline number."""
+    from analysis.cost_model import generate_cost_report, report_to_dict
+
+    agent = {
+        "id": "t", "name": "t",
+        "tools": [{"name": "stripe", "actions": [
+            {"action": "create_refund", "risk_labels": ["moves_money"], "reversible": True},
+        ]}],
+    }
+    report = generate_cost_report(agent, policies=[{"action_pattern": "stripe.create_refund", "effect": "BLOCK"}])
+    d = report_to_dict(report)
+    text = " ".join(d["assumptions"]).lower()
+    assert "reversible" in text          # x0.3 disclosed with rationale
+    assert "policy" in text or "block" in text  # x0.05 disclosed
+    assert "one worst-case incident" in text    # annualized basis disclosed
+    assert "industry-anchored" in text          # default ranges cite their basis

@@ -263,6 +263,17 @@ export function CFOReport({ data }: { data: CFOReportData }) {
                 ))}
               </View>
             )}
+
+            {data.riskAssumptions.length > 0 && (
+              <View style={{ marginTop: 8 }}>
+                <Text style={[styles.numberLabel, { marginBottom: 3 }]}>How these dollar figures are computed:</Text>
+                {data.riskAssumptions.map((a, i) => (
+                  <Text key={i} style={{ fontSize: 7, color: "#6b7280", lineHeight: 1.5, marginBottom: 2 }}>
+                    · {a}
+                  </Text>
+                ))}
+              </View>
+            )}
           </View>
         )}
 

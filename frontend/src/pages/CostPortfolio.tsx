@@ -951,6 +951,20 @@ function CostPortfolioContent({
                   </Link>
                 </div>
               )}
+              {(costReport?.assumptions?.length ?? 0) > 0 && (
+                <div className="mt-3 pt-3 border-t border-dashed border-gray-100">
+                  <div className="text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1.5">
+                    How these dollars are computed
+                  </div>
+                  <ul className="space-y-1">
+                    {costReport!.assumptions!.map((a, i) => (
+                      <li key={i} className="text-[11px] text-gray-500 leading-relaxed pl-3 relative">
+                        <span className="absolute left-0">·</span>{a}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
             </>
           )}
         </PanelCard>
