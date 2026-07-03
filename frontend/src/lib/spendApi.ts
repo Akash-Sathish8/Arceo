@@ -21,7 +21,12 @@ export interface SpendOverrides {
 /** Declare expected volume/turns/model so the forecast leaves the "unavailable" state. */
 export async function setForecastInputs(
   agentId: string,
-  body: { expected_calls_per_day?: number; expected_turns_per_run?: number; simulation_model?: string },
+  body: {
+    expected_calls_per_day?: number
+    expected_turns_per_run?: number
+    simulation_model?: string
+    avg_context_tokens?: number
+  },
 ): Promise<boolean> {
   try {
     await apiFetch(`/api/authority/agent/${agentId}/forecast-inputs`, {

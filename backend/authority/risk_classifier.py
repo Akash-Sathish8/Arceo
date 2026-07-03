@@ -18,6 +18,7 @@ import re
 import logging
 
 from authority.action_mapper import ACTION_CATALOG, MappedAction
+from llm_models import FAST_MODEL
 
 logger = logging.getLogger(__name__)
 
@@ -619,6 +620,18 @@ def classify_with_llm(action_name: str, description: str = "", schema_props: dic
         list(schema_props.keys()) if schema_props else None,
         candidates,
     )
+        user_msg = f"Tool action: {action_name}"
+        if description:
+            user_msg += f"\nDescription: {description}"
+        if schema_props:
+            user_msg += f"\nInput parameters: {json.dumps(list(schema_props.keys()))}"
+
+        response = client.messages.create(
+            model=FAST_MODEL,
+            max_tokens=200,
+            system=LLM_SYSTEM_PROMPT,
+            messages=[{"role": "user", "content": user_msg}],
+        )
 
     votes: list[tuple[list[str], bool]] = []
     for _ in range(LLM_VOTES):

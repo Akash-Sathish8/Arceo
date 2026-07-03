@@ -43,6 +43,7 @@ const SOURCE_BADGE: Record<string, { label: string; color: string; bg: string; t
   declared: { label: "declared", color: "var(--severity-safe, #047857)",  bg: "var(--severity-safe-bg, #ecfdf5)",   tip: "You declared this value." },
   measured: { label: "measured", color: "var(--severity-safe, #047857)",  bg: "var(--severity-safe-bg, #ecfdf5)",   tip: "Measured from this agent's sandbox or live traces." },
   default:  { label: "default",  color: "var(--severity-medium, #b45309)", bg: "var(--severity-medium-bg, #fffbeb)", tip: "Industry-typical default — not measured for this agent. Declare it or run a sweep to make it real." },
+  volume:   { label: "in volume", color: "var(--severity-safe, #047857)",  bg: "var(--severity-safe-bg, #ecfdf5)",   tip: "Your declared daily volume already counts every model call, so no extra per-run multiplier is applied. Declare turns per run if your number was runs, not calls." },
 }
 
 function SourceBadge({ source }: { source?: string }) {
@@ -389,6 +390,12 @@ function ForecastUnavailableView({
   const [runs, setRuns] = useState<number>(100)
   const [turns, setTurns] = useState<number>(4)
   const [model, setModel] = useState<string>("claude-sonnet-4-6")
+  const [contextSize, setContextSize] = useState<"" | "small" | "medium" | "large" | "xlarge">("")
+
+  // Plain-English buckets → tokens. A tool list can't reveal that a RAG agent
+  // reads 80k tokens of documents per call; without this the forecast is
+  // structurally low for context-heavy agents.
+  const CONTEXT_TOKENS: Record<string, number> = { small: 0, medium: 8000, large: 30000, xlarge: 80000 }
 
   // Feed inputs → persist them → sandbox the agent → report upgrades to medium tier.
   const generate = async () => {
@@ -398,6 +405,7 @@ function ForecastUnavailableView({
       expected_calls_per_day: runs,
       expected_turns_per_run: turns,
       simulation_model: model,
+      ...(contextSize && contextSize !== "small" ? { avg_context_tokens: CONTEXT_TOKENS[contextSize] } : {}),
     })
     if (!saved) {
       toast("Couldn't save your inputs", "error")
@@ -482,7 +490,10 @@ function ForecastUnavailableView({
                 className="mt-1 w-full px-3 py-2 rounded-md border bg-white text-sm mono"
                 style={{ borderColor: "var(--border)" }}
               />
-              <span className="text-[11px] text-gray-400">Roughly how many back-and-forth LLM calls per run.</span>
+              <span className="text-[11px] text-gray-400">
+                Roughly how many model calls your agent makes each time it runs. Reading a total
+                "API calls per day" off your provider's dashboard instead? Put that under runs and set this to 1.
+              </span>
             </label>
             <label className="block">
               <span className="text-xs font-medium text-gray-600">Model</span>
@@ -497,6 +508,25 @@ function ForecastUnavailableView({
                 ))}
               </select>
               <span className="text-[11px] text-gray-400">The model this agent calls — sets the price per token.</span>
+            </label>
+            <label className="block">
+              <span className="text-xs font-medium text-gray-600">How much does it read per run? <span className="font-normal text-gray-400">(optional)</span></span>
+              <select
+                value={contextSize}
+                onChange={(e) => setContextSize(e.target.value as typeof contextSize)}
+                className="mt-1 w-full px-3 py-2 rounded-md border bg-white text-sm"
+                style={{ borderColor: "var(--border)" }}
+              >
+                <option value="">Not sure — estimate for me</option>
+                <option value="small">Just instructions — no documents</option>
+                <option value="medium">A few pages (emails, tickets)</option>
+                <option value="large">Long documents (contracts, reports)</option>
+                <option value="xlarge">Whole knowledge bases (RAG, large retrievals)</option>
+              </select>
+              <span className="text-[11px] text-gray-400">
+                Agents that read big documents each run cost far more per call — this is the
+                single biggest thing a tool list can't tell us.
+              </span>
             </label>
             <button
               onClick={generate}
@@ -919,6 +949,20 @@ function CostPortfolioContent({
                   >
                     Review guardrails
                   </Link>
+                </div>
+              )}
+              {(costReport?.assumptions?.length ?? 0) > 0 && (
+                <div className="mt-3 pt-3 border-t border-dashed border-gray-100">
+                  <div className="text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1.5">
+                    How these dollars are computed
+                  </div>
+                  <ul className="space-y-1">
+                    {costReport!.assumptions!.map((a, i) => (
+                      <li key={i} className="text-[11px] text-gray-500 leading-relaxed pl-3 relative">
+                        <span className="absolute left-0">·</span>{a}
+                      </li>
+                    ))}
+                  </ul>
                 </div>
               )}
             </>

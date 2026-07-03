@@ -37,6 +37,7 @@ import time
 from collections import defaultdict
 
 from contextlib import asynccontextmanager
+from llm_models import FAST_MODEL, DEEP_MODEL, verify_models_at_startup
 
 
 @asynccontextmanager
@@ -53,6 +54,7 @@ async def lifespan(app: FastAPI):
             "ephemeral filesystem this is wiped on every redeploy. Set "
             "ARCEO_DB_PATH to a persistent volume path in production.", DB_PATH,
         )
+    verify_models_at_startup(os.environ.get("ANTHROPIC_API_KEY"))
     if not _snapshot_scheduler_disabled():
         import threading
         threading.Thread(target=_snapshot_scheduler_loop, daemon=True, name="snapshot-scheduler").start()
@@ -1254,9 +1256,13 @@ def create_agent(req: AgentInput, user: dict = Depends(get_current_user)):
 
 
 class ForecastInputsInput(BaseModel):
-    expected_calls_per_day: Optional[int] = None   # RUNS/day (the dominant cost driver)
+    # Without expected_turns_per_run, expected_calls_per_day is priced as TOTAL
+    # model calls/day (never silently multiplied by an archetype turns guess).
+    # With turns declared, it's runs/day and llm_calls = runs x turns.
+    expected_calls_per_day: Optional[int] = None
     expected_turns_per_run: Optional[int] = None   # LLM round-trips per run
     simulation_model: Optional[str] = None         # prices the LLM at the right rate
+    avg_context_tokens: Optional[int] = None       # typical context per call (RAG docs, long prompts)
 
 
 @app.post("/api/authority/agent/{agent_id}/forecast-inputs")
@@ -1273,12 +1279,15 @@ def set_agent_forecast_inputs(agent_id: str, req: ForecastInputsInput, user: dic
         conn.execute(
             "UPDATE agents SET expected_calls_per_day = COALESCE(?, expected_calls_per_day), "
             "expected_turns_per_run = COALESCE(?, expected_turns_per_run), "
-            "simulation_model = COALESCE(?, simulation_model), updated_at = ? "
+            "simulation_model = COALESCE(?, simulation_model), "
+            "avg_context_tokens = COALESCE(?, avg_context_tokens), updated_at = ? "
             "WHERE id = ? AND org_id = ?",
-            (req.expected_calls_per_day, req.expected_turns_per_run, req.simulation_model, now, agent_id, org_id),
+            (req.expected_calls_per_day, req.expected_turns_per_run, req.simulation_model,
+             req.avg_context_tokens, now, agent_id, org_id),
         )
         log_audit(conn, user["sub"], user["email"], "SET_FORECAST_INPUTS", resource=agent_id,
-                  detail=f"runs/day={req.expected_calls_per_day}, turns/run={req.expected_turns_per_run}, model={req.simulation_model}", org_id=org_id)
+                  detail=f"runs/day={req.expected_calls_per_day}, turns/run={req.expected_turns_per_run}, "
+                         f"model={req.simulation_model}, context_tokens={req.avg_context_tokens}", org_id=org_id)
     return {"ok": True}
 
 
@@ -1623,7 +1632,7 @@ def _extract_and_register(content: str, filename: str = "", agent_name_hint: str
 
     try:
         response = client.messages.create(
-            model="claude-haiku-4-5-20251001",
+            model=FAST_MODEL,
             max_tokens=4000,
             temperature=0,
             system=_EXTRACTION_PROMPT,
@@ -1854,7 +1863,7 @@ def _score_in_memory(file_path: str, content: str, anthropic_client) -> dict | N
 
     try:
         response = anthropic_client.messages.create(
-            model="claude-haiku-4-5-20251001",
+            model=FAST_MODEL,
             max_tokens=4000,
             temperature=0,
             system=_EXTRACTION_PROMPT,
@@ -2924,7 +2933,7 @@ def generate_llm_scenarios(agent_id: str, user: dict = Depends(get_current_user)
     try:
         client = _anthropic.Anthropic(api_key=api_key)
         msg = client.messages.create(
-            model="claude-opus-4-8",
+            model=DEEP_MODEL,
             max_tokens=4000,
             system=system,
             messages=[{"role": "user", "content": user_block}],
@@ -4833,7 +4842,9 @@ def run_sweep(req: SweepRequest, user: dict = Depends(get_current_user)):
     """Run every applicable scenario for an agent and produce an aggregate report."""
     from sandbox.runner import run_simulation, run_simulation_dry
     from sandbox.analyzer import analyze_trace, aggregate_reports
-    from sandbox.prompts.scenarios import get_scenarios_for_agent, generate_scenarios_for_agent
+    from sandbox.prompts.scenarios import (
+        get_scenarios_for_agent, generate_scenarios_for_agent, scenario_matches_tools,
+    )
     from dataclasses import asdict as _asdict
 
     with get_db() as conn:
@@ -4843,9 +4854,13 @@ def run_sweep(req: SweepRequest, user: dict = Depends(get_current_user)):
 
     config = _db_agent_to_config(agent)
 
-    # Collect scenarios: hardcoded + auto-generated
+    # Collect scenarios: archetype library GATED on the agent's actual tools
+    # (a scenario directing "refund pay_003 in Stripe" at a Stripe-less agent
+    # yields a refusal trace that pollutes the cost forecast), plus scenarios
+    # generated from the agent's own capabilities.
     agent_type = _infer_agent_type_from_config(agent)
-    scenarios = list(get_scenarios_for_agent(agent_type))
+    tool_names = {t["name"] for t in agent.get("tools", [])}
+    scenarios = [s for s in get_scenarios_for_agent(agent_type) if scenario_matches_tools(s, tool_names)]
     auto_scenarios = generate_scenarios_for_agent(agent)
     scenarios.extend(auto_scenarios)
 
