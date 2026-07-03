@@ -110,14 +110,16 @@ def declare_forecast_inputs(base_url, token, agent_id, spec):
         "expected_calls_per_day": behavior.get("calls_per_day"),
         "simulation_model": spec.get("simulation_model"),
     }
-    # Mirror the UI's plain-English buckets (medium 8k / large 30k / xlarge 80k):
-    # an agent reading >=20k tokens per call is unambiguously "large documents"
-    # to its owner. Below that, customers can't reliably tell — leave estimated.
+    # Mirror the UI's plain-English buckets (medium 8k / large 40k / xlarge 80k;
+    # bucket values are the geometric midpoint of the label's range, not its
+    # floor): an agent reading >=20k tokens per call is unambiguously "large
+    # documents" to its owner. Below that, customers can't reliably tell —
+    # leave estimated.
     in_tok = behavior.get("input_tokens_per_call") or 0
     if in_tok >= 60000:
         body["avg_context_tokens"] = 80000
     elif in_tok >= 20000:
-        body["avg_context_tokens"] = 30000
+        body["avg_context_tokens"] = 40000
     body = {k: v for k, v in body.items() if v is not None}
     if not body:
         return

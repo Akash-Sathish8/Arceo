@@ -395,7 +395,11 @@ function ForecastUnavailableView({
   // Plain-English buckets → tokens. A tool list can't reveal that a RAG agent
   // reads 80k tokens of documents per call; without this the forecast is
   // structurally low for context-heavy agents.
-  const CONTEXT_TOKENS: Record<string, number> = { small: 0, medium: 8000, large: 30000, xlarge: 80000 }
+  // Each value is the geometric midpoint of the range its label covers, not the
+  // range's floor — a floor under-prices every agent in the upper half of its
+  // bucket ("long documents" spans ~20k–80k → midpoint 40k; the old 30k left a
+  // 2.7× dead zone to the next bucket, wider than the medium-tier band).
+  const CONTEXT_TOKENS: Record<string, number> = { small: 0, medium: 8000, large: 40000, xlarge: 80000 }
 
   // Feed inputs → persist them → sandbox the agent → report upgrades to medium tier.
   const generate = async () => {
