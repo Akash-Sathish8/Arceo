@@ -34,8 +34,8 @@ type Confidence = "low" | "medium" | "high"
 
 const CONFIDENCE_CHIP: Record<Confidence, { label: string; bg: string; color: string; border: string; tooltip: string }> = {
   low:    { label: "LOW CONFIDENCE",    bg: "var(--severity-medium-bg)",   color: "var(--severity-high)",     border: "var(--severity-medium-border)", tooltip: "Based on the agent's capabilities alone. Confidence improves as sandbox runs and live traces accumulate — the Data sources panel below shows what's connected." },
-  medium: { label: "MEDIUM CONFIDENCE", bg: "var(--severity-medium-bg)",   color: "var(--severity-medium)",   border: "var(--severity-medium-border)", tooltip: "Based on simulation traces plus partial live data. Connect production traces to raise to high." },
-  high:   { label: "HIGH CONFIDENCE",   bg: "var(--severity-safe-bg)",     color: "var(--severity-safe)",     border: "var(--severity-safe-border)",   tooltip: "Based on 30+ days of live production traces." },
+  medium: { label: "MEDIUM CONFIDENCE", bg: "var(--severity-medium-bg)",   color: "var(--severity-medium)",   border: "var(--severity-medium-border)", tooltip: "Test runs measured how this agent behaves (steps per task, response sizes) — but not production volumes like document sizes or which actions dominate real traffic, so the range stays wide on the high side. Connect live traffic to tighten it." },
+  high:   { label: "HIGH CONFIDENCE",   bg: "var(--severity-safe-bg)",     color: "var(--severity-safe)",     border: "var(--severity-safe-border)",   tooltip: "Based on this agent's real production calls. The longer the observed window, the more the monthly number can be trusted." },
 }
 
 // Per-input provenance: never let a defaulted input read as a measurement.
@@ -797,6 +797,11 @@ function CostPortfolioContent({
               title={conf.tooltip}
               style={{ background: conf.bg, color: conf.color, border: `1px solid ${conf.border}` }}
             >{conf.label}</span>
+            {m.confidence === "high" && m.observedDays != null && (
+              <span className="text-xs text-gray-500 mr-2">
+                based on {m.observedDays <= 1 ? "1 day" : `${Math.round(m.observedDays)} days`} of observed traffic
+              </span>
+            )}
             · last calibrated <strong className="text-gray-900">{formatCalibrationDate(m.lastCalibrated)}</strong>
           </div>
           {m.confidence !== "high" && (

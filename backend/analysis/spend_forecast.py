@@ -526,6 +526,11 @@ def compute_live_rolling_averages(audit_rows: list) -> dict:
         "input_tokens": round(total_in / n),
         "output_tokens": round(total_out / n),
         "llm_cost_per_call": round(sum(per_call_costs) / n, 6) if per_call_costs else None,
+        # Honesty metadata, not a forecast input: how many days of traffic the
+        # averages above actually cover. A 20-minute burst clamps to 1 day —
+        # the UI captions the high-tier number with this so ±15% never rides
+        # on an unrepresentative window.
+        "observed_days": round(span_days, 1),
     }
 
 
@@ -1540,6 +1545,9 @@ def forecast_spend(
         # Unrounded point — used by the sensitivity engine so small but real
         # levers (runtime, retry) aren't lost to whole-dollar rounding.
         "pointExact": monthly_point,
+        # Days of live traffic behind the averages (live tier only) — the UI
+        # captions the forecast with this so a burst never masquerades as a month.
+        "observedDays": (overrides.get("observed_days") if _live_path else None),
         "low": round(monthly_low),
         "high": round(monthly_high),
         "annual": round(monthly_point * 12),
@@ -1767,7 +1775,7 @@ _MINIMAL_DEFAULTS = {
     },
     "confidence_bands": {
         "low": {"low_multiplier": 0.50, "high_multiplier": 3.00},  # asymmetric — see YAML calibration note
-        "medium": {"low_multiplier": 0.72, "high_multiplier": 1.28},
+        "medium": {"low_multiplier": 0.70, "high_multiplier": 2.00},  # asymmetric — see YAML calibration note
         "high": {"low_multiplier": 0.85, "high_multiplier": 1.15},
     },
     "infrastructure": {"per_call_overhead_usd": 0.0002, "compute_cost_per_second_usd": 0.00018},

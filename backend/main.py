@@ -839,7 +839,12 @@ class SignupRequest(BaseModel):
 def signup(req: SignupRequest):
     """Create a new account."""
     from auth import hash_password, create_token
+    import re as _re
 
+    # RFC-lite: something@something.tld. The browser input usually catches this,
+    # but the API is the contract — `not-an-email` used to create a working account.
+    if not _re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", req.email or ""):
+        raise HTTPException(status_code=400, detail="Enter a valid email address")
     if len(req.password) < 6:
         raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
 

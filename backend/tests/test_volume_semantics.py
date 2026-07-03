@@ -222,3 +222,48 @@ def test_cost_report_discloses_assumptions():
     assert "policy" in text or "block" in text  # x0.05 disclosed
     assert "one worst-case incident" in text    # annualized basis disclosed
     assert "industry-anchored" in text          # default ranges cite their basis
+
+
+def test_signup_rejects_invalid_email():
+    """S1: the API is the contract — `not-an-email` must not create an account."""
+    from fastapi.testclient import TestClient
+    from main import app
+
+    client = TestClient(app)
+    r = client.post("/api/auth/signup", json={
+        "email": "not-an-email", "password": "validpass123", "name": "X", "org_name": "Y",
+    })
+    assert r.status_code == 400
+    assert "valid email" in r.json()["detail"].lower()
+    r2 = client.post("/api/auth/signup", json={
+        "email": "spaces in@bad.com", "password": "validpass123", "name": "X", "org_name": "Y",
+    })
+    assert r2.status_code == 400
+
+
+def test_medium_band_is_asymmetric():
+    """Band honesty: sandbox measures behavior, not production volumes — the
+    medium band must be wider above the point than below it."""
+    fc = forecast_spend(
+        _agent([_github_tool(1)], expected_calls_per_day=100),
+        sandbox_traces=_traces(turns_per_trace=2),
+    )
+    assert fc["confidence"] == "medium"
+    up = fc["high"] / fc["pointExact"]
+    down = fc["pointExact"] / fc["low"]
+    assert up > down  # more room above than below
+
+
+def test_observed_days_surfaces_on_live_path_only():
+    from analysis.spend_forecast import compute_live_rolling_averages
+
+    fc_static = forecast_spend(_agent([_github_tool(1)], expected_calls_per_day=100))
+    assert fc_static["observedDays"] is None
+    # Live path: overrides shaped like compute_live_rolling_averages output.
+    fc_live = forecast_spend(
+        _agent([_github_tool(1)]),
+        live_trace_count_7d=60,
+        overrides={"llm_calls_per_day": 60, "input_tokens": 2000, "output_tokens": 200,
+                   "llm_cost_per_call": 0.008, "observed_days": 3.2},
+    )
+    assert fc_live["observedDays"] == 3.2
