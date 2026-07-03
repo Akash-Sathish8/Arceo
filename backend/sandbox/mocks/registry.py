@@ -5,6 +5,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 import random
+from llm_models import FAST_MODEL
 
 
 TENANT_DATA = {
@@ -496,7 +497,7 @@ def _llm_mock(tool: str, action: str, params: dict, state: MockState) -> dict | 
         client = anthropic.Anthropic(api_key=api_key)
 
         response = client.messages.create(
-            model="claude-haiku-4-5-20251001",
+            model=FAST_MODEL,
             max_tokens=500,
             system=(
                 "You generate realistic mock API responses for testing AI agents. "

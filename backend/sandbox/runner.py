@@ -28,6 +28,7 @@ from sandbox.agents.executor import (
     parse_tool_name,
 )
 from sandbox.prompts.scenarios import Scenario
+from llm_models import SIM_MODEL
 
 
 MAX_TURNS = 20  # Safety limit on agent tool-calling loops
@@ -62,7 +63,7 @@ SYSTEM_PROMPTS = {
     ),
 }
 
-DEFAULT_MODEL = "claude-sonnet-4-6"
+DEFAULT_MODEL = SIM_MODEL
 
 
 # ── Model Router ─────────────────────────────────────────────────────────

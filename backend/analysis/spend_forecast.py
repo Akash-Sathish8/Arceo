@@ -532,14 +532,20 @@ def compute_live_rolling_averages(audit_rows: list) -> dict:
 def compute_sandbox_averages(traces: list) -> dict:
     """Per-run turn count + per-turn token averages from sandbox traces that
     captured real usage (`turn_usage`). Mirrors `compute_live_rolling_averages`
-    but for the medium tier. Returns {turns_per_run, input_tokens, output_tokens,
-    cache_hit}, or {} when no trace carries usable turn usage.
+    but for the medium tier. Returns {turns_per_run, input_tokens, output_tokens},
+    or {} when no trace carries usable turn usage.
 
     Divisor note: turns_per_run is averaged over RUNS (one trace = one run);
     tokens are averaged over TURNS (the per-LLM-call basis the cost math uses).
+
+    Deliberately NO cache_hit: simulations run each scenario cold, so their
+    measured cache rate is structurally 0% — treating that as a measurement of
+    production cache locality doubled a cache-heavy agent's forecast while
+    CLAIMING higher confidence. Cache stays declared/default until live traces
+    (which do see real locality) measure it.
     """
     per_run_turns: list[int] = []
-    in_sum = cached_sum = out_sum = turn_n = 0
+    in_sum = out_sum = turn_n = 0
     for t in traces or []:
         tu = (t.get("turn_usage") if isinstance(t, dict) else None) or []
         usable = [x for x in tu if isinstance(x, dict)
@@ -549,7 +555,6 @@ def compute_sandbox_averages(traces: list) -> dict:
         per_run_turns.append(len(usable))
         for x in usable:
             in_sum += int(x.get("input_tokens") or 0)
-            cached_sum += int(x.get("cached_input_tokens") or 0)
             out_sum += int(x.get("output_tokens") or 0)
             turn_n += 1
     if not per_run_turns or turn_n == 0:
@@ -558,7 +563,6 @@ def compute_sandbox_averages(traces: list) -> dict:
         "turns_per_run": max(1, round(sum(per_run_turns) / len(per_run_turns))),
         "input_tokens": round(in_sum / turn_n),
         "output_tokens": round(out_sum / turn_n),
-        "cache_hit": round(cached_sum / in_sum * 100) if in_sum else 0,
     }
 
 
@@ -1204,11 +1208,20 @@ def _infer_archetype(agent_config: dict) -> str:
 
 def _default_turns_per_run(agent_config: dict, defaults: dict) -> float:
     """Archetype-aware cold-start turns/run (a scheduler isn't a devops loop).
-    Falls back to the flat avg_turns_per_run when no map / archetype match."""
+    Falls back to the flat avg_turns_per_run when no map / archetype match.
+
+    Bounded by capability: archetype comes from tool NAMES, so a one-action
+    `github` status checker infers "devops" and inherited an 8-turn loop guess.
+    An agent with <=2 declared actions has nothing to loop over — cap at 2.
+    """
     sd = defaults.get("scenario_defaults", {})
     by_arch = defaults.get("default_turns_per_run_by_archetype") or {}
     arch = _infer_archetype(agent_config)
-    return float(by_arch.get(arch, by_arch.get("default", sd.get("avg_turns_per_run", 4))))
+    turns = float(by_arch.get(arch, by_arch.get("default", sd.get("avg_turns_per_run", 4))))
+    n_actions = sum(len(t.get("actions") or []) for t in agent_config.get("tools", []))
+    if 0 < n_actions <= 2:
+        turns = min(turns, 2.0)
+    return turns
 
 
 def forecast_spend(
@@ -1312,28 +1325,60 @@ def forecast_spend(
     explicit_turns = overrides.get("turns_per_run")
     observed_llm_calls = overrides.get("llm_calls_per_day")
 
-    turns_per_run = max(1, int(round(float(_first_set(
+    known_turns = _first_set(
         explicit_turns,
         sandbox_avgs.get("turns_per_run"),
         agent_config.get("expected_turns_per_run"),
-        default=_default_turns_per_run(agent_config, defaults),
-    )))))
+        default=None,
+    )
+    volume_declared = explicit_runs is not None or agent_config.get("expected_calls_per_day") is not None
+    if known_turns is not None:
+        turns_per_run = max(1, int(round(float(known_turns))))
+    elif volume_declared:
+        # Declared volume WITHOUT declared/measured turns: the customer's number
+        # is their total model-calls/day (what a provider console shows). An
+        # archetype guess multiplied it 4-8x invisibly and was the single
+        # largest source of forecast error (mean |err| 546% -> 60% on the truth
+        # fleet with this rule alone). An assumption may widen a band; it must
+        # never multiply a declared number.
+        turns_per_run = 1
+    else:
+        turns_per_run = max(1, int(round(_default_turns_per_run(agent_config, defaults))))
     runs_per_day = int(_first_set(
         explicit_runs,
         agent_config.get("expected_calls_per_day"),
         default=sd["default_calls_per_day"],
     ))
 
+    # Did the customer ever opt into runs-x-turns semantics? Only by declaring
+    # turns (API/UI) or driving the what-if sliders. A bare declared calls/day
+    # is TOTAL model calls (the P1 contract) — and that contract must survive
+    # the tier upgrade: when a sweep later MEASURES turns, the measurement
+    # refines the run split, it must not re-multiply the declared total (which
+    # turned a correct low-tier forecast into a wrong medium-tier one while
+    # claiming more confidence).
+    volume_is_total = (
+        agent_config.get("expected_calls_per_day") is not None
+        and explicit_runs is None
+        and explicit_turns is None
+        and agent_config.get("expected_turns_per_run") is None
+    )
     if observed_llm_calls is not None and explicit_runs is None and explicit_turns is None:
         # Live tier, no manual what-if → trust observed total LLM calls.
         llm_calls_per_day = int(observed_llm_calls)
         turns_per_run = round(llm_calls_per_day / runs_per_day, 1) if runs_per_day else turns_per_run
+    elif volume_is_total:
+        llm_calls_per_day = int(agent_config["expected_calls_per_day"])
+        runs_per_day = max(1, int(round(llm_calls_per_day / turns_per_run)))
     else:
         llm_calls_per_day = int(round(runs_per_day * turns_per_run))
 
     runtime = float(overrides.get("runtime") or sd["default_runtime_seconds"])
+    # No sandbox term here on purpose — sims can't measure production cache
+    # locality (see compute_sandbox_averages). Live rolling averages arrive
+    # via `overrides` on the live path.
     cache_hit_rate = float(_first_set(
-        overrides.get("cache_hit"), sandbox_avgs.get("cache_hit"),
+        overrides.get("cache_hit"),
         default=sd["default_cache_hit_rate"] * 100,
     )) / 100.0
     retry_rate = float(overrides.get("retry_rate", sd["default_retry_rate"] * 100)) / 100.0
@@ -1342,10 +1387,26 @@ def forecast_spend(
     # Observed per-turn tokens from live traces (high) or sandbox sims (medium)
     # override the static capability-tree estimate. Real counts already reflect
     # the tokenizer, so model inflation is not re-applied to them.
-    obs_in = _first_set(overrides.get("input_tokens"), sandbox_avgs.get("input_tokens"), default=None)
-    obs_out = _first_set(overrides.get("output_tokens"), sandbox_avgs.get("output_tokens"), default=None)
-    if obs_in is not None and obs_out is not None:
-        in_tokens, out_tokens = int(obs_in), int(obs_out)
+    # D25 precedence: live-measured > declared context > sandbox-measured >
+    # static default. Sandbox mocks return tiny payloads, so their "measured"
+    # input tokens must never outrank a declared context — a RAG agent that
+    # declared an 80k-token context was repriced off 1.4k-token mock traces at
+    # HIGHER confidence (-96% under truth). Sims do measure completion size
+    # faithfully, so a sandbox output average still refines the estimate.
+    try:
+        _declared_ctx = int(agent_config.get("avg_context_tokens") or 0)
+    except (TypeError, ValueError):
+        _declared_ctx = 0
+    live_in, live_out = overrides.get("input_tokens"), overrides.get("output_tokens")
+    sbx_in, sbx_out = sandbox_avgs.get("input_tokens"), sandbox_avgs.get("output_tokens")
+    if live_in is not None and live_out is not None:
+        in_tokens, out_tokens = int(live_in), int(live_out)
+    elif _declared_ctx > 0:
+        in_tokens, out_tokens = _estimate_tokens_per_call(agent_config, defaults, inflation, turns_per_run)
+        if sbx_out is not None:
+            out_tokens = int(sbx_out)
+    elif sbx_in is not None and sbx_out is not None:
+        in_tokens, out_tokens = int(sbx_in), int(sbx_out)
     else:
         in_tokens, out_tokens = _estimate_tokens_per_call(agent_config, defaults, inflation, turns_per_run)
 
@@ -1441,15 +1502,23 @@ def forecast_spend(
         turns_source = "measured"
     elif agent_config.get("expected_turns_per_run") is not None:
         turns_source = "declared"
+    elif volume_declared:
+        # turns=1 by the P1 rule: declared volume counts total model calls.
+        turns_source = "volume"
     else:
         turns_source = "default"
-    if overrides.get("llm_cost_per_call") is not None or overrides.get("input_tokens") is not None or sandbox_avgs.get("input_tokens") is not None:
+    # Mirrors the D25 precedence above: only live data may claim "measured"
+    # over a declared context; sandbox tokens are "measured" only when nothing
+    # was declared.
+    if overrides.get("llm_cost_per_call") is not None or overrides.get("input_tokens") is not None:
         tokens_source = "measured"
-    elif agent_config.get("avg_context_tokens"):
+    elif _declared_ctx > 0:
         tokens_source = "declared"
+    elif sandbox_avgs.get("input_tokens") is not None:
+        tokens_source = "measured"
     else:
         tokens_source = "default"
-    if _live_path or sandbox_avgs.get("cache_hit") is not None:
+    if _live_path:
         cache_source = "measured"
     elif overrides.get("cache_hit") is not None:
         cache_source = "declared"
@@ -1697,7 +1766,7 @@ _MINIMAL_DEFAULTS = {
         "scheduler": 2, "support": 4, "sales": 4, "devops": 8, "ops": 8, "default": 4,
     },
     "confidence_bands": {
-        "low": {"low_multiplier": 0.50, "high_multiplier": 1.80},
+        "low": {"low_multiplier": 0.50, "high_multiplier": 3.00},  # asymmetric — see YAML calibration note
         "medium": {"low_multiplier": 0.72, "high_multiplier": 1.28},
         "high": {"low_multiplier": 0.85, "high_multiplier": 1.15},
     },

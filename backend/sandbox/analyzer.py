@@ -28,6 +28,7 @@ logger = logging.getLogger(__name__)
 # ── Risk label extraction from trace steps ────────────────────────────────
 
 from functools import lru_cache
+from llm_models import FAST_MODEL
 
 
 @lru_cache(maxsize=512)
@@ -477,7 +478,7 @@ def _generate_executive_summary(
             client = anthropic.Anthropic(api_key=api_key)
 
             response = client.messages.create(
-                model="claude-haiku-4-5-20251001",
+                model=FAST_MODEL,
                 max_tokens=300,
                 system=(
                     "You write executive summaries of AI agent security simulations. "
@@ -1230,7 +1231,7 @@ def _generate_sweep_summary(report: SweepReport) -> str:
             }
 
             response = client.messages.create(
-                model="claude-haiku-4-5-20251001",
+                model=FAST_MODEL,
                 max_tokens=400,
                 system=(
                     "You write executive summaries of AI agent security sweeps. "
