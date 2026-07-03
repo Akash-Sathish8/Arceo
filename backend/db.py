@@ -118,7 +118,8 @@ def init_db():
                 action TEXT NOT NULL,
                 description TEXT,
                 risk_labels TEXT DEFAULT '[]',
-                reversible BOOLEAN DEFAULT 1
+                reversible BOOLEAN DEFAULT 1,
+                classification_source TEXT DEFAULT 'unknown'
             );
 
             CREATE TABLE IF NOT EXISTS policies (
@@ -292,6 +293,16 @@ def init_db():
         except Exception:
             pass
 
+        # Defensive migration: classification provenance on stored actions
+        # (catalog|primitive|strong_kw|weak_kw|schema|llm|read|ui|none).
+        # 'unknown' marks rows classified before provenance existed.
+        try:
+            ta_cols = [r[1] for r in conn.execute("PRAGMA table_info(tool_actions)").fetchall()]
+            if "classification_source" not in ta_cols:
+                conn.execute("ALTER TABLE tool_actions ADD COLUMN classification_source TEXT DEFAULT 'unknown'")
+        except Exception:
+            pass
+
         # Seed default org and demo user if empty
         org_count = conn.execute("SELECT COUNT(*) FROM organizations").fetchone()[0]
         if org_count == 0:
@@ -377,6 +388,10 @@ def get_agent_from_db(conn, agent_id: str, org_id: str = None) -> dict | None:
                     "description": a["description"],
                     "risk_labels": json.loads(a["risk_labels"]),
                     "reversible": bool(a["reversible"]),
+                    "classification_source": (
+                        a["classification_source"]
+                        if "classification_source" in a.keys() else "unknown"
+                    ),
                 }
                 for a in actions
             ],

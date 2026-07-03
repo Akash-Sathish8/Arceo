@@ -35,6 +35,7 @@ class BlastRadius:
     contextual_score: float = 0.0    # inherent × deployment-context multiplier
     magnitude_usd: float = 0.0       # worst-case per-incident $ across the agent's actions
     chain_risk: float = 0.0          # the chain-uplift contribution to the inherent score
+    band: str = "low"                # low | medium | high | critical — see score_band()
     confidence: str = "low"          # low | medium | high — graded by behavioral evidence
     evidence: dict = field(default_factory=dict)          # {hasSim, simRiskScore, confirmed}
     exposure_context: dict = field(default_factory=dict)  # {environment, trigger_source, human_in_loop, multiplier}
@@ -87,7 +88,10 @@ def build_agent_graph(agent: AgentConfig, action_overrides: dict | None = None) 
 
 LABEL_WEIGHTS = {
     "moves_money": 12,
-    "touches_pii": 4,
+    # Raised 4 -> 8 (2026-07-03): PII exfiltration is the marquee agent-incident
+    # class (EchoLeak, ShadowLeak) yet weighed a third of money/prod — an agent
+    # with a huge PII read surface plus email barely registered.
+    "touches_pii": 8,
     "deletes_data": 15,
     "sends_external": 7,
     "changes_production": 12,
@@ -97,26 +101,44 @@ IRREVERSIBLE_MULTIPLIER = 2.0
 READ_PREFIXES = ("get_", "list_", "read_", "search_", "query_", "check_",
                  "describe_", "fetch_", "lookup_", "find_", "show_")
 
+# ── Bands — the single authoritative scale ───────────────────────────────
+# low <40, medium 40-59, high 60-79, critical >=80. The 60 boundary aligns
+# with /api/scan's default fail threshold ("CI fails ⇔ some agent is high or
+# worse, or a critical chain exists"); 40 was already the de-facto UI
+# boundary. Scores are presented as integers + band words — a decimal implies
+# precision the model doesn't have.
+BAND_THRESHOLDS = (("critical", 80), ("high", 60), ("medium", 40))
+
+
+def score_band(score: float, critical_chains: int = 0) -> str:
+    for band, floor in BAND_THRESHOLDS:
+        if score >= floor:
+            return band
+    # An agent with a critical chain can never read "low", whatever its score.
+    return "medium" if critical_chains > 0 else "low"
+
 
 def _is_read_only(action_name: str) -> bool:
-    """Check if an action is read-only, handling service-prefixed names.
+    """Check if an action is read-only for the 0.15x scoring floor.
 
-    Handles both 'get_customer' and 'stripe_get_customer'.
+    Delegates to the classifier's read detection so the scorer and the
+    classifier can never disagree (they used to: get_or_create_user read as a
+    read here and scored at the floor). Handles service-prefixed names
+    (stripe_get_customer, aws_ec2_describe_instances) and write-verb overrides
+    (get_or_create_*, search_and_email_*).
     """
+    from authority.risk_classifier import is_effectively_read
     lower = action_name.lower()
-    # Direct match
-    if lower.startswith(READ_PREFIXES):
+    if is_effectively_read(lower):
         return True
-    # Service-prefixed: stripe_get_customer, netsuite_get_customer_balance
-    parts = lower.split("_", 1)
-    if len(parts) == 2 and parts[1].startswith(READ_PREFIXES):
-        return True
-    # Deeper prefix: aws_ec2_describe_instances
+    # Deeper unknown prefixes the classifier's service list misses:
+    # foo_bar_describe_instances — still delegate the suffix so write-verb
+    # overrides apply.
     for i in range(len(lower)):
         if lower[i] == "_":
             rest = lower[i + 1:]
             if rest.startswith(READ_PREFIXES):
-                return True
+                return is_effectively_read(rest)
     return False
 
 
@@ -167,12 +189,14 @@ def _score_action(action: MappedAction) -> float:
 
 
 # ── Chain uplift (Stage 1) ───────────────────────────────────────────────
-# A modest nudge: an agent that can form dangerous chains is more dangerous than
-# its actions in isolation, but the action-sum already reflects having multiple
-# dangerous label types, so this stays small (cap +5, steep decay) to avoid
-# double-counting and re-inflating the calibrated distribution.
-CHAIN_WEIGHT = {"critical": 2.0, "high": 1.0, "medium": 0.5}
-CHAIN_UPLIFT_CAP = 3.5
+# An agent that can form dangerous chains is more dangerous than its actions
+# in isolation. Recalibrated 2026-07-03: the old cap (+3.5/100) made chains —
+# the product's marquee detection — nearly cosmetic in the headline score. One
+# critical chain now moves the score ~6 points; diminishing returns + cap keep
+# chains from saturating it (the action-sum already reflects having multiple
+# dangerous label types).
+CHAIN_WEIGHT = {"critical": 6.0, "high": 2.5, "medium": 1.0}
+CHAIN_UPLIFT_CAP = 12.0
 
 
 def _chain_uplift(chains: list) -> float:
@@ -347,7 +371,12 @@ def calculate_blast_radius(
             if not _is_read_only(s[0].action) and s[0].risk_labels and s[idx] > 0
         )
         density_bonus = (dangerous / max(total, 1)) * 20
-        raw = min(100.0, (weighted / 240) * 100)
+        # Normalizer recalibrated 240 -> 265 on 2026-07-03 alongside the PII
+        # weight raise (4->8) and chain-uplift raise (cap 3.5->12), so the
+        # reference fleet keeps its intended placement (evals/calibrate_fleet.py):
+        # note-taker 0 / CRM ~14-20 low / T1 support ~40 medium / incident
+        # response ~55 / max-danger infra >85 critical.
+        raw = min(100.0, (weighted / 265) * 100)
         active_chains = (
             [fc for fc in chain_list if not _chain_broken(fc, policies)] if broken_filter else chain_list
         )
@@ -381,7 +410,9 @@ def calculate_blast_radius(
         sends_external=sends_external,
         changes_production=changes_prod,
         irreversible_actions=irreversible,
-        score=round(inherent, 1),
+        # Integers, not decimals: one decimal place implied a precision the
+        # model doesn't have (the audit called it "83.4 is theater").
+        score=round(inherent),
         risk_breakdown={
             "moves_money": moves_money,
             "touches_pii": touches_pii,
@@ -389,8 +420,11 @@ def calculate_blast_radius(
             "sends_external": sends_external,
             "changes_production": changes_prod,
         },
-        residual_score=round(residual, 1),
-        contextual_score=round(contextual, 1),
+        residual_score=round(residual),
+        contextual_score=round(contextual),
+        # Band from the ROUNDED score — the UI shows round(inherent), and a
+        # displayed "60" must never sit next to the sub-60 band word.
+        band=score_band(round(inherent), sum(1 for fc in chain_list if fc.chain.severity == "critical")),
         magnitude_usd=round(magnitude_usd, 2),
         chain_risk=round(chain_risk, 1),
         confidence=confidence,

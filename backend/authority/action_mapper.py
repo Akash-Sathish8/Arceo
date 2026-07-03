@@ -22,6 +22,12 @@ class MappedAction:
     description: str
     risk_labels: list[str] = field(default_factory=list)
     reversible: bool = True
+    # Provenance: label -> catalog|primitive|schema|strong_kw|weak_kw|llm, and
+    # the strongest overall signal (plus benign markers read/ui, or "none" =
+    # unclassifiable). Defaults mean hand-written catalog entries are
+    # implicitly source "catalog" with no per-entry edits.
+    label_sources: dict = field(default_factory=dict)
+    classification_source: str = "catalog"
 
 
 # ── Hardcoded realistic action mappings ─────────────────────────────────────
@@ -467,8 +473,14 @@ def compute_risk_coverage(tools: list[dict]) -> dict:
     score may UNDERSTATE true exposure. Returns counts + the unrecognized service
     names for disclosure on the agent's risk view.
     """
+    # Lazy import — risk_classifier imports this module, so top-level would cycle.
+    from authority.risk_classifier import is_effectively_read
+
     total = 0
     recognized = 0
+    unclassified = 0
+    llm_classified = 0
+    unclassified_list: list[str] = []
     unrecognized_tools: list[str] = []
     for t in tools or []:
         tname = (t.get("name") or "").lower()
@@ -479,10 +491,29 @@ def compute_risk_coverage(tools: list[dict]) -> dict:
                 unrecognized_tools.append(label)
         for a in t.get("actions", []):
             total += 1
-            if tool_known and get_action(tname, a.get("action")) is not None:
+            action_name = a.get("action") or ""
+            if tool_known and get_action(tname, action_name) is not None:
                 recognized += 1
+                continue
+            source = a.get("classification_source") or "unknown"
+            if source == "llm":
+                llm_classified += 1
+            # "none" = the classifier had no signal at all (vague name, no LLM
+            # verdict) — the action contributes 0 to the score while its true
+            # risk is unknown. "unknown" rows predate provenance; treat them as
+            # unclassified only when they carry zero labels and aren't reads.
+            if source == "none" or (
+                source == "unknown" and not a.get("risk_labels")
+                and not is_effectively_read(action_name)
+            ):
+                unclassified += 1
+                if len(unclassified_list) < 10:
+                    unclassified_list.append(f"{tname}.{action_name}")
     return {
         "recognizedActions": recognized,
         "totalActions": total,
         "unrecognizedTools": unrecognized_tools[:6],
+        "unclassifiedActions": unclassified,
+        "unclassifiedList": unclassified_list,
+        "llmClassified": llm_classified,
     }
