@@ -18,22 +18,55 @@ export function timeAgo(ts: string): string {
   return `${diffDay}d ago`;
 }
 
+export interface ScoreBand {
+  key: Severity;
+  label: "Critical" | "High" | "Medium" | "Low";
+  color: string;
+  bg: string;
+}
+
+/**
+ * The single authoritative band scale — mirrors backend `score_band()` in
+ * authority/graph.py: low <40, medium 40–59, high 60–79, critical ≥80.
+ * Prefer the backend-provided `blast_radius.band` when available; the local
+ * computation is the fallback for older payloads. An agent with critical
+ * chains never reads below Medium (the score rates actions individually,
+ * chains rate combinations — "Low" next to "2 critical chains" reads as the
+ * product contradicting itself).
+ */
+export function scoreBand(score: number, criticalChains = 0, backendBand?: string): ScoreBand {
+  const k = backendBand
+    ?? (score >= 80 ? "critical"
+      : score >= 60 ? "high"
+      : score >= 40 || criticalChains > 0 ? "medium"
+      : "low");
+  switch (k) {
+    case "critical": return { key: "critical", label: "Critical", color: "#dc2626", bg: "#fef2f2" };
+    case "high":     return { key: "high",     label: "High",     color: "#ea580c", bg: "#fff7ed" };
+    case "medium":   return { key: "medium",   label: "Medium",   color: "#d97706", bg: "#fffbeb" };
+    default:         return { key: "safe",     label: "Low",      color: "#16a34a", bg: "#f0fdf4" };
+  }
+}
+
+export function bandDescription(key: Severity): string {
+  switch (key) {
+    case "critical": return "Critical — can cause irreversible real-world damage";
+    case "high":     return "High risk — can move money, delete data, or affect production";
+    case "medium":   return "Medium risk — can send emails, modify records, or form dangerous chains";
+    default:         return "Low risk — read-only actions, no irreversible capabilities";
+  }
+}
+
 export function scoreToColor(score: number): string {
-  if (score >= 70) return "#dc2626";
-  if (score >= 40) return "#d97706";
-  return "#16a34a";
+  return scoreBand(score).color;
 }
 
 export function scoreToBg(score: number): string {
-  if (score >= 70) return "#fef2f2";
-  if (score >= 40) return "#fffbeb";
-  return "#f0fdf4";
+  return scoreBand(score).bg;
 }
 
 export function scoreSeverity(score: number): Severity {
-  if (score >= 70) return "critical";
-  if (score >= 40) return "high";
-  return "safe";
+  return scoreBand(score).key;
 }
 
 export function agentIcon(agentType: string | null | undefined): string {

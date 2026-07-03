@@ -206,7 +206,7 @@ export default function AgentDrawer({
 
   if (!a) return null;
 
-  const b = band(a.score, a.critical);
+  const b = band(a.score, a.critical, a.band);
   const unguarded = (policiesLen ?? a.policies) === 0;
   const toolList = tools ?? a.tools;
 
@@ -371,7 +371,7 @@ export default function AgentDrawer({
               </div>
             </div>
             <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6, flexShrink: 0 }}>
-              <RiskRing value={a.score} size={84} stroke={6} color={b.ring} label={a.score.toFixed(1)} />
+              <RiskRing value={a.score} size={84} stroke={6} color={b.ring} label={Math.round(a.score)} />
               <div style={{ textAlign: "center", whiteSpace: "nowrap" }}>
                 <div style={{ fontSize: 11.5, fontWeight: 600, color: "var(--ink-700)" }}>Risk score</div>
                 <div style={{ fontSize: 11, fontWeight: 600, color: b.color }}>{b.label}</div>
@@ -401,6 +401,26 @@ export default function AgentDrawer({
             <div style={{ width: 1, background: "var(--line)" }} />
             <StatCell label="Irreversible" value={a.irreversible} color="var(--ink-900)" />
           </div>
+
+          {/* Unclassifiable actions — they score 0 while their true risk is
+              unknown; hiding that would be false assurance. */}
+          {(a.unclassified ?? 0) > 0 && (
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                marginTop: 12,
+                fontSize: 12,
+                color: "var(--ink-600)",
+                lineHeight: 1.4,
+              }}
+            >
+              <AlertTriangle size={13} strokeWidth={1.9} style={{ flexShrink: 0, color: "var(--caution)" }} />
+              {a.unclassified} unverified {a.unclassified === 1 ? "action" : "actions"} — no classifiable risk
+              signal; scores may understate exposure. Review on the agent page.
+            </div>
+          )}
 
           {/* Worst-case callout */}
           {(unguarded || a.critical > 0) && (

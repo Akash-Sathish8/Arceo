@@ -15,7 +15,7 @@ import {
 } from 'lucide-react'
 import { apiFetch, getToken } from '@/lib/api'
 import { toast } from '@/components/shared/Toast'
-import { scoreToColor } from '@/lib/utils'
+import { bandDescription, scoreBand, scoreToColor } from '@/lib/utils'
 import { chainNarrative, chainShortLabel } from '@/lib/chainLabels'
 import Tooltip from '@/components/shared/Tooltip'
 import { RISK_SCORE_METHODOLOGY } from '@/lib/methodology'
@@ -73,7 +73,12 @@ interface BlastRadius {
     recognizedActions: number
     totalActions: number
     unrecognizedTools: string[]
+    unclassifiedActions?: number
+    unclassifiedList?: string[]
+    llmClassified?: number
   }
+  /** Backend-authoritative band: low | medium | high | critical. */
+  band?: string
   // ── two-number danger model ──
   residual_score?: number       // exposed now, after the agent's policies
   contextual_score?: number     // inherent × deployment-context multiplier
@@ -219,12 +224,7 @@ const actionRiskDot = (tool: string, action: string): string => {
   return '#9ca3af'
 }
 
-const blastLabel = (score: number): string => {
-  if (score >= 76) return 'Critical — can cause irreversible real-world damage'
-  if (score >= 56) return 'High risk — can move money, delete data, or affect production'
-  if (score >= 31) return 'Medium risk — can send emails, modify records'
-  return 'Low risk — read-only actions, no irreversible capabilities'
-}
+const blastLabel = (score: number): string => bandDescription(scoreBand(score).key)
 
 const fmtUsd = (usd: number): string => {
   if (usd >= 1_000_000) return `$${(usd / 1_000_000).toFixed(1)}M`
@@ -1525,7 +1525,9 @@ export default function AgentDetail() {
   // Label floor: critical chains never display below Warning, even when the
   // per-action score is low — the score rates actions individually, chains
   // rate combinations.
-  const scoreLevel = br.score >= 70 ? 'Critical' : br.score >= 40 ? 'Warning' : hasCriticalUnreviewed ? 'Action Required' : hasCriticalChains ? 'Warning' : 'Low'
+  const scoreLevel = br.score < 40 && hasCriticalUnreviewed
+    ? 'Action Required'
+    : scoreBand(br.score, hasCriticalChains ? 1 : 0, br.band).label
   const scoreColor = br.score < 40 && hasCriticalChains ? '#d97706' : scoreToColor(br.score)
   const ringR = 44
   const ringC = 2 * Math.PI * ringR
@@ -1888,6 +1890,19 @@ export default function AgentDetail() {
             <span>
               {br.coverage.totalActions - br.coverage.recognizedActions} of {br.coverage.totalActions} actions run on tools outside our risk catalog
               {br.coverage.unrecognizedTools.length > 0 ? ` (${br.coverage.unrecognizedTools.join(', ')})` : ''} and were classified heuristically — this score may understate true exposure.
+            </span>
+          </div>
+        )}
+
+        {/* Unclassifiable actions — vague names the classifier had NO signal for.
+            They contribute 0 to the score while their true risk is unknown:
+            surfacing them is the honest alternative to silently scoring them safe. */}
+        {br.coverage && (br.coverage.unclassifiedActions ?? 0) > 0 && (
+          <div className="mt-2 text-xs flex items-start gap-1.5" style={{ lineHeight: 1.45, color: 'var(--severity-high, #b45309)' }}>
+            <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
+            <span>
+              {br.coverage.unclassifiedActions} {(br.coverage.unclassifiedActions ?? 0) === 1 ? 'action' : 'actions'} could not be classified at all
+              {(br.coverage.unclassifiedList?.length ?? 0) > 0 ? ` (${br.coverage.unclassifiedList!.slice(0, 3).join(', ')}${br.coverage.unclassifiedList!.length > 3 ? ', …' : ''})` : ''} — the name and description carry no risk signal, so these score 0 while their true risk is unknown. Verify them manually.
             </span>
           </div>
         )}

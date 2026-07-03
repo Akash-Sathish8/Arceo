@@ -1,0 +1,12 @@
+{
+  "_comment": "Per-label floors for fixtures-mode eval (test_classifier_eval.py). This is a RATCHET: floors sit just below the last measured level. Baseline 2026-07-03 (pre-fix): 65.5% exact (evals/baseline_report.json). Post Phase-3: 93.0% exact, all recall >= 0.97 (evals/after_phase3_report.json).",
+  "exact_match": 0.9,
+  "reversibility_accuracy": 0.95,
+  "per_label": {
+    "moves_money": {"precision": 0.95, "recall": 0.95},
+    "touches_pii": {"precision": 0.82, "recall": 0.9},
+    "deletes_data": {"precision": 0.92, "recall": 0.92},
+    "sends_external": {"precision": 0.92, "recall": 0.95},
+    "changes_production": {"precision": 0.87, "recall": 0.95}
+  }
+}

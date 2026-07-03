@@ -23,6 +23,7 @@
 import { Bot, Check, ChevronRight, Clock, Lock } from "lucide-react";
 import { Link } from "react-router-dom";
 import RiskRing from "@/components/shared/RiskRing";
+import { scoreBand } from "@/lib/utils";
 
 export interface AgentCardData {
   id: string;
@@ -31,6 +32,10 @@ export interface AgentCardData {
   tools: string[];
   /** 0-100, higher = riskier. */
   score: number;
+  /** Backend-authoritative band (low|medium|high|critical); local fallback if absent. */
+  band?: string;
+  /** Actions with no classifiable risk signal (score 0, true risk unknown). */
+  unclassified?: number;
   caps: {
     money?: number;
     pii?: number;
@@ -53,21 +58,26 @@ export interface AgentCardData {
 }
 
 interface RiskBand {
-  key: "critical" | "caution" | "safe";
-  label: "Critical" | "Caution" | "Low";
+  key: "critical" | "high" | "caution" | "safe";
+  label: "Critical" | "High" | "Medium" | "Low";
   color: string;
   ring: string;
 }
 
-/** Label floor: an agent with critical chains never reads below Caution,
- *  even when its per-action score is low — the score rates actions
- *  individually, chains rate combinations, and "Low" next to "N critical
- *  chains" reads as the product contradicting itself. */
-export function band(score: number, criticalChains = 0): RiskBand {
-  if (score >= 67) return { key: "critical", label: "Critical", color: "var(--critical)", ring: "var(--critical-ring)" };
-  if (score >= 40 || criticalChains > 0)
-    return { key: "caution", label: "Caution", color: "var(--caution)", ring: "var(--caution-ring)" };
-  return { key: "safe", label: "Low", color: "var(--safe)", ring: "var(--safe-ring)" };
+/** Delegates to the shared 4-band scale (lib/utils.ts scoreBand — mirrors the
+ *  backend's authoritative `blast_radius.band`: low <40, medium 40–59, high
+ *  60–79, critical ≥80). Chain floor: an agent with critical chains never
+ *  reads below Medium — the score rates actions individually, chains rate
+ *  combinations, and "Low" next to "N critical chains" reads as the product
+ *  contradicting itself. */
+export function band(score: number, criticalChains = 0, backendBand?: string): RiskBand {
+  const b = scoreBand(score, criticalChains, backendBand);
+  switch (b.key) {
+    case "critical": return { key: "critical", label: "Critical", color: "var(--critical)", ring: "var(--critical-ring)" };
+    case "high":     return { key: "high", label: "High", color: "#ea580c", ring: "#fed7aa" };
+    case "medium":   return { key: "caution", label: "Medium", color: "var(--caution)", ring: "var(--caution-ring)" };
+    default:         return { key: "safe", label: "Low", color: "var(--safe)", ring: "var(--safe-ring)" };
+  }
 }
 
 const CAP_ORDER = ["money", "pii", "delete", "external", "prod"] as const;
@@ -187,7 +197,7 @@ interface AgentCardProps {
 }
 
 export default function AgentCard({ agent, onOpen }: AgentCardProps): React.ReactElement {
-  const b = band(agent.score, agent.critical);
+  const b = band(agent.score, agent.critical, agent.band);
   const unguarded = agent.policies === 0;
   // Enforced coverage = BLOCK or ALLOW. A REQUIRE_APPROVAL policy is a *pending*
   // human gate, not an approval — it must not paint a green "approved" check.

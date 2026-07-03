@@ -687,6 +687,7 @@ def _db_agent_to_action_catalog(agent_dict: dict) -> dict:
                     description=a["description"],
                     risk_labels=a["risk_labels"],
                     reversible=a["reversible"],
+                    classification_source=a.get("classification_source", "unknown"),
                 )
         catalog[tool["name"]] = tool_actions
     return catalog
@@ -745,6 +746,20 @@ def _exposure_context(agent_dict: dict) -> dict:
     }
 
 
+def _attach_coverage(blast_radius_dict: dict, tools: list) -> dict:
+    """Attach classification coverage and apply the honesty cap: when more
+    than a quarter of the agent's actions had no classifiable signal, the
+    score may badly understate true exposure — confidence cannot read better
+    than 'low', no matter what simulation evidence says."""
+    from authority.action_mapper import compute_risk_coverage
+    coverage = compute_risk_coverage(tools)
+    blast_radius_dict["coverage"] = coverage
+    total = coverage.get("totalActions") or 0
+    if total and coverage.get("unclassifiedActions", 0) / total > 0.25:
+        blast_radius_dict["confidence"] = "low"
+    return blast_radius_dict
+
+
 def _compute_agent_summary(agent_dict: dict, conn=None) -> dict:
     """Compute the two-number blast radius (inherent + residual + contextual) and
     chains for a DB agent. When `conn` is given, folds in the agent's policies
@@ -774,7 +789,7 @@ def _compute_agent_summary(agent_dict: dict, conn=None) -> dict:
         exposure_context=_exposure_context(agent_dict),
     )
     return {
-        "blast_radius": asdict(radius),
+        "blast_radius": _attach_coverage(asdict(radius), agent_dict["tools"]),
         "chain_count": len(chain_result.flagged_chains),
         "critical_chains": sum(1 for fc in chain_result.flagged_chains if fc.chain.severity == "critical"),
     }
@@ -1036,9 +1051,7 @@ def get_agent_detail(agent_id: str, user: dict = Depends(get_current_user)):
 
     recommendations = _generate_recommendations(radius, chain_result)
 
-    from authority.action_mapper import compute_risk_coverage
-    blast_radius_dict = asdict(radius)
-    blast_radius_dict["coverage"] = compute_risk_coverage(agent["tools"])
+    blast_radius_dict = _attach_coverage(asdict(radius), agent["tools"])
 
     # Enrich tool actions with catalog-resolved risk_labels so the API response
     # matches what the blast-radius scorer actually uses (ACTION_CATALOG takes
@@ -1162,6 +1175,10 @@ class ToolActionInput(BaseModel):
     description: str = ""
     risk_labels: list[str] = []
     reversible: bool = True
+    # JSON Schema for the action's params — explicit PII fields (email/ssn/…)
+    # are a classification signal. Register/import already pass it; this
+    # unifies create/update.
+    input_schema: Optional[dict] = None
 
 
 class ToolInput(BaseModel):
@@ -1230,10 +1247,11 @@ def create_agent(req: AgentInput, user: dict = Depends(get_current_user)):
             tool_id = cur.lastrowid
             for a in tool.actions:
                 # BR2: classify server-side; never trust client-supplied risk_labels.
-                mapped = classify_with_fallback(tool.name, a.action, a.description)
+                mapped = classify_with_fallback(tool.name, a.action, a.description,
+                                                input_schema=a.input_schema)
                 conn.execute(
-                    "INSERT INTO tool_actions (tool_id, action, description, risk_labels, reversible) VALUES (?, ?, ?, ?, ?)",
-                    (tool_id, a.action, a.description, json.dumps(mapped.risk_labels), mapped.reversible),
+                    "INSERT INTO tool_actions (tool_id, action, description, risk_labels, reversible, classification_source) VALUES (?, ?, ?, ?, ?, ?)",
+                    (tool_id, a.action, a.description, json.dumps(mapped.risk_labels), mapped.reversible, mapped.classification_source),
                 )
 
         log_audit(conn, user["sub"], user["email"], "CREATE_AGENT", resource=agent_id,
@@ -1318,10 +1336,11 @@ def update_agent(agent_id: str, req: AgentInput, user: dict = Depends(get_curren
             tool_id = cur.lastrowid
             for a in tool.actions:
                 # BR2: classify server-side; never trust client-supplied risk_labels.
-                mapped = classify_with_fallback(tool.name, a.action, a.description)
+                mapped = classify_with_fallback(tool.name, a.action, a.description,
+                                                input_schema=a.input_schema)
                 conn.execute(
-                    "INSERT INTO tool_actions (tool_id, action, description, risk_labels, reversible) VALUES (?, ?, ?, ?, ?)",
-                    (tool_id, a.action, a.description, json.dumps(mapped.risk_labels), mapped.reversible),
+                    "INSERT INTO tool_actions (tool_id, action, description, risk_labels, reversible, classification_source) VALUES (?, ?, ?, ?, ?, ?)",
+                    (tool_id, a.action, a.description, json.dumps(mapped.risk_labels), mapped.reversible, mapped.classification_source),
                 )
 
         log_audit(conn, user["sub"], user["email"], "UPDATE_AGENT", resource=agent_id,
@@ -1512,8 +1531,8 @@ def _upsert_agent(
                 input_schema=a.get("input_schema"),
             )
             conn.execute(
-                "INSERT INTO tool_actions (tool_id, action, description, risk_labels, reversible) VALUES (?, ?, ?, ?, ?)",
-                (tool_id, a["name"], mapped.description, json.dumps(mapped.risk_labels), mapped.reversible),
+                "INSERT INTO tool_actions (tool_id, action, description, risk_labels, reversible, classification_source) VALUES (?, ?, ?, ?, ?, ?)",
+                (tool_id, a["name"], mapped.description, json.dumps(mapped.risk_labels), mapped.reversible, mapped.classification_source),
             )
 
     log_audit(conn, None, audit_source, f"{status.upper()}_AGENT", resource=agent_id,
@@ -1620,6 +1639,7 @@ def _extract_and_register(content: str, filename: str = "", agent_name_hint: str
         response = client.messages.create(
             model=FAST_MODEL,
             max_tokens=4000,
+            temperature=0,
             system=_EXTRACTION_PROMPT,
             messages=[{
                 "role": "user",
@@ -1850,6 +1870,7 @@ def _score_in_memory(file_path: str, content: str, anthropic_client) -> dict | N
         response = anthropic_client.messages.create(
             model=FAST_MODEL,
             max_tokens=4000,
+            temperature=0,
             system=_EXTRACTION_PROMPT,
             messages=[{
                 "role": "user",
@@ -1947,15 +1968,26 @@ def _score_in_memory(file_path: str, content: str, anthropic_client) -> dict | N
                     "name": a.action,
                     "risk_labels": a.risk_labels,
                     "reversible": a.reversible,
+                    "classification_source": a.classification_source,
                 }
                 for a in action_map.values()
             ],
         })
 
+    # Coverage + confidence cap for scan output too — a CI verdict that
+    # silently scored unclassifiable actions as 0 would be false assurance.
+    coverage_tools = [
+        {"name": tn, "actions": [
+            {"action": a.action, "risk_labels": a.risk_labels,
+             "classification_source": a.classification_source}
+            for a in amap.values()
+        ]} for tn, amap in action_catalog.items()
+    ]
+
     return {
         "name": agent_name,
         "file": file_path,
-        "blast_radius": asdict(radius),
+        "blast_radius": _attach_coverage(asdict(radius), coverage_tools),
         "chains": chains_out,
         "tools": tools_breakdown,
     }
@@ -2018,6 +2050,12 @@ def scan_files(req: ScanRequest, request: Request):
             "critical_chains": total_critical_chains,
             "threshold": threshold,
             "verdict": verdict,
+            # Actions the classifier had NO signal for — they contribute 0 to
+            # every score above, so "pass" may understate risk when this is >0.
+            "unclassified_actions": sum(
+                a["blast_radius"].get("coverage", {}).get("unclassifiedActions", 0)
+                for a in agents_out
+            ),
         },
         "agents": agents_out,
     }
@@ -3372,7 +3410,7 @@ def workflow_top_pairings(user: dict = Depends(get_current_user)):
         summary = _compute_agent_summary(agent)
         infos.append({
             "agent": agent,
-            "score": round(summary["blast_radius"]["score"], 1),
+            "score": round(summary["blast_radius"]["score"]),
             "owned": {
                 f"{t['name']}.{act['action']}"
                 for t in agent["tools"] for act in t["actions"]

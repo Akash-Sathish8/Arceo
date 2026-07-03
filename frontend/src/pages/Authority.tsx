@@ -6,6 +6,7 @@ import {
   AlertTriangle, Plus, X, ChevronRight, Info, Search, Upload,
 } from 'lucide-react'
 import { apiFetch, getUser } from '@/lib/api'
+import { scoreBand } from '@/lib/utils'
 import { fetchBatchSpendForecasts } from '@/lib/spendApi'
 import type { MockSpend } from '@/lib/mockSpend'
 import { toast } from '@/components/shared/Toast'
@@ -32,6 +33,8 @@ interface BlastRadius {
   residual_score?: number
   confidence?: 'low' | 'medium' | 'high'
   magnitude_usd?: number
+  band?: string
+  coverage?: { unclassifiedActions?: number }
 }
 
 interface AgentListItem {
@@ -1089,9 +1092,13 @@ export default function Authority() {
           if (f === null) return acc
           return (acc ?? 0) + f.point
         }, null)
-        const criticalAgents = agents.filter((a) => a.blast_radius.score >= 67)
-        const cautionAgents  = agents.filter((a) => (a.blast_radius.score >= 40 && a.blast_radius.score < 67) || (a.blast_radius.score < 40 && a.critical_chains > 0))
-        const safeAgents     = agents.filter((a) => a.blast_radius.score < 40 && a.critical_chains === 0)
+        // Shared 4-band scale collapsed to 3 display buckets: high+critical /
+        // medium / low (backend band preferred, chain floor applied).
+        const bandKeyOf = (a: AgentListItem) =>
+          scoreBand(a.blast_radius.score, a.critical_chains, a.blast_radius.band).key
+        const criticalAgents = agents.filter((a) => { const k = bandKeyOf(a); return k === 'critical' || k === 'high' })
+        const cautionAgents  = agents.filter((a) => bandKeyOf(a) === 'medium')
+        const safeAgents     = agents.filter((a) => bandKeyOf(a) === 'safe')
         const totalAgents = agents.length
         const criticalChainsCount = chains.filter((c) => c.severity === 'critical').length
         const unguardedCount = agents.filter((a) => a.policy_count === 0).length
@@ -1130,6 +1137,8 @@ export default function Authority() {
             description: a.description,
             tools: a.tools,
             score: br.score,
+            band: br.band,
+            unclassified: br.coverage?.unclassifiedActions,
             caps: {
               money:    br.moves_money,
               pii:      br.touches_pii,
@@ -1261,7 +1270,8 @@ export default function Authority() {
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                     {forecastRows.map(({ a, spend }) => {
                       const sc = a.blast_radius.score
-                      const tone = sc >= 67 ? TONE.critical : sc >= 40 || a.critical_chains > 0 ? TONE.caution : TONE.safe
+                      const bk = scoreBand(sc, a.critical_chains, a.blast_radius.band).key
+                      const tone = bk === 'critical' || bk === 'high' ? TONE.critical : bk === 'medium' ? TONE.caution : TONE.safe
                       const pct = Math.round(((spend ?? 0) / maxSpend) * 100)
                       return (
                         <div
@@ -1327,7 +1337,8 @@ export default function Authority() {
                 </div>
                 {needsAttention.map((a, i) => {
                   const sc = a.blast_radius.score
-                  const tone = sc >= 67 ? TONE.critical : sc >= 40 || a.critical_chains > 0 ? TONE.caution : TONE.safe
+                  const bk = scoreBand(sc, a.critical_chains, a.blast_radius.band).key
+                  const tone = bk === 'critical' || bk === 'high' ? TONE.critical : bk === 'medium' ? TONE.caution : TONE.safe
                   return (
                     <div
                       key={a.id}
@@ -1457,6 +1468,8 @@ export default function Authority() {
                 description: a.description,
                 tools: a.tools,
                 score: br.score,
+                band: br.band,
+                unclassified: br.coverage?.unclassifiedActions,
                 caps: {
                   money:    br.moves_money,
                   pii:      br.touches_pii,
@@ -1513,6 +1526,8 @@ export default function Authority() {
             description: target.description,
             tools: target.tools,
             score: br.score,
+            band: br.band,
+            unclassified: br.coverage?.unclassifiedActions,
             caps: {
               money:    br.moves_money,
               pii:      br.touches_pii,

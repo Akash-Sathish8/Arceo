@@ -1,0 +1,119 @@
+{
+  "mode": "fixtures",
+  "gated_metrics": {
+    "n": 199,
+    "exact_match": 0.9296,
+    "reversibility_accuracy": 0.9749,
+    "per_label": {
+      "moves_money": {
+        "tp": 26,
+        "fp": 0,
+        "fn": 0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0
+      },
+      "touches_pii": {
+        "tp": 33,
+        "fp": 5,
+        "fn": 1,
+        "precision": 0.8684,
+        "recall": 0.9706,
+        "f1": 0.9167
+      },
+      "deletes_data": {
+        "tp": 30,
+        "fp": 1,
+        "fn": 1,
+        "precision": 0.9677,
+        "recall": 0.9677,
+        "f1": 0.9677
+      },
+      "sends_external": {
+        "tp": 24,
+        "fp": 1,
+        "fn": 0,
+        "precision": 0.96,
+        "recall": 1.0,
+        "f1": 0.9796
+      },
+      "changes_production": {
+        "tp": 52,
+        "fp": 5,
+        "fn": 0,
+        "precision": 0.9123,
+        "recall": 1.0,
+        "f1": 0.9541
+      }
+    }
+  },
+  "all_metrics": {
+    "n": 201,
+    "exact_match": 0.9204,
+    "reversibility_accuracy": 0.9751,
+    "per_label": {
+      "moves_money": {
+        "tp": 26,
+        "fp": 0,
+        "fn": 0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0
+      },
+      "touches_pii": {
+        "tp": 33,
+        "fp": 5,
+        "fn": 2,
+        "precision": 0.8684,
+        "recall": 0.9429,
+        "f1": 0.9041
+      },
+      "deletes_data": {
+        "tp": 30,
+        "fp": 1,
+        "fn": 1,
+        "precision": 0.9677,
+        "recall": 0.9677,
+        "f1": 0.9677
+      },
+      "sends_external": {
+        "tp": 24,
+        "fp": 1,
+        "fn": 1,
+        "precision": 0.96,
+        "recall": 0.96,
+        "f1": 0.96
+      },
+      "changes_production": {
+        "tp": 52,
+        "fp": 5,
+        "fn": 0,
+        "precision": 0.9123,
+        "recall": 1.0,
+        "f1": 0.9541
+      }
+    }
+  },
+  "mismatch_ids": [
+    "esc-05",
+    "esc-06",
+    "esc-08",
+    "fleet-08",
+    "fleet-14",
+    "fleet-28",
+    "fleet-30",
+    "fleet-40",
+    "fleet-43",
+    "fleet-51",
+    "fleet-56",
+    "mcp-27",
+    "mcp-33",
+    "mcp-34",
+    "mcp-42",
+    "adv-05",
+    "adv-10",
+    "adv-21",
+    "adv-24",
+    "adv-26"
+  ]
+}

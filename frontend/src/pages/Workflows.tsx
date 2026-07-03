@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { Link2, CheckCircle, Square, CheckSquare } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { toast } from "@/components/shared/Toast";
-import { scoreToColor } from "@/lib/utils";
+import { scoreBand, scoreToColor } from "@/lib/utils";
 import { chainShortLabel, chainNarrative } from "@/lib/chainLabels";
 import Tooltip from "@/components/shared/Tooltip";
 import { RISK_SCORE_METHODOLOGY, OVER_PERMISSION_METHODOLOGY } from "@/lib/methodology";
@@ -147,10 +147,8 @@ interface WorkflowResultData {
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function blastLabel(score: number): string {
-  if (score >= 76) return "Critical";
-  if (score >= 56) return "High risk";
-  if (score >= 31) return "Medium risk";
-  return "Low risk";
+  const b = scoreBand(score);
+  return b.key === "critical" ? "Critical" : `${b.label} risk`;
 }
 
 const blastColor = scoreToColor;
@@ -164,14 +162,9 @@ const LABEL_PHRASE: Record<string, string> = {
 };
 
 function RiskPill({ score }: { score: number }) {
-  const band =
-    score >= 70
-      ? { label: "Critical", color: "var(--critical)", bg: "var(--critical-bg)" }
-      : score >= 40
-      ? { label: "High", color: "var(--caution)", bg: "var(--caution-bg)" }
-      : { label: "Low risk", color: "var(--safe)", bg: "var(--safe-bg)" };
+  const band = scoreBand(score);
   return (
-    <Tooltip text={`Risk score: ${Math.round(score * 10) / 10} / 100`}>
+    <Tooltip text={`Risk score: ${Math.round(score)} / 100`}>
       <span
         style={{
           fontSize: 10,

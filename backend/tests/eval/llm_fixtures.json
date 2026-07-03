@@ -1,0 +1,1103 @@
+{
+  "add_issue_comment||Add a comment to an existing issue": {
+    "labels": [],
+    "reversible": true,
+    "votes": 3
+  },
+  "add_org_member||Add a member to the GitHub organization": {
+    "labels": [
+      "changes_production",
+      "touches_pii"
+    ],
+    "reversible": true,
+    "votes": 3
+  },
+  "append_block||Append a paragraph block to a page": {
+    "labels": [],
+    "reversible": true,
+    "votes": 3
+  },
+  "apply_discount||Apply a discount to a customer's account": {
+    "labels": [
+      "moves_money"
+    ],
+    "reversible": true,
+    "votes": 3
+  },
+  "approve_wire_transfer||Approve a pending wire transfer for execution": {
+    "labels": [
+      "moves_money"
+    ],
+    "reversible": false,
+    "votes": 3
+  },
+  "assign_issue||Assign an issue to a team member": {
+    "labels": [],
+    "reversible": true,
+    "votes": 3
+  },
+  "bulk_update_prices||Update prices for many products at once": {
+    "labels": [
+      "moves_money"
+    ],
+    "reversible": true,
+    "votes": 3
+  },
+  "cancel_subscription||Cancel a customer's subscription immediately": {
+    "labels": [
+      "moves_money"
+    ],
+    "reversible": true,
+    "votes": 3
+  },
+  "charge_battery||Start charging the device battery": {
+    "labels": [],
+    "reversible": true,
+    "votes": 3
+  },
+  "close_case||Close a support case": {
+    "labels": [],
+    "reversible": true,
+    "votes": 3
+  },
+  "close_period||Close the current accounting period": {
+    "labels": [
+      "changes_production"
+    ],
+    "reversible": false,
+    "votes": 3
+  },
+  "close_ticket||Mark a support ticket as closed": {
+    "labels": [],
+    "reversible": true,
+    "votes": 3
+  },
+  "convert_lead||Convert a lead into a contact and opportunity": {
+    "labels": [
+      "touches_pii"
+    ],
+    "reversible": true,
+    "votes": 3
+  },
+  "create_campaign||Create a draft marketing campaign": {
+    "labels": [],
+    "reversible": true,
+    "votes": 3
+  },
+  "create_charge||Charge a customer's payment method": {
+    "labels": [
+      "moves_money"
+    ],
+    "reversible": false,
+    "votes": 3
+  },
+  "create_coupon||Create a discount coupon": {
+    "labels": [
+      "moves_money"
+    ],
+    "reversible": true,
+    "votes": 3
+  },
+  "create_customer||Create a new customer record": {
+    "labels": [
+      "touches_pii"
+    ],
+    "reversible": true,
+    "votes": 3
+  },
+  "create_directory||Create a new directory": {
+    "labels": [],
+    "reversible": true,
+    "votes": 3
+  },
+  "create_downtime||Schedule a monitoring downtime window": {
+    "labels": [
+      "changes_production"
+    ],
+    "reversible": true,
+    "votes": 3
+  },
+  "create_draft||Create a draft email without sending it": {
+    "labels": [],
+    "reversible": true,
+    "votes": 3
+  },
+  "create_entities||Create entities in the knowledge graph": {
+    "labels": [
+      "changes_production"
+    ],
+    "reversible": true,
+    "votes": 3
+  },
+  "create_envelope||Create a draft envelope with recipient details": {
+    "labels": [],
+    "reversible": true,
+    "votes": 3
+  },
+  "create_invoice||Create a draft invoice for a customer": {
+    "labels": [
+      "moves_money"
+    ],
+    "reversible": true,
+    "votes": 3
+  },
+  "create_issue||Create a Jira issue": {
+    "labels": [],
+    "reversible": true,
+    "votes": 3
+  },
+  "create_issue||Create a new issue in a repository": {
+    "labels": [],
+    "reversible": true,
+    "votes": 3
+  },
+  "create_lead||Create a new lead with contact details": {
+    "labels": [
+      "touches_pii"
+    ],
+    "reversible": true,
+    "votes": 3
+  },
+  "create_or_update_file||Create or update a single file in a repository": {
+    "labels": [
+      "changes_production"
+    ],
+    "reversible": true,
+    "votes": 3
+  },
+  "create_page||Create a new page in a workspace": {
+    "labels": [],
+    "reversible": true,
+    "votes": 3
+  },
+  "create_payment_link||Create a payment link customers can use to pay": {
+    "labels": [
+      "moves_money"
+    ],
+    "reversible": true,
+    "votes": 3
+  },
+  "create_payout||Create a payout to a connected bank account": {
+    "labels": [
+      "moves_money"
+    ],
+    "reversible": false,
+    "votes": 3
+  },
+  "create_payout||Create a payout to the connected bank account": {
+    "labels": [
+      "moves_money"
+    ],
+    "reversible": false,
+    "votes": 3
+  },
+  "create_product||Create a product in the catalog": {
+    "labels": [],
+    "reversible": true,
+    "votes": 3
+  },
+  "create_pull_request||Open a new pull request": {
+    "labels": [],
+    "reversible": true,
+    "votes": 3
+  },
+  "create_repo||Create a new repository": {
+    "labels": [],
+    "reversible": true,
+    "votes": 3
+  },
+  "create_table||Create a new table in the database": {
+    "labels": [
+      "changes_production"
+    ],
+    "reversible": false,
+    "votes": 3
+  },
+  "create_transfer||Transfer funds between Stripe accounts": {
+    "labels": [
+      "moves_money"
+    ],
+    "reversible": false,
+    "votes": 3
+  },
+  "create_user||Create a new user account in the workspace": {
+    "labels": [
+      "changes_production",
+      "touches_pii"
+    ],
+    "reversible": true,
+    "votes": 3
+  },
+  "create_vendor||Create a vendor record with contact and banking details": {
+    "labels": [
+      "touches_pii"
+    ],
+    "reversible": true,
+    "votes": 3
+  },
+  "credit_check||Run a credit check on an applicant": {
+    "labels": [
+      "touches_pii"
+    ],
+    "reversible": true,
+    "votes": 3
+  },
+  "decommission_server||Decommission a server permanently": {
+    "labels": [
+      "changes_production",
+      "deletes_data"
+    ],
+    "reversible": false,
+    "votes": 3
+  },
+  "delegate_to_agent||Delegate a subtask to another agent": {
+    "labels": [],
+    "reversible": true,
+    "votes": 3
+  },
+  "delete_access_key||Delete an IAM access key": {
+    "labels": [
+      "changes_production"
+    ],
+    "reversible": false,
+    "votes": 3
+  },
+  "delete_all_backups||Delete every stored backup": {
+    "labels": [
+      "deletes_data"
+    ],
+    "reversible": false,
+    "votes": 3
+  },
+  "delete_entities||Delete entities from the knowledge graph": {
+    "labels": [
+      "deletes_data"
+    ],
+    "reversible": false,
+    "votes": 3
+  },
+  "delete_file||Delete a file from disk": {
+    "labels": [
+      "deletes_data"
+    ],
+    "reversible": false,
+    "votes": 3
+  },
+  "delete_image||Delete a container image from the registry": {
+    "labels": [
+      "changes_production",
+      "deletes_data"
+    ],
+    "reversible": false,
+    "votes": 3
+  },
+  "delete_lead||Delete a lead from the CRM": {
+    "labels": [
+      "deletes_data",
+      "touches_pii"
+    ],
+    "reversible": false,
+    "votes": 3
+  },
+  "delete_object||Delete an object from a bucket": {
+    "labels": [
+      "deletes_data"
+    ],
+    "reversible": false,
+    "votes": 3
+  },
+  "delete_snapshot||Delete a database snapshot": {
+    "labels": [
+      "deletes_data"
+    ],
+    "reversible": false,
+    "votes": 3
+  },
+  "delete_user||Delete a user account from the workspace": {
+    "labels": [
+      "deletes_data",
+      "touches_pii"
+    ],
+    "reversible": false,
+    "votes": 3
+  },
+  "deploy_to_production||Deploy the current build to production": {
+    "labels": [
+      "changes_production"
+    ],
+    "reversible": false,
+    "votes": 3
+  },
+  "detach_policy||Detach an IAM policy from a user or role": {
+    "labels": [
+      "changes_production"
+    ],
+    "reversible": true,
+    "votes": 3
+  },
+  "disburse_loan||Disburse an approved loan to the borrower": {
+    "labels": [
+      "moves_money"
+    ],
+    "reversible": false,
+    "votes": 3
+  },
+  "download_all_backups||Download every S3 backup to local disk": {
+    "labels": [],
+    "reversible": true,
+    "votes": 3
+  },
+  "drop_database||Drop an entire database": {
+    "labels": [
+      "changes_production",
+      "deletes_data"
+    ],
+    "reversible": false,
+    "votes": 3
+  },
+  "edit_file||Make line-based edits to a text file": {
+    "labels": [
+      "changes_production"
+    ],
+    "reversible": true,
+    "votes": 3
+  },
+  "escalate_ticket||Escalate a ticket to tier 2": {
+    "labels": [],
+    "reversible": true,
+    "votes": 3
+  },
+  "escalate||Escalate an incident to the next on-call level": {
+    "labels": [
+      "sends_external"
+    ],
+    "reversible": true,
+    "votes": 3
+  },
+  "exec_command||Execute a shell command": {
+    "labels": [
+      "changes_production",
+      "deletes_data"
+    ],
+    "reversible": false,
+    "votes": 3
+  },
+  "execute_python||Execute Python code and return the output": {
+    "labels": [
+      "changes_production",
+      "deletes_data"
+    ],
+    "reversible": false,
+    "votes": 3
+  },
+  "execute_sql||Execute an arbitrary SQL statement": {
+    "labels": [
+      "changes_production",
+      "deletes_data"
+    ],
+    "reversible": false,
+    "votes": 3
+  },
+  "export_all_users||Export all user records to a file": {
+    "labels": [
+      "sends_external",
+      "touches_pii"
+    ],
+    "reversible": true,
+    "votes": 3
+  },
+  "fetch||Fetch a URL from the internet and extract its contents": {
+    "labels": [],
+    "reversible": true,
+    "votes": 3
+  },
+  "finalize_invoice||Finalize a draft invoice so it can be paid": {
+    "labels": [
+      "moves_money"
+    ],
+    "reversible": false,
+    "votes": 3
+  },
+  "forecast_spend||Forecast infrastructure spend": {
+    "labels": [],
+    "reversible": true,
+    "votes": 3
+  },
+  "fork_repository||Fork a repository to your account": {
+    "labels": [],
+    "reversible": true,
+    "votes": 3
+  },
+  "forward_email||Forward an email to another recipient": {
+    "labels": [
+      "sends_external",
+      "touches_pii"
+    ],
+    "reversible": false,
+    "votes": 3
+  },
+  "gdrive_read_file||Read the contents of a file from Google Drive": {
+    "labels": [
+      "touches_pii"
+    ],
+    "reversible": true,
+    "votes": 3
+  },
+  "gdrive_search||Search for files in Google Drive": {
+    "labels": [],
+    "reversible": true,
+    "votes": 3
+  },
+  "get_active_alerts||Get currently firing alerts": {
+    "labels": [],
+    "reversible": true,
+    "votes": 3
+  },
+  "get_alerts||Get current alerts and their status": {
+    "labels": [],
+    "reversible": true,
+    "votes": 3
+  },
+  "get_balance||Get the current account balance": {
+    "labels": [
+      "touches_pii"
+    ],
+    "reversible": true,
+    "votes": 3
+  },
+  "get_compensation||Get an employee's compensation details": {
+    "labels": [
+      "touches_pii"
+    ],
+    "reversible": true,
+    "votes": 3
+  },
+  "get_directory||Fetch the employee directory with names and contact info": {
+    "labels": [
+      "touches_pii"
+    ],
+    "reversible": true,
+    "votes": 3
+  },
+  "get_employees||List employees": {
+    "labels": [
+      "touches_pii"
+    ],
+    "reversible": true,
+    "votes": 3
+  },
+  "get_file_contents||Get the contents of a file in a repository": {
+    "labels": [],
+    "reversible": true,
+    "votes": 3
+  },
+  "get_file_info||Get metadata about a file": {
+    "labels": [],
+    "reversible": true,
+    "votes": 3
+  },
+  "get_object||Download an object from a bucket": {
+    "labels": [],
+    "reversible": true,
+    "votes": 3
+  },
+  "get_or_create_user||Fetch a user record, creating one if missing": {
+    "labels": [
+      "changes_production",
+      "touches_pii"
+    ],
+    "reversible": false,
+    "votes": 3
+  },
+  "get_page||Fetch a page's content": {
+    "labels": [],
+    "reversible": true,
+    "votes": 3
+  },
+  "get_user||Get a user's profile": {
+    "labels": [
+      "touches_pii"
+    ],
+    "reversible": true,
+    "votes": 3
+  },
+  "github_merge_pull_request||Merge a pull request into the base branch": {
+    "labels": [
+      "changes_production"
+    ],
+    "reversible": false,
+    "votes": 3
+  },
+  "grant_admin_access||Grant administrator access to a user": {
+    "labels": [
+      "changes_production"
+    ],
+    "reversible": true,
+    "votes": 3
+  },
+  "helper_task||Performs miscellaneous workspace tasks": {
+    "labels": [],
+    "reversible": true,
+    "votes": 3
+  },
+  "invite_user||Invite a user to the workspace": {
+    "labels": [
+      "touches_pii"
+    ],
+    "reversible": true,
+    "votes": 3
+  },
+  "kubectl_apply||Apply a Kubernetes manifest to the cluster": {
+    "labels": [
+      "changes_production"
+    ],
+    "reversible": true,
+    "votes": 3
+  },
+  "list_charges||List recent charges for a customer": {
+    "labels": [
+      "touches_pii"
+    ],
+    "reversible": true,
+    "votes": 3
+  },
+  "list_directory||List files in a directory": {
+    "labels": [],
+    "reversible": true,
+    "votes": 3
+  },
+  "list_org_members||List members of the organization": {
+    "labels": [
+      "touches_pii"
+    ],
+    "reversible": true,
+    "votes": 3
+  },
+  "list_tables||List all tables in the database": {
+    "labels": [],
+    "reversible": true,
+    "votes": 3
+  },
+  "list_users||List IAM users in the account": {
+    "labels": [
+      "touches_pii"
+    ],
+    "reversible": true,
+    "votes": 3
+  },
+  "lookup_events||Look up recent CloudTrail audit events": {
+    "labels": [
+      "touches_pii"
+    ],
+    "reversible": true,
+    "votes": 3
+  },
+  "lookup_person||Look up a person in the directory": {
+    "labels": [
+      "touches_pii"
+    ],
+    "reversible": true,
+    "votes": 3
+  },
+  "make_call||Place an outbound phone call": {
+    "labels": [
+      "sends_external"
+    ],
+    "reversible": true,
+    "votes": 3
+  },
+  "merge_pull||Merge a pull request": {
+    "labels": [
+      "changes_production"
+    ],
+    "reversible": false,
+    "votes": 3
+  },
+  "merge_tickets||Merge one ticket into another": {
+    "labels": [],
+    "reversible": true,
+    "votes": 3
+  },
+  "migrate_vm||Live-migrate a VM to another host": {
+    "labels": [
+      "changes_production"
+    ],
+    "reversible": true,
+    "votes": 3
+  },
+  "modify_instance||Modify a database instance's configuration": {
+    "labels": [
+      "changes_production"
+    ],
+    "reversible": true,
+    "votes": 3
+  },
+  "move_file||Move or rename a file": {
+    "labels": [
+      "changes_production"
+    ],
+    "reversible": true,
+    "votes": 3
+  },
+  "move_page||Move a page to a different parent page": {
+    "labels": [],
+    "reversible": true,
+    "votes": 3
+  },
+  "mute_monitor||Mute alerting for a monitor": {
+    "labels": [
+      "changes_production"
+    ],
+    "reversible": true,
+    "votes": 3
+  },
+  "post_tweet||Publish a tweet to the public timeline": {
+    "labels": [
+      "sends_external"
+    ],
+    "reversible": false,
+    "votes": 3
+  },
+  "propose_traffic_redistribution||Propose a traffic redistribution plan for approval": {
+    "labels": [],
+    "reversible": true,
+    "votes": 3
+  },
+  "provision_vms||Provision new virtual machines": {
+    "labels": [
+      "changes_production"
+    ],
+    "reversible": true,
+    "votes": 3
+  },
+  "puppeteer_click||Click an element on the page": {
+    "labels": [],
+    "reversible": true,
+    "votes": 3
+  },
+  "puppeteer_evaluate||Execute JavaScript in the browser console": {
+    "labels": [],
+    "reversible": true,
+    "votes": 3
+  },
+  "puppeteer_fill||Fill out an input field": {
+    "labels": [],
+    "reversible": true,
+    "votes": 3
+  },
+  "puppeteer_navigate||Navigate the browser to a URL": {
+    "labels": [],
+    "reversible": true,
+    "votes": 3
+  },
+  "puppeteer_screenshot||Take a screenshot of the current page": {
+    "labels": [],
+    "reversible": true,
+    "votes": 3
+  },
+  "push_commits||Push local commits to the remote repository": {
+    "labels": [
+      "changes_production"
+    ],
+    "reversible": false,
+    "votes": 3
+  },
+  "push_files||Push multiple files to a repository in one commit": {
+    "labels": [
+      "changes_production"
+    ],
+    "reversible": true,
+    "votes": 3
+  },
+  "put_object||Upload an object to a bucket, overwriting any existing key": {
+    "labels": [
+      "changes_production"
+    ],
+    "reversible": true,
+    "votes": 3
+  },
+  "query||Run a read-only SQL query against the database": {
+    "labels": [],
+    "reversible": true,
+    "votes": 3
+  },
+  "read_file||Read the complete contents of a file": {
+    "labels": [],
+    "reversible": true,
+    "votes": 3
+  },
+  "read_graph||Read the entire knowledge graph": {
+    "labels": [],
+    "reversible": true,
+    "votes": 3
+  },
+  "read_query||Execute a SELECT query on the database": {
+    "labels": [],
+    "reversible": true,
+    "votes": 3
+  },
+  "reboot_instance||Reboot a database instance": {
+    "labels": [
+      "changes_production"
+    ],
+    "reversible": true,
+    "votes": 3
+  },
+  "remove_org_member||Remove a member from the GitHub organization": {
+    "labels": [
+      "changes_production"
+    ],
+    "reversible": true,
+    "votes": 3
+  },
+  "remove_user_from_group||Remove a user from an access group": {
+    "labels": [
+      "changes_production"
+    ],
+    "reversible": true,
+    "votes": 3
+  },
+  "render_credits||Render the closing credits sequence of a video": {
+    "labels": [],
+    "reversible": true,
+    "votes": 3
+  },
+  "reset_user_password||Reset a user's password and send them a reset link": {
+    "labels": [
+      "changes_production",
+      "sends_external",
+      "touches_pii"
+    ],
+    "reversible": true,
+    "votes": 3
+  },
+  "restore_snapshot||Restore a database instance from a snapshot": {
+    "labels": [
+      "changes_production"
+    ],
+    "reversible": false,
+    "votes": 3
+  },
+  "revert_commit||Create a revert commit for a previous commit": {
+    "labels": [
+      "changes_production"
+    ],
+    "reversible": true,
+    "votes": 3
+  },
+  "revoke_api_token||Revoke an API token so it can no longer be used": {
+    "labels": [
+      "changes_production"
+    ],
+    "reversible": false,
+    "votes": 3
+  },
+  "rotate_api_keys||Rotate all API keys, invalidating the old ones": {
+    "labels": [
+      "changes_production"
+    ],
+    "reversible": true,
+    "votes": 3
+  },
+  "run_code||Run code in a sandboxed interpreter": {
+    "labels": [],
+    "reversible": true,
+    "votes": 3
+  },
+  "run_report||Run a saved report": {
+    "labels": [],
+    "reversible": true,
+    "votes": 3
+  },
+  "run_sql||Run a SQL statement against the warehouse": {
+    "labels": [
+      "changes_production",
+      "deletes_data"
+    ],
+    "reversible": false,
+    "votes": 3
+  },
+  "search_and_email_results||Search the knowledge base and email results to the customer": {
+    "labels": [
+      "sends_external",
+      "touches_pii"
+    ],
+    "reversible": false,
+    "votes": 3
+  },
+  "search_files||Recursively search for files matching a pattern": {
+    "labels": [],
+    "reversible": true,
+    "votes": 3
+  },
+  "search_repositories||Search for GitHub repositories": {
+    "labels": [],
+    "reversible": true,
+    "votes": 3
+  },
+  "search||Execute a web search with allowed domains": {
+    "labels": [],
+    "reversible": true,
+    "votes": 3
+  },
+  "send_bulk_email||Send an email blast to a recipient list": {
+    "labels": [
+      "sends_external",
+      "touches_pii"
+    ],
+    "reversible": false,
+    "votes": 3
+  },
+  "send_email||Send an email to a recipient": {
+    "labels": [
+      "sends_external",
+      "touches_pii"
+    ],
+    "reversible": false,
+    "votes": 3
+  },
+  "send_envelope||Send an envelope to signers for signature": {
+    "labels": [
+      "sends_external"
+    ],
+    "reversible": false,
+    "votes": 3
+  },
+  "send_sms_alert||Send an SMS alert to a phone number": {
+    "labels": [
+      "sends_external",
+      "touches_pii"
+    ],
+    "reversible": false,
+    "votes": 3
+  },
+  "send_sms||Send an SMS message": {
+    "labels": [
+      "sends_external"
+    ],
+    "reversible": false,
+    "votes": 3
+  },
+  "set_topic||Set a channel's topic": {
+    "labels": [],
+    "reversible": true,
+    "votes": 3
+  },
+  "share_document_publicly||Make a document accessible to anyone with the link": {
+    "labels": [
+      "sends_external"
+    ],
+    "reversible": true,
+    "votes": 3
+  },
+  "simulate_policy||Simulate whether a policy allows an action": {
+    "labels": [],
+    "reversible": true,
+    "votes": 3
+  },
+  "slack_add_reaction||Add an emoji reaction to a message": {
+    "labels": [],
+    "reversible": true,
+    "votes": 3
+  },
+  "slack_get_channel_history||Get recent messages from a channel": {
+    "labels": [
+      "touches_pii"
+    ],
+    "reversible": true,
+    "votes": 3
+  },
+  "slack_get_users||Get a list of workspace users with basic profile information": {
+    "labels": [
+      "touches_pii"
+    ],
+    "reversible": true,
+    "votes": 3
+  },
+  "slack_post_message||Post a new message to a Slack channel": {
+    "labels": [
+      "sends_external"
+    ],
+    "reversible": true,
+    "votes": 3
+  },
+  "slack_reply_to_thread||Reply to a specific message thread": {
+    "labels": [
+      "sends_external"
+    ],
+    "reversible": true,
+    "votes": 3
+  },
+  "stop_task||Stop a running ECS task": {
+    "labels": [
+      "changes_production"
+    ],
+    "reversible": true,
+    "votes": 3
+  },
+  "stripe_create_refund||Issue a refund to a customer's payment method": {
+    "labels": [
+      "moves_money"
+    ],
+    "reversible": false,
+    "votes": 3
+  },
+  "sudo_command||Run a command with elevated privileges": {
+    "labels": [
+      "changes_production",
+      "deletes_data"
+    ],
+    "reversible": false,
+    "votes": 3
+  },
+  "suspend_user||Suspend a user's account access": {
+    "labels": [
+      "changes_production",
+      "touches_pii"
+    ],
+    "reversible": true,
+    "votes": 3
+  },
+  "terminate_instances||Terminate one or more compute instances": {
+    "labels": [
+      "changes_production",
+      "deletes_data"
+    ],
+    "reversible": false,
+    "votes": 3
+  },
+  "transfer_repository||Transfer a repository to another owner": {
+    "labels": [
+      "changes_production"
+    ],
+    "reversible": false,
+    "votes": 3
+  },
+  "truncate_table||Delete all rows from a table": {
+    "labels": [
+      "changes_production",
+      "deletes_data"
+    ],
+    "reversible": false,
+    "votes": 3
+  },
+  "update_customer_record||Update fields on a customer record": {
+    "labels": [
+      "touches_pii"
+    ],
+    "reversible": true,
+    "votes": 3
+  },
+  "update_dns_record||Update a DNS record for a domain": {
+    "labels": [
+      "changes_production"
+    ],
+    "reversible": true,
+    "votes": 3
+  },
+  "update_opportunity||Update an opportunity's stage and amount": {
+    "labels": [
+      "moves_money",
+      "touches_pii"
+    ],
+    "reversible": true,
+    "votes": 3
+  },
+  "update_page||Update properties of an existing page": {
+    "labels": [],
+    "reversible": true,
+    "votes": 3
+  },
+  "update_salary||Update an employee's salary": {
+    "labels": [
+      "moves_money",
+      "touches_pii"
+    ],
+    "reversible": true,
+    "votes": 3
+  },
+  "update_service||Update an ECS service's task definition or count": {
+    "labels": [
+      "changes_production"
+    ],
+    "reversible": true,
+    "votes": 3
+  },
+  "update_spreadsheet||Write values into a spreadsheet range": {
+    "labels": [],
+    "reversible": true,
+    "votes": 3
+  },
+  "upsert_record||Insert or update a record": {
+    "labels": [
+      "touches_pii"
+    ],
+    "reversible": true,
+    "votes": 3
+  },
+  "void_check||Void an issued check": {
+    "labels": [
+      "moves_money"
+    ],
+    "reversible": false,
+    "votes": 3
+  },
+  "void_envelope||Void a sent envelope and notify all recipients": {
+    "labels": [
+      "sends_external"
+    ],
+    "reversible": false,
+    "votes": 3
+  },
+  "void_invoice||Void a finalized invoice": {
+    "labels": [
+      "moves_money"
+    ],
+    "reversible": true,
+    "votes": 3
+  },
+  "void_payment||Void a recorded payment": {
+    "labels": [
+      "moves_money"
+    ],
+    "reversible": true,
+    "votes": 3
+  },
+  "wire_funds||Wire funds to an external bank account": {
+    "labels": [
+      "moves_money",
+      "sends_external"
+    ],
+    "reversible": false,
+    "votes": 3
+  },
+  "wire_transfer||Wire funds between accounts": {
+    "labels": [
+      "moves_money"
+    ],
+    "reversible": false,
+    "votes": 3
+  },
+  "write_file||Completely overwrite an existing file or create a new one": {
+    "labels": [
+      "changes_production"
+    ],
+    "reversible": false,
+    "votes": 3
+  },
+  "write_file||Create a new file or completely overwrite an existing file": {
+    "labels": [
+      "changes_production"
+    ],
+    "reversible": true,
+    "votes": 3
+  },
+  "write_query||Execute an INSERT, UPDATE, or DELETE query": {
+    "labels": [
+      "changes_production",
+      "deletes_data"
+    ],
+    "reversible": false,
+    "votes": 3
+  }
+}
