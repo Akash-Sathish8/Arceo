@@ -38,8 +38,8 @@ import urllib.request
 
 DEFAULT_BASE_URL = os.environ.get("BASE_URL", "http://localhost:8000")
 SYNTHETIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "synthetic")
-ADMIN_EMAIL = "admin@actiongate.io"
-ADMIN_PASSWORD = "admin123"
+ADMIN_EMAIL = os.environ.get("ARCEO_EMAIL", "admin@actiongate.io")
+ADMIN_PASSWORD = os.environ.get("ARCEO_PASSWORD", "admin123")
 
 
 # ── HTTP helpers (stdlib only) ───────────────────────────────────────────────
@@ -89,6 +89,30 @@ def register_agent(base_url, payload):
     if not agent_id:
         raise RuntimeError(f"register returned no id: {out}")
     return agent_id
+
+
+def declare_forecast_inputs(base_url, token, agent_id, spec):
+    """POST /api/authority/agent/{id}/forecast-inputs — declare volume + model.
+
+    Dev now gates the forecast behind a declared volume signal (available:false,
+    reason:no_data until expected_calls_per_day or traces exist). We declare
+    ONLY what a real customer would type at onboarding: calls/day and the model.
+    Token mixes / cache rates stay undeclared — the forecaster must estimate
+    those itself, or the test would be grading our own inputs.
+    """
+    body = {
+        "expected_calls_per_day": spec.get("behavior", {}).get("calls_per_day"),
+        "simulation_model": spec.get("simulation_model"),
+    }
+    body = {k: v for k, v in body.items() if v is not None}
+    if not body:
+        return
+    _request(
+        "POST",
+        f"{base_url}/api/authority/agent/{agent_id}/forecast-inputs",
+        token=token,
+        body=body,
+    )
 
 
 def derive_agent_id(payload):
@@ -177,6 +201,19 @@ def collect_rows(base_url, token, fleet):
         truth = expected_point(spec)
         try:
             fc = get_forecast(base_url, token, agent_id)
+            if fc.get("point") is None:
+                # Dev's forecast contract: available:false + reason until the
+                # agent has a volume signal. Surface it instead of crashing.
+                reason = fc.get("reason", "unavailable")
+                print(f"  ! no forecast for {agent_id}: {reason} "
+                      f"(needs: {', '.join(fc.get('needs', []) or [])})", file=sys.stderr)
+                rows.append({
+                    "name": spec.get("register_payload", {}).get("name", agent_id),
+                    "agent_id": agent_id,
+                    "point": 0.0, "low": 0.0, "high": 0.0,
+                    "truth": truth, "err": None, "tier": f"NO-{reason.upper()}",
+                })
+                continue
             point = float(fc.get("point", 0.0))
             low = float(fc.get("low", 0.0))
             high = float(fc.get("high", 0.0))
@@ -307,9 +344,8 @@ def main():
         sys.exit(1)
     print(f"Loaded {len(fleet)} synthetic agents.")
 
-    # 3) Register (or reuse)
-    print("\nRegistering agents (simulation_model is NOT API-settable — declared "
-          "value shown for reference only):")
+    # 3) Register (or reuse) + declare volume/model via forecast-inputs
+    print("\nRegistering agents (declaring calls/day + model via forecast-inputs):")
     for item in fleet:
         spec = item["spec"]
         payload = spec["register_payload"]
@@ -320,6 +356,7 @@ def main():
         else:
             agent_id = register_agent(base_url, payload)
             item["agent_id"] = agent_id
+            declare_forecast_inputs(base_url, token, agent_id, spec)
             print(f"  ok     {agent_id:<34} (model declared: {declared_model})")
 
     # 4) LOW-tier forecast + table
