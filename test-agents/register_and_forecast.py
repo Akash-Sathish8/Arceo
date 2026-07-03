@@ -96,14 +96,28 @@ def declare_forecast_inputs(base_url, token, agent_id, spec):
 
     Dev now gates the forecast behind a declared volume signal (available:false,
     reason:no_data until expected_calls_per_day or traces exist). We declare
-    ONLY what a real customer would type at onboarding: calls/day and the model.
-    Token mixes / cache rates stay undeclared — the forecaster must estimate
-    those itself, or the test would be grading our own inputs.
+    ONLY what a real customer would type at onboarding: calls/day, the model,
+    and — for context-heavy agents — the context-size bucket the UI now asks
+    for ("how much does it read per run?"). A customer knows their agent reads
+    whole documents; they don't know exact token mixes or cache rates, so those
+    stay undeclared and the forecaster must estimate them.
+
+    The spec's calls_per_day counts TOTAL LLM calls (each turn is a call), which
+    is exactly what the fixed forecaster assumes when turns aren't declared.
     """
+    behavior = spec.get("behavior", {})
     body = {
-        "expected_calls_per_day": spec.get("behavior", {}).get("calls_per_day"),
+        "expected_calls_per_day": behavior.get("calls_per_day"),
         "simulation_model": spec.get("simulation_model"),
     }
+    # Mirror the UI's plain-English buckets (medium 8k / large 30k / xlarge 80k):
+    # an agent reading >=20k tokens per call is unambiguously "large documents"
+    # to its owner. Below that, customers can't reliably tell — leave estimated.
+    in_tok = behavior.get("input_tokens_per_call") or 0
+    if in_tok >= 60000:
+        body["avg_context_tokens"] = 80000
+    elif in_tok >= 20000:
+        body["avg_context_tokens"] = 30000
     body = {k: v for k, v in body.items() if v is not None}
     if not body:
         return
@@ -214,7 +228,9 @@ def collect_rows(base_url, token, fleet):
                     "truth": truth, "err": None, "tier": f"NO-{reason.upper()}",
                 })
                 continue
-            point = float(fc.get("point", 0.0))
+            # Grade the unrounded point: a $0.40/mo agent scored against the
+            # whole-dollar display value ($1) would read +150% on rounding alone.
+            point = float(fc.get("pointExact") or fc.get("point", 0.0))
             low = float(fc.get("low", 0.0))
             high = float(fc.get("high", 0.0))
             tier = fc.get("confidence", "?")
