@@ -43,6 +43,9 @@ export interface MockSpend {
   unitEcon: { label: string; value: string | null }[]   // null = not measured (no canned $)
   sensitivity: { label: string; pct: number; color: string }[]
   confidence: "low" | "medium" | "high"
+  /** Days of live traffic behind a high-tier forecast — caption the number
+   * with it so a 20-minute burst never reads as a month of evidence. */
+  observedDays?: number | null
   /** Coverage disclosure: whether we actually recognize the agent's model and
    * how many of its tools we can price. Drives the "numbers may be off" banner. */
   coverage?: {

@@ -261,8 +261,15 @@ confidence_bands:
     low_multiplier: 0.50
     high_multiplier: 3.00
   medium:                           # sandbox simulation traces available
-    low_multiplier: 0.72
-    high_multiplier: 1.28
+    # Asymmetric (calibrated 2026-07-03 vs the hand-truth fleet): a sandbox
+    # measures loop BEHAVIOR (turns, completion sizes, action ordering) but
+    # structurally cannot observe production data volumes or tool-mix skew —
+    # those residuals all skew UNDER. The old symmetric ±28% band held only
+    # 3/8 truths; [0.7, 2.0] holds the behavior-driven majority while the
+    # UI caption says plainly what a sweep can and can't measure. Precision
+    # is the LIVE tier's job.
+    low_multiplier: 0.70
+    high_multiplier: 2.00
   high:                             # live production traces ≥7 days
     low_multiplier: 0.85
     high_multiplier: 1.15
