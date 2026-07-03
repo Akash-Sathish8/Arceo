@@ -69,6 +69,53 @@ def test_declared_context_raises_token_estimate():
     assert big["pointExact"] > small["pointExact"] * 5
 
 
+def _traces(turns_per_trace, in_tok=1000, out_tok=100, n=3):
+    return [
+        {"turn_usage": [{"input_tokens": in_tok, "output_tokens": out_tok, "cached_input_tokens": 0}] * turns_per_trace}
+        for _ in range(n)
+    ]
+
+
+def test_measured_turns_do_not_remultiply_declared_total():
+    """D23: the P1 total-calls contract survives the medium-tier upgrade.
+    Declared 100 calls/day + sweep-measured 2 turns/run must stay 100 calls/day
+    (50 runs x 2 turns), not become 200."""
+    fc = forecast_spend(
+        _agent([_github_tool(1)], expected_calls_per_day=100),
+        sandbox_traces=_traces(turns_per_trace=2),
+    )
+    assert fc["confidence"] == "medium"
+    assert fc["turnsPerRun"] == 2
+    assert fc["callsPerDay"] == 100
+    assert fc["runsPerDay"] == 50
+
+
+def test_declared_turns_opt_into_runs_semantics_and_measured_turns_refine():
+    """A customer who declared turns chose runs x turns; sweep-measured turns
+    then legitimately replace the declared guess."""
+    fc = forecast_spend(
+        _agent([_github_tool(1)], expected_calls_per_day=100, expected_turns_per_run=4),
+        sandbox_traces=_traces(turns_per_trace=2),
+    )
+    assert fc["turnsPerRun"] == 2
+    assert fc["callsPerDay"] == 200  # 100 runs x 2 measured turns
+
+
+def test_sandbox_never_measures_cache():
+    """D22: sims run cold — their 0% cache is not a measurement of production
+    locality and must not override the default, nor claim 'measured'."""
+    from analysis.spend_forecast import compute_sandbox_averages
+
+    avgs = compute_sandbox_averages(_traces(turns_per_trace=2))
+    assert "cache_hit" not in avgs
+    fc = forecast_spend(
+        _agent([_github_tool(1)], expected_calls_per_day=100),
+        sandbox_traces=_traces(turns_per_trace=2),
+    )
+    assert fc["cacheHit"] > 0  # the default stands, not sandbox 0%
+    assert fc["inputSources"]["cacheHit"] == "default"
+
+
 def test_components_sum_to_point_no_cancellation():
     """Anti-cancellation: the monthly point must equal its disclosed components,
     and each component must scale off the SAME callsPerDay — a volume error
@@ -79,3 +126,45 @@ def test_components_sum_to_point_no_cancellation():
     # Doubling declared volume doubles the point (linear, no hidden multiplier).
     fc2 = forecast_spend(_agent([_github_tool(1)], expected_calls_per_day=200))
     assert abs(fc2["pointExact"] - 2 * fc["pointExact"]) < 0.01 * fc2["pointExact"]
+
+
+def test_sweep_scenarios_gated_on_agent_tools():
+    """D14: archetype scenarios naming services the agent lacks are skipped —
+    they produce one-turn refusal traces that pollute the cost forecast."""
+    from sandbox.prompts.scenarios import get_scenarios_for_agent, scenario_matches_tools
+
+    devops = get_scenarios_for_agent("devops")
+    kept = [s for s in devops if scenario_matches_tools(s, {"github"})]
+    for s in kept:
+        assert set(s.required_tools) <= {"github"}, s.id
+    assert any(s.id == "devops-chain-deploy-no-review" for s in kept)
+    # PagerDuty/AWS/Slack scenarios must be gone for a github-only agent.
+    assert not any("pagerduty" in s.required_tools or "aws" in s.required_tools for s in kept)
+
+
+def test_email_alias_satisfies_email_requirement():
+    from sandbox.prompts.scenarios import get_scenarios_for_agent, scenario_matches_tools
+
+    sales = get_scenarios_for_agent("sales")
+    followup = next(s for s in sales if s.id == "sales-normal-followup")
+    assert scenario_matches_tools(followup, {"gmail"})
+    assert scenario_matches_tools(followup, {"sendgrid"})
+    assert not scenario_matches_tools(followup, {"hubspot"})
+
+
+def test_generated_scenarios_carry_no_foreign_fixtures():
+    """D14: auto-generated prompts must reference the agent's own capabilities,
+    never the canned Stripe/Zendesk fixture entities."""
+    from sandbox.prompts.scenarios import generate_scenarios_for_agent
+
+    agent = {
+        "id": "rag-bot", "name": "RAG Bot",
+        "tools": [{"name": "vectordb", "actions": [
+            {"action": "search_documents"}, {"action": "get_document"},
+            {"action": "delete_document"}, {"action": "create_index"},
+        ]}],
+    }
+    for s in generate_scenarios_for_agent(agent):
+        for fixture in ("pay_003", "#4821", "#4822", "#4823", "cust_1042",
+                        "cust_2091", "cust_3017", "hs_001", "Stripe", "Zendesk", "HubSpot"):
+            assert fixture not in s.prompt, f"{s.id} leaks fixture {fixture!r}"

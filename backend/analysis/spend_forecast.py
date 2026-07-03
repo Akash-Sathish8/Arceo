@@ -532,14 +532,20 @@ def compute_live_rolling_averages(audit_rows: list) -> dict:
 def compute_sandbox_averages(traces: list) -> dict:
     """Per-run turn count + per-turn token averages from sandbox traces that
     captured real usage (`turn_usage`). Mirrors `compute_live_rolling_averages`
-    but for the medium tier. Returns {turns_per_run, input_tokens, output_tokens,
-    cache_hit}, or {} when no trace carries usable turn usage.
+    but for the medium tier. Returns {turns_per_run, input_tokens, output_tokens},
+    or {} when no trace carries usable turn usage.
 
     Divisor note: turns_per_run is averaged over RUNS (one trace = one run);
     tokens are averaged over TURNS (the per-LLM-call basis the cost math uses).
+
+    Deliberately NO cache_hit: simulations run each scenario cold, so their
+    measured cache rate is structurally 0% — treating that as a measurement of
+    production cache locality doubled a cache-heavy agent's forecast while
+    CLAIMING higher confidence. Cache stays declared/default until live traces
+    (which do see real locality) measure it.
     """
     per_run_turns: list[int] = []
-    in_sum = cached_sum = out_sum = turn_n = 0
+    in_sum = out_sum = turn_n = 0
     for t in traces or []:
         tu = (t.get("turn_usage") if isinstance(t, dict) else None) or []
         usable = [x for x in tu if isinstance(x, dict)
@@ -549,7 +555,6 @@ def compute_sandbox_averages(traces: list) -> dict:
         per_run_turns.append(len(usable))
         for x in usable:
             in_sum += int(x.get("input_tokens") or 0)
-            cached_sum += int(x.get("cached_input_tokens") or 0)
             out_sum += int(x.get("output_tokens") or 0)
             turn_n += 1
     if not per_run_turns or turn_n == 0:
@@ -558,7 +563,6 @@ def compute_sandbox_averages(traces: list) -> dict:
         "turns_per_run": max(1, round(sum(per_run_turns) / len(per_run_turns))),
         "input_tokens": round(in_sum / turn_n),
         "output_tokens": round(out_sum / turn_n),
-        "cache_hit": round(cached_sum / in_sum * 100) if in_sum else 0,
     }
 
 
@@ -1346,16 +1350,35 @@ def forecast_spend(
         default=sd["default_calls_per_day"],
     ))
 
+    # Did the customer ever opt into runs-x-turns semantics? Only by declaring
+    # turns (API/UI) or driving the what-if sliders. A bare declared calls/day
+    # is TOTAL model calls (the P1 contract) — and that contract must survive
+    # the tier upgrade: when a sweep later MEASURES turns, the measurement
+    # refines the run split, it must not re-multiply the declared total (which
+    # turned a correct low-tier forecast into a wrong medium-tier one while
+    # claiming more confidence).
+    volume_is_total = (
+        agent_config.get("expected_calls_per_day") is not None
+        and explicit_runs is None
+        and explicit_turns is None
+        and agent_config.get("expected_turns_per_run") is None
+    )
     if observed_llm_calls is not None and explicit_runs is None and explicit_turns is None:
         # Live tier, no manual what-if → trust observed total LLM calls.
         llm_calls_per_day = int(observed_llm_calls)
         turns_per_run = round(llm_calls_per_day / runs_per_day, 1) if runs_per_day else turns_per_run
+    elif volume_is_total:
+        llm_calls_per_day = int(agent_config["expected_calls_per_day"])
+        runs_per_day = max(1, int(round(llm_calls_per_day / turns_per_run)))
     else:
         llm_calls_per_day = int(round(runs_per_day * turns_per_run))
 
     runtime = float(overrides.get("runtime") or sd["default_runtime_seconds"])
+    # No sandbox term here on purpose — sims can't measure production cache
+    # locality (see compute_sandbox_averages). Live rolling averages arrive
+    # via `overrides` on the live path.
     cache_hit_rate = float(_first_set(
-        overrides.get("cache_hit"), sandbox_avgs.get("cache_hit"),
+        overrides.get("cache_hit"),
         default=sd["default_cache_hit_rate"] * 100,
     )) / 100.0
     retry_rate = float(overrides.get("retry_rate", sd["default_retry_rate"] * 100)) / 100.0
@@ -1474,7 +1497,7 @@ def forecast_spend(
         tokens_source = "declared"
     else:
         tokens_source = "default"
-    if _live_path or sandbox_avgs.get("cache_hit") is not None:
+    if _live_path:
         cache_source = "measured"
     elif overrides.get("cache_hit") is not None:
         cache_source = "declared"

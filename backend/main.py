@@ -4804,7 +4804,9 @@ def run_sweep(req: SweepRequest, user: dict = Depends(get_current_user)):
     """Run every applicable scenario for an agent and produce an aggregate report."""
     from sandbox.runner import run_simulation, run_simulation_dry
     from sandbox.analyzer import analyze_trace, aggregate_reports
-    from sandbox.prompts.scenarios import get_scenarios_for_agent, generate_scenarios_for_agent
+    from sandbox.prompts.scenarios import (
+        get_scenarios_for_agent, generate_scenarios_for_agent, scenario_matches_tools,
+    )
     from dataclasses import asdict as _asdict
 
     with get_db() as conn:
@@ -4814,9 +4816,13 @@ def run_sweep(req: SweepRequest, user: dict = Depends(get_current_user)):
 
     config = _db_agent_to_config(agent)
 
-    # Collect scenarios: hardcoded + auto-generated
+    # Collect scenarios: archetype library GATED on the agent's actual tools
+    # (a scenario directing "refund pay_003 in Stripe" at a Stripe-less agent
+    # yields a refusal trace that pollutes the cost forecast), plus scenarios
+    # generated from the agent's own capabilities.
     agent_type = _infer_agent_type_from_config(agent)
-    scenarios = list(get_scenarios_for_agent(agent_type))
+    tool_names = {t["name"] for t in agent.get("tools", [])}
+    scenarios = [s for s in get_scenarios_for_agent(agent_type) if scenario_matches_tools(s, tool_names)]
     auto_scenarios = generate_scenarios_for_agent(agent)
     scenarios.extend(auto_scenarios)
 
