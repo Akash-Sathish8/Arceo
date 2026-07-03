@@ -300,7 +300,9 @@ ACTION_CATALOG: dict[str, dict[str, MappedAction]] = {
         "create_incident": MappedAction(
             tool="pagerduty", service="PagerDuty", action="create_incident",
             description="Create a new incident (pages on-call)",
-            risk_labels=["sends_external"], reversible=False,
+            # Pages on-call (sends_external) AND creates a production incident
+            # record / changes incident-management state (changes_production).
+            risk_labels=["sends_external", "changes_production"], reversible=False,
         ),
         "acknowledge_incident": MappedAction(
             tool="pagerduty", service="PagerDuty", action="acknowledge_incident",
