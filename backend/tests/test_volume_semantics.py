@@ -168,3 +168,37 @@ def test_generated_scenarios_carry_no_foreign_fixtures():
         for fixture in ("pay_003", "#4821", "#4822", "#4823", "cust_1042",
                         "cust_2091", "cust_3017", "hs_001", "Stripe", "Zendesk", "HubSpot"):
             assert fixture not in s.prompt, f"{s.id} leaks fixture {fixture!r}"
+
+
+def test_declared_context_outranks_sandbox_tokens():
+    """D25: sandbox mock payloads can't reproduce production data volumes —
+    a declared 80k context must survive a sweep whose traces measured ~1k."""
+    fc = forecast_spend(
+        _agent([_github_tool(1)], expected_calls_per_day=100, avg_context_tokens=80000),
+        sandbox_traces=_traces(turns_per_trace=2, in_tok=1000, out_tok=250),
+    )
+    assert fc["confidence"] == "medium"
+    assert fc["tokensPerCall"] > 80000
+    assert fc["inputSources"]["tokensPerCall"] == "declared"
+
+
+def test_sandbox_output_still_refines_declared_context_estimate():
+    """Sims DO measure completion size faithfully — the sandbox output average
+    replaces the static completion guess even when input is declared."""
+    no_traces = forecast_spend(
+        _agent([_github_tool(1)], expected_calls_per_day=100, avg_context_tokens=80000)
+    )
+    with_traces = forecast_spend(
+        _agent([_github_tool(1)], expected_calls_per_day=100, avg_context_tokens=80000),
+        sandbox_traces=_traces(turns_per_trace=2, in_tok=1000, out_tok=5000),
+    )
+    assert with_traces["tokensPerCall"] > no_traces["tokensPerCall"]  # 5000-out measured
+
+
+def test_sandbox_tokens_used_when_nothing_declared():
+    fc = forecast_spend(
+        _agent([_github_tool(1)], expected_calls_per_day=100),
+        sandbox_traces=_traces(turns_per_trace=2, in_tok=3000, out_tok=300),
+    )
+    assert fc["tokensPerCall"] == 3300
+    assert fc["inputSources"]["tokensPerCall"] == "measured"

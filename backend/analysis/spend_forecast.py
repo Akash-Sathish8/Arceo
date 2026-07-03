@@ -1387,10 +1387,26 @@ def forecast_spend(
     # Observed per-turn tokens from live traces (high) or sandbox sims (medium)
     # override the static capability-tree estimate. Real counts already reflect
     # the tokenizer, so model inflation is not re-applied to them.
-    obs_in = _first_set(overrides.get("input_tokens"), sandbox_avgs.get("input_tokens"), default=None)
-    obs_out = _first_set(overrides.get("output_tokens"), sandbox_avgs.get("output_tokens"), default=None)
-    if obs_in is not None and obs_out is not None:
-        in_tokens, out_tokens = int(obs_in), int(obs_out)
+    # D25 precedence: live-measured > declared context > sandbox-measured >
+    # static default. Sandbox mocks return tiny payloads, so their "measured"
+    # input tokens must never outrank a declared context — a RAG agent that
+    # declared an 80k-token context was repriced off 1.4k-token mock traces at
+    # HIGHER confidence (-96% under truth). Sims do measure completion size
+    # faithfully, so a sandbox output average still refines the estimate.
+    try:
+        _declared_ctx = int(agent_config.get("avg_context_tokens") or 0)
+    except (TypeError, ValueError):
+        _declared_ctx = 0
+    live_in, live_out = overrides.get("input_tokens"), overrides.get("output_tokens")
+    sbx_in, sbx_out = sandbox_avgs.get("input_tokens"), sandbox_avgs.get("output_tokens")
+    if live_in is not None and live_out is not None:
+        in_tokens, out_tokens = int(live_in), int(live_out)
+    elif _declared_ctx > 0:
+        in_tokens, out_tokens = _estimate_tokens_per_call(agent_config, defaults, inflation, turns_per_run)
+        if sbx_out is not None:
+            out_tokens = int(sbx_out)
+    elif sbx_in is not None and sbx_out is not None:
+        in_tokens, out_tokens = int(sbx_in), int(sbx_out)
     else:
         in_tokens, out_tokens = _estimate_tokens_per_call(agent_config, defaults, inflation, turns_per_run)
 
@@ -1491,10 +1507,15 @@ def forecast_spend(
         turns_source = "volume"
     else:
         turns_source = "default"
-    if overrides.get("llm_cost_per_call") is not None or overrides.get("input_tokens") is not None or sandbox_avgs.get("input_tokens") is not None:
+    # Mirrors the D25 precedence above: only live data may claim "measured"
+    # over a declared context; sandbox tokens are "measured" only when nothing
+    # was declared.
+    if overrides.get("llm_cost_per_call") is not None or overrides.get("input_tokens") is not None:
         tokens_source = "measured"
-    elif agent_config.get("avg_context_tokens"):
+    elif _declared_ctx > 0:
         tokens_source = "declared"
+    elif sandbox_avgs.get("input_tokens") is not None:
+        tokens_source = "measured"
     else:
         tokens_source = "default"
     if _live_path:
