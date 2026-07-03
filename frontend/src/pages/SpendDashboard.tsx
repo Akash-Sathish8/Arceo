@@ -17,7 +17,7 @@ import {
 import type { LucideIcon } from "lucide-react"
 import { PDFDownloadLink } from "@react-pdf/renderer"
 import { apiFetch } from "@/lib/api"
-import { agentIcon, timeAgo } from "@/lib/utils"
+import { agentIcon, scoreBand, timeAgo } from "@/lib/utils"
 import type { MockSpend } from "@/lib/mockSpend"
 import { fetchBatchSpendForecasts } from "@/lib/spendApi"
 import { pluralize } from "@/lib/strings"
@@ -62,10 +62,13 @@ function AgentGlyph({ agentType, size = 14 }: { agentType: string; size?: number
 }
 
 function riskTone(score: number): string {
-  if (score >= 70) return "var(--severity-critical)"
-  if (score >= 50) return "var(--severity-high)"
-  if (score >= 30) return "var(--severity-medium)"
-  return "var(--severity-safe)"
+  // Shared 4-band scale (lib/utils.ts scoreBand) mapped onto severity tokens.
+  switch (scoreBand(score).key) {
+    case "critical": return "var(--severity-critical)"
+    case "high":     return "var(--severity-high)"
+    case "medium":   return "var(--severity-medium)"
+    default:         return "var(--severity-safe)"
+  }
 }
 
 function deltaTone(delta: number): string {
