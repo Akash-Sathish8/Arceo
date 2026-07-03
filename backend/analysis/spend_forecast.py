@@ -1722,7 +1722,7 @@ _MINIMAL_DEFAULTS = {
         "scheduler": 2, "support": 4, "sales": 4, "devops": 8, "ops": 8, "default": 4,
     },
     "confidence_bands": {
-        "low": {"low_multiplier": 0.50, "high_multiplier": 1.80},
+        "low": {"low_multiplier": 0.50, "high_multiplier": 3.00},  # asymmetric — see YAML calibration note
         "medium": {"low_multiplier": 0.72, "high_multiplier": 1.28},
         "high": {"low_multiplier": 0.85, "high_multiplier": 1.15},
     },
