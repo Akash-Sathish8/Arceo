@@ -1204,11 +1204,20 @@ def _infer_archetype(agent_config: dict) -> str:
 
 def _default_turns_per_run(agent_config: dict, defaults: dict) -> float:
     """Archetype-aware cold-start turns/run (a scheduler isn't a devops loop).
-    Falls back to the flat avg_turns_per_run when no map / archetype match."""
+    Falls back to the flat avg_turns_per_run when no map / archetype match.
+
+    Bounded by capability: archetype comes from tool NAMES, so a one-action
+    `github` status checker infers "devops" and inherited an 8-turn loop guess.
+    An agent with <=2 declared actions has nothing to loop over — cap at 2.
+    """
     sd = defaults.get("scenario_defaults", {})
     by_arch = defaults.get("default_turns_per_run_by_archetype") or {}
     arch = _infer_archetype(agent_config)
-    return float(by_arch.get(arch, by_arch.get("default", sd.get("avg_turns_per_run", 4))))
+    turns = float(by_arch.get(arch, by_arch.get("default", sd.get("avg_turns_per_run", 4))))
+    n_actions = sum(len(t.get("actions") or []) for t in agent_config.get("tools", []))
+    if 0 < n_actions <= 2:
+        turns = min(turns, 2.0)
+    return turns
 
 
 def forecast_spend(
@@ -1312,12 +1321,25 @@ def forecast_spend(
     explicit_turns = overrides.get("turns_per_run")
     observed_llm_calls = overrides.get("llm_calls_per_day")
 
-    turns_per_run = max(1, int(round(float(_first_set(
+    known_turns = _first_set(
         explicit_turns,
         sandbox_avgs.get("turns_per_run"),
         agent_config.get("expected_turns_per_run"),
-        default=_default_turns_per_run(agent_config, defaults),
-    )))))
+        default=None,
+    )
+    volume_declared = explicit_runs is not None or agent_config.get("expected_calls_per_day") is not None
+    if known_turns is not None:
+        turns_per_run = max(1, int(round(float(known_turns))))
+    elif volume_declared:
+        # Declared volume WITHOUT declared/measured turns: the customer's number
+        # is their total model-calls/day (what a provider console shows). An
+        # archetype guess multiplied it 4-8x invisibly and was the single
+        # largest source of forecast error (mean |err| 546% -> 60% on the truth
+        # fleet with this rule alone). An assumption may widen a band; it must
+        # never multiply a declared number.
+        turns_per_run = 1
+    else:
+        turns_per_run = max(1, int(round(_default_turns_per_run(agent_config, defaults))))
     runs_per_day = int(_first_set(
         explicit_runs,
         agent_config.get("expected_calls_per_day"),
@@ -1441,6 +1463,9 @@ def forecast_spend(
         turns_source = "measured"
     elif agent_config.get("expected_turns_per_run") is not None:
         turns_source = "declared"
+    elif volume_declared:
+        # turns=1 by the P1 rule: declared volume counts total model calls.
+        turns_source = "volume"
     else:
         turns_source = "default"
     if overrides.get("llm_cost_per_call") is not None or overrides.get("input_tokens") is not None or sandbox_avgs.get("input_tokens") is not None:

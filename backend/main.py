@@ -1238,9 +1238,13 @@ def create_agent(req: AgentInput, user: dict = Depends(get_current_user)):
 
 
 class ForecastInputsInput(BaseModel):
-    expected_calls_per_day: Optional[int] = None   # RUNS/day (the dominant cost driver)
+    # Without expected_turns_per_run, expected_calls_per_day is priced as TOTAL
+    # model calls/day (never silently multiplied by an archetype turns guess).
+    # With turns declared, it's runs/day and llm_calls = runs x turns.
+    expected_calls_per_day: Optional[int] = None
     expected_turns_per_run: Optional[int] = None   # LLM round-trips per run
     simulation_model: Optional[str] = None         # prices the LLM at the right rate
+    avg_context_tokens: Optional[int] = None       # typical context per call (RAG docs, long prompts)
 
 
 @app.post("/api/authority/agent/{agent_id}/forecast-inputs")
@@ -1257,12 +1261,15 @@ def set_agent_forecast_inputs(agent_id: str, req: ForecastInputsInput, user: dic
         conn.execute(
             "UPDATE agents SET expected_calls_per_day = COALESCE(?, expected_calls_per_day), "
             "expected_turns_per_run = COALESCE(?, expected_turns_per_run), "
-            "simulation_model = COALESCE(?, simulation_model), updated_at = ? "
+            "simulation_model = COALESCE(?, simulation_model), "
+            "avg_context_tokens = COALESCE(?, avg_context_tokens), updated_at = ? "
             "WHERE id = ? AND org_id = ?",
-            (req.expected_calls_per_day, req.expected_turns_per_run, req.simulation_model, now, agent_id, org_id),
+            (req.expected_calls_per_day, req.expected_turns_per_run, req.simulation_model,
+             req.avg_context_tokens, now, agent_id, org_id),
         )
         log_audit(conn, user["sub"], user["email"], "SET_FORECAST_INPUTS", resource=agent_id,
-                  detail=f"runs/day={req.expected_calls_per_day}, turns/run={req.expected_turns_per_run}, model={req.simulation_model}", org_id=org_id)
+                  detail=f"runs/day={req.expected_calls_per_day}, turns/run={req.expected_turns_per_run}, "
+                         f"model={req.simulation_model}, context_tokens={req.avg_context_tokens}", org_id=org_id)
     return {"ok": True}
 
 
