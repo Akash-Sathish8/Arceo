@@ -11,6 +11,12 @@ RISK_LABELS = {
     "deletes_data": "Can permanently remove records or resources",
     "sends_external": "Sends data outside the organization (email, messages to customers)",
     "changes_production": "Modifies live production infrastructure or deployments",
+    # ── Enterprise threat primitives (grounded in MITRE ATT&CK / OWASP Agentic) ──
+    "changes_access": "Modifies permissions, roles, credential issuance, or account access (IAM grants, admin promotion, password resets, API-key creation)",
+    "reads_secrets": "Reads secrets, credentials, tokens, API keys, private keys, or environment variables",
+    "evades_detection": "Disables, deletes, or tampers with logging, audit trails, monitoring, or alerting",
+    "bulk_export": "Reads or exports data in bulk — mass export, full dumps, or list-all at volume",
+    "executes_code": "Runs arbitrary code, shell commands, or SQL",
 }
 
 
@@ -154,6 +160,11 @@ ACTION_CATALOG: dict[str, dict[str, MappedAction]] = {
             description="View contact interaction history",
             risk_labels=["touches_pii"], reversible=True,
         ),
+        "bulk_export_contacts": MappedAction(
+            tool="salesforce", service="Salesforce", action="bulk_export_contacts",
+            description="Export the full contact database to a file",
+            risk_labels=["bulk_export", "touches_pii"], reversible=True,
+        ),
     },
 
     # ── SendGrid / Email ────────────────────────────────────────────────────
@@ -256,7 +267,7 @@ ACTION_CATALOG: dict[str, dict[str, MappedAction]] = {
         "update_security_group": MappedAction(
             tool="aws", service="AWS", action="update_security_group",
             description="Modify firewall rules on a security group",
-            risk_labels=["changes_production"], reversible=True,
+            risk_labels=["changes_production", "changes_access"], reversible=True,
         ),
         "create_snapshot": MappedAction(
             tool="aws", service="AWS", action="create_snapshot",
@@ -271,6 +282,37 @@ ACTION_CATALOG: dict[str, dict[str, MappedAction]] = {
             tool="aws", service="AWS", action="update_env_vars",
             description="Update environment variables on a running service",
             risk_labels=["changes_production"], reversible=True,
+        ),
+        "get_secret": MappedAction(
+            tool="aws", service="AWS", action="get_secret",
+            description="Read a secret value from Secrets Manager",
+            risk_labels=["reads_secrets"], reversible=True,
+        ),
+        "rotate_secret": MappedAction(
+            tool="aws", service="AWS", action="rotate_secret",
+            description="Rotate a stored credential or secret",
+            risk_labels=["reads_secrets", "changes_access"], reversible=False,
+        ),
+        "create_access_key": MappedAction(
+            tool="aws", service="AWS", action="create_access_key",
+            description="Issue a new IAM access key for a user",
+            risk_labels=["changes_access", "reads_secrets"], reversible=False,
+        ),
+        "attach_iam_policy": MappedAction(
+            tool="aws", service="AWS", action="attach_iam_policy",
+            description="Attach an IAM policy granting permissions to a principal",
+            risk_labels=["changes_access", "changes_production"], reversible=True,
+        ),
+        "disable_cloudtrail": MappedAction(
+            tool="aws", service="AWS", action="disable_cloudtrail",
+            description="Stop a CloudTrail audit-logging trail",
+            risk_labels=["evades_detection", "changes_production"], reversible=True,
+        ),
+        "run_command": MappedAction(
+            tool="aws", service="AWS", action="run_command",
+            description="Run an arbitrary shell command on an instance via SSM",
+            risk_labels=["executes_code", "changes_production", "deletes_data"],
+            reversible=False,
         ),
     },
 

@@ -829,6 +829,18 @@ def _generate_recommendations(radius, chain_result) -> list[dict]:
     if radius.deletes_data > 0 and "deletes_data" not in chain_labels:
         recs.append({"severity": "high", "title": "Deletion actions exposed",
                       "description": f"{radius.deletes_data} data-deletion action(s). Run a simulation to test, then block or require approval."})
+    if radius.changes_access > 0 and "changes_access" not in chain_labels:
+        recs.append({"severity": "high", "title": "Access-control changes exposed",
+                      "description": f"{radius.changes_access} action(s) can change who has access (roles, permissions, credentials). Require approval so the agent can't quietly escalate its own privileges."})
+    if radius.reads_secrets > 0 and "reads_secrets" not in chain_labels:
+        recs.append({"severity": "high", "title": "Secret access exposed",
+                      "description": f"{radius.reads_secrets} action(s) can read secrets or credentials. Scope them tightly and gate any that combine with an external-send action."})
+    if radius.evades_detection > 0:
+        recs.append({"severity": "critical", "title": "Logging/monitoring can be disabled",
+                      "description": f"{radius.evades_detection} action(s) can turn off logging, audit trails, or alerting — an agent that can go dark should never do so without approval. Block these outright."})
+    if radius.executes_code > 0:
+        recs.append({"severity": "critical", "title": "Arbitrary code execution exposed",
+                      "description": f"{radius.executes_code} action(s) run arbitrary code, shell, or SQL — effectively unlimited blast radius. Sandbox or require approval."})
 
     if not recs:
         recs.append({"severity": "info", "title": "Low risk profile",
@@ -2957,7 +2969,8 @@ def generate_llm_scenarios(agent_id: str, user: dict = Depends(get_current_user)
 
     valid_categories = {"normal", "edge_case", "adversarial", "chain_exploit"}
     valid_severities = {"info", "medium", "high", "critical"}
-    valid_labels = {"moves_money", "touches_pii", "deletes_data", "sends_external", "changes_production"}
+    valid_labels = {"moves_money", "touches_pii", "deletes_data", "sends_external", "changes_production",
+                    "changes_access", "reads_secrets", "evades_detection", "bulk_export", "executes_code"}
     scenarios = []
     for item in raw[:6]:
         if not isinstance(item, dict) or not item.get("prompt") or not item.get("name"):
@@ -3294,7 +3307,7 @@ def optimize_workflow_permissions(req: WorkflowOptimizeRequest, user: dict = Dep
             is_risky = bool(info["risk_labels"]) or not info["reversible"]
             if not is_risky:
                 continue
-            severity = "high" if any(l in ("moves_money", "deletes_data", "changes_production") for l in info["risk_labels"]) else "medium"
+            severity = "high" if any(l in ("moves_money", "deletes_data", "changes_production", "changes_access", "reads_secrets", "evades_detection", "bulk_export", "executes_code") for l in info["risk_labels"]) else "medium"
             if not info["reversible"]:
                 severity = "high"
             overprivileged.append({

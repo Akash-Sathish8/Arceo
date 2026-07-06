@@ -93,7 +93,9 @@ def _check_policy(agent_id: str, tool: str, action: str, session_context: list =
 
 def _is_dangerous(labels: list[str]) -> bool:
     """Check if an action's labels indicate danger."""
-    dangerous_labels = {"moves_money", "deletes_data", "changes_production", "sends_external"}
+    dangerous_labels = {"moves_money", "deletes_data", "changes_production", "sends_external",
+                        "changes_access", "reads_secrets", "evades_detection", "bulk_export",
+                        "executes_code"}
     return bool(set(labels) & dangerous_labels)
 
 

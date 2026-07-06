@@ -29,6 +29,13 @@ class BlastRadius:
     changes_production: int
     irreversible_actions: int
     score: float  # 0-100 — INHERENT: capability ceiling (what it COULD do)
+    # Enterprise-primitive counts — defaulted so any partial constructor stays
+    # valid; always set by calculate_blast_radius. Serialized via asdict().
+    changes_access: int = 0
+    reads_secrets: int = 0
+    evades_detection: int = 0
+    bulk_export: int = 0
+    executes_code: int = 0
     risk_breakdown: dict = field(default_factory=dict)
     # ── danger model (defaults keep every existing caller backward-compatible) ──
     residual_score: float = 0.0      # after the agent's policies gate actions / break chains
@@ -95,6 +102,19 @@ LABEL_WEIGHTS = {
     "deletes_data": 15,
     "sends_external": 7,
     "changes_production": 12,
+    # ── Enterprise threat primitives (added 2026-07-06) ──────────────────────
+    # changes_access ~ delete: privilege escalation is the highest-amplification
+    # primitive (grant self admin → do anything). executes_code close behind
+    # (arbitrary code = arbitrary impact). reads_secrets / evades_detection above
+    # pii: stolen creds enable lateral movement; blinding the defender amplifies
+    # every later action. bulk_export just above sends_external — volume of a
+    # dump; note bulk-NAMED actions ALSO get the 1.6x scope multiplier below, so
+    # keep this modest to avoid heavy double-counting.
+    "changes_access": 14,
+    "reads_secrets": 10,
+    "evades_detection": 10,
+    "bulk_export": 9,
+    "executes_code": 13,
 }
 
 IRREVERSIBLE_MULTIPLIER = 2.0
@@ -350,6 +370,11 @@ def calculate_blast_radius(
     deletes_data = sum(1 for a in all_actions if "deletes_data" in a.risk_labels)
     sends_external = sum(1 for a in all_actions if "sends_external" in a.risk_labels)
     changes_prod = sum(1 for a in all_actions if "changes_production" in a.risk_labels)
+    changes_access = sum(1 for a in all_actions if "changes_access" in a.risk_labels)
+    reads_secrets = sum(1 for a in all_actions if "reads_secrets" in a.risk_labels)
+    evades_detection = sum(1 for a in all_actions if "evades_detection" in a.risk_labels)
+    bulk_export = sum(1 for a in all_actions if "bulk_export" in a.risk_labels)
+    executes_code = sum(1 for a in all_actions if "executes_code" in a.risk_labels)
     irreversible = sum(1 for a in all_actions if not a.reversible)
 
     mag = magnitude_by_action or {}
@@ -409,6 +434,11 @@ def calculate_blast_radius(
         deletes_data=deletes_data,
         sends_external=sends_external,
         changes_production=changes_prod,
+        changes_access=changes_access,
+        reads_secrets=reads_secrets,
+        evades_detection=evades_detection,
+        bulk_export=bulk_export,
+        executes_code=executes_code,
         irreversible_actions=irreversible,
         # Integers, not decimals: one decimal place implied a precision the
         # model doesn't have (the audit called it "83.4 is theater").
@@ -419,6 +449,11 @@ def calculate_blast_radius(
             "deletes_data": deletes_data,
             "sends_external": sends_external,
             "changes_production": changes_prod,
+            "changes_access": changes_access,
+            "reads_secrets": reads_secrets,
+            "evades_detection": evades_detection,
+            "bulk_export": bulk_export,
+            "executes_code": executes_code,
         },
         residual_score=round(residual),
         contextual_score=round(contextual),

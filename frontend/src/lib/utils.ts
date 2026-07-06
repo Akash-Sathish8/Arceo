@@ -87,6 +87,11 @@ const RISK_LABEL_COLORS: Record<RiskLabel, string> = {
   deletes_data:       "var(--label-deletes-data)",
   sends_external:     "var(--label-sends-external)",
   changes_production: "var(--label-changes-production)",
+  changes_access:     "var(--label-changes-access)",
+  reads_secrets:      "var(--label-reads-secrets)",
+  evades_detection:   "var(--label-evades-detection)",
+  bulk_export:        "var(--label-bulk-export)",
+  executes_code:      "var(--label-executes-code)",
 };
 
 const RISK_LABEL_BGS: Record<RiskLabel, string> = {
@@ -95,14 +100,43 @@ const RISK_LABEL_BGS: Record<RiskLabel, string> = {
   deletes_data:       "var(--label-deletes-data-bg)",
   sends_external:     "var(--label-sends-external-bg)",
   changes_production: "var(--label-changes-production-bg)",
+  changes_access:     "var(--label-changes-access-bg)",
+  reads_secrets:      "var(--label-reads-secrets-bg)",
+  evades_detection:   "var(--label-evades-detection-bg)",
+  bulk_export:        "var(--label-bulk-export-bg)",
+  executes_code:      "var(--label-executes-code-bg)",
+};
+
+// Clean 1-2 word display names — the ONLY thing users should see. Never render
+// the raw snake_case label. Plain-English (no jargon) per the CFO copy rule.
+const RISK_LABEL_NAMES: Record<RiskLabel, string> = {
+  moves_money:        "Money",
+  touches_pii:        "Personal data",
+  deletes_data:       "Deletes data",
+  sends_external:     "Sends out",
+  changes_production: "Production",
+  changes_access:     "Access control",
+  reads_secrets:      "Secrets",
+  evades_detection:   "Log tampering",
+  bulk_export:        "Bulk export",
+  executes_code:      "Code exec",
 };
 
 export function riskLabelColor(label: RiskLabel): string {
-  return RISK_LABEL_COLORS[label];
+  return RISK_LABEL_COLORS[label] ?? "var(--text-muted)";
 }
 
 export function riskLabelBg(label: RiskLabel): string {
-  return RISK_LABEL_BGS[label];
+  return RISK_LABEL_BGS[label] ?? "var(--bg)";
+}
+
+// Human display name for a risk label. Falls back to a de-snaked Title Case for
+// any unknown/future label so the UI never shows a raw underscore string.
+export function riskLabelName(label: string): string {
+  return (
+    RISK_LABEL_NAMES[label as RiskLabel] ??
+    label.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())
+  );
 }
 
 // Legacy alias — delegates to the offset-safe formatter in lib/time.ts.

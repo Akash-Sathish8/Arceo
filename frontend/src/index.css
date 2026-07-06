@@ -124,6 +124,16 @@
   --label-sends-external-bg:     #ECFEFF;
   --label-changes-production:    #B45309;
   --label-changes-production-bg: #FFFBEB;
+  --label-changes-access:        #B91C1C;
+  --label-changes-access-bg:     #FEF2F2;
+  --label-reads-secrets:         #A21CAF;
+  --label-reads-secrets-bg:      #FAF5FF;
+  --label-evades-detection:      #4338CA;
+  --label-evades-detection-bg:   #EEF2FF;
+  --label-bulk-export:           #15803D;
+  --label-bulk-export-bg:        #F0FDF4;
+  --label-executes-code:         #334155;
+  --label-executes-code-bg:      #F1F5F9;
 
   /* ── Status ──────────────────────────────────────────────────── */
   /* Aliased to the handoff severity tokens for cross-page consistency. */

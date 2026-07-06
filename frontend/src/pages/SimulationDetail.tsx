@@ -15,7 +15,7 @@ import {
 } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { toast } from "@/components/shared/Toast";
-import { timeAgo, riskLabelColor, riskLabelBg } from "@/lib/utils";
+import { timeAgo, riskLabelColor, riskLabelBg, riskLabelName } from "@/lib/utils";
 import ErrorState from "@/components/shared/ErrorState";
 import type { RiskLabel } from "@/lib/types";
 
@@ -195,7 +195,7 @@ function StepRow({ step }: { step: TraceStep }) {
                   className="text-xs px-1.5 py-0.5 rounded font-medium"
                   style={{ backgroundColor: riskLabelBg(label as RiskLabel), color: riskLabelColor(label as RiskLabel) }}
                 >
-                  {label.replace(/_/g, " ")}
+                  {riskLabelName(label)}
                 </span>
               ))}
             </div>

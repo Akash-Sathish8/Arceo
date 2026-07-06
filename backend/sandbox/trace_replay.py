@@ -244,7 +244,9 @@ def replay_traces(
 
         # Classify risk
         labels, reversible = classify_action(action, "")
-        dangerous_labels = {"moves_money", "deletes_data", "sends_external", "changes_production"}
+        dangerous_labels = {"moves_money", "deletes_data", "sends_external", "changes_production",
+                            "changes_access", "reads_secrets", "evades_detection", "bulk_export",
+                            "executes_code"}
         is_dangerous = bool(set(labels) & dangerous_labels)
 
         # Run through policy engine

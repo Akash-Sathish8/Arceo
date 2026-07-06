@@ -3,7 +3,12 @@ export type RiskLabel =
   | "touches_pii"
   | "deletes_data"
   | "sends_external"
-  | "changes_production";
+  | "changes_production"
+  | "changes_access"
+  | "reads_secrets"
+  | "evades_detection"
+  | "bulk_export"
+  | "executes_code";
 
 export type Severity = "critical" | "high" | "medium" | "safe";
 
