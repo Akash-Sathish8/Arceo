@@ -40,6 +40,29 @@ def test_new_labels_registered_everywhere():
         assert label in RISK_LABELS, f"{label} missing from RISK_LABELS descriptions"
 
 
+def test_no_unambiguous_keyword_is_dead_locked():
+    # Every UNAMBIGUOUS keyword must actually assign its label when it appears in
+    # an action name. A keyword that is "locked" but absent from KEYWORD_RULES (and
+    # not covered by a primitive/substring) never fires — the dead-lock that made
+    # disburse_loan / invoice_customer score $0 exposure.
+    from authority.risk_classifier import classify_action, UNAMBIGUOUS_KEYWORDS
+    dead = []
+    for label, kws in UNAMBIGUOUS_KEYWORDS.items():
+        for kw in kws:
+            name = kw if "_" in kw else f"{kw}_record"
+            if label not in classify_action(name)[0]:
+                dead.append(f"{label}:{kw}")
+    assert not dead, f"dead-locked unambiguous keywords (locked but never assigned): {dead}"
+
+
+def test_dangerous_money_verbs_classify_without_llm():
+    # No-key/keyword-only path must not miss money movement (was scoring $0).
+    from authority.risk_classifier import classify_action
+    for a in ("disburse_loan", "wire_funds_to_vendor", "settle_ach_batch",
+              "remit_payment", "reimburse_expense", "invoice_customer"):
+        assert "moves_money" in classify_action(a)[0], f"{a} missed moves_money"
+
+
 def test_every_valid_label_has_a_weight():
     # graph.score_action uses LABEL_WEIGHTS.get(l, 0): an unweighted label
     # silently scores zero. Guard against adding a label without a weight.
