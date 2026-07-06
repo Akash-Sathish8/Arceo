@@ -134,7 +134,13 @@ def seed_prior_snapshot(agent_org: str):
         current = forecast_spend(agent, live_trace_count_7d=live_count,
                                  overrides=overrides, org_id=agent_org,
                                  _skip_sensitivity=True)
-        prior_point = round(current["point"] * 0.88, 2)
+        # ILLUSTRATIVE demo seed only: there is no real prior-month traffic on a
+        # freshly-wiped demo, so we synthesize a plausible prior so the demo can
+        # show the vs-last-month feature working. NOT a measured number — the live
+        # product path stays honest (vsLastMonthAvailable=false until a real
+        # nightly snapshot exists). Kept slightly off-round so it doesn't read as
+        # a suspiciously exact fabricated trend.
+        prior_point = round(current["point"] * 0.93, 2)
         captured = (datetime.utcnow() - timedelta(days=31)).isoformat()
         # Stamp the current formula version into the snapshot, exactly like the
         # nightly job (jobs/snapshot_forecasts.py). Without this, _prev_snapshot_point
