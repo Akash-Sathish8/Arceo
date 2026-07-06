@@ -228,8 +228,28 @@ def detect_chains(agent: AgentConfig, action_overrides: dict | None = None) -> A
             matching_actions=[from_actions, to_actions],
         ))
 
+    # Collapse symmetric transitions (money<->external, prod<->external): at the
+    # capability level both directions fire on the same unordered label pair, so
+    # they double-count the finding and its score uplift. Keep one — the
+    # highest-severity direction. Same-label chains (from==to) are inherently
+    # unique and pass through.
+    _sev_rank = {"critical": 3, "high": 2, "medium": 1}
+    deduped: list[FlaggedChain] = []
+    pair_index: dict[frozenset, int] = {}
+    for fc in flagged:
+        a, b = fc.chain.steps[0], fc.chain.steps[1]
+        if a == b:
+            deduped.append(fc)
+            continue
+        key = frozenset((a, b))
+        if key not in pair_index:
+            pair_index[key] = len(deduped)
+            deduped.append(fc)
+        elif _sev_rank.get(fc.chain.severity, 0) > _sev_rank.get(deduped[pair_index[key]].chain.severity, 0):
+            deduped[pair_index[key]] = fc
+
     return AgentChainResult(
         agent_id=agent.id,
         agent_name=agent.name,
-        flagged_chains=flagged,
+        flagged_chains=deduped,
     )

@@ -103,10 +103,22 @@ def test_catalog_covers_all_new_labels():
 def test_enterprise_chains_fire_on_infra_agent():
     agent = _infra_agent()
     fired = {fc.chain.id for fc in detect_chains(agent).flagged_chains}
-    # Privilege escalation, credential exfil, defense evasion, bulk exfil, code exec.
-    for expected in ("access-external", "secrets-external", "evade-delete",
-                     "delete-evade", "bulk-external", "code-external"):
+    # Privilege escalation, credential exfil, bulk exfil, code exec.
+    for expected in ("access-external", "secrets-external", "bulk-external", "code-external"):
         assert expected in fired, f"chain {expected} did not fire (fired: {sorted(fired)})"
+    # Defense evasion: delete<->evade is a symmetric pair collapsed to one
+    # direction (capability level), so exactly one of them fires.
+    assert ("delete-evade" in fired) ^ ("evade-delete" in fired), \
+        f"symmetric delete/evade pair not collapsed to one (fired: {sorted(fired)})"
+
+
+def test_symmetric_chains_collapse_to_one_direction():
+    # An agent that can both move money and send externally trips ONE money<->
+    # external finding, not both directions (capability-level double-count).
+    agent = AgentConfig(id="s", name="S", description="d",
+                        tools=[_tool("stripe"), _tool("email")])
+    fired = {fc.chain.id for fc in detect_chains(agent).flagged_chains}
+    assert ("money-external" in fired) ^ ("external-money" in fired), sorted(fired)
 
 
 def test_all_transition_labels_are_valid():
