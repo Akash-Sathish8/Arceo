@@ -409,7 +409,7 @@ export default function SpendDashboard() {
                 <tbody>
                   {sortedFleet.map((a) => {
                     const monthly = a.forecast?.point ?? 0
-                    const share = Math.round((monthly / totalSpend) * 100)
+                    const share = totalSpend > 0 ? Math.round((monthly / totalSpend) * 100) : 0
                     const vsLast = a.forecast?.vsLastMonth ?? 0
                     const delta = !a.forecast?.vsLastMonthAvailable
                       ? "—"
