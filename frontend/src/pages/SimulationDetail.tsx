@@ -1,5 +1,5 @@
-import { useParams, useNavigate, Link } from "react-router-dom";
-import { useEffect, useState } from "react";
+import { useParams, Link } from "react-router-dom";
+import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import {
   ChevronDown,
@@ -16,6 +16,7 @@ import {
 import { apiFetch } from "@/lib/api";
 import { toast } from "@/components/shared/Toast";
 import { timeAgo, riskLabelColor, riskLabelBg } from "@/lib/utils";
+import ErrorState from "@/components/shared/ErrorState";
 import type { RiskLabel } from "@/lib/types";
 
 interface TraceStep {
@@ -267,14 +268,15 @@ function StepRow({ step }: { step: TraceStep }) {
 
 export default function SimulationDetail() {
   const { simulationId } = useParams<{ simulationId: string }>();
-  const navigate = useNavigate();
   const [sim, setSim] = useState<SimulationDetailData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [applyingAll, setApplyingAll] = useState(false);
 
-  useEffect(() => {
+  const load = useCallback(() => {
     if (!simulationId) return;
     setLoading(true);
+    setLoadError(null);
     apiFetch<Record<string, unknown>>(`/api/sandbox/simulation/${simulationId}`)
       .then((raw) => {
         // Backend returns the simulation directly (not wrapped). Normalize shape
@@ -316,9 +318,11 @@ export default function SimulationDetail() {
           scenario_name: trace.scenario_name as string | undefined,
         });
       })
-      .catch(() => toast("Failed to load simulation", "error"))
+      .catch((e: Error) => setLoadError(e.message))
       .finally(() => setLoading(false));
   }, [simulationId]);
+
+  useEffect(() => { load(); }, [load]);
 
   async function applyAllRecommendations() {
     if (!sim) return;
@@ -348,6 +352,10 @@ export default function SimulationDetail() {
     );
   }
 
+  if (loadError) {
+    return <div style={{ padding: 40 }}><ErrorState message={loadError} onRetry={load} /></div>;
+  }
+
   if (!sim) {
     return (
       <div style={{ padding: 40, textAlign: "center", paddingTop: 80, color: "var(--text-muted)" }}>
@@ -368,9 +376,11 @@ export default function SimulationDetail() {
     <div className="p-8 space-y-8 max-w-5xl">
       {/* Header */}
       <div className="flex items-center gap-3">
-        <Button variant="secondary" size="sm" onClick={() => navigate(-1)} icon={<ArrowLeft size={14} />}>
-          Back to Sandbox
-        </Button>
+        <Link to="/sandbox">
+          <Button variant="secondary" size="sm" icon={<ArrowLeft size={14} />}>
+            Back to Sandbox
+          </Button>
+        </Link>
         <span style={{ color: "var(--border-strong)" }}>/</span>
         <h1 style={{ fontSize: 24, fontWeight: 700, color: "var(--text-primary)", margin: 0 }}>Simulation Detail</h1>
       </div>

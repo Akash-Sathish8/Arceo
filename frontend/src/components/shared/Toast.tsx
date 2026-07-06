@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { CheckCircle, XCircle, Info } from "lucide-react";
+import { CheckCircle, XCircle, Info, X } from "lucide-react";
 
 type ToastType = "success" | "error" | "info";
 
@@ -15,6 +15,7 @@ type Subscriber = (toasts: ToastItem[]) => void;
 let nextId = 0;
 let queue: ToastItem[] = [];
 const subscribers = new Set<Subscriber>();
+const MAX_TOASTS = 5;
 
 function notify(): void {
   subscribers.forEach((sub) => sub([...queue]));
@@ -28,6 +29,9 @@ function dismiss(id: number): void {
 export function toast(message: string, type: ToastType = "success"): void {
   const id = ++nextId;
   queue = [...queue, { id, message, type }];
+  // Cap the stack so a burst (e.g. apply-all + refresh errors) can't bury the
+  // screen — drop the oldest.
+  if (queue.length > MAX_TOASTS) queue = queue.slice(queue.length - MAX_TOASTS);
   notify();
 
   const duration = type === "error" ? 6000 : 3000;
@@ -57,7 +61,13 @@ export function ToastContainer(): React.ReactElement {
   }, []);
 
   return (
-    <div className="fixed bottom-4 right-4 z-50 flex flex-col gap-2 w-80">
+    // z-[80] so toasts sit ABOVE the agent drawer (z-61) and command palette —
+    // a success/error fired while the drawer is open must not hide under the scrim.
+    <div
+      className="fixed bottom-4 right-4 z-[80] flex flex-col gap-2 w-80"
+      role="status"
+      aria-live="polite"
+    >
       {toasts.map((t) => (
         <div
           key={t.id}
@@ -66,16 +76,14 @@ export function ToastContainer(): React.ReactElement {
         >
           {ICON[t.type]}
           <span className="flex-1">{t.message}</span>
-          {t.type === "error" && (
-            <button
-              onClick={() => dismiss(t.id)}
-              className="shrink-0 opacity-50 hover:opacity-100 transition-opacity"
-              style={{ background: "none", border: "none", cursor: "pointer", color: "inherit", padding: 2 }}
-              aria-label="Dismiss"
-            >
-              <XCircle size={14} />
-            </button>
-          )}
+          <button
+            onClick={() => dismiss(t.id)}
+            className="shrink-0 opacity-50 hover:opacity-100 transition-opacity"
+            style={{ background: "none", border: "none", cursor: "pointer", color: "inherit", padding: 2 }}
+            aria-label="Dismiss"
+          >
+            <X size={14} />
+          </button>
         </div>
       ))}
     </div>

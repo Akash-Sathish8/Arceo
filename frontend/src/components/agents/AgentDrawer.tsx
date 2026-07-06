@@ -166,18 +166,25 @@ export default function AgentDrawer({
   const a = agent ?? lastRef.current;
   const open = !!agent;
 
-  const [chains, setChains] = useState<Chain[]>([]);
+  const [chains, setChains] = useState<Chain[] | null>(null);
   const [, setBlast] = useState<BlastRadius | null>(null);
   const [policiesLen, setPoliciesLen] = useState<number | null>(null);
   const [tools, setTools] = useState<string[] | null>(null);
+  const [detailError, setDetailError] = useState(false);
 
   // Fetch the richer detail payload when the drawer opens for an agent.
   // The card's data is enough to render the header; chains + policy count
-  // come from /api/authority/agent/{id}.
+  // come from /api/authority/agent/{id}. Reset first so opening agent B never
+  // flashes agent A's chains/policies/tools while B's fetch is in flight.
+  const agentId = agent?.id;
   useEffect(() => {
-    if (!agent) return;
+    if (!agentId) return;
     let cancelled = false;
-    apiFetch<AgentDetailResponse>(`/api/authority/agent/${agent.id}`)
+    setChains(null);
+    setPoliciesLen(null);
+    setTools(null);
+    setDetailError(false);
+    apiFetch<AgentDetailResponse>(`/api/authority/agent/${agentId}`)
       .then((d) => {
         if (cancelled) return;
         setBlast(d.blast_radius);
@@ -189,12 +196,12 @@ export default function AgentDrawer({
         }
       })
       .catch(() => {
-        if (!cancelled) setChains([]);
+        if (!cancelled) setDetailError(true);
       });
     return () => {
       cancelled = true;
     };
-  }, [agent]);
+  }, [agentId]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -203,6 +210,14 @@ export default function AgentDrawer({
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, [onClose]);
+
+  // Lock body scroll while the drawer is open so the page behind doesn't move.
+  useEffect(() => {
+    if (!agent) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = prev; };
+  }, [agent]);
 
   if (!a) return null;
 
@@ -226,6 +241,12 @@ export default function AgentDrawer({
         }}
       />
       <aside
+        role="dialog"
+        aria-modal="true"
+        aria-label={a ? `${a.name} details` : "Agent details"}
+        aria-hidden={!open}
+        // inert removes the off-screen panel from tab order + AT when closed.
+        inert={!open}
         style={{
           position: "fixed",
           top: 0,
@@ -294,6 +315,19 @@ export default function AgentDrawer({
           >
             <FlaskConical size={14} strokeWidth={1.7} /> Simulate in sandbox
           </button>
+          <Link
+            to={`/agent/${a.id}`}
+            className="ag-btn"
+            style={{
+              display: "inline-flex", alignItems: "center", gap: 7,
+              background: "var(--card)", color: "var(--ink-800)",
+              border: "1px solid var(--line)", borderRadius: 8,
+              padding: "8px 14px", fontSize: 13, fontWeight: 550,
+              fontFamily: "inherit", cursor: "pointer", textDecoration: "none",
+            }}
+          >
+            <Bot size={14} strokeWidth={1.7} /> Open agent page
+          </Link>
           <Link
             to={`/agent/${a.id}/spend`}
             className="ag-btn"
@@ -482,10 +516,11 @@ export default function AgentDrawer({
                 </div>
               )}
               <div style={{ display: "flex", gap: 9, marginTop: 16 }}>
-                <button
-                  type="button"
+                <Link
+                  to={`/agent/${a.id}#policies`}
                   className="ag-btn"
                   style={{
+                    display: "inline-flex", alignItems: "center",
                     background: "var(--ink-900)",
                     color: "#fff",
                     border: "none",
@@ -495,10 +530,11 @@ export default function AgentDrawer({
                     fontWeight: 550,
                     fontFamily: "inherit",
                     cursor: "pointer",
+                    textDecoration: "none",
                   }}
                 >
                   Add policy
-                </button>
+                </Link>
                 <button
                   type="button"
                   className="ag-btn"
@@ -560,7 +596,7 @@ export default function AgentDrawer({
               >
                 Risk chains{" "}
                 <span className="mono" style={{ color: "var(--ink-400)", fontWeight: 500 }}>
-                  {chains.length || a.chains}
+                  {chains?.length ?? a.chains}
                 </span>
               </h3>
               {a.critical > 0 && (
@@ -569,7 +605,7 @@ export default function AgentDrawer({
                 </span>
               )}
             </div>
-            {chains.length > 0 ? (
+            {chains && chains.length > 0 ? (
               <div
                 style={{
                   background: "#fff",
@@ -596,7 +632,11 @@ export default function AgentDrawer({
                   boxShadow: "var(--shadow-card-new)",
                 }}
               >
-                {a.chains === 0 ? "No dangerous chains detected." : "Loading chains…"}
+                {detailError
+                  ? "Couldn't load chains — reopen to retry."
+                  : chains === null
+                  ? "Loading chains…"
+                  : "No dangerous chains detected."}
               </div>
             )}
           </div>

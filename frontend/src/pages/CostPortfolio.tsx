@@ -925,7 +925,7 @@ function CostPortfolioContent({
           )}
         </PanelCard>
 
-        <PanelCard title="Where the money goes" icon={<PieChart size={14} />} help="Per-call breakdown rolled up to monthly. Click any segment to filter.">
+        <PanelCard title="Where the money goes" icon={<PieChart size={14} />} help="Per-call cost breakdown, rolled up to a monthly total.">
           {(() => {
             const r = 55
             const c = 2 * Math.PI * r
@@ -1142,7 +1142,7 @@ function CostPortfolioContent({
                             disabled={applyingGate}
                             onClick={() => onApplyGate(r.label.replace(/^Require approval on\s+/, ""))}
                             className="mt-2 text-xs px-3 py-1.5 rounded-md border font-medium cursor-pointer disabled:opacity-50"
-                            style={{ borderColor: "var(--border)", background: "var(--white)" }}
+                            style={{ borderColor: "var(--border)", background: "var(--card)" }}
                           >
                             {applyingGate ? "Applying…" : "Apply — require approval"}
                           </button>
@@ -1173,12 +1173,13 @@ function CostPortfolioContent({
               <span className="text-[11px] font-semibold mono" style={{ color: STATUS_TONE[c.statusTone as SourceStatus] }}>{c.status}</span>
             </div>
           ))}
-          <button
+          <Link
+            to="/settings"
             className="text-xs px-3 py-2 rounded-lg border bg-white text-gray-900 font-medium hover:bg-gray-50 mt-2 inline-flex items-center gap-2"
-            style={{ borderColor: "var(--border)" }}
+            style={{ borderColor: "var(--border)", textDecoration: "none", width: "fit-content" }}
           >
             <Plus size={12} /> Connect production traces
-          </button>
+          </Link>
         </PanelCard>
         </div>
 

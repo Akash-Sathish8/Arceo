@@ -7,13 +7,14 @@
  * second fetch + PDF wiring.
  */
 
-import { useEffect, useState, type ReactNode } from "react"
-import { PDFDownloadLink } from "@react-pdf/renderer"
+import { useEffect, useState, lazy, Suspense, type ReactNode } from "react"
 import { FileDown } from "lucide-react"
 import { apiFetch } from "@/lib/api"
 import { buildCFOReportData, type CostReportResponse } from "@/lib/cfoReport"
-import { CFOReport } from "@/components/CFOReport"
 import type { MockSpend } from "@/lib/mockSpend"
+
+// @react-pdf/renderer (~1MB) loads only when a user opens an export.
+const CFODownloadLink = lazy(() => import("@/components/CFODownloadLink"))
 
 interface Props {
   agentId: string
@@ -83,24 +84,17 @@ export function ExportCFOReportButton({
   const resolvedStyle: React.CSSProperties = className ? (style ?? {}) : { ...defaultStyle, ...(style ?? {}) }
   const resolvedLabel = label ?? (<><FileDown size={13} /> Export CFO report</>)
 
-  if (loading) {
-    return (
-      <button type="button" disabled className={resolvedClass} style={{ ...resolvedStyle, opacity: 0.6, cursor: "wait" }}>
-        {label ? label : (<><FileDown size={13} /> Preparing CFO report…</>)}
-      </button>
-    )
-  }
+  const preparing = (
+    <button type="button" disabled className={resolvedClass} style={{ ...resolvedStyle, opacity: 0.6, cursor: "wait" }}>
+      {label ? label : (<><FileDown size={13} /> Preparing CFO report…</>)}
+    </button>
+  )
+
+  if (loading) return preparing
 
   return (
-    <PDFDownloadLink
-      document={<CFOReport data={data} />}
-      fileName={fileName}
-      className={resolvedClass}
-      style={resolvedStyle}
-    >
-      {({ loading: building }) =>
-        building ? (label ? label : (<><FileDown size={13} /> Building PDF…</>)) : resolvedLabel
-      }
-    </PDFDownloadLink>
+    <Suspense fallback={preparing}>
+      <CFODownloadLink data={data} fileName={fileName} className={resolvedClass} style={resolvedStyle} label={resolvedLabel} />
+    </Suspense>
   )
 }

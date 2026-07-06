@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from "react";
+import { useSearchParams } from "react-router-dom";
 import { Download, Search } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { Button } from "@/components/ui/Button";
@@ -77,7 +78,7 @@ const STATUS_CONFIG: Record<string, { bg: string; color: string; label: string }
 
 const TIME_FILTERS: { value: TimeFilter; label: string }[] = [
   { value: "all", label: "All time" },
-  { value: "today", label: "Today" },
+  { value: "today", label: "Last 24h" },
   { value: "7d", label: "Last 7d" },
   { value: "30d", label: "Last 30d" },
 ];
@@ -205,7 +206,9 @@ function useCountUp(target: number, enabled: boolean): number {
 }
 
 export default function History(): React.ReactElement {
-  const [view, setView] = useState<View>("executions");
+  const [searchParams] = useSearchParams();
+  // /audit redirects here with ?view=audit — honor it so the audit tab is deep-linkable.
+  const [view, setView] = useState<View>(searchParams.get("view") === "audit" ? "audit" : "executions");
   const [executions, setExecutions] = useState<ExecutionEntry[]>([]);
   const [auditEntries, setAuditEntries] = useState<AuditEntry[]>([]);
   const [agentMap, setAgentMap] = useState<Record<string, string>>({});

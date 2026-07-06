@@ -20,6 +20,7 @@ import Settings from '@/pages/Settings'
 import Approvals from '@/pages/Approvals'
 import CostPortfolio from '@/pages/CostPortfolio'
 import SpendDashboard from '@/pages/SpendDashboard'
+import NotFound from '@/pages/NotFound'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -85,7 +86,7 @@ createRoot(document.getElementById('root')!).render(
               }
             />
             <Route path="/executions" element={<Navigate to="/history" replace />} />
-            <Route path="/audit" element={<Navigate to="/history" replace />} />
+            <Route path="/audit" element={<Navigate to="/history?view=audit" replace />} />
             <Route
               path="/workflows"
               element={
@@ -142,7 +143,7 @@ createRoot(document.getElementById('root')!).render(
                 </ProtectedRoute>
               }
             />
-            <Route path="*" element={<Navigate to="/" replace />} />
+            <Route path="*" element={<ProtectedRoute><NotFound /></ProtectedRoute>} />
           </Routes>
         </AppShell>
         <CommandPalette />

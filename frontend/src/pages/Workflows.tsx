@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Link } from "react-router-dom";
 import { Link2, CheckCircle, Square, CheckSquare } from "lucide-react";
 import { apiFetch } from "@/lib/api";
@@ -6,6 +6,7 @@ import { toast } from "@/components/shared/Toast";
 import { scoreBand, scoreToColor } from "@/lib/utils";
 import { chainShortLabel, chainNarrative } from "@/lib/chainLabels";
 import Tooltip from "@/components/shared/Tooltip";
+import ErrorState from "@/components/shared/ErrorState";
 import { RISK_SCORE_METHODOLOGY, OVER_PERMISSION_METHODOLOGY } from "@/lib/methodology";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -881,6 +882,7 @@ function WorkflowResult({ result, agentNames, agentColors, mode }: WorkflowResul
 export default function Workflows() {
   const [agents, setAgents] = useState<AgentData[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const [coordinatorId, setCoordinatorId] = useState("");
   const [specialistIds, setSpecialistIds] = useState<string[]>([]);
@@ -904,7 +906,9 @@ export default function Workflows() {
   const [applyingPolicies, setApplyingPolicies] = useState(false);
   const [appliedCount, setAppliedCount] = useState(0);
 
-  useEffect(() => {
+  const loadAgents = useCallback(() => {
+    setLoading(true);
+    setLoadError(null);
     apiFetch<{ agents?: AgentData[] } | AgentData[]>("/api/authority/agents")
       .then((d) => {
         const list = (d as { agents?: AgentData[] }).agents || (Array.isArray(d) ? d : []);
@@ -912,9 +916,12 @@ export default function Workflows() {
         if (list.length >= 1) setCoordinatorId(list[0].id);
         if (list.length >= 2) setSpecialistIds([list[1].id]);
       })
-      .catch(() => {})
+      // Don't render the "you need at least 2 agents" onboarding on an outage.
+      .catch((e: Error) => setLoadError(e.message))
       .finally(() => setLoading(false));
   }, []);
+
+  useEffect(() => { loadAgents(); }, [loadAgents]);
 
   // Fleet-wide auto-scan: the riskiest agent pairings, before any selection.
   useEffect(() => {
@@ -1007,6 +1014,7 @@ export default function Workflows() {
     }
     setOptimizing(true);
     setOptimizeResult(null);
+    setAppliedCount(0);   // a fresh optimize run must re-enable the Apply button
     try {
       const data = await apiFetch<OptimizeResultData>("/api/workflows/optimize", {
         method: "POST",
@@ -1162,6 +1170,10 @@ export default function Workflows() {
         </div>
       </div>
     );
+  }
+
+  if (loadError) {
+    return <div style={{ padding: 40 }}><ErrorState message={loadError} onRetry={loadAgents} /></div>;
   }
 
   if (agents.length < 2) {

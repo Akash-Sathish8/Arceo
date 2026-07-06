@@ -4,16 +4,13 @@
  * soft dividers. Sits above the Agents grid.
  */
 
+import { formatMoney } from "@/lib/format";
+
 interface FleetStripProps {
-  monitored: number;
   total: number;
   spend: number | null;
   criticalChains: number;
   unguarded: number;
-}
-
-function fmtMoney(n: number): string {
-  return "$" + n.toLocaleString("en-US");
 }
 
 interface Cell {
@@ -23,17 +20,16 @@ interface Cell {
 }
 
 export default function FleetStrip({
-  monitored,
   total,
   spend,
   criticalChains,
   unguarded,
 }: FleetStripProps): React.ReactElement {
   const cells: Cell[] = [
-    { label: "Agents monitored", value: `${monitored} / ${total}` },
-    { label: "Forecast / mo",    value: spend !== null ? fmtMoney(spend) : "—" },
-    { label: "Critical chains",  value: criticalChains, color: "var(--critical)" },
-    { label: "Unguarded",        value: unguarded,     color: "var(--caution)" },
+    { label: "Agents",           value: total },
+    { label: "Forecast / mo",    value: spend !== null ? formatMoney(spend) : "—" },
+    { label: "Critical chains",  value: criticalChains, color: criticalChains > 0 ? "var(--critical)" : undefined },
+    { label: "Unguarded",        value: unguarded,      color: unguarded > 0 ? "var(--caution)" : undefined },
   ];
 
   return (

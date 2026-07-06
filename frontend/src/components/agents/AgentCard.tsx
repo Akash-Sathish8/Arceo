@@ -24,6 +24,8 @@ import { Bot, Check, ChevronRight, Clock, Lock } from "lucide-react";
 import { Link } from "react-router-dom";
 import RiskRing from "@/components/shared/RiskRing";
 import { scoreBand } from "@/lib/utils";
+import { formatMoney } from "@/lib/format";
+import { countLabel } from "@/lib/strings";
 
 export interface AgentCardData {
   id: string;
@@ -72,12 +74,10 @@ interface RiskBand {
  *  contradicting itself. */
 export function band(score: number, criticalChains = 0, backendBand?: string): RiskBand {
   const b = scoreBand(score, criticalChains, backendBand);
-  switch (b.key) {
-    case "critical": return { key: "critical", label: "Critical", color: "var(--critical)", ring: "var(--critical-ring)" };
-    case "high":     return { key: "high", label: "High", color: "#ea580c", ring: "#fed7aa" };
-    case "medium":   return { key: "caution", label: "Medium", color: "var(--caution)", ring: "var(--caution-ring)" };
-    default:         return { key: "safe", label: "Low", color: "var(--safe)", ring: "var(--safe-ring)" };
-  }
+  // Reuse the shared band's token colors directly (b.color/b.ring/b.label); the
+  // legacy "caution" key alias is kept for the medium band.
+  const key = b.key === "medium" ? "caution" : b.key;
+  return { key, label: b.label as RiskBand["label"], color: b.color, ring: b.ring };
 }
 
 const CAP_ORDER = ["money", "pii", "delete", "external", "prod"] as const;
@@ -91,17 +91,15 @@ const CAP_LABEL: Record<CapKey, string> = {
   prod: "Changes Production",
 };
 
-/** Pastel hue per capability — one shade per semantic category, not a
- *  monochrome blue scale. Each color maps to the handoff's CAPS taxonomy:
- *  money/financial = coral, PII = lavender, delete = peach, external = sage,
- *  production = amber. Saturation is held down so all five read as one
- *  family even though the hues differ. */
+/** One shade per capability, sourced from the --label-* design tokens so bars
+ *  match the risk-label chips everywhere else and carry real visual weight
+ *  (the old pastels washed out to near-invisible on white). */
 const CAP_FILL: Record<CapKey, string> = {
-  money:    "#F4A6A6", // coral — financial risk
-  pii:      "#C8B8E8", // lavender — privacy
-  delete:   "#F4C499", // peach — destructive
-  external: "#9FCCCC", // sage teal — outbound
-  prod:     "#F0D49C", // amber — production warning
+  money:    "var(--label-moves-money)",
+  pii:      "var(--label-touches-pii)",
+  delete:   "var(--label-deletes-data)",
+  external: "var(--label-sends-external)",
+  prod:     "var(--label-changes-production)",
 };
 
 const UP_TOOL: Record<string, string> = {
@@ -114,9 +112,8 @@ export function fmtTool(t: string): string {
   return t.split("_").map((w) => UP_TOOL[w.toLowerCase()] ?? (w.charAt(0).toUpperCase() + w.slice(1))).join(" ");
 }
 
-export function fmtMoney(n: number): string {
-  return "$" + n.toLocaleString("en-US");
-}
+// Alias kept for existing importers; the impl lives in lib/format.
+export const fmtMoney = formatMoney;
 
 interface CapBarsProps {
   caps: AgentCardData["caps"];
@@ -156,9 +153,9 @@ export function CapBars({ caps, gap = 9, showZeros = true }: CapBarsProps): Reac
             </span>
             <div
               style={{
-                height: 5,
-                borderRadius: 5,
-                background: "var(--line-soft)",
+                height: 6,
+                borderRadius: 6,
+                background: "var(--paper-2)",
                 overflow: "hidden",
               }}
             >
@@ -168,7 +165,7 @@ export function CapBars({ caps, gap = 9, showZeros = true }: CapBarsProps): Reac
                     height: "100%",
                     width: `${fillPct}%`,
                     background: CAP_FILL[k],
-                    borderRadius: 5,
+                    borderRadius: 6,
                   }}
                 />
               )}
@@ -249,10 +246,22 @@ export default function AgentCard({ agent, onOpen }: AgentCardProps): React.Reac
           <Bot size={19} strokeWidth={1.6} />
         </div>
         <div style={{ minWidth: 0 }}>
-          <div style={{ fontSize: 16, fontWeight: 600, color: "var(--ink-900)", letterSpacing: -0.2, lineHeight: 1.2 }}>
+          <div
+            title={agent.name}
+            style={{
+              fontSize: "var(--fs-title)", fontWeight: 600, color: "var(--ink-900)",
+              letterSpacing: -0.2, lineHeight: 1.2,
+              overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+            }}
+          >
             {agent.name}
           </div>
-          <div style={{ fontSize: 13, color: "var(--ink-500)", marginTop: 4, lineHeight: 1.45 }}>
+          <div
+            style={{
+              fontSize: "var(--fs-small)", color: "var(--ink-500)", marginTop: 4, lineHeight: 1.45,
+              display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden",
+            }}
+          >
             {agent.description}
           </div>
         </div>
@@ -260,13 +269,13 @@ export default function AgentCard({ agent, onOpen }: AgentCardProps): React.Reac
           <RiskRing
             value={agent.score}
             size={58}
-            stroke={4.5}
+            stroke={5.5}
             color={b.ring}
             label={Math.round(agent.score)}
           />
           <span
             style={{
-              fontSize: 10.5,
+              fontSize: "var(--fs-micro)",
               fontWeight: 600,
               textTransform: "uppercase",
               letterSpacing: 0.5,
@@ -390,7 +399,7 @@ export default function AgentCard({ agent, onOpen }: AgentCardProps): React.Reac
               lineHeight: 1.3,
             }}
           >
-            <Clock size={13} strokeWidth={1.8} /> {agent.policies} require approval
+            <Clock size={13} strokeWidth={1.8} /> {countLabel(agent.policies, 'approval gate')}
           </span>
         ) : (
           <span
