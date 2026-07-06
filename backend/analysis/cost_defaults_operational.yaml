@@ -6,7 +6,7 @@
 # Surfaced in forecast responses so the UI can show an accurate
 # "last calibrated" date instead of a hardcoded string. Update when the
 # YAML body is materially recalibrated.
-last_calibrated: "2026-05-29"
+last_calibrated: "2026-07-03"
 
 # ──────────────────────────────────────────────────────────────────────────
 # 1. LLM model pricing (USD per million tokens)
