@@ -3042,8 +3042,11 @@ def run_sandbox_simulation(req: SimulateRequest, user: dict = Depends(get_curren
     # Load custom test data if available
     custom_data = _get_custom_data(req.agent_id)
 
-    # Run simulation
-    if req.dry_run:
+    # Run simulation. Fall back to a deterministic dry-run when no LLM key is
+    # configured, so a keyless demo shows a real (mock) trace instead of an
+    # error trace from a failed Anthropic call.
+    use_dry = req.dry_run or not os.getenv("ANTHROPIC_API_KEY")
+    if use_dry:
         from sandbox.runner import run_simulation_dry
         trace = run_simulation_dry(agent, scenario, custom_data=custom_data)
     else:
