@@ -244,8 +244,8 @@ function downloadForecastCsv(
     ["Retry rate (%)", m.retryRate],
     [],
     ["Cost composition", "USD", "Percent"],
-    ["LLM tokens", m.tokensUsd, m.tokensPct],
-    ["Tool calls", m.toolsUsd, m.toolsPct],
+    ["AI model usage", m.tokensUsd, m.tokensPct],
+    ["Software fees", m.toolsUsd, m.toolsPct],
     ["Infrastructure", m.infraUsd, m.infraPct],
   ]
   if (m.topTools?.length) {
@@ -1031,17 +1031,17 @@ function CostPortfolioContent({
                 <div className="flex-1 space-y-2 text-xs">
                   <div className="flex items-center gap-2">
                     <span className="w-2 h-2 rounded-sm" style={{ background: "var(--chart-tokens)" }} />
-                    LLM tokens
+                    AI model usage
                     <span className="ml-auto text-gray-900 font-semibold mono">${m.tokensUsd.toLocaleString()} ({m.tokensPct}%)</span>
                   </div>
                   <div className="flex items-center gap-2">
                     <span className="w-2 h-2 rounded-sm" style={{ background: "var(--chart-tools)" }} />
-                    Tool API calls
+                    Software fees
                     <span className="ml-auto text-gray-900 font-semibold mono">${m.toolsUsd.toLocaleString()} ({m.toolsPct}%)</span>
                   </div>
                   <div className="flex items-center gap-2">
                     <span className="w-2 h-2 rounded-sm" style={{ background: "var(--chart-infra)" }} />
-                    Compute / sandbox
+                    Infrastructure
                     <span className="ml-auto text-gray-900 font-semibold mono">${m.infraUsd.toLocaleString()} ({m.infraPct}%)</span>
                   </div>
                 </div>

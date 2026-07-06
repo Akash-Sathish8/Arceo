@@ -19,7 +19,11 @@ models:
     input_per_mtok: 5.00
     output_per_mtok: 25.00
     cache_discount: 0.90        # cached input = 10% of input price
-    tokenizer_inflation: 1.35   # Opus uses +35% more tokens for same text
+    # UNVERIFIED assumption, applied ONLY to the static char-based token estimate
+    # (never to observed/declared tokens, which already reflect the tokenizer).
+    # It only nudges the low/static tier, whose band ([0.5, 3.0]) already absorbs
+    # tokenizer variance. Adjustable; drop to 1.0 if a measurement disagrees.
+    tokenizer_inflation: 1.35
   claude-sonnet-4-6:
     input_per_mtok: 3.00
     output_per_mtok: 15.00

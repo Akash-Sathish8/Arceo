@@ -168,9 +168,9 @@ export default function SpendDashboard() {
 
   const pctOf = (n: number) => compositionTotal > 0 ? Math.round((n / compositionTotal) * 100) : 0
   const composition = [
-    { label: "LLM tokens",      amount: llmTotal,   pct: pctOf(llmTotal),   color: "var(--chart-tokens)" },
-    { label: "Tool API calls",  amount: toolTotal,  pct: pctOf(toolTotal),  color: "var(--chart-tools)"  },
-    { label: "Compute / infra", amount: infraTotal, pct: pctOf(infraTotal), color: "var(--text-secondary)" },
+    { label: "AI model usage", amount: llmTotal,   pct: pctOf(llmTotal),   color: "var(--chart-tokens)" },
+    { label: "Software fees",  amount: toolTotal,  pct: pctOf(toolTotal),  color: "var(--chart-tools)"  },
+    { label: "Infrastructure", amount: infraTotal, pct: pctOf(infraTotal), color: "var(--text-secondary)" },
   ]
 
   // By model — group by each agent's primary model, sum its LLM-token spend.

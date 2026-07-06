@@ -55,9 +55,18 @@ def _evaluate_session_conditions(conditions: list[dict], session_context: list |
 
     requires_prior checks that a specific tool.action was called earlier in the session.
     Supports wildcards: "pagerduty.*" matches any pagerduty action.
+
+    CONTRACT: a session-conditioned policy only matches when the caller passes
+    session_context. With no context (or an empty one) the requires_prior
+    condition is treated as UNMET, so the policy does NOT apply — the guarded
+    action is decided by the remaining policies/default. Callers that enforce
+    session-gated policies MUST pass session_context (the prior actions this
+    session); the /proxy and sandbox executor do. This is deliberate: a policy
+    conditioned on a prior that did not happen should not fire, and we do not
+    over-gate every action just because a caller omitted context.
     """
     if not session_context:
-        return False  # has session conditions but no context — fails
+        return False  # has session conditions but no/empty context — condition unmet
 
     for cond in conditions:
         required_pattern = str(cond.get("value", ""))
@@ -88,6 +97,24 @@ def _evaluate_session_conditions(conditions: list[dict], session_context: list |
     return True
 
 
+def _pattern_specificity(pattern: str) -> int:
+    """How specific a policy pattern is. Higher wins.
+
+    3 exact (stripe.create_refund) > 2 partial wildcard (stripe.create_*) >
+    1 tool wildcard (stripe.*) > 0 full wildcard (*). Lets an explicit exact-match
+    exception override a broader rule regardless of effect — the intuitive
+    firewall/CSS "most specific rule wins", so `ALLOW stripe.get_customer` beats
+    `BLOCK stripe.*` while `BLOCK stripe.create_refund` beats `ALLOW stripe.*`.
+    """
+    if "*" not in pattern:
+        return 3
+    if pattern in ("*", "*.*", ".*"):
+        return 0
+    if pattern.endswith(".*") and pattern.count("*") == 1:
+        return 1
+    return 2
+
+
 def match_policy(action_key: str, policies: list, params: dict | None = None, session_context: list | None = None) -> dict | None:
     """Match an action key against policies, evaluating conditions if present.
 
@@ -96,7 +123,26 @@ def match_policy(action_key: str, policies: list, params: dict | None = None, se
     If a policy has conditions and params are provided, ALL conditions must match.
     If no params provided, conditions are ignored (backward compatible).
     session_context is a list of prior action strings (e.g. ["pagerduty.get_incident", "aws.list_instances"]).
+
+    Precedence: most SPECIFIC matching pattern first, then effect priority
+    (BLOCK 100 > REQUIRE_APPROVAL 50 > ALLOW 10) as the tie-break within the same
+    specificity — so a narrow exception beats a broad rule, but two rules at the
+    same breadth resolve by effect (a BLOCK wins over an ALLOW).
     """
+    def _get(p, key, default):
+        # Policies arrive as either dicts or sqlite3.Row (no .get()); Row raises
+        # IndexError on a missing column.
+        try:
+            v = p[key]
+            return default if v is None else v
+        except (KeyError, IndexError, TypeError):
+            return default
+
+    policies = sorted(
+        policies,
+        key=lambda p: (_pattern_specificity(_get(p, "action_pattern", "")), _get(p, "priority", 0)),
+        reverse=True,
+    )
     for p in policies:
         pattern = p["action_pattern"]
         pattern_match = False
@@ -122,7 +168,14 @@ def match_policy(action_key: str, policies: list, params: dict | None = None, se
             raw_conditions = p["conditions"]
         except (KeyError, IndexError):
             raw_conditions = None
-        conditions = json.loads(raw_conditions) if raw_conditions else []
+        # Guard the parse: a malformed conditions row must not 500 the enforcement
+        # hot path (the read endpoints already tolerate it). Treat unparseable as
+        # "no conditions" so pattern match alone decides — for a BLOCK that means
+        # it still fires (fail-safe).
+        try:
+            conditions = json.loads(raw_conditions) if raw_conditions else []
+        except (ValueError, TypeError):
+            conditions = []
         if conditions:
             # Split into param conditions and session conditions
             param_conds = [c for c in conditions if c.get("op") != "requires_prior"]
