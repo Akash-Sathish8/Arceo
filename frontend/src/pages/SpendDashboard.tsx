@@ -218,16 +218,26 @@ export default function SpendDashboard() {
     triggerDownload(`arceo-fleet-spend-${todayIso()}.csv`, csv, "text/csv;charset=utf-8;")
   }
 
+  // Aggregate each agent's REAL forecast band instead of a hardcoded ±28%.
+  // The band is asymmetric per tier (low [0.5,3.0], med [0.7,2.0], high ±15%),
+  // so a fleet of mostly-low-confidence agents is far wider than ±28% — show
+  // the true −X% / +Y% derived from the summed low/high.
+  const fleetLow = Math.round(withForecast.reduce((s, r) => s + (r.forecast?.low ?? r.forecast?.point ?? 0), 0))
+  const fleetHigh = Math.round(withForecast.reduce((s, r) => s + (r.forecast?.high ?? r.forecast?.point ?? 0), 0))
+  const fleetBandLabel = totalSpend > 0
+    ? `−${Math.max(0, Math.round((1 - fleetLow / totalSpend) * 100))}% / +${Math.max(0, Math.round((fleetHigh / totalSpend - 1) * 100))}%`
+    : "n/a"
+
   const fleetReportData: FleetReportData = {
     org: "your organization",
     dateString: new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" }),
     agentCount: withForecast.length,
     uncalibrated: noForecast.length,
     totalMonthly: totalSpend,
-    monthlyLow: Math.round(totalSpend * 0.72),
-    monthlyHigh: Math.round(totalSpend * 1.28),
+    monthlyLow: fleetLow,
+    monthlyHigh: fleetHigh,
     annualRunRate,
-    confidenceBand: "±28%",
+    confidenceBand: fleetBandLabel,
     composition: composition.map((c) => ({ label: c.label, usd: c.amount, pct: c.pct })),
     byModel: byModel.map((m) => ({ name: m.name, amount: m.amount, pctOfLlm: m.pctOfLlm })),
     agents: sortedFleet.map((a) => ({
