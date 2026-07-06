@@ -248,6 +248,19 @@ def detect_chains(agent: AgentConfig, action_overrides: dict | None = None) -> A
         elif _sev_rank.get(fc.chain.severity, 0) > _sev_rank.get(deduped[pair_index[key]].chain.severity, 0):
             deduped[pair_index[key]] = fc
 
+    # Composability guard for the marquee PII-exfil chain. It's flagged whenever
+    # the agent has ANY touches_pii action and ANY sends_external action — but a
+    # single-record read (get_customer) plus an internal chat post is not a
+    # critical MASS-exfiltration. The "critical" framing assumes volume, so it
+    # requires a bulk-read capability; without one the chain is still surfaced,
+    # as "high", not a red false-positive critical. (bulk-external stays critical
+    # on its own — that IS the mass-exfil path.)
+    has_bulk = any("bulk_export" in a.risk_labels for a in all_actions)
+    if not has_bulk:
+        for fc in deduped:
+            if fc.chain.id == "pii-exfil" and fc.chain.severity == "critical":
+                fc.chain.severity = "high"
+
     return AgentChainResult(
         agent_id=agent.id,
         agent_name=agent.name,

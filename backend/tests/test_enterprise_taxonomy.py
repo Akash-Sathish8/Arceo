@@ -121,6 +121,20 @@ def test_symmetric_chains_collapse_to_one_direction():
     assert ("money-external" in fired) ^ ("external-money" in fired), sorted(fired)
 
 
+def test_pii_exfil_critical_requires_bulk_capability():
+    # Audit false-positive: a single-record PII read + a send (no bulk capability)
+    # must not read as a critical mass-exfiltration.
+    single = AgentConfig(id="p1", name="P", description="d",
+                        tools=[_tool("stripe"), _tool("slack")])
+    sev = {fc.chain.id: fc.chain.severity for fc in detect_chains(single).flagged_chains}
+    assert sev.get("pii-exfil") == "high", sev
+    # A bulk-read capability makes the mass-exfil framing genuinely critical.
+    bulk = AgentConfig(id="p2", name="P2", description="d",
+                       tools=[_tool("salesforce"), _tool("email")])
+    sev2 = {fc.chain.id: fc.chain.severity for fc in detect_chains(bulk).flagged_chains}
+    assert sev2.get("pii-exfil") == "critical", sev2
+
+
 def test_all_transition_labels_are_valid():
     for t in LABEL_TRANSITIONS:
         assert t.from_label in VALID_LABELS, t.id
