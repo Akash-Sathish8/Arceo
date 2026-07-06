@@ -59,3 +59,41 @@ def test_forecast_available_with_declared_volume():
     out = forecast_spend({"id": "a", "name": "A", "tools": []}, overrides={"runs_per_day": 100})
     assert out["available"] is True
     assert out["point"] is not None and out["point"] >= 0
+
+
+# ── D27: early live traffic is a real volume signal ─────────────────────────
+
+def test_early_live_traffic_unlocks_forecast_at_wide_band():
+    # 16 captured calls: below the 50-call high tier, but real traffic — must
+    # produce a number at low confidence, not "no data".
+    out = forecast_spend(
+        {"id": "zc", "name": "ZeroCode", "tools": []},
+        live_trace_count_7d=16,
+        overrides={"llm_calls_per_day": 16, "input_tokens": 800, "output_tokens": 200,
+                   "cache_hit": 0, "observed_days": 1.0},
+    )
+    assert out["available"] is True
+    assert out["confidence"] == "low"          # high still requires 50 calls
+    assert out["point"] is not None and out["point"] > 0
+    assert out["observedDays"] == 1.0          # honesty caption data flows through
+
+
+def test_below_forecast_floor_reports_collecting_not_no_data():
+    # 3 calls: capture works but won't anchor a monthly number — the response
+    # must say so (progress state), never contradict the data-sources panel.
+    out = forecast_spend({"id": "zc", "name": "ZeroCode", "tools": []}, live_trace_count_7d=3)
+    assert out["available"] is False
+    assert out["reason"] == "collecting_live_traffic"
+    assert out["liveCalls7d"] == 3
+    assert out["liveCallsNeeded"] == 5
+
+
+def test_high_tier_still_requires_fifty_calls():
+    out = forecast_spend(
+        {"id": "zc", "name": "ZeroCode", "tools": []},
+        live_trace_count_7d=50,
+        overrides={"llm_calls_per_day": 50, "input_tokens": 800, "output_tokens": 200,
+                   "cache_hit": 0, "observed_days": 7.0},
+    )
+    assert out["available"] is True
+    assert out["confidence"] == "high"

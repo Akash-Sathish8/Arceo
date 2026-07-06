@@ -270,6 +270,15 @@ def _compute_unit_econ(
 # and don't claim the high-confidence band.
 LIVE_TRACE_MIN_CALLS = 50
 
+# But early live traffic IS a real volume signal (D27): a zero-code customer's
+# first captured calls must unlock a forecast at the wide low/medium band, not
+# a "no data" screen that contradicts the data-sources panel. From this floor
+# up, live traces count toward availability and feed the rolling averages;
+# below it a monthly extrapolation would ride on a handful of calls, so we
+# show capture progress instead of a number. HIGH confidence still requires
+# LIVE_TRACE_MIN_CALLS.
+LIVE_TRACE_MIN_CALLS_FORECAST = 5
+
 # Bumped whenever the cost FORMULA changes scale (not just calibration values),
 # so vs-last-month doesn't show a bogus jump comparing across formula versions.
 # v2 (2026-06-19): runs × turns model — forecasts ~4× higher than v1.
@@ -1285,13 +1294,17 @@ def forecast_spend(
         or overrides.get("calls_per_day") is not None
         or overrides.get("llm_calls_per_day") is not None
     )
-    available = has_volume or bool(sandbox_traces) or (live_trace_count_7d >= LIVE_TRACE_MIN_CALLS)
+    available = has_volume or bool(sandbox_traces) or (live_trace_count_7d >= LIVE_TRACE_MIN_CALLS_FORECAST)
     if not available:
         _tn = [(t.get("name") or "").lower() for t in agent_config.get("tools", []) if t.get("name")]
         _tc = defaults.get("tool_action_costs", {}) or {}
         return {
             "available": False,
-            "reason": "no_data",
+            # 1–4 captured calls: capture IS working, we just won't extrapolate
+            # a month from it yet — the UI shows progress, not "no data".
+            "reason": "collecting_live_traffic" if live_trace_count_7d > 0 else "no_data",
+            "liveCalls7d": live_trace_count_7d,
+            "liveCallsNeeded": LIVE_TRACE_MIN_CALLS_FORECAST,
             "needs": ["declare_volume", "sandbox_sweep", "live_traces"],
             "point": None, "low": None, "high": None, "annual": None, "pointExact": None,
             "vsLastMonth": 0, "vsLastMonthAvailable": False,

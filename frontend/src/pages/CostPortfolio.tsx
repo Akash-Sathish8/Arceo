@@ -379,11 +379,15 @@ function ForecastUnavailableView({
   agentId,
   displayName,
   coverage,
+  liveCalls7d,
+  liveCallsNeeded,
   onDeclared,
 }: {
   agentId: string | undefined
   displayName: string
   coverage?: MockSpend["coverage"]
+  liveCalls7d?: number
+  liveCallsNeeded?: number
   onDeclared: () => void
 }) {
   const [phase, setPhase] = useState<SweepPhase>("idle")
@@ -456,12 +460,28 @@ function ForecastUnavailableView({
       >
         <div className="text-center">
           <Banknote size={28} className="mx-auto text-gray-400" />
-          <div className="mt-3 text-base font-semibold text-gray-800">No forecast yet for {displayName}</div>
-          <p className="mt-2 text-sm text-gray-500 leading-relaxed">
-            We won't show a dollar figure built only from defaults. Tell us three things about how this
-            agent runs — we'll sandbox it against every risk scenario and hand back a measured
-            forecast with a real ± band.
-          </p>
+          {liveCalls7d && liveCalls7d > 0 ? (
+            // Live capture IS working — never tell this customer "no data" (D27).
+            <>
+              <div className="mt-3 text-base font-semibold text-gray-800">
+                We're watching {displayName}'s real traffic
+              </div>
+              <p className="mt-2 text-sm text-gray-500 leading-relaxed">
+                {liveCalls7d} of {liveCallsNeeded ?? 5} calls captured so far. Once {liveCallsNeeded ?? 5} real
+                calls come through, a spend forecast built from your actual traffic appears here automatically —
+                usually within a day. Don't want to wait? Answer three questions below and we'll estimate it now.
+              </p>
+            </>
+          ) : (
+            <>
+              <div className="mt-3 text-base font-semibold text-gray-800">No forecast yet for {displayName}</div>
+              <p className="mt-2 text-sm text-gray-500 leading-relaxed">
+                We won't show a dollar figure built only from defaults. Tell us three things about how this
+                agent runs — we'll sandbox it against every risk scenario and hand back a measured
+                forecast with a real ± band.
+              </p>
+            </>
+          )}
         </div>
 
         {phase === "idle" ? (
@@ -680,6 +700,8 @@ function CostPortfolioContent({
         agentId={agentId}
         displayName={displayName}
         coverage={m.coverage}
+        liveCalls7d={m.liveCalls7d}
+        liveCallsNeeded={m.liveCallsNeeded}
         onDeclared={() => { if (agentId) fetchSpendForecast(agentId).then((f) => { if (f) setForecast(f) }) }}
       />
     )
@@ -693,7 +715,10 @@ function CostPortfolioContent({
       <h1 className="text-2xl font-bold tracking-tight">Cost portfolio · {displayName}</h1>
       <div className="mt-2">
         <div className="text-sm font-medium text-gray-700">Operational spend forecast</div>
-        <div className="text-xs text-gray-500 mt-1">Updated {relativeTime(m.capturedAt)} · derived from <span className="font-semibold text-gray-700">{m.confidence === "high" ? "live traces" : m.confidence === "medium" ? "sandbox traces" : "capability tree"}</span></div>
+        {/* observedDays is only set when live traffic actually fed the number —
+            below 50 calls the confidence stays low/medium but the basis is
+            still real traffic, not the capability tree (D27). */}
+        <div className="text-xs text-gray-500 mt-1">Updated {relativeTime(m.capturedAt)} · derived from <span className="font-semibold text-gray-700">{m.confidence === "high" || m.observedDays != null ? "live traces" : m.confidence === "medium" ? "sandbox traces" : "capability tree"}</span></div>
       </div>
 
       {anomaly && <AnomalyBanner anomaly={anomaly} displayName={displayName} />}
@@ -798,12 +823,15 @@ function CostPortfolioContent({
             range <span className="text-gray-900 mono font-semibold">${m.low.toLocaleString()} – ${m.high.toLocaleString()}</span>
             <span
               className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full mx-2 cursor-help"
-              title={conf.tooltip}
+              title={m.observedDays != null && m.confidence !== "high"
+                ? "Built from this agent's first captured production calls — real traffic, but not enough of it yet to promise a tight range. The range narrows automatically as calls accumulate; high confidence unlocks at 50 calls."
+                : conf.tooltip}
               style={{ background: conf.bg, color: conf.color, border: `1px solid ${conf.border}` }}
             >{conf.label}</span>
-            {m.confidence === "high" && m.observedDays != null && (
+            {m.observedDays != null && (
               <span className="text-xs text-gray-500 mr-2">
                 based on {m.observedDays <= 1 ? "1 day" : `${Math.round(m.observedDays)} days`} of observed traffic
+                {m.confidence !== "high" && " — early days, so the range is wide; it tightens as more calls come through"}
               </span>
             )}
             · last calibrated <strong className="text-gray-900">{formatCalibrationDate(m.lastCalibrated)}</strong>
