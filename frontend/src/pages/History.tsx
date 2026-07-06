@@ -2,8 +2,17 @@ import { useState, useEffect, useMemo, useRef } from "react";
 import { useSearchParams } from "react-router-dom";
 import { Download, Search } from "lucide-react";
 import { apiFetch } from "@/lib/api";
+import { parseTimestamp } from "@/lib/time";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
+
+// Offset-safe CSV timestamp: backend emits naive SQLite datetimes that raw
+// `new Date().toISOString()` throws on (RangeError: Invalid time value),
+// aborting the whole export. Fall back to the raw value if unparseable.
+function csvTime(ts: string): string {
+  const d = parseTimestamp(ts);
+  return isNaN(d.getTime()) ? (ts ?? "") : d.toISOString();
+}
 
 // ---------------------------------------------------------------------------
 // Types
@@ -339,7 +348,7 @@ export default function History(): React.ReactElement {
       if (isExec) {
         const ex = e as ExecutionEntry;
         rows.push([
-          new Date(ex.timestamp).toISOString(),
+          csvTime(ex.timestamp),
           agentMap[ex.agent_id] ?? ex.agent_id,
           ex.tool,
           ex.action,
@@ -349,7 +358,7 @@ export default function History(): React.ReactElement {
       } else {
         const au = e as AuditEntry;
         rows.push([
-          new Date(au.timestamp).toISOString(),
+          csvTime(au.timestamp),
           au.user_email ?? "",
           au.action,
           au.resource ?? "",

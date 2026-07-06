@@ -898,12 +898,9 @@ function CostPortfolioContent({
               className="w-full px-3 py-2 rounded-md border bg-white text-sm mono"
               style={{ borderColor: "var(--border)" }}
             >
-              <option value="claude-sonnet-4-6">claude-sonnet-4-6 — $3 / $15 per Mtok</option>
-              <option value="claude-haiku-4-5">claude-haiku-4-5 — $1 / $5 per Mtok</option>
-              <option value="claude-opus-4-7">claude-opus-4-7 — $5 / $25 per Mtok</option>
-              <option value="gpt-4o">gpt-4o — $2.50 / $10 per Mtok</option>
-              <option value="gpt-4o-mini">gpt-4o-mini — $0.15 / $0.60 per Mtok</option>
-              <option value="gpt-5">gpt-5 — $5 / $30 per Mtok</option>
+              {FORECAST_MODELS.map((m) => (
+                <option key={m.id} value={m.id}>{m.label}</option>
+              ))}
             </select>
           </div>
           <LiveSlider
@@ -1067,7 +1064,7 @@ function CostPortfolioContent({
                   <td className="py-2 pl-2 font-medium text-gray-900">{t.tool}</td>
                   <td className="py-2 text-right mono text-gray-700">{t.callsPerMonth.toLocaleString()}</td>
                   <td className="py-2 text-right mono text-gray-700">${t.costPer.toFixed(2)}</td>
-                  <td className="py-2 pr-2 text-right mono font-semibold text-gray-900">${t.monthly}</td>
+                  <td className="py-2 pr-2 text-right mono font-semibold text-gray-900">${t.monthly.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                 </tr>
               ))}
             </tbody>

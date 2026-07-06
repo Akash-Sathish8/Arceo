@@ -704,7 +704,7 @@ function WorstCasePanel({
 
           {br.exposure_context?.multiplier !== undefined && br.exposure_context.multiplier !== 1 && (
             <div className="text-xs text-gray-600">
-              In deployment context: <strong style={{ color: scoreToColor(br.contextual_score ?? br.score) }}>{br.contextual_score}</strong>
+              In deployment context: <strong style={{ color: scoreToColor(br.contextual_score ?? br.score) }}>{br.contextual_score ?? br.score}</strong>
               {' ('}
               {[
                 br.exposure_context.environment,

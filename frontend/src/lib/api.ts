@@ -7,9 +7,28 @@ let authToken: string | null = localStorage.getItem("arceo_token");
 
 export interface ApiFetchOptions extends RequestInit {
   skipLogoutOn401?: boolean;
-  /** Per-request timeout in ms. Defaults to 15s so a hung backend surfaces an
-   *  error instead of spinning forever. Long jobs (sweeps) pass a larger value. */
+  /** Per-request timeout in ms. Defaults to 15s for normal calls; long-running
+   *  LLM jobs (see LONG_RUNNING_PATHS) default to 5 min. Pass an explicit value
+   *  to override either default. */
   timeoutMs?: number;
+}
+
+const DEFAULT_TIMEOUT_MS = 15_000;
+const LONG_TIMEOUT_MS = 300_000; // 5 min — real-LLM sims/sweeps/scans
+
+// Endpoints that run a real LLM loop (sandbox sims, sweeps, scenario generation,
+// workflow optimization, repo scans). Without this they hit the 15s default and
+// false-fail while the backend is still working — the exact demo-breaker.
+const LONG_RUNNING_PATHS = [
+  "/simulate",
+  "/sweep",
+  "generate-scenarios",
+  "workflows/optimize",
+  "agents/extract",
+];
+
+function defaultTimeoutFor(path: string): number {
+  return LONG_RUNNING_PATHS.some((p) => path.includes(p)) ? LONG_TIMEOUT_MS : DEFAULT_TIMEOUT_MS;
 }
 
 export function setToken(token: string | null): void {
@@ -49,7 +68,8 @@ export async function apiFetch<T>(
   path: string,
   options: ApiFetchOptions = {}
 ): Promise<T> {
-  const { skipLogoutOn401, timeoutMs = 15_000, signal, ...fetchOptions } = options;
+  const { skipLogoutOn401, timeoutMs, signal, ...fetchOptions } = options;
+  const effectiveTimeout = timeoutMs ?? defaultTimeoutFor(path);
 
   const headers: Record<string, string> = {
     ...(fetchOptions.headers as Record<string, string> | undefined),
@@ -64,7 +84,7 @@ export async function apiFetch<T>(
   }
 
   // Abort on timeout OR if the caller passed its own signal.
-  const timeoutSignal = AbortSignal.timeout(timeoutMs);
+  const timeoutSignal = AbortSignal.timeout(effectiveTimeout);
   const combinedSignal = signal
     ? (AbortSignal as unknown as { any(s: AbortSignal[]): AbortSignal }).any([signal, timeoutSignal])
     : timeoutSignal;
