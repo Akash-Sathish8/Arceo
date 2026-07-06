@@ -404,9 +404,12 @@ def _model_recognized(model_str: Optional[str], defaults: dict) -> bool:
     return max((_common_prefix_len(k, ms) for k in models), default=0) >= 4
 
 
-def _extract_usage(detail: dict) -> Optional[tuple[int, int, int]]:
-    """Pull (total_input_tokens, cached_input_tokens, output_tokens) from a
-    captured LLM call's stored provider response.
+def _extract_usage(detail: dict) -> Optional[tuple[int, int, int, int]]:
+    """Pull (total_input_tokens, cache_read_tokens, cache_creation_tokens,
+    output_tokens) from a captured LLM call's stored provider response.
+
+    cache_creation is billed at a WRITE premium (Anthropic ~1.25x input); only
+    Anthropic reports it separately, so it is 0 for other providers.
 
     Handles the major provider shapes:
       - Anthropic: usage.{input_tokens, output_tokens, cache_read_input_tokens,
@@ -442,16 +445,19 @@ def _extract_usage(detail: dict) -> Optional[tuple[int, int, int]]:
         out = int(usage.get("completion_tokens") or 0)
         details = usage.get("prompt_tokens_details") or {}
         cached = int(details.get("cached_tokens") or 0) if isinstance(details, dict) else 0
+        cache_creation = 0
     elif "promptTokenCount" in usage:  # Gemini
         total_in = int(usage.get("promptTokenCount") or 0)
         out = int(usage.get("candidatesTokenCount") or 0)
         cached = int(usage.get("cachedContentTokenCount") or 0)
+        cache_creation = 0
     else:
         return None
 
     if total_in <= 0 and out <= 0:
         return None
-    return total_in, min(cached, total_in), out
+    cached = min(cached, total_in)
+    return total_in, cached, min(cache_creation, max(0, total_in - cached)), out
 
 
 def _parse_iso(ts: Any):
@@ -502,9 +508,9 @@ def compute_live_rolling_averages(audit_rows: list) -> dict:
             continue
         usages.append(u)
         # Real per-call $ using THIS call's own model (blends a mixed-model fleet).
-        _tin, _cached, _out = u
+        _tin, _cached, _cc, _out = u
         _mk = _resolve_model_key(detail.get("model"), defaults)
-        per_call_costs.append(_call_cost_usd(_tin, _cached, _out, _mk, defaults))
+        per_call_costs.append(_call_cost_usd(_tin, _cached, _out, _mk, defaults, cache_creation=_cc))
         t = _parse_iso(_row_get(row, "timestamp"))
         if t is not None:
             times.append(t)
@@ -515,7 +521,7 @@ def compute_live_rolling_averages(audit_rows: list) -> dict:
     n = len(usages)
     total_in = sum(x[0] for x in usages)
     total_cached = sum(x[1] for x in usages)
-    total_out = sum(x[2] for x in usages)
+    total_out = sum(x[3] for x in usages)
 
     # Observed call rate over the actual span the data covers, clamped to the
     # 7-day window we queried (avoids understating a 2-day-old agent and
@@ -610,9 +616,9 @@ def compute_spend_timeseries(
         u = _extract_usage(detail)
         if u is None:
             continue
-        total_in, cached, out = u
+        total_in, cached, cache_creation, out = u
         model_key = _resolve_model_key(detail.get("model"), defaults)
-        usd = _call_cost_usd(total_in, cached, out, model_key, defaults)
+        usd = _call_cost_usd(total_in, cached, out, model_key, defaults, cache_creation=cache_creation)
         date = str(ts)[:10]
         b = buckets.setdefault(date, [0.0, 0.0])
         b[0] += usd
@@ -655,26 +661,34 @@ def compute_month_to_date_spend(
         u = _extract_usage(detail)
         if u is None:
             continue
-        total_in, cached, out = u
+        total_in, cached, cache_creation, out = u
         model_key = _resolve_model_key(detail.get("model"), defaults)
-        total += _call_cost_usd(total_in, cached, out, model_key, defaults)
+        total += _call_cost_usd(total_in, cached, out, model_key, defaults, cache_creation=cache_creation)
     return round(total, 2)
 
 
+# Anthropic bills a cache WRITE (cache_creation) at ~1.25x the input rate; a
+# cache READ gets the discount. Billing writes at 1.0x under-counted cache-heavy
+# agents on the observed (high-confidence) path.
+CACHE_WRITE_MULTIPLIER = 1.25
+
+
 def _call_cost_usd(
-    total_input: int, cached_input: int, output: int, model_key: str, defaults: dict
+    total_input: int, cached_input: int, output: int, model_key: str, defaults: dict,
+    cache_creation: int = 0,
 ) -> float:
-    """Dollar cost of a single captured call, applying the model's cache
-    discount to the cached portion of input."""
+    """Dollar cost of a single captured call: cache reads get the discount, cache
+    writes get the write premium, the rest is billed at the input rate."""
     models = defaults.get("models", {})
     mp = models.get(model_key) or models.get(defaults.get("default_model")) or {}
     in_price = float(mp.get("input_per_mtok", 0.0)) / 1_000_000.0
     out_price = float(mp.get("output_per_mtok", 0.0)) / 1_000_000.0
     cache_discount = float(mp.get("cache_discount", 0.5))
-    non_cached = max(0, total_input - cached_input)
+    non_cached = max(0, total_input - cached_input - cache_creation)
     return (
         non_cached * in_price
         + cached_input * in_price * (1.0 - cache_discount)
+        + cache_creation * in_price * CACHE_WRITE_MULTIPLIER
         + output * out_price
     )
 
@@ -732,9 +746,9 @@ def detect_spend_anomaly(
         u = _extract_usage(detail)
         if u is None:
             continue
-        total_in, cached, out = u
+        total_in, cached, cache_creation, out = u
         model_key = _resolve_model_key(detail.get("model"), defaults)
-        usd = _call_cost_usd(total_in, cached, out, model_key, defaults)
+        usd = _call_cost_usd(total_in, cached, out, model_key, defaults, cache_creation=cache_creation)
         call = (usd, total_in + out, model_key)
         (recent if ts >= cutoff_recent else baseline).append(call)
 
@@ -1575,7 +1589,9 @@ def forecast_spend(
         "observedDays": (overrides.get("observed_days") if _live_path else None),
         "low": round(monthly_low),
         "high": round(monthly_high),
-        "annual": round(monthly_point * 12),
+        # Derive annual from the ROUNDED monthly shown on the card, so a CFO who
+        # multiplies the displayed monthly by 12 gets exactly this number.
+        "annual": round(monthly_point) * 12,
         "vsLastMonth": vs_last_month,
         "vsLastMonthAvailable": vs_last_month_available,
         "callsPerDay": llm_calls_per_day,   # total LLM calls/day (= runs × turns); back-compat key
