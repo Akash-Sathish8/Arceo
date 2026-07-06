@@ -86,3 +86,27 @@ def test_chain_uplift_is_meaningful_but_capped():
     # ...but many chains cannot saturate the score.
     many = [_FC("critical")] * 10
     assert _chain_uplift(many) == CHAIN_UPLIFT_CAP <= 12.0
+
+def test_soft_cap_desaturates_the_top():
+    # A1: a hard min(100) made every very-dangerous agent read exactly 100 —
+    # the two worst became indistinguishable. The soft cap keeps sub-knee scores
+    # exact, compresses above asymptotically, and never reaches 100 — so ordering
+    # survives at the top.
+    from authority.graph import _soft_cap
+    assert _soft_cap(40) == 40                 # below knee: untouched
+    assert _soft_cap(85) == 85                 # at the knee
+    assert 85 < _soft_cap(100) < 100           # compressed, not pegged
+    assert _soft_cap(200) < 100                # never hits 100
+    # strictly increasing above the knee → the more-dangerous agent always higher
+    assert _soft_cap(90) < _soft_cap(115) < _soft_cap(140)
+
+
+def test_two_extreme_agents_are_distinguishable():
+    # Two agents both far above the old cap must not both round to 100.
+    agents = {a.name: a for a in load_all_agents()}
+    scored = sorted(
+        (round(calculate_blast_radius(a).score) for a in agents.values()),
+        reverse=True,
+    )
+    top = [s for s in scored if s >= 90]
+    assert len(set(top)) == len(top) or len(top) <= 1, f"top scores not distinct: {top}"
