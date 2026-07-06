@@ -138,6 +138,21 @@ def score_band(score: float, critical_chains: int = 0) -> str:
     return "medium" if critical_chains > 0 else "low"
 
 
+# Soft saturation for the top of the scale (A1). A hard min(100) made every
+# sufficiently-dangerous agent read EXACTLY 100, so the two worst agents were
+# indistinguishable. Below the knee the score is untouched (mid-fleet bands and
+# ordering unchanged); above it the score approaches 100 asymptotically, so a
+# bigger true magnitude always yields a higher score without ever hitting 100.
+_SATURATION_KNEE = 85.0
+
+
+def _soft_cap(x: float, knee: float = _SATURATION_KNEE, ceiling: float = 100.0) -> float:
+    if x <= knee:
+        return max(0.0, x)
+    span = ceiling - knee
+    return knee + span * (1.0 - math.exp(-(x - knee) / span))
+
+
 def _is_read_only(action_name: str) -> bool:
     """Check if an action is read-only for the 0.15x scoring floor.
 
@@ -401,22 +416,25 @@ def calculate_blast_radius(
         # reference fleet keeps its intended placement (evals/calibrate_fleet.py):
         # note-taker 0 / CRM ~14-20 low / T1 support ~40 medium / incident
         # response ~55 / max-danger infra >85 critical.
-        raw = min(100.0, (weighted / 265) * 100)
+        # Uncapped here — the soft cap below turns the true magnitude into a
+        # 0-100 score, so a huge action surface keeps registering above the knee
+        # instead of flat-lining at 100.
+        raw = (weighted / 265) * 100
         active_chains = (
             [fc for fc in chain_list if not _chain_broken(fc, policies)] if broken_filter else chain_list
         )
         return raw + density_bonus, _chain_uplift(active_chains)
 
     inh_base, chain_risk = _aggregate(2, broken_filter=False)
-    inherent = min(100.0, inh_base + chain_risk)
+    inherent = _soft_cap(inh_base + chain_risk)
 
     res_base, res_chain_risk = _aggregate(3, broken_filter=bool(policies))
     confidence, evidence_uplift, evidence = _evidence_grade(sim_evidence)
-    residual = min(inherent, min(100.0, res_base + res_chain_risk) + evidence_uplift)
+    residual = min(inherent, _soft_cap(res_base + res_chain_risk) + evidence_uplift)
 
     ctx = dict(exposure_context or {})
     ctx_mult = ctx.get("multiplier", 1.0)
-    contextual = min(100.0, inherent * ctx_mult)
+    contextual = _soft_cap(inherent * ctx_mult)
 
     magnitude_usd = max((s[4] for s in scored), default=0.0)
     top = sorted((s for s in scored if s[2] > 0), key=lambda s: s[2], reverse=True)[:5]
