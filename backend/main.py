@@ -924,9 +924,14 @@ def _wipe_demo_data() -> None:
 
 @app.post("/api/auth/login")
 def login(req: LoginRequest):
-    is_demo_email = (req.email or "").strip().lower() == "demo"
+    # The `demo` magic email resets the demo instance — but ONLY when DEMO_MODE
+    # is set. Without this gate the reset was reachable unauthenticated on ANY
+    # deployment: an anonymous POST {"email":"demo"} ran a DELETE across every
+    # tenant's tables. Demo instances must set DEMO_MODE=true for the reset to
+    # work; a customer deployment (DEMO_MODE unset) can never trigger it.
     is_demo_mode = os.getenv("DEMO_MODE", "").lower() == "true"
-    if is_demo_email or is_demo_mode:
+    is_demo_email = (req.email or "").strip().lower() == "demo"
+    if is_demo_mode and is_demo_email:
         _wipe_demo_data()
         return login_user("admin@actiongate.io", "admin123")
     return login_user(req.email, req.password)
@@ -5025,9 +5030,13 @@ def apply_recommended_policy(req: ApplyPolicyRequest, user: dict = Depends(get_c
         if dupe:
             return {"id": dupe["id"], "message": "Policy already exists", "already_exists": True}
 
+        # Must set priority (BLOCK=100/APPROVAL=50/ALLOW=10) — same as create_policy.
+        # Omitting it defaulted to 0, so an applied BLOCK lost to any broad ALLOW
+        # at enforcement (ORDER BY priority DESC): the recommended block was fail-open.
+        priority = {"BLOCK": 100, "REQUIRE_APPROVAL": 50, "ALLOW": 10}.get(req.effect, 0)
         cur = conn.execute(
-            "INSERT INTO policies (agent_id, action_pattern, effect, reason, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-            (req.agent_id, req.action_pattern, req.effect, req.reason, user["email"], datetime.utcnow().isoformat()),
+            "INSERT INTO policies (agent_id, action_pattern, effect, reason, priority, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (req.agent_id, req.action_pattern, req.effect, req.reason, priority, user["email"], datetime.utcnow().isoformat()),
         )
         log_audit(conn, user["sub"], user["email"], "APPLY_RECOMMENDATION", resource=req.agent_id,
                   detail=f"{req.effect} on {req.action_pattern}")
@@ -5060,9 +5069,10 @@ def apply_all_recommended_policies(req: ApplyAllPoliciesRequest, user: dict = De
                 skipped += 1
                 continue
 
+            priority = {"BLOCK": 100, "REQUIRE_APPROVAL": 50, "ALLOW": 10}.get(p.effect, 0)
             conn.execute(
-                "INSERT INTO policies (agent_id, action_pattern, effect, reason, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-                (req.agent_id, p.action_pattern, p.effect, p.reason, user["email"], datetime.utcnow().isoformat()),
+                "INSERT INTO policies (agent_id, action_pattern, effect, reason, priority, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (req.agent_id, p.action_pattern, p.effect, p.reason, priority, user["email"], datetime.utcnow().isoformat()),
             )
             created += 1
 
