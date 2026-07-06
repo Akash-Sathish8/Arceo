@@ -40,11 +40,19 @@ KEYWORD_RULES: dict[str, list[str]] = {
         "create_invoice", "finalize_invoice", "create_refund",
         "create_payment", "void_payment", "create_payout", "create_transfer",
         "retry_payment", "credit_memo", "journal_entry",
+        # bare "invoice"/"disburse" were locked in UNAMBIGUOUS but never assigned
+        # here (dead-lock): a `disburse_loan`/`invoice_customer` action scored $0.
+        # Plus the wire/settle/remit/reimburse/ach money verbs the list missed.
+        "invoice", "disburse", "reimburse", "remit",
+        "wire_transfer", "wire_funds", "settle_payment", "settle_ach",
+        "ach_transfer", "ach_debit", "ach_credit",
     ],
     "touches_pii": [
         "customer", "user", "contact", "personal", "profile",
         "pii", "address", "phone", "ssn", "identity",
         "employee", "patient", "compensation",
+        # locked in UNAMBIGUOUS but never assigned here (dead-lock).
+        "passport", "social_security", "date_of_birth",
     ],
     "changes_production": [
         "deploy", "merge", "release", "production", "infrastructure",
@@ -71,7 +79,7 @@ KEYWORD_RULES: dict[str, list[str]] = {
         "disable_log", "delete_log", "purge_log", "disable_audit", "delete_audit",
         "disable_alert", "disable_monitoring", "disable_alarm", "stop_trail",
         "delete_trail", "cloudtrail", "disable_guardrail", "clear_history",
-        "disable_flow_log", "tamper", "disable_logging",
+        "disable_flow_log", "tamper", "disable_logging", "stop_logging", "stop_log",
     ],
     # bulk_export is mass READ/collection. Deliberately NOT bare "bulk"/"mass_":
     # those match writes/sends (bulk_update_prices, send_bulk_email, mass_email).
@@ -93,9 +101,14 @@ KEYWORD_RULES: dict[str, list[str]] = {
 UNAMBIGUOUS_KEYWORDS: dict[str, list[str]] = {
     "deletes_data": ["delete", "drop", "purge", "destroy", "truncate",
                      "erase", "wipe"],
+    # Verbs only. Nouns "invoice"/"payment" are NOT locked: they appear in
+    # non-money actions (export_invoice, get_payment, payment_method) — they stay
+    # in KEYWORD_RULES as WEAK so the LLM can veto the document/read cases while
+    # still confirming create_invoice/charge_payment.
     "moves_money": ["pay", "refund", "payout", "debit",
-                    "invoice", "payment", "journal_entry", "credit_memo",
-                    "disburse"],
+                    "journal_entry", "credit_memo",
+                    "disburse", "reimburse", "remit", "wire_transfer",
+                    "wire_funds", "settle_ach", "ach_transfer", "ach_debit"],
     "changes_production": ["deploy", "terminate", "provision",
                            "rollback", "reboot", "decommission"],
     # "email" is deliberately NOT here: it substring-matches benign
@@ -479,7 +492,7 @@ LLM_MODEL = "claude-haiku-4-5-20251001"
 # candidate labels passed to the LLM are derived from them). The version is
 # part of the cache key, so persisted classifications from an older prompt are
 # simply never read again — without this, old-prompt answers would pin forever.
-PROMPT_VERSION = 4
+PROMPT_VERSION = 5
 LLM_VOTES = 3
 
 _llm_cache: dict[str, tuple[list[str], bool]] = {}

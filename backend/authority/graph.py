@@ -425,6 +425,15 @@ def calculate_blast_radius(
         for (a, key, inh, res, usd) in top
     ]
 
+    # Band from the ROUNDED score + critical-chain floor. A critical chain forces
+    # the band to at least medium even below 40 — so floor the DISPLAYED score to
+    # the band minimum too, or a card reads "36 · MEDIUM" (score and band must
+    # agree). Only moves agents the critical-chain override elevated.
+    n_critical = sum(1 for fc in chain_list if fc.chain.severity == "critical")
+    band = score_band(round(inherent), n_critical)
+    _band_floor = {"critical": 80, "high": 60, "medium": 40, "low": 0}
+    display_score = max(round(inherent), _band_floor[band])
+
     return BlastRadius(
         agent_id=agent.id,
         agent_name=agent.name,
@@ -442,7 +451,7 @@ def calculate_blast_radius(
         irreversible_actions=irreversible,
         # Integers, not decimals: one decimal place implied a precision the
         # model doesn't have (the audit called it "83.4 is theater").
-        score=round(inherent),
+        score=display_score,
         risk_breakdown={
             "moves_money": moves_money,
             "touches_pii": touches_pii,
@@ -457,9 +466,7 @@ def calculate_blast_radius(
         },
         residual_score=round(residual),
         contextual_score=round(contextual),
-        # Band from the ROUNDED score — the UI shows round(inherent), and a
-        # displayed "60" must never sit next to the sub-60 band word.
-        band=score_band(round(inherent), sum(1 for fc in chain_list if fc.chain.severity == "critical")),
+        band=band,
         magnitude_usd=round(magnitude_usd, 2),
         chain_risk=round(chain_risk, 1),
         confidence=confidence,

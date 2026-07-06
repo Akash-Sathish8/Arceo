@@ -40,6 +40,29 @@ def test_new_labels_registered_everywhere():
         assert label in RISK_LABELS, f"{label} missing from RISK_LABELS descriptions"
 
 
+def test_no_unambiguous_keyword_is_dead_locked():
+    # Every UNAMBIGUOUS keyword must actually assign its label when it appears in
+    # an action name. A keyword that is "locked" but absent from KEYWORD_RULES (and
+    # not covered by a primitive/substring) never fires — the dead-lock that made
+    # disburse_loan / invoice_customer score $0 exposure.
+    from authority.risk_classifier import classify_action, UNAMBIGUOUS_KEYWORDS
+    dead = []
+    for label, kws in UNAMBIGUOUS_KEYWORDS.items():
+        for kw in kws:
+            name = kw if "_" in kw else f"{kw}_record"
+            if label not in classify_action(name)[0]:
+                dead.append(f"{label}:{kw}")
+    assert not dead, f"dead-locked unambiguous keywords (locked but never assigned): {dead}"
+
+
+def test_dangerous_money_verbs_classify_without_llm():
+    # No-key/keyword-only path must not miss money movement (was scoring $0).
+    from authority.risk_classifier import classify_action
+    for a in ("disburse_loan", "wire_funds_to_vendor", "settle_ach_batch",
+              "remit_payment", "reimburse_expense", "invoice_customer"):
+        assert "moves_money" in classify_action(a)[0], f"{a} missed moves_money"
+
+
 def test_every_valid_label_has_a_weight():
     # graph.score_action uses LABEL_WEIGHTS.get(l, 0): an unweighted label
     # silently scores zero. Guard against adding a label without a weight.
@@ -80,10 +103,36 @@ def test_catalog_covers_all_new_labels():
 def test_enterprise_chains_fire_on_infra_agent():
     agent = _infra_agent()
     fired = {fc.chain.id for fc in detect_chains(agent).flagged_chains}
-    # Privilege escalation, credential exfil, defense evasion, bulk exfil, code exec.
-    for expected in ("access-external", "secrets-external", "evade-delete",
-                     "delete-evade", "bulk-external", "code-external"):
+    # Privilege escalation, credential exfil, bulk exfil, code exec.
+    for expected in ("access-external", "secrets-external", "bulk-external", "code-external"):
         assert expected in fired, f"chain {expected} did not fire (fired: {sorted(fired)})"
+    # Defense evasion: delete<->evade is a symmetric pair collapsed to one
+    # direction (capability level), so exactly one of them fires.
+    assert ("delete-evade" in fired) ^ ("evade-delete" in fired), \
+        f"symmetric delete/evade pair not collapsed to one (fired: {sorted(fired)})"
+
+
+def test_symmetric_chains_collapse_to_one_direction():
+    # An agent that can both move money and send externally trips ONE money<->
+    # external finding, not both directions (capability-level double-count).
+    agent = AgentConfig(id="s", name="S", description="d",
+                        tools=[_tool("stripe"), _tool("email")])
+    fired = {fc.chain.id for fc in detect_chains(agent).flagged_chains}
+    assert ("money-external" in fired) ^ ("external-money" in fired), sorted(fired)
+
+
+def test_pii_exfil_critical_requires_bulk_capability():
+    # Audit false-positive: a single-record PII read + a send (no bulk capability)
+    # must not read as a critical mass-exfiltration.
+    single = AgentConfig(id="p1", name="P", description="d",
+                        tools=[_tool("stripe"), _tool("slack")])
+    sev = {fc.chain.id: fc.chain.severity for fc in detect_chains(single).flagged_chains}
+    assert sev.get("pii-exfil") == "high", sev
+    # A bulk-read capability makes the mass-exfil framing genuinely critical.
+    bulk = AgentConfig(id="p2", name="P2", description="d",
+                       tools=[_tool("salesforce"), _tool("email")])
+    sev2 = {fc.chain.id: fc.chain.severity for fc in detect_chains(bulk).flagged_chains}
+    assert sev2.get("pii-exfil") == "critical", sev2
 
 
 def test_all_transition_labels_are_valid():

@@ -232,6 +232,12 @@ def generate_cost_report(
                 if not cap_info:
                     continue
 
+                # A money-moving action's worst case is financial, not an infra
+                # outage: suppress a co-present changes_production line so a refund
+                # isn't priced as a $50k "production instance terminated" outage.
+                if label == "changes_production" and "moves_money" in labels:
+                    continue
+
                 category = cap_info["category"]
                 scenarios = cap_info.get("breach_scenarios", ["Unspecified breach scenario"])
                 sev = severity_ranges.get(category, {})
@@ -239,10 +245,20 @@ def generate_cost_report(
                 per_min = sev.get("per_incident_min_usd", 0)
                 per_max = sev.get("per_incident_max_usd", 0)
 
+                # The regulatory per-incident MAX is a per-VIOLATION (HIPAA-scale)
+                # figure — it applies to BULK exposure, not one record. A single
+                # PII touch (no bulk_export on the action) is capped at the
+                # per-record minimum, so `get_customer` isn't a $15k fine.
+                if label == "touches_pii" and "bulk_export" not in labels:
+                    per_max = per_min
+
                 # Irreversible actions get full cost; reversible get reduced.
-                # Multipliers live in the YAML `mitigation` block and are
-                # disclosed verbatim in the report's `assumptions` — never silent.
-                if reversible:
+                # BUT a data exposure/send can't be undone even when the action is
+                # technically reversible — no discount for those labels.
+                harm_irreversible = label in (
+                    "touches_pii", "sends_external", "bulk_export", "reads_secrets",
+                )
+                if reversible and not harm_irreversible:
                     per_min *= reversible_mult
                     per_max *= reversible_mult
 
@@ -322,7 +338,8 @@ def generate_cost_report(
         report.assumptions.append(
             mitigation.get("reversible_rationale",
                            "Reversible actions are priced at 30% of an irreversible incident.").strip()
-            + f" (×{reversible_mult:g}, adjustable)"
+            + f" (×{reversible_mult:g}, adjustable). Data exposures and external "
+            "sends are never discounted — they can't be un-leaked."
         )
     if any(i.has_policy for i in report.items):
         report.assumptions.append(

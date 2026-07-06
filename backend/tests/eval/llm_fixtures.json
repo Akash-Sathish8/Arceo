@@ -1280,8 +1280,7 @@
   },
   "wire_funds||Wire funds to an external bank account": {
     "labels": [
-      "moves_money",
-      "sends_external"
+      "moves_money"
     ],
     "reversible": false,
     "votes": 3
