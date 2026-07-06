@@ -30,7 +30,7 @@ from authority.chain_detector import detect_chains as _detect_chains
 from authority.enforcement import enforce_check, match_policy as _match_policy
 from authority.graph import build_agent_graph, calculate_blast_radius, graph_to_dict
 from authority.parser import AgentConfig, ToolDef
-from authority.risk_classifier import classify_with_fallback, schema_hints
+from authority.risk_classifier import classify_with_fallback
 
 import os
 import time
@@ -2321,36 +2321,84 @@ class MCPConnectInput(BaseModel):
     url: str  # MCP server HTTP/SSE URL
     agent_name: str
     agent_description: str = ""
+    auth_token: str = ""  # optional bearer for authenticated MCP servers
+
+
+def _mcp_parse(resp) -> dict:
+    """Parse an MCP HTTP reply — plain JSON, or the JSON inside an SSE `data:`
+    frame (Streamable-HTTP servers answer via text/event-stream)."""
+    if "text/event-stream" in resp.headers.get("content-type", ""):
+        for line in resp.text.splitlines():
+            line = line.strip()
+            if line.startswith("data:"):
+                payload = line[5:].strip()
+                if payload and payload != "[DONE]":
+                    try:
+                        return json.loads(payload)
+                    except json.JSONDecodeError:
+                        continue
+        raise ValueError("no JSON object in the SSE stream")
+    return resp.json()
 
 
 @app.post("/api/authority/agents/connect/mcp")
 def connect_mcp_server(req: MCPConnectInput, user: dict = Depends(get_current_user)):
-    """Connect to a live MCP server, pull its tools, and register as an agent."""
+    """Connect to a live MCP server, pull its tools, and register as an agent.
+
+    Runs the MCP initialize handshake, accepts SSE (Streamable-HTTP), and forwards
+    an optional bearer token; falls back to a bare tools/list for simple servers.
+    """
     import httpx as _httpx
 
-    # Call the MCP server's tools/list via JSON-RPC
     url = req.url.rstrip("/")
     validate_external_url(url)  # IC3: block SSRF to internal/metadata addresses
+
+    headers = {
+        "Content-Type": "application/json",
+        # Streamable-HTTP MCP servers reply via SSE and reject callers that don't
+        # accept it; spec-compliant servers also require the handshake below.
+        "Accept": "application/json, text/event-stream",
+    }
+    if req.auth_token:
+        headers["Authorization"] = f"Bearer {req.auth_token}"
+
+    def _post(body: dict, extra: dict | None = None):
+        return _httpx.post(url, json=body, headers={**headers, **(extra or {})}, timeout=15.0)
+
+    data = None
     try:
-        rpc_request = {
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "tools/list",
-            "params": {},
-        }
-        resp = _httpx.post(url, json=rpc_request, timeout=15.0)
-        resp.raise_for_status()
-        data = resp.json()
+        # 1. initialize → 2. notifications/initialized → 3. tools/list
+        init = _post({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {
+            "protocolVersion": "2025-06-18",
+            "capabilities": {},
+            "clientInfo": {"name": "arceo", "version": "1.0"},
+        }})
+        init.raise_for_status()
+        _mcp_parse(init)  # validate it answers
+        session = ({"Mcp-Session-Id": init.headers["mcp-session-id"]}
+                   if init.headers.get("mcp-session-id") else None)
+        _post({"jsonrpc": "2.0", "method": "notifications/initialized"}, extra=session)
+        tl = _post({"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}}, extra=session)
+        tl.raise_for_status()
+        data = _mcp_parse(tl)
     except _httpx.TimeoutException:
         raise HTTPException(status_code=504, detail=f"MCP server at {url} timed out")
-    except _httpx.HTTPError:
-        # Try as a plain REST endpoint (some MCP servers expose tools/list as GET)
+    except Exception:
+        data = None  # handshake unsupported — fall back to the simple paths below
+
+    if data is None:
         try:
-            resp = _httpx.get(f"{url}/tools/list", timeout=15.0)
+            resp = _post({"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}})
             resp.raise_for_status()
-            data = resp.json()
-        except Exception as e:
-            raise HTTPException(status_code=502, detail=f"Could not connect to MCP server at {url}: {str(e)}")
+            data = _mcp_parse(resp)
+        except Exception:
+            # Some servers expose tools/list as a plain GET.
+            try:
+                resp = _httpx.get(f"{url}/tools/list", headers=headers, timeout=15.0)
+                resp.raise_for_status()
+                data = _mcp_parse(resp)
+            except Exception as e:
+                raise HTTPException(status_code=502, detail=f"Could not connect to MCP server at {url}: {str(e)}")
 
     # Parse response — handle JSON-RPC envelope or plain response
     if "result" in data:
@@ -2408,7 +2456,6 @@ def import_mcp(req: MCPImportInput, user: dict = Depends(get_current_user)):
         # All MCP tools become actions under one ActionGate tool
         actions = []
         for mt in req.mcp_tools:
-            extra_labels = schema_hints(mt.inputSchema.get("properties", {})) if mt.inputSchema else []
             actions.append({
                 "name": mt.name,
                 "description": mt.description,
