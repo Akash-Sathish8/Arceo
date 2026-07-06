@@ -15,7 +15,7 @@ import {
 } from 'lucide-react'
 import { apiFetch, getToken } from '@/lib/api'
 import { toast } from '@/components/shared/Toast'
-import { bandDescription, scoreBand, scoreToColor } from '@/lib/utils'
+import { bandDescription, scoreBand, scoreToColor, riskLabelName } from '@/lib/utils'
 import { chainNarrative, chainShortLabel } from '@/lib/chainLabels'
 import Tooltip from '@/components/shared/Tooltip'
 import ErrorState from '@/components/shared/ErrorState'
@@ -68,6 +68,11 @@ interface BlastRadius {
   deletes_data: number
   sends_external: number
   changes_production: number
+  changes_access?: number
+  reads_secrets?: number
+  evades_detection?: number
+  bulk_export?: number
+  executes_code?: number
   /** How much of the risk picture came from the deterministic catalog vs
    * heuristic classification of unknown tools. Drives the "may understate" note. */
   coverage?: {
@@ -167,6 +172,11 @@ const RISK_COLORS: Record<string, string> = {
   deletes_data: '#ea580c',
   sends_external: '#2563eb',
   changes_production: '#0d9488',
+  changes_access: '#b91c1c',
+  reads_secrets: '#a21caf',
+  evades_detection: '#4338ca',
+  bulk_export: '#15803d',
+  executes_code: '#334155',
 }
 
 const RISK_LABELS: Record<string, string> = {
@@ -175,6 +185,11 @@ const RISK_LABELS: Record<string, string> = {
   deletes_data: 'Deletes Data',
   sends_external: 'Sends External',
   changes_production: 'Changes Prod',
+  changes_access: 'Access control',
+  reads_secrets: 'Secrets',
+  evades_detection: 'Log tampering',
+  bulk_export: 'Bulk export',
+  executes_code: 'Code exec',
 }
 
 const SEV_STYLE: Record<string, { bg: string; color: string }> = {
@@ -541,7 +556,7 @@ function WorstCasePanel({
   const chainText = topChain
     ? chainNarrative(topChain.chain_name) ||
       topChain.description ||
-      `${(topChain.from_label || '').replace(/_/g, ' ')} → ${(topChain.to_label || '').replace(/_/g, ' ')}`
+      `${riskLabelName(topChain.from_label || '')} → ${riskLabelName(topChain.to_label || '')}`
     : null
 
   const scoreColor = scoreToColor(br.score)
@@ -1576,10 +1591,45 @@ export default function AgentDetail() {
     },
     {
       label: 'Change Prod',
-      tooltip: 'Edits to live configuration, infrastructure, access rules, or deployment settings.',
+      tooltip: 'Edits to live configuration, infrastructure, or deployment settings.',
       value: br.changes_production,
       color: '#0d9488',
       riskKey: 'changes_production',
+    },
+    {
+      label: 'Access control',
+      tooltip: 'Can hand out or change who has access — grant roles, promote to admin, reset passwords, or issue API keys.',
+      value: br.changes_access ?? 0,
+      color: '#b91c1c',
+      riskKey: 'changes_access',
+    },
+    {
+      label: 'Secrets',
+      tooltip: 'Can read secrets, credentials, API keys, or environment variables.',
+      value: br.reads_secrets ?? 0,
+      color: '#a21caf',
+      riskKey: 'reads_secrets',
+    },
+    {
+      label: 'Log tampering',
+      tooltip: 'Can turn off or delete logging, audit trails, or alerts — so its own actions go unrecorded.',
+      value: br.evades_detection ?? 0,
+      color: '#4338ca',
+      riskKey: 'evades_detection',
+    },
+    {
+      label: 'Bulk export',
+      tooltip: 'Can pull data out in bulk — full exports or whole-table dumps, not one record at a time.',
+      value: br.bulk_export ?? 0,
+      color: '#15803d',
+      riskKey: 'bulk_export',
+    },
+    {
+      label: 'Code exec',
+      tooltip: 'Can run arbitrary code, shell commands, or SQL — effectively unlimited reach.',
+      value: br.executes_code ?? 0,
+      color: '#334155',
+      riskKey: 'executes_code',
     },
     {
       label: 'Irreversible',

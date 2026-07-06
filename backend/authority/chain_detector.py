@@ -104,6 +104,73 @@ LABEL_TRANSITIONS: list[LabelTransition] = [
     LabelTransition("external-prod", "External Send Then Production Change",
                     "Sends externally then modifies production — leak then exploit",
                     "high", "sends_external", "changes_production"),
+
+    # ── Privilege escalation (MITRE TA0004 / OWASP ASI03) ─────────────────────
+    LabelTransition("access-money", "Privilege Escalation Then Financial",
+                    "Elevates access then moves money — fraud via escalated privilege",
+                    "critical", "changes_access", "moves_money"),
+    LabelTransition("access-delete", "Privilege Escalation Then Deletion",
+                    "Elevates access then deletes data — destruction with new powers",
+                    "critical", "changes_access", "deletes_data"),
+    LabelTransition("access-prod", "Privilege Escalation Then Production Change",
+                    "Elevates access then modifies production — privileged sabotage",
+                    "high", "changes_access", "changes_production"),
+    LabelTransition("access-external", "Privilege Escalation Then External Send",
+                    "Elevates access then sends externally — escalate then exfiltrate",
+                    "high", "changes_access", "sends_external"),
+
+    # ── Credential access (MITRE TA0006) ──────────────────────────────────────
+    LabelTransition("secrets-external", "Credential Exfiltration",
+                    "Reads secrets then sends externally — steal and leak credentials",
+                    "critical", "reads_secrets", "sends_external"),
+    LabelTransition("secrets-access", "Stolen Credentials Then Privilege Change",
+                    "Reads secrets then changes access — use stolen credentials to escalate",
+                    "critical", "reads_secrets", "changes_access"),
+    LabelTransition("secrets-money", "Credential Access Then Financial",
+                    "Reads secrets then moves money — use stolen keys to move funds",
+                    "critical", "reads_secrets", "moves_money"),
+    LabelTransition("secrets-prod", "Credential Access Then Production Change",
+                    "Reads secrets then modifies production — use stolen keys on infrastructure",
+                    "high", "reads_secrets", "changes_production"),
+
+    # ── Defense evasion (MITRE TA0005) — fires before AND after a harmful act ──
+    LabelTransition("delete-evade", "Deletion Then Log Tampering",
+                    "Deletes data then disables logging — destroy and cover tracks",
+                    "critical", "deletes_data", "evades_detection"),
+    LabelTransition("money-evade", "Financial Then Log Tampering",
+                    "Moves money then tampers with audit logs — fraud with evidence destruction",
+                    "critical", "moves_money", "evades_detection"),
+    LabelTransition("evade-delete", "Detection Disabled Then Deletion",
+                    "Disables logging then deletes data — blind the defender then destroy",
+                    "critical", "evades_detection", "deletes_data"),
+    LabelTransition("evade-external", "Detection Disabled Then Exfiltration",
+                    "Disables monitoring then sends externally — blind then steal",
+                    "critical", "evades_detection", "sends_external"),
+    LabelTransition("prod-evade", "Production Change Then Log Tampering",
+                    "Modifies production then disables monitoring — sabotage and hide it",
+                    "high", "changes_production", "evades_detection"),
+    LabelTransition("access-evade", "Privilege Escalation Then Log Tampering",
+                    "Elevates access then disables logging — cover the escalation",
+                    "high", "changes_access", "evades_detection"),
+
+    # ── Bulk collection / staging (MITRE TA0009 / insider kill chain) ─────────
+    LabelTransition("bulk-external", "Bulk Exfiltration",
+                    "Exports data in bulk then sends externally — the classic mass-exfil DLP misses",
+                    "critical", "bulk_export", "sends_external"),
+    LabelTransition("bulk-delete", "Bulk Collection Then Deletion",
+                    "Exports data in bulk then deletes it — steal-then-wipe / ransomware staging",
+                    "critical", "bulk_export", "deletes_data"),
+    LabelTransition("pii-bulk", "PII Bulk Collection",
+                    "Accesses personal data then exports it in bulk — staging personal data",
+                    "high", "touches_pii", "bulk_export"),
+
+    # ── Arbitrary code execution (OWASP ASI05) ────────────────────────────────
+    # Only the exfil narrative is kept: executes_code co-occurs with
+    # changes_production + deletes_data on the same action, so code->money and
+    # code->access largely duplicate the prod-* / access-* chains.
+    LabelTransition("code-external", "Code Execution Then Exfiltration",
+                    "Runs arbitrary code then sends externally — execute then exfiltrate",
+                    "critical", "executes_code", "sends_external"),
 ]
 
 

@@ -50,6 +50,46 @@ capability_mapping:
       - "Security group opened exposing internal services"
       - "Unreviewed code deployed to production"
 
+  changes_access:
+    category: regulatory_fine
+    description: "Unauthorized access grants enabling a broader breach"
+    breach_scenarios:
+      - "Agent grants itself or an attacker administrator access"
+      - "Password reset used to take over an account"
+      - "API key issued to an unauthorized party"
+
+  reads_secrets:
+    category: regulatory_fine
+    description: "Credential/secret exposure enabling lateral movement"
+    breach_scenarios:
+      - "Database or API credentials read and leaked"
+      - "Environment variables containing secrets exposed"
+      - "Private keys retrieved from a secret store"
+
+  evades_detection:
+    category: regulatory_fine
+    description: "Compliance failure and undetected incidents from disabled logging"
+    breach_scenarios:
+      - "Audit logging disabled, breaking SOC2/compliance evidence"
+      - "Monitoring or alerting silenced during an incident"
+      - "Audit trail deleted to hide activity"
+
+  bulk_export:
+    category: regulatory_fine
+    description: "Large regulatory exposure from mass data exfiltration"
+    breach_scenarios:
+      - "Entire customer database exported"
+      - "Full-table dump of personal records"
+      - "Bulk download of files staged for exfiltration"
+
+  executes_code:
+    category: operational_disruption
+    description: "Unbounded impact from arbitrary code, shell, or SQL execution"
+    breach_scenarios:
+      - "Arbitrary shell command destroys data or infrastructure"
+      - "Malicious SQL drops tables"
+      - "Code execution used to pivot to other systems"
+
 # Severity multipliers per cost category.
 #
 # Defaults are INDUSTRY-ANCHORED RANGES — defensible enough to use in a CFO

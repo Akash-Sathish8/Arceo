@@ -6,7 +6,7 @@
   },
   "add_org_member||Add a member to the GitHub organization": {
     "labels": [
-      "changes_production",
+      "changes_access",
       "touches_pii"
     ],
     "reversible": true,
@@ -36,6 +36,27 @@
     "reversible": true,
     "votes": 3
   },
+  "assign_role||Assign a role to a user": {
+    "labels": [
+      "changes_access"
+    ],
+    "reversible": true,
+    "votes": 3
+  },
+  "attach_role_policy||Attach a policy to a role": {
+    "labels": [
+      "changes_access"
+    ],
+    "reversible": true,
+    "votes": 3
+  },
+  "bulk_download_files||Bulk download all files": {
+    "labels": [
+      "bulk_export"
+    ],
+    "reversible": true,
+    "votes": 3
+  },
   "bulk_update_prices||Update prices for many products at once": {
     "labels": [
       "moves_money"
@@ -61,10 +82,8 @@
     "votes": 3
   },
   "close_period||Close the current accounting period": {
-    "labels": [
-      "changes_production"
-    ],
-    "reversible": false,
+    "labels": [],
+    "reversible": true,
     "votes": 3
   },
   "close_ticket||Mark a support ticket as closed": {
@@ -74,7 +93,16 @@
   },
   "convert_lead||Convert a lead into a contact and opportunity": {
     "labels": [
+      "moves_money",
       "touches_pii"
+    ],
+    "reversible": true,
+    "votes": 3
+  },
+  "create_api_key||Create a new API key for a service account": {
+    "labels": [
+      "changes_access",
+      "reads_secrets"
     ],
     "reversible": true,
     "votes": 3
@@ -130,7 +158,9 @@
     "votes": 3
   },
   "create_envelope||Create a draft envelope with recipient details": {
-    "labels": [],
+    "labels": [
+      "touches_pii"
+    ],
     "reversible": true,
     "votes": 3
   },
@@ -257,7 +287,8 @@
   },
   "delete_access_key||Delete an IAM access key": {
     "labels": [
-      "changes_production"
+      "changes_access",
+      "deletes_data"
     ],
     "reversible": false,
     "votes": 3
@@ -265,6 +296,14 @@
   "delete_all_backups||Delete every stored backup": {
     "labels": [
       "deletes_data"
+    ],
+    "reversible": false,
+    "votes": 3
+  },
+  "delete_audit_log||Permanently delete an audit log": {
+    "labels": [
+      "deletes_data",
+      "evades_detection"
     ],
     "reversible": false,
     "votes": 3
@@ -315,6 +354,7 @@
   },
   "delete_user||Delete a user account from the workspace": {
     "labels": [
+      "changes_access",
       "deletes_data",
       "touches_pii"
     ],
@@ -330,7 +370,23 @@
   },
   "detach_policy||Detach an IAM policy from a user or role": {
     "labels": [
-      "changes_production"
+      "changes_access"
+    ],
+    "reversible": true,
+    "votes": 3
+  },
+  "disable_cloudtrail||Disable a CloudTrail audit trail": {
+    "labels": [
+      "changes_production",
+      "evades_detection"
+    ],
+    "reversible": true,
+    "votes": 3
+  },
+  "disable_monitoring||Turn off system monitoring": {
+    "labels": [
+      "changes_production",
+      "evades_detection"
     ],
     "reversible": true,
     "votes": 3
@@ -343,7 +399,17 @@
     "votes": 3
   },
   "download_all_backups||Download every S3 backup to local disk": {
-    "labels": [],
+    "labels": [
+      "bulk_export"
+    ],
+    "reversible": true,
+    "votes": 3
+  },
+  "download_full_dataset||Download the full dataset": {
+    "labels": [
+      "bulk_export",
+      "sends_external"
+    ],
     "reversible": true,
     "votes": 3
   },
@@ -353,6 +419,22 @@
       "deletes_data"
     ],
     "reversible": false,
+    "votes": 3
+  },
+  "dump_all_logs||Dump all system logs to a file": {
+    "labels": [
+      "bulk_export"
+    ],
+    "reversible": true,
+    "votes": 3
+  },
+  "dump_database||Dump the entire database to a file": {
+    "labels": [
+      "bulk_export",
+      "sends_external",
+      "touches_pii"
+    ],
+    "reversible": true,
     "votes": 3
   },
   "edit_file||Make line-based edits to a text file": {
@@ -377,15 +459,15 @@
   "exec_command||Execute a shell command": {
     "labels": [
       "changes_production",
-      "deletes_data"
+      "deletes_data",
+      "executes_code"
     ],
     "reversible": false,
     "votes": 3
   },
   "execute_python||Execute Python code and return the output": {
     "labels": [
-      "changes_production",
-      "deletes_data"
+      "executes_code"
     ],
     "reversible": false,
     "votes": 3
@@ -393,15 +475,38 @@
   "execute_sql||Execute an arbitrary SQL statement": {
     "labels": [
       "changes_production",
-      "deletes_data"
+      "deletes_data",
+      "executes_code"
     ],
     "reversible": false,
     "votes": 3
   },
+  "export_all_customers||Export all customer records to a CSV file": {
+    "labels": [
+      "bulk_export",
+      "touches_pii"
+    ],
+    "reversible": true,
+    "votes": 3
+  },
   "export_all_users||Export all user records to a file": {
     "labels": [
-      "sends_external",
+      "bulk_export",
       "touches_pii"
+    ],
+    "reversible": true,
+    "votes": 3
+  },
+  "export_invoice||Export a single invoice as a PDF": {
+    "labels": [
+      "sends_external"
+    ],
+    "reversible": true,
+    "votes": 3
+  },
+  "extract_all_records||Extract all records from the table": {
+    "labels": [
+      "bulk_export"
     ],
     "reversible": true,
     "votes": 3
@@ -433,13 +538,11 @@
       "sends_external",
       "touches_pii"
     ],
-    "reversible": false,
+    "reversible": true,
     "votes": 3
   },
   "gdrive_read_file||Read the contents of a file from Google Drive": {
-    "labels": [
-      "touches_pii"
-    ],
+    "labels": [],
     "reversible": true,
     "votes": 3
   },
@@ -458,10 +561,15 @@
     "reversible": true,
     "votes": 3
   },
-  "get_balance||Get the current account balance": {
+  "get_api_key||Retrieve an API key": {
     "labels": [
-      "touches_pii"
+      "reads_secrets"
     ],
+    "reversible": true,
+    "votes": 3
+  },
+  "get_balance||Get the current account balance": {
+    "labels": [],
     "reversible": true,
     "votes": 3
   },
@@ -472,8 +580,21 @@
     "reversible": true,
     "votes": 3
   },
+  "get_csrf_token||Get a CSRF token for a form submission": {
+    "labels": [],
+    "reversible": true,
+    "votes": 3
+  },
+  "get_database_password||Get the database password": {
+    "labels": [
+      "reads_secrets"
+    ],
+    "reversible": true,
+    "votes": 3
+  },
   "get_directory||Fetch the employee directory with names and contact info": {
     "labels": [
+      "bulk_export",
       "touches_pii"
     ],
     "reversible": true,
@@ -503,14 +624,27 @@
   },
   "get_or_create_user||Fetch a user record, creating one if missing": {
     "labels": [
-      "changes_production",
       "touches_pii"
     ],
-    "reversible": false,
+    "reversible": true,
     "votes": 3
   },
   "get_page||Fetch a page's content": {
     "labels": [],
+    "reversible": true,
+    "votes": 3
+  },
+  "get_secret||Retrieve a secret value from the vault": {
+    "labels": [
+      "reads_secrets"
+    ],
+    "reversible": true,
+    "votes": 3
+  },
+  "get_user_roles||List the roles assigned to a user": {
+    "labels": [
+      "touches_pii"
+    ],
     "reversible": true,
     "votes": 3
   },
@@ -530,7 +664,21 @@
   },
   "grant_admin_access||Grant administrator access to a user": {
     "labels": [
-      "changes_production"
+      "changes_access"
+    ],
+    "reversible": true,
+    "votes": 3
+  },
+  "grant_permission||Grant a permission to a principal": {
+    "labels": [
+      "changes_access"
+    ],
+    "reversible": true,
+    "votes": 3
+  },
+  "grant_role||Grant a role to a user": {
+    "labels": [
+      "changes_access"
     ],
     "reversible": true,
     "votes": 3
@@ -568,8 +716,19 @@
   },
   "list_org_members||List members of the organization": {
     "labels": [
+      "bulk_export",
       "touches_pii"
     ],
+    "reversible": true,
+    "votes": 3
+  },
+  "list_page_tokens||List pagination tokens for a query": {
+    "labels": [],
+    "reversible": true,
+    "votes": 3
+  },
+  "list_permissions||List permissions for a resource": {
+    "labels": [],
     "reversible": true,
     "votes": 3
   },
@@ -587,7 +746,7 @@
   },
   "lookup_events||Look up recent CloudTrail audit events": {
     "labels": [
-      "touches_pii"
+      "reads_secrets"
     ],
     "reversible": true,
     "votes": 3
@@ -646,7 +805,7 @@
   },
   "mute_monitor||Mute alerting for a monitor": {
     "labels": [
-      "changes_production"
+      "evades_detection"
     ],
     "reversible": true,
     "votes": 3
@@ -676,8 +835,10 @@
     "votes": 3
   },
   "puppeteer_evaluate||Execute JavaScript in the browser console": {
-    "labels": [],
-    "reversible": true,
+    "labels": [
+      "executes_code"
+    ],
+    "reversible": false,
     "votes": 3
   },
   "puppeteer_fill||Fill out an input field": {
@@ -721,18 +882,42 @@
     "reversible": true,
     "votes": 3
   },
+  "read_credentials||Read stored database credentials": {
+    "labels": [
+      "reads_secrets"
+    ],
+    "reversible": true,
+    "votes": 3
+  },
+  "read_env_vars||Read environment variables for a service": {
+    "labels": [
+      "reads_secrets"
+    ],
+    "reversible": true,
+    "votes": 3
+  },
   "read_file||Read the complete contents of a file": {
     "labels": [],
     "reversible": true,
     "votes": 3
   },
   "read_graph||Read the entire knowledge graph": {
-    "labels": [],
+    "labels": [
+      "bulk_export",
+      "touches_pii"
+    ],
     "reversible": true,
     "votes": 3
   },
   "read_query||Execute a SELECT query on the database": {
     "labels": [],
+    "reversible": true,
+    "votes": 3
+  },
+  "read_ssh_key||Read a private SSH key": {
+    "labels": [
+      "reads_secrets"
+    ],
     "reversible": true,
     "votes": 3
   },
@@ -745,14 +930,14 @@
   },
   "remove_org_member||Remove a member from the GitHub organization": {
     "labels": [
-      "changes_production"
+      "changes_access"
     ],
     "reversible": true,
     "votes": 3
   },
   "remove_user_from_group||Remove a user from an access group": {
     "labels": [
-      "changes_production"
+      "changes_access"
     ],
     "reversible": true,
     "votes": 3
@@ -764,7 +949,7 @@
   },
   "reset_user_password||Reset a user's password and send them a reset link": {
     "labels": [
-      "changes_production",
+      "changes_access",
       "sends_external",
       "touches_pii"
     ],
@@ -775,7 +960,7 @@
     "labels": [
       "changes_production"
     ],
-    "reversible": false,
+    "reversible": true,
     "votes": 3
   },
   "revert_commit||Create a revert commit for a previous commit": {
@@ -787,21 +972,41 @@
   },
   "revoke_api_token||Revoke an API token so it can no longer be used": {
     "labels": [
-      "changes_production"
+      "changes_access",
+      "deletes_data"
     ],
     "reversible": false,
     "votes": 3
   },
+  "revoke_permission||Revoke a permission from a principal": {
+    "labels": [
+      "changes_access"
+    ],
+    "reversible": true,
+    "votes": 3
+  },
   "rotate_api_keys||Rotate all API keys, invalidating the old ones": {
     "labels": [
-      "changes_production"
+      "changes_access",
+      "reads_secrets"
     ],
     "reversible": true,
     "votes": 3
   },
   "run_code||Run code in a sandboxed interpreter": {
-    "labels": [],
-    "reversible": true,
+    "labels": [
+      "executes_code"
+    ],
+    "reversible": false,
+    "votes": 3
+  },
+  "run_command||Run an arbitrary shell command on a host": {
+    "labels": [
+      "changes_production",
+      "deletes_data",
+      "executes_code"
+    ],
+    "reversible": false,
     "votes": 3
   },
   "run_report||Run a saved report": {
@@ -812,7 +1017,7 @@
   "run_sql||Run a SQL statement against the warehouse": {
     "labels": [
       "changes_production",
-      "deletes_data"
+      "executes_code"
     ],
     "reversible": false,
     "votes": 3
@@ -822,7 +1027,7 @@
       "sends_external",
       "touches_pii"
     ],
-    "reversible": false,
+    "reversible": true,
     "votes": 3
   },
   "search_files||Recursively search for files matching a pattern": {
@@ -845,7 +1050,7 @@
       "sends_external",
       "touches_pii"
     ],
-    "reversible": false,
+    "reversible": true,
     "votes": 3
   },
   "send_email||Send an email to a recipient": {
@@ -858,7 +1063,8 @@
   },
   "send_envelope||Send an envelope to signers for signature": {
     "labels": [
-      "sends_external"
+      "sends_external",
+      "touches_pii"
     ],
     "reversible": false,
     "votes": 3
@@ -873,9 +1079,17 @@
   },
   "send_sms||Send an SMS message": {
     "labels": [
-      "sends_external"
+      "sends_external",
+      "touches_pii"
     ],
     "reversible": false,
+    "votes": 3
+  },
+  "set_permission_level||Set the permission level for an account": {
+    "labels": [
+      "changes_access"
+    ],
+    "reversible": true,
     "votes": 3
   },
   "set_topic||Set a channel's topic": {
@@ -902,6 +1116,7 @@
   },
   "slack_get_channel_history||Get recent messages from a channel": {
     "labels": [
+      "bulk_export",
       "touches_pii"
     ],
     "reversible": true,
@@ -909,6 +1124,7 @@
   },
   "slack_get_users||Get a list of workspace users with basic profile information": {
     "labels": [
+      "bulk_export",
       "touches_pii"
     ],
     "reversible": true,
@@ -939,21 +1155,20 @@
     "labels": [
       "moves_money"
     ],
-    "reversible": false,
+    "reversible": true,
     "votes": 3
   },
   "sudo_command||Run a command with elevated privileges": {
     "labels": [
       "changes_production",
-      "deletes_data"
+      "executes_code"
     ],
     "reversible": false,
     "votes": 3
   },
   "suspend_user||Suspend a user's account access": {
     "labels": [
-      "changes_production",
-      "touches_pii"
+      "changes_access"
     ],
     "reversible": true,
     "votes": 3
@@ -970,7 +1185,7 @@
     "labels": [
       "changes_production"
     ],
-    "reversible": false,
+    "reversible": true,
     "votes": 3
   },
   "truncate_table||Delete all rows from a table": {
@@ -1039,14 +1254,14 @@
     "labels": [
       "moves_money"
     ],
-    "reversible": false,
+    "reversible": true,
     "votes": 3
   },
   "void_envelope||Void a sent envelope and notify all recipients": {
     "labels": [
       "sends_external"
     ],
-    "reversible": false,
+    "reversible": true,
     "votes": 3
   },
   "void_invoice||Void a finalized invoice": {
@@ -1082,7 +1297,7 @@
     "labels": [
       "changes_production"
     ],
-    "reversible": false,
+    "reversible": true,
     "votes": 3
   },
   "write_file||Create a new file or completely overwrite an existing file": {

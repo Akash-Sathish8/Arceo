@@ -24,11 +24,11 @@
   - parser.py — stores 3 sample agent configs with realistic tool setups across 11 services
   - action_mapper.py — catalogs 80+ actions across Stripe, Zendesk, Salesforce, SendGrid, GitHub, AWS, Slack, PagerDuty, HubSpot, Gmail, Calendly
   - action_mapper.py — every action has a description, a list of risk labels, and a reversible/irreversible flag
-  - action_mapper.py — 5 risk labels: moves_money, touches_pii, deletes_data, sends_external, changes_production
+  - action_mapper.py — 10 risk labels: moves_money, touches_pii, deletes_data, sends_external, changes_production, changes_access, reads_secrets, evades_detection, bulk_export, executes_code (the last 5 are enterprise threat primitives grounded in MITRE ATT&CK / OWASP Agentic Top 10)
   - graph.py — builds a directed graph per agent: agent node → tool nodes → action nodes → risk label nodes
   - graph.py — calculates blast radius score (0-100) using weighted formula: money actions worth 15 points, delete worth 12, production changes worth 10, PII worth 8, external sends worth 6, irreversible worth 5
   - graph.py — serializes the graph to JSON so the frontend can draw it
-  - chain_detector.py — defines 10 dangerous 2-step patterns (e.g. "reads PII then sends externally")
+  - chain_detector.py — defines 32 dangerous 2-step label-transition patterns (e.g. "reads PII then sends externally", "reads secrets then sends externally", "escalates access then moves money", "disables logging then deletes data")
   - chain_detector.py — for each agent, checks if it has actions matching both steps of each pattern
   - chain_detector.py — returns which specific actions form each chain (e.g. salesforce.query_contacts → email.send_email)
 

@@ -6,7 +6,7 @@ import {
   AlertTriangle, Plus, X, ChevronRight, Info, Search, Upload,
 } from 'lucide-react'
 import { apiFetch, getUser } from '@/lib/api'
-import { scoreBand } from '@/lib/utils'
+import { scoreBand, riskLabelName } from '@/lib/utils'
 import { fetchBatchSpendForecasts } from '@/lib/spendApi'
 import type { MockSpend } from '@/lib/mockSpend'
 import { toast } from '@/components/shared/Toast'
@@ -34,6 +34,11 @@ interface BlastRadius {
   deletes_data: number
   sends_external: number
   changes_production: number
+  changes_access?: number
+  reads_secrets?: number
+  evades_detection?: number
+  bulk_export?: number
+  executes_code?: number
   residual_score?: number
   confidence?: 'low' | 'medium' | 'high'
   magnitude_usd?: number
@@ -1628,7 +1633,7 @@ export default function Authority() {
                               {si > 0 && <span style={{ color: 'var(--ink-300)', fontSize: 12 }}>→</span>}
                               <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11.5, color: 'var(--ink-600)' }}>
                                 <span style={{ width: 6, height: 6, borderRadius: 2, background: 'var(--ink-300)' }} />
-                                {step.replace(/_/g, ' ')}
+                                {riskLabelName(step)}
                               </span>
                             </span>
                           ))}

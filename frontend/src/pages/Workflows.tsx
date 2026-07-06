@@ -22,6 +22,11 @@ interface AgentBlastRadius {
   deletes_data?: number;
   sends_external?: number;
   changes_production?: number;
+  changes_access?: number;
+  reads_secrets?: number;
+  evades_detection?: number;
+  bulk_export?: number;
+  executes_code?: number;
 }
 
 interface AgentData {
@@ -160,6 +165,11 @@ const LABEL_PHRASE: Record<string, string> = {
   deletes_data: "can delete data",
   sends_external: "can send it outside the org",
   changes_production: "can change production systems",
+  changes_access: "can change who has access",
+  reads_secrets: "can read secrets",
+  evades_detection: "can turn off logging",
+  bulk_export: "can export data in bulk",
+  executes_code: "can run arbitrary code",
 };
 
 function RiskPill({ score }: { score: number }) {

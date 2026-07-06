@@ -49,8 +49,39 @@ KEYWORD_RULES: dict[str, list[str]] = {
     "changes_production": [
         "deploy", "merge", "release", "production", "infrastructure",
         "instance", "scale", "terminate", "rollback", "migrate", "provision",
-        "reboot", "restart", "rotate", "grant", "admin", "decommission",
+        "reboot", "restart", "rotate", "decommission",
     ],
+    # ── Enterprise threat primitives ──────────────────────────────────────────
+    # changes_access: privilege / access-control. "grant"/"admin" moved here from
+    # changes_production — an IAM grant is access control, not a deploy.
+    "changes_access": [
+        "grant", "revoke", "permission", "iam", "privilege", "assign_role",
+        "reset_password", "access_key", "api_key", "authorize", "membership",
+        "add_admin", "add_member", "remove_member", "oauth_scope",
+    ],
+    # NOT bare "token": it matches pagination/form tokens (page_token, csrf_token,
+    # next_token) that are not secrets. Credential tokens are matched by compound.
+    "reads_secrets": [
+        "secret", "credential", "api_key", "apikey", "password",
+        "passwd", "private_key", "env_var", "environment_variable", "vault",
+        "keyring", "ssh_key", "access_token", "auth_token", "api_token",
+        "bearer_token", "oauth_token", "refresh_token", "session_token",
+    ],
+    "evades_detection": [
+        "disable_log", "delete_log", "purge_log", "disable_audit", "delete_audit",
+        "disable_alert", "disable_monitoring", "disable_alarm", "stop_trail",
+        "delete_trail", "cloudtrail", "disable_guardrail", "clear_history",
+        "disable_flow_log", "tamper", "disable_logging",
+    ],
+    # bulk_export is mass READ/collection. Deliberately NOT bare "bulk"/"mass_":
+    # those match writes/sends (bulk_update_prices, send_bulk_email, mass_email).
+    "bulk_export": [
+        "export", "dump", "export_all", "extract_all", "batch_export",
+        "download_all", "bulk_export", "bulk_download",
+    ],
+    # executes_code is handled by the name-anchored primitives below
+    # (CODE_EXEC_TOKENS/COMPOUNDS), NOT here — generic verbs like "execute"/"run"
+    # in a free-text description must not read as shell execution.
 }
 
 # Unambiguous keywords — a match means the label is real, full stop. These are
@@ -74,6 +105,18 @@ UNAMBIGUOUS_KEYWORDS: dict[str, list[str]] = {
                        "post_message"],
     "touches_pii": ["ssn", "pii", "passport", "patient", "compensation",
                     "social_security", "date_of_birth"],
+    # Enterprise primitives — unambiguous, high-signal names/compounds only.
+    "changes_access": ["reset_password", "grant_role", "assign_role",
+                       "create_access_key", "attach_iam_policy", "iam_policy",
+                       "add_admin", "grant_permission", "revoke_access"],
+    "reads_secrets": ["get_secret", "read_secret", "list_secrets", "private_key",
+                      "ssh_key", "vault"],
+    "evades_detection": ["disable_logging", "delete_audit", "disable_cloudtrail",
+                         "delete_cloudtrail", "disable_audit", "purge_logs",
+                         "disable_monitoring", "stop_logging"],
+    "bulk_export": ["bulk_export", "export_all", "mass_export", "dump_all"],
+    "executes_code": ["execute_sql", "run_command", "run_code", "shell_command",
+                      "code_exec"],
 }
 
 # Backward-compat alias (old name, pre keyword-tier split).
@@ -112,7 +155,19 @@ PII_SCHEMA_KEYS: list[str] = [
     "date_of_birth", "dob", "first_name", "last_name", "zip", "postal",
 ]
 
-VALID_LABELS = {"moves_money", "touches_pii", "deletes_data", "sends_external", "changes_production"}
+# Schema keys that signal a secret/credential is being read or handled. "token"
+# is deliberately excluded — it substring-matches pagination keys (page_token,
+# next_token) and would flag benign list actions as reads_secrets.
+SECRET_SCHEMA_KEYS: list[str] = [
+    "api_key", "apikey", "secret", "password", "private_key",
+    "access_key", "ssh_key", "client_secret",
+]
+
+VALID_LABELS = {
+    "moves_money", "touches_pii", "deletes_data", "sends_external", "changes_production",
+    # Enterprise threat primitives (MITRE ATT&CK / OWASP Agentic Top 10)
+    "changes_access", "reads_secrets", "evades_detection", "bulk_export", "executes_code",
+}
 
 
 # ── Agent / dev primitives ───────────────────────────────────────────────────
@@ -198,7 +253,10 @@ def _primitive_labels(action_name: str, description: str, is_read: bool) -> tupl
     sources: dict[str, str] = {}
     irreversible = False
     if not is_read and _name_has(name, CODE_EXEC_TOKENS, CODE_EXEC_COMPOUNDS):
-        labels.update({"changes_production", "deletes_data"})
+        # Arbitrary code/shell/SQL execution is its own primitive (OWASP ASI05),
+        # and can also change prod AND delete data — keep all three, all locked.
+        labels.update({"executes_code", "changes_production", "deletes_data"})
+        sources["executes_code"] = "primitive"
         sources["changes_production"] = "primitive"
         sources["deletes_data"] = "primitive"
         irreversible = True
@@ -338,7 +396,14 @@ def _classify_keywords(action_name: str, description: str = "") -> dict:
     for label, keywords in KEYWORD_RULES.items():
         haystack = name_text if label == "touches_pii" else combined
         if any(kw in haystack for kw in keywords):
-            if is_read and label in ("moves_money", "changes_production", "sends_external"):
+            # reads_secrets and bulk_export are read-SHAPED and legitimate on
+            # reads (get_secret, bulk_export) — like touches_pii, they survive
+            # reads because the chain detector depends on them. changes_access
+            # and evades_detection do NOT: reading an IAM policy or a log is not
+            # changing access or evading detection.
+            if is_read and label in ("moves_money", "changes_production",
+                                     "sends_external", "changes_access",
+                                     "evades_detection"):
                 continue
             labels.append(label)
             sources[label] = "strong_kw" if label in unambig else "weak_kw"
@@ -397,6 +462,8 @@ def schema_hints(properties: dict) -> list[str]:
 
     if any(kw in prop_names for kw in PII_SCHEMA_KEYS):
         extra_labels.add("touches_pii")
+    if any(kw in prop_names for kw in SECRET_SCHEMA_KEYS):
+        extra_labels.add("reads_secrets")
 
     return list(extra_labels)
 
@@ -412,7 +479,7 @@ LLM_MODEL = "claude-haiku-4-5-20251001"
 # candidate labels passed to the LLM are derived from them). The version is
 # part of the cache key, so persisted classifications from an older prompt are
 # simply never read again — without this, old-prompt answers would pin forever.
-PROMPT_VERSION = 2
+PROMPT_VERSION = 4
 LLM_VOTES = 3
 
 _llm_cache: dict[str, tuple[list[str], bool]] = {}
@@ -536,7 +603,7 @@ def _cache_put(key: str, action_name: str, description: str, labels: list[str],
 LLM_SYSTEM_PROMPT = """You are a security risk classifier for AI agent tools. Given a tool action, decide which risk labels truly apply.
 
 Return a JSON object with exactly two fields:
-- "risk_labels": array of applicable labels from ONLY these values: "moves_money", "touches_pii", "deletes_data", "sends_external", "changes_production"
+- "risk_labels": array of applicable labels from ONLY these values: "moves_money", "touches_pii", "deletes_data", "sends_external", "changes_production", "changes_access", "reads_secrets", "evades_detection", "bulk_export", "executes_code"
 - "reversible": boolean, false if the action cannot be undone (deletes, sends, terminates, transfers, merges)
 
 Label definitions:
@@ -544,12 +611,17 @@ Label definitions:
 - "touches_pii": reads or writes personal data about people (names, emails, phones, addresses, salaries, payment history, health records, message content)
 - "deletes_data": permanently removes, purges, or destroys records, files, or resources
 - "sends_external": emits messages or data that reach humans or systems outside the calling application (email, SMS, chat messages, public posts, notifications, webhooks, exports, making content publicly accessible)
-- "changes_production": modifies live infrastructure, deployments, code repositories, databases (DDL), access control, monitoring configuration, or system state on servers
+- "changes_production": modifies live infrastructure, deployments, code repositories, databases (DDL), monitoring configuration, or system state on servers
+- "changes_access": modifies permissions, roles, or account access — IAM/role grants, admin promotion, password resets, API-key or access-key creation, org/group membership, OAuth scope changes
+- "reads_secrets": reads secrets, credentials, tokens, API keys, private/SSH keys, or environment variables (the values themselves, not just metadata)
+- "evades_detection": disables, deletes, or tampers with logging, audit trails, monitoring, or alerting (turning off CloudTrail, deleting audit logs, silencing alarms)
+- "bulk_export": reads or exports data in bulk — mass export, full-table dumps, or list-all-at-volume, as opposed to fetching a single record
+- "executes_code": runs arbitrary code, shell commands, or SQL (bash, exec, eval, run_command, execute_sql, code interpreter)
 
 You may be given "Candidate labels" that keyword heuristics guessed. Treat them as hypotheses: confirm a candidate only if it truly applies, reject it if it does not, and add any labels the heuristics missed. An action can have 0 labels.
 
 Calibration examples:
-- execute_sql / run arbitrary SQL or code -> ["changes_production", "deletes_data"], reversible false (arbitrary statements can drop tables)
+- execute_sql / run_command / bash (run arbitrary SQL, shell, or code) -> ["executes_code", "changes_production", "deletes_data"], reversible false (arbitrary statements can drop tables)
 - transfer_repository (transfer ownership) -> ["changes_production"], NOT moves_money — "transfer" is not financial here
 - charge_battery -> [] — "charge" is not financial here
 - credit_check -> ["touches_pii"] — reads a person's financial history, moves no money
@@ -563,7 +635,13 @@ Calibration examples:
 - send_email / forward_email -> ["sends_external", "touches_pii"] — addresses and message content are personal data
 - escalate_incident (pages the on-call human) -> ["sends_external"]; escalate_ticket (internal queue routing, notifies nobody) -> []
 - terminate_instance / drop_database -> ["changes_production", "deletes_data"] — destroys the resource and its data
-- reset_password / delete_access_key / revoke_token -> include "changes_production" — credentials and access control are production state
+- reset_password / grant_admin / assign_role / attach_iam_policy -> ["changes_access"] — permission and access-control changes
+- create_access_key / rotate_credential -> ["changes_access", "reads_secrets"] — issues AND exposes a credential
+- delete_access_key / revoke_token -> ["deletes_data", "changes_access"] — removes a credential (deletion) that is also an access-control change
+- get_secret / read_credentials / get_env_vars -> ["reads_secrets"] — exposes secret values
+- disable_cloudtrail / delete_audit_log / silence_alarm -> ["evades_detection", "changes_production"] — turns off the record of what happened
+- export_all_customers / dump_table / download_all_records -> ["bulk_export", "touches_pii", "sends_external"] — mass data collection leaving the system
+- get_customer / list_payments (single/paged reads) -> ["touches_pii"], NOT "bulk_export" — bulk_export is for whole-dataset dumps, not ordinary reads
 
 Be precise: only apply labels that clearly fit, and do not rubber-stamp candidates.
 
@@ -719,26 +797,37 @@ def classify_with_fallback(
             sources[extra] = "schema"
 
     weak = {l for l, s in sources.items() if s == "weak_kw"}
+    # Labels backed by a locked signal (never the LLM's to veto). A write with
+    # no locked label is under-classified and must fall back to the LLM.
+    locked = {l for l, s in sources.items()
+              if s in ("primitive", "strong_kw", "schema")}
 
     # Layer 3: LLM escalation policy.
     if is_read:
-        # Reads keep their (pii) labels without LLM review — reading personal
-        # data is a taxonomy convention the chain detector depends on, not a
-        # judgment call. Escalate only a signal-free read whose DESCRIPTION
-        # mentions personal data (employee directory, payment history): that
-        # call can only add labels, never veto.
-        escalate = (not risk_labels) and _text_matches_keywords(description, KEYWORD_RULES["touches_pii"])
+        # Reads keep their (pii/secret) labels without LLM review — a taxonomy
+        # convention the chain detector depends on, not a judgment call. Escalate
+        # a signal-free read whose NAME or DESCRIPTION hints at personal data,
+        # secrets, or bulk collection — the read-shaped labels keywords can miss
+        # on novel names (fetch_vault_entry, dump_table). This call can only ADD
+        # labels, never veto, so the cost is bounded and the recall is worth it.
+        read_signal_kws = (KEYWORD_RULES["touches_pii"]
+                           + KEYWORD_RULES["reads_secrets"]
+                           + KEYWORD_RULES["bulk_export"])
+        escalate = (not risk_labels) and _text_matches_keywords(
+            f"{action_name} {description}", read_signal_kws
+        )
     elif is_ui and not risk_labels:
         # Benign browser automation: the LLM tends to invent labels here.
         escalate = False
     else:
-        # Writes: escalate when nothing matched (novel action), when any label
-        # is weak (adjudication — confirm or veto), or when a single strong
-        # label may be missing its complement — delete_access_key is deletion
-        # AND an access-control change, but "delete" alone locks one label and
-        # without this the LLM is never asked about the other. The LLM can
-        # only ADD here; strong labels are never vetoed.
-        escalate = bool(weak) or len(risk_labels) <= 1
+        # Writes: FALL BACK to the LLM whenever the action isn't confidently
+        # classified — no locked label (novel/ambiguous action), any weak label
+        # to adjudicate, or a single strong label that may be missing its
+        # complement (delete_access_key is deletion AND an access change). Extra
+        # AI credits here are the intended tradeoff: never silently miss a
+        # dangerous new-label capability. The LLM can only ADD; strong/locked
+        # labels are never vetoed.
+        escalate = (not locked) or bool(weak) or len(risk_labels) <= 1
 
     llm_verdict = None
     if escalate:

@@ -27,7 +27,8 @@ EVAL_CASES_PATH = os.path.join(BACKEND_DIR, "tests", "eval", "classifier_eval.js
 FIXTURES_PATH = os.path.join(BACKEND_DIR, "tests", "eval", "llm_fixtures.json")
 THRESHOLDS_PATH = os.path.join(BACKEND_DIR, "tests", "eval", "thresholds.json")
 
-ALL_LABELS = ["moves_money", "touches_pii", "deletes_data", "sends_external", "changes_production"]
+ALL_LABELS = ["moves_money", "touches_pii", "deletes_data", "sends_external", "changes_production",
+              "changes_access", "reads_secrets", "evades_detection", "bulk_export", "executes_code"]
 
 
 @dataclass

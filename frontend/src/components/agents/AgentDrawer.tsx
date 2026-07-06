@@ -20,6 +20,7 @@ import {
   type AgentCardData,
 } from "@/components/agents/AgentCard";
 import { chainNarrative } from "@/lib/chainLabels";
+import { riskLabelName } from "@/lib/utils";
 
 interface BlastRadius {
   score: number;
@@ -30,6 +31,11 @@ interface BlastRadius {
   deletes_data: number;
   sends_external: number;
   changes_production: number;
+  changes_access?: number;
+  reads_secrets?: number;
+  evades_detection?: number;
+  bulk_export?: number;
+  executes_code?: number;
 }
 
 interface Chain {
@@ -131,7 +137,7 @@ function ChainRow({ chain }: ChainRowProps): React.ReactElement {
                 {i > 0 && <span style={{ color: "var(--ink-300)", fontSize: 12 }}>→</span>}
                 <span style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11.5, color: "var(--ink-600)" }}>
                   <span style={{ width: 6, height: 6, borderRadius: 2, background: "var(--ink-300)" }} />
-                  {step.replace(/_/g, " ")}
+                  {riskLabelName(step)}
                 </span>
               </span>
             ))}
