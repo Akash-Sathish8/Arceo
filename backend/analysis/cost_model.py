@@ -125,6 +125,10 @@ class CostReport:
     daily_runs: int = 0
     config_source: str = ""
 
+    # Plain-English disclosure of every assumption behind the numbers —
+    # rendered as footnotes on CFO-facing surfaces (portfolio panel, PDF).
+    assumptions: list = field(default_factory=list)
+
 
 def generate_cost_report(
     agent_config: dict,
@@ -159,6 +163,9 @@ def generate_cost_report(
                     severity_ranges[category][sub_key] = value
     exposure = config.get("exposure", {})
     confidence_map = config.get("confidence", {})
+    mitigation = config.get("mitigation", {})
+    reversible_mult = float(mitigation.get("reversible_multiplier", 0.30))
+    policy_mult = float(mitigation.get("policy_multiplier", 0.05))
 
     runs_per_day = daily_runs or exposure.get("daily_runs", 0)
     days_per_year = exposure.get("days_per_year", 365)
@@ -232,15 +239,17 @@ def generate_cost_report(
                 per_min = sev.get("per_incident_min_usd", 0)
                 per_max = sev.get("per_incident_max_usd", 0)
 
-                # Irreversible actions get full cost; reversible get reduced
+                # Irreversible actions get full cost; reversible get reduced.
+                # Multipliers live in the YAML `mitigation` block and are
+                # disclosed verbatim in the report's `assumptions` — never silent.
                 if reversible:
-                    per_min *= 0.3
-                    per_max *= 0.3
+                    per_min *= reversible_mult
+                    per_max *= reversible_mult
 
                 # Unprotected actions get full exposure; protected get reduced
                 if has_policy:
-                    per_min *= 0.05  # 95% reduction if policy catches it
-                    per_max *= 0.05
+                    per_min *= policy_mult
+                    per_max *= policy_mult
 
                 # "Annualized" must NOT assume every run is a worst-case breach —
                 # that produced indefensible $B figures (per_incident x runs x 365).
@@ -297,6 +306,36 @@ def generate_cost_report(
         for cat, vals in category_totals.items()
     }
 
+    # ── Assumption disclosure — every number above must explain itself ──
+    if severity_overrides:
+        report.assumptions.append(
+            "Incident dollar ranges use your organization's configured breach costs "
+            "(Settings → Cost model)."
+        )
+    else:
+        report.assumptions.append(
+            "Incident dollar ranges are industry-anchored defaults (CCPA/HIPAA/GDPR "
+            "fine schedules, B2B chargeback averages, published outage-cost studies). "
+            "Replace them with your own numbers in Settings → Cost model."
+        )
+    if any(i.reversible for i in report.items):
+        report.assumptions.append(
+            mitigation.get("reversible_rationale",
+                           "Reversible actions are priced at 30% of an irreversible incident.").strip()
+            + f" (×{reversible_mult:g}, adjustable)"
+        )
+    if any(i.has_policy for i in report.items):
+        report.assumptions.append(
+            mitigation.get("policy_rationale",
+                           "Policy-covered actions are priced at 5% of an unguarded incident.").strip()
+            + f" (×{policy_mult:g}, adjustable)"
+        )
+    if report.items:
+        report.assumptions.append(
+            "Annual exposure assumes one worst-case incident per year — it does not "
+            "multiply by run volume, which would overstate risk."
+        )
+
     return report
 
 
@@ -306,6 +345,7 @@ def report_to_dict(report: CostReport) -> dict:
         "agent_name": report.agent_name,
         "configured": report.configured,
         "daily_runs": report.daily_runs,
+        "assumptions": report.assumptions,
         "total_risky_actions": report.total_risky_actions,
         "total_unprotected": report.total_unprotected,
         "per_incident": {

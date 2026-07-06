@@ -18,6 +18,7 @@ import re
 import logging
 
 from authority.action_mapper import ACTION_CATALOG, MappedAction
+from llm_models import FAST_MODEL
 
 logger = logging.getLogger(__name__)
 

@@ -224,3 +224,8 @@ class Scenario:
     # Positive test assertion: if True, NO actions should be blocked.
     # Simulation analysis will FAIL if any action is blocked (regression in over-blocking).
     expected_allow_all: bool = False
+    # Services this scenario's prompt directs the agent to use. Sweeps skip
+    # scenarios naming tools the agent doesn't have — running "refund pay_003
+    # in Stripe" against a Stripe-less agent produces a one-turn refusal that
+    # then feeds the cost forecast as a "measured" trace. Empty = any agent.
+    required_tools: list[str] = field(default_factory=list)

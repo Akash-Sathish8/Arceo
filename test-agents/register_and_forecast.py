@@ -38,8 +38,8 @@ import urllib.request
 
 DEFAULT_BASE_URL = os.environ.get("BASE_URL", "http://localhost:8000")
 SYNTHETIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "synthetic")
-ADMIN_EMAIL = "admin@actiongate.io"
-ADMIN_PASSWORD = "admin123"
+ADMIN_EMAIL = os.environ.get("ARCEO_EMAIL", "admin@actiongate.io")
+ADMIN_PASSWORD = os.environ.get("ARCEO_PASSWORD", "admin123")
 
 
 # ── HTTP helpers (stdlib only) ───────────────────────────────────────────────
@@ -89,6 +89,46 @@ def register_agent(base_url, payload):
     if not agent_id:
         raise RuntimeError(f"register returned no id: {out}")
     return agent_id
+
+
+def declare_forecast_inputs(base_url, token, agent_id, spec):
+    """POST /api/authority/agent/{id}/forecast-inputs — declare volume + model.
+
+    Dev now gates the forecast behind a declared volume signal (available:false,
+    reason:no_data until expected_calls_per_day or traces exist). We declare
+    ONLY what a real customer would type at onboarding: calls/day, the model,
+    and — for context-heavy agents — the context-size bucket the UI now asks
+    for ("how much does it read per run?"). A customer knows their agent reads
+    whole documents; they don't know exact token mixes or cache rates, so those
+    stay undeclared and the forecaster must estimate them.
+
+    The spec's calls_per_day counts TOTAL LLM calls (each turn is a call), which
+    is exactly what the fixed forecaster assumes when turns aren't declared.
+    """
+    behavior = spec.get("behavior", {})
+    body = {
+        "expected_calls_per_day": behavior.get("calls_per_day"),
+        "simulation_model": spec.get("simulation_model"),
+    }
+    # Mirror the UI's plain-English buckets (medium 8k / large 40k / xlarge 80k;
+    # bucket values are the geometric midpoint of the label's range, not its
+    # floor): an agent reading >=20k tokens per call is unambiguously "large
+    # documents" to its owner. Below that, customers can't reliably tell —
+    # leave estimated.
+    in_tok = behavior.get("input_tokens_per_call") or 0
+    if in_tok >= 60000:
+        body["avg_context_tokens"] = 80000
+    elif in_tok >= 20000:
+        body["avg_context_tokens"] = 40000
+    body = {k: v for k, v in body.items() if v is not None}
+    if not body:
+        return
+    _request(
+        "POST",
+        f"{base_url}/api/authority/agent/{agent_id}/forecast-inputs",
+        token=token,
+        body=body,
+    )
 
 
 def derive_agent_id(payload):
@@ -177,7 +217,22 @@ def collect_rows(base_url, token, fleet):
         truth = expected_point(spec)
         try:
             fc = get_forecast(base_url, token, agent_id)
-            point = float(fc.get("point", 0.0))
+            if fc.get("point") is None:
+                # Dev's forecast contract: available:false + reason until the
+                # agent has a volume signal. Surface it instead of crashing.
+                reason = fc.get("reason", "unavailable")
+                print(f"  ! no forecast for {agent_id}: {reason} "
+                      f"(needs: {', '.join(fc.get('needs', []) or [])})", file=sys.stderr)
+                rows.append({
+                    "name": spec.get("register_payload", {}).get("name", agent_id),
+                    "agent_id": agent_id,
+                    "point": 0.0, "low": 0.0, "high": 0.0,
+                    "truth": truth, "err": None, "tier": f"NO-{reason.upper()}",
+                })
+                continue
+            # Grade the unrounded point: a $0.40/mo agent scored against the
+            # whole-dollar display value ($1) would read +150% on rounding alone.
+            point = float(fc.get("pointExact") or fc.get("point", 0.0))
             low = float(fc.get("low", 0.0))
             high = float(fc.get("high", 0.0))
             tier = fc.get("confidence", "?")
@@ -307,9 +362,8 @@ def main():
         sys.exit(1)
     print(f"Loaded {len(fleet)} synthetic agents.")
 
-    # 3) Register (or reuse)
-    print("\nRegistering agents (simulation_model is NOT API-settable — declared "
-          "value shown for reference only):")
+    # 3) Register (or reuse) + declare volume/model via forecast-inputs
+    print("\nRegistering agents (declaring calls/day + model via forecast-inputs):")
     for item in fleet:
         spec = item["spec"]
         payload = spec["register_payload"]
@@ -320,6 +374,7 @@ def main():
         else:
             agent_id = register_agent(base_url, payload)
             item["agent_id"] = agent_id
+            declare_forecast_inputs(base_url, token, agent_id, spec)
             print(f"  ok     {agent_id:<34} (model declared: {declared_model})")
 
     # 4) LOW-tier forecast + table

@@ -39,6 +39,7 @@ export interface CostReportResponse {
   per_incident: { min_usd: number; max_usd: number }
   annualized: { min_usd: number; max_usd: number }
   items: CostReportItem[]
+  assumptions?: string[]
   warning?: string
 }
 
@@ -71,6 +72,9 @@ export interface CFOReportData {
     enforced: boolean
   } | null
   otherRisks: { description: string; maxUsd: number; enforced: boolean }[]
+  // Plain-English basis for the dollar figures (from the cost engine) —
+  // a CFO artifact must disclose its assumptions or it won't survive review.
+  riskAssumptions: string[]
 
   // Recommendations
   recommendedActions: string[]
@@ -335,6 +339,7 @@ export function buildCFOReportData(args: {
 
     worstCase: worst,
     otherRisks: others,
+    riskAssumptions: costReport?.assumptions ?? [],
 
     recommendedActions: generateRecommendations(forecast, costReport, budgetCap),
     reviewBudgetCap: budgetCap,
