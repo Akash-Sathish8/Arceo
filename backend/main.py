@@ -615,7 +615,7 @@ def submit_post_hoc_report(req: PostHocReport, request: Request = None):
     with get_db() as conn:
         for action in req.actions:
             log_execution(conn, req.agent_id, action.tool, action.action, "REPORTED",
-                          detail="post-hoc report")
+                          detail="post-hoc report", org_id=org_id)
 
         # Store as a simulation for dashboard visibility
         def _asdict_safe(obj):
@@ -632,7 +632,8 @@ def submit_post_hoc_report(req: PostHocReport, request: Request = None):
         )
         log_audit(conn, None, req.agent_id, "POST_HOC_REPORT",
                   resource=req.agent_id,
-                  detail=f"Reported {len(req.actions)} actions, risk score: {report.risk_score}")
+                  detail=f"Reported {len(req.actions)} actions, risk score: {report.risk_score}",
+                  org_id=org_id)
 
     return {
         "simulation_id": trace.simulation_id,
@@ -1560,8 +1561,16 @@ def _upsert_agent(
 
 @app.post("/api/authority/agents/register")
 def register_agent(req: RegisterAgentInput):
-    """Unauthenticated — agents call this at startup to self-register."""
-    agent_id = req.name.lower().replace(" ", "-").replace("_", "-")
+    """Unauthenticated — agents call this at startup to self-register.
+
+    Note: agent_id is derived from the name (idempotent self-register: a re-register
+    updates the same agent). Distinct agents that pick the same name will share an
+    id in the default org — an inherent limit of unauthenticated name-based
+    registration; authenticated import paths namespace per org.
+    """
+    agent_id = (req.name or "").strip().lower().replace(" ", "-").replace("_", "-")
+    if not agent_id:
+        raise HTTPException(status_code=400, detail="Agent name is required")
 
     tools = []
     for t in req.tools:
