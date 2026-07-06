@@ -1,10 +1,10 @@
-import { useEffect, useState } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useCallback, useEffect, useState } from "react";
+import { useParams, Link } from "react-router-dom";
 import { ArrowLeft, Shield, CheckCircle, XCircle, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { apiFetch } from "@/lib/api";
-import { toast } from "@/components/shared/Toast";
 import { timeAgo } from "@/lib/utils";
+import ErrorState from "@/components/shared/ErrorState";
 
 interface ScenarioResult {
   scenario_id: string;
@@ -111,29 +111,37 @@ function ScoreRing({ score }: { score: number }) {
 
 export default function SweepDetail() {
   const { sweepId } = useParams<{ sweepId: string }>();
-  const navigate = useNavigate();
   const [sweep, setSweep] = useState<SweepDetailData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
-  useEffect(() => {
+  const load = useCallback(() => {
     if (!sweepId) return;
     setLoading(true);
+    setLoadError(null);
     apiFetch<{ sweep: SweepDetailData }>(`/api/sandbox/sweep/${sweepId}`)
       .then((data) => setSweep(data.sweep))
-      .catch(() => toast("Failed to load sweep", "error"))
+      // Distinguish a network/server error from a genuinely-missing sweep.
+      .catch((e: Error) => setLoadError(e.message))
       .finally(() => setLoading(false));
   }, [sweepId]);
+
+  useEffect(() => { load(); }, [load]);
 
   if (loading) {
     return (
       <div style={{ padding: 40 }}>
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-          <div style={{ height: 32, background: "var(--bg-sunken)", borderRadius: "var(--radius-md)", width: 192 }} />
-          <div style={{ height: 160, background: "var(--bg-sunken)", borderRadius: 12 }} />
-          <div style={{ height: 256, background: "var(--bg-sunken)", borderRadius: 12 }} />
+          <div className="animate-pulse" style={{ height: 32, background: "var(--bg-sunken)", borderRadius: "var(--radius-md)", width: 192 }} />
+          <div className="animate-pulse" style={{ height: 160, background: "var(--bg-sunken)", borderRadius: 12 }} />
+          <div className="animate-pulse" style={{ height: 256, background: "var(--bg-sunken)", borderRadius: 12 }} />
         </div>
       </div>
     );
+  }
+
+  if (loadError) {
+    return <div style={{ padding: 40 }}><ErrorState message={loadError} onRetry={load} /></div>;
   }
 
   if (!sweep) {
@@ -154,9 +162,11 @@ export default function SweepDetail() {
     <div style={{ padding: 40, display: "flex", flexDirection: "column", gap: 32, maxWidth: 800 }}>
       {/* Header */}
       <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-        <Button variant="secondary" size="sm" onClick={() => navigate(-1)} icon={<ArrowLeft size={14} />}>
-          Back to Sandbox
-        </Button>
+        <Link to="/sandbox">
+          <Button variant="secondary" size="sm" icon={<ArrowLeft size={14} />}>
+            Back to Sandbox
+          </Button>
+        </Link>
         <span style={{ color: "var(--border-strong)" }}>/</span>
         <h1 style={{ fontSize: 24, fontWeight: 700, color: "var(--text-primary)", margin: 0 }}>
           Sweep Detail

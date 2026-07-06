@@ -3,11 +3,15 @@ interface RiskRingProps {
   value: number;
   size?: number;
   stroke?: number;
+  /** Arc stroke color (graphics-only tier — may be low-contrast on text). */
   color: string;
-  /** Track stroke color. Defaults to a warm-neutral so it reads on paper. */
+  /** Track stroke color. Defaults to the design-token hairline. */
   track?: string;
   /** Center label — usually the score number. */
   label?: React.ReactNode;
+  /** Center-label color. Defaults to ink so the score stays readable even
+   *  when the arc color is a pale high/medium tone (the peach-on-white bug). */
+  labelColor?: string;
   /** Optional small line below the score. */
   sub?: React.ReactNode;
   /** Font for the center label — falls back to mono. */
@@ -22,10 +26,11 @@ interface RiskRingProps {
 export default function RiskRing({
   value,
   size = 64,
-  stroke = 5,
+  stroke = 6,
   color,
-  track = "#eceae3",
+  track = "var(--line-soft)",
   label,
+  labelColor = "var(--ink-900)",
   sub,
   numFont,
 }: RiskRingProps): React.ReactElement {
@@ -64,7 +69,7 @@ export default function RiskRing({
             fontFamily: numFont ?? "var(--font-mono)",
             fontWeight: 600,
             fontSize: size * 0.27,
-            color,
+            color: labelColor,
           }}
         >
           {label}

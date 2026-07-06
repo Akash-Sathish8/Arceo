@@ -96,10 +96,6 @@ interface SimulationListItem {
   created_at: string
 }
 
-interface QueueResult {
-  scenario: Scenario | null
-  data: SimulationResult
-}
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -207,9 +203,6 @@ export default function Sandbox() {
   // Simulation state
   const [running, setRunning] = useState(false)
   const [runProgress, setRunProgress] = useState<{ current: number; total: number } | null>(null)
-  const [result, setResult] = useState<SimulationResult | null>(null)
-  const [queueResults, setQueueResults] = useState<QueueResult[]>([])
-  const [previousResult, setPreviousResult] = useState<SimulationResult | null>(null)
   const [runError, setRunError] = useState<string | null>(null)
   const [lastRunMode, setLastRunMode] = useState('')
   const [sweeping, setSweeping] = useState(false)
@@ -277,7 +270,10 @@ export default function Sandbox() {
           )
           const toSelect = adversarial.length > 0 ? adversarial : [d.scenarios[d.scenarios.length - 1]]
           setSelectedScenarios(toSelect)
-          setCategoryFilter('adversarial')
+          // Keep the filter on 'all' — the selection spans adversarial AND
+          // chain_exploit, and an 'adversarial' filter would hide the queued
+          // chain-exploit scenarios.
+          setCategoryFilter('all')
         } else if (d.scenarios?.length > 0) {
           const defaultScenario =
             d.scenarios.find((s) => s.name === 'Standard Lookup') ??
@@ -320,21 +316,19 @@ export default function Sandbox() {
     setRunning(true)
     setRunError(null)
     setLastRunMode(dryRun ? 'dry-run' : 'llm')
-    if (result) setPreviousResult(result)
-    setResult(null)
-    setQueueResults([])
 
     const toRun: ({ type: 'scenario'; scenario: Scenario } | { type: 'custom'; prompt: string })[] = [
       ...selectedScenarios.map((s) => ({ type: 'scenario' as const, scenario: s })),
       ...queuedCustomPrompts.map((p) => ({ type: 'custom' as const, prompt: p })),
     ]
-    if (toRun.length === 0) return
+    if (toRun.length === 0) { setRunning(false); return }
 
-    const allResults: QueueResult[] = []
+    const completed: SimulationResult[] = []
     let failedCount = 0
 
     for (let i = 0; i < toRun.length; i++) {
-      setRunProgress({ current: i + 1, total: toRun.length })
+      // current = how many are done; the bar reads 0% at start and 100% at end.
+      setRunProgress({ current: i, total: toRun.length })
       try {
         const body: Record<string, unknown> = { agent_id: selectedAgent, dry_run: dryRun }
         if (toRun[i].type === 'scenario') {
@@ -347,25 +341,24 @@ export default function Sandbox() {
           method: 'POST',
           body: JSON.stringify(body),
         })
-        allResults.push({
-          scenario: toRun[i].type === 'scenario' ? (toRun[i] as { type: 'scenario'; scenario: Scenario }).scenario : null,
-          data,
-        })
+        completed.push(data)
       } catch {
         failedCount++
       }
     }
 
     setRunProgress(null)
-    setQueueResults(allResults)
 
-    if (allResults.length > 0) {
-      const lastData = allResults[allResults.length - 1].data
-      if (failedCount > 0) {
+    if (completed.length > 0) {
+      const lastData = completed[completed.length - 1]
+      // Batch summary — the multi-scenario overview lives on the detail page now.
+      if (toRun.length > 1) {
         toast(
-          `${failedCount} scenario${failedCount > 1 ? 's' : ''} failed — showing last successful result`,
-          'error',
+          `${completed.length} of ${toRun.length} scenarios completed${failedCount > 0 ? ` (${failedCount} failed)` : ''} — opening the latest`,
+          failedCount > 0 ? 'error' : 'success',
         )
+      } else if (failedCount > 0) {
+        toast('Scenario failed — check the agent is configured correctly', 'error')
       }
       setRunning(false)
       navigate(`/sandbox/${lastData.simulation_id}`)
@@ -640,15 +633,15 @@ export default function Sandbox() {
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between text-xs text-gray-500">
                   <span>
-                    Running scenario <strong>{runProgress.current}</strong> of{' '}
+                    Running scenario <strong>{Math.min(runProgress.current + 1, runProgress.total)}</strong> of{' '}
                     <strong>{runProgress.total}</strong>
                   </span>
-                  <span>{Math.round(((runProgress.current - 1) / runProgress.total) * 100)}%</span>
+                  <span>{Math.round((runProgress.current / runProgress.total) * 100)}%</span>
                 </div>
                 <div className="h-1.5 bg-gray-200 rounded-full overflow-hidden">
                   <div
                     className="h-full rounded-full transition-all"
-                    style={{ background: 'var(--color-cta)', width: `${((runProgress.current - 1) / runProgress.total) * 100}%` }}
+                    style={{ background: 'var(--color-cta)', width: `${(runProgress.current / runProgress.total) * 100}%` }}
                   />
                 </div>
                 <p className="text-xs text-gray-400">Enforcing policies · calling mock APIs · capturing trace</p>
@@ -887,366 +880,6 @@ export default function Sandbox() {
         </section>
       )}
 
-      {/* Inline results */}
-      {result && (
-        <section className="space-y-6">
-          <div className="flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
-              {queueResults.length > 1 ? `Results — ${queueResults.length} Scenarios` : 'Results'}
-              <span
-                className={`text-[10px] font-semibold px-2 py-0.5 rounded ${
-                  lastRunMode === 'llm'
-                    ? 'bg-purple-100 text-purple-700'
-                    : 'bg-gray-100 text-gray-600'
-                }`}
-              >
-                {lastRunMode === 'llm' ? 'Real LLM' : 'Mock APIs'}
-              </span>
-            </h2>
-            <Link
-              to={`/sandbox/${result.simulation_id}`}
-              className="text-xs font-medium text-gray-600 hover:text-gray-900 flex items-center gap-1"
-            >
-              View Full Report <ArrowRight size={12} />
-            </Link>
-          </div>
-
-          {/* Batch summary */}
-          {queueResults.length > 1 && (() => {
-            const scores = queueResults.map((r) => r.data.report?.risk_score ?? 0)
-            const peak = Math.max(...scores)
-            const avg = Math.round(scores.reduce((a, b) => a + b, 0) / scores.length)
-            const totalViol = queueResults.reduce((s, r) => s + r.data.report.violations.length, 0)
-            const peakColor = scoreToColor(peak)
-            return (
-              <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-4">
-                <div className="flex items-center justify-between mb-3">
-                  <span className="text-sm font-semibold text-gray-900">Batch Run</span>
-                  <div className="flex items-center gap-4 text-xs text-gray-500">
-                    <span>
-                      Peak <strong style={{ color: peakColor }}>{peak}</strong>
-                    </span>
-                    <span>
-                      Avg <strong className="text-gray-900">{avg}</strong>
-                    </span>
-                    <span>
-                      Violations{' '}
-                      <strong style={{ color: totalViol > 0 ? '#dc2626' : undefined }}>{totalViol}</strong>
-                    </span>
-                  </div>
-                </div>
-                <div className="divide-y divide-gray-50">
-                  {queueResults.map(({ scenario, data: d }, i) => {
-                    const sc = d.report?.risk_score ?? 0
-                    const col = scoreToColor(sc)
-                    const isActive = d === result
-                    return (
-                      <div
-                        key={i}
-                        className={`flex items-center gap-3 py-2 px-2 rounded-lg cursor-pointer hover:bg-gray-50 text-xs transition-colors ${
-                          isActive ? 'bg-gray-50 font-medium' : ''
-                        }`}
-                        onClick={() => setResult(d)}
-                      >
-                        <span className="text-gray-400 flex-shrink-0 w-5 text-right">{i + 1}</span>
-                        <span className="flex-1 text-gray-700 truncate">{scenario?.name || 'Custom'}</span>
-                        <span className="font-bold flex-shrink-0" style={{ color: col }}>{sc}</span>
-                        <span className="text-gray-400 flex-shrink-0">
-                          {d.report.violations.length} violations · {d.report.actions_blocked} blocked
-                        </span>
-                        <Link
-                          to={`/sandbox/${d.simulation_id}`}
-                          className="text-gray-500 hover:text-gray-900 flex-shrink-0"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          Full Report <ArrowRight size={11} className="inline" />
-                        </Link>
-                      </div>
-                    )
-                  })}
-                </div>
-                <p className="text-[11px] text-gray-400 mt-2">
-                  Showing detail for highlighted scenario — click a row to switch
-                </p>
-              </div>
-            )
-          })()}
-
-          {/* Before/After comparison */}
-          {previousResult && (
-            <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-4">
-              <h3 className="text-xs font-semibold text-gray-500 mb-3">Before → After</h3>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                {[
-                  {
-                    label: 'Risk Score',
-                    before: previousResult.report.risk_score,
-                    after: result.report.risk_score,
-                    improved: result.report.risk_score < previousResult.report.risk_score,
-                  },
-                  {
-                    label: 'Violations',
-                    before: previousResult.report.violations.length,
-                    after: result.report.violations.length,
-                    improved: result.report.violations.length < previousResult.report.violations.length,
-                  },
-                  {
-                    label: 'Blocked',
-                    before: previousResult.report.actions_blocked,
-                    after: result.report.actions_blocked,
-                    improved: result.report.actions_blocked > previousResult.report.actions_blocked,
-                  },
-                  {
-                    label: 'Chains',
-                    before: previousResult.report.chains_triggered.length,
-                    after: result.report.chains_triggered.length,
-                    improved: result.report.chains_triggered.length < previousResult.report.chains_triggered.length,
-                  },
-                ].map(({ label, before, after, improved }) => (
-                  <div key={label} className="text-xs">
-                    <div className="text-gray-400 mb-1">{label}</div>
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-gray-500">{before}</span>
-                      <ArrowRight size={10} className="text-gray-300" />
-                      <span className={improved ? 'text-green-600 font-semibold' : 'text-gray-900 font-semibold'}>
-                        {after}
-                      </span>
-                      {improved && (
-                        <span className="text-green-600">-{before - after}</span>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Re-run button */}
-          <div>
-            <Button
-              variant="secondary"
-              size="sm"
-              icon={<RotateCcw size={13} />}
-              onClick={() => handleRun(true)}
-              disabled={running}
-            >
-              Re-run Simulation (test policies)
-            </Button>
-          </div>
-
-          {/* Stats row */}
-          <div className="grid grid-cols-4 sm:grid-cols-7 gap-2">
-            {[
-              { value: result.report.risk_score, label: 'Risk Score', color: scoreToColor(result.report.risk_score) },
-              { value: result.report.total_steps, label: 'Total Steps', color: undefined },
-              { value: result.report.actions_executed, label: 'Executed', color: result.report.actions_executed > 0 ? 'var(--status-executed)' : undefined },
-              { value: result.report.actions_blocked, label: 'Blocked', color: result.report.actions_blocked > 0 ? 'var(--status-blocked)' : undefined },
-              { value: result.report.actions_pending, label: 'Pending', color: result.report.actions_pending > 0 ? 'var(--status-pending)' : undefined },
-              { value: result.report.violations.length, label: 'Violations', color: result.report.violations.length > 0 ? '#dc2626' : undefined },
-              { value: result.report.chains_triggered.length, label: 'Chains', color: result.report.chains_triggered.length > 0 ? '#7c3aed' : undefined },
-            ].map(({ value, label, color }) => (
-              <div key={label} className="bg-white border border-gray-200 rounded-xl shadow-sm p-3 text-center">
-                <div className="text-xl font-bold" style={{ color }}>{value}</div>
-                <div className="text-[11px] text-gray-400 mt-0.5">{label}</div>
-              </div>
-            ))}
-          </div>
-
-          {/* Quick trace */}
-          <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-4">
-            <h3 className="text-sm font-semibold text-gray-900 mb-3">Trace</h3>
-            <div className="space-y-1">
-              {result.trace.steps.map((step, i) => {
-                const ds = DECISION_STYLE[step.enforce_decision] ?? DECISION_STYLE.ALLOW
-                return (
-                  <div key={i} className="flex items-center gap-2 py-1">
-                    <span className="flex-1 text-xs text-gray-700">
-                      <span className="font-medium">
-                        {step.tool.charAt(0).toUpperCase() + step.tool.slice(1)}
-                      </span>
-                      <span className="text-gray-400 mx-1">·</span>
-                      {step.action.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())}
-                    </span>
-                    <span
-                      className="text-[10px] font-semibold px-2 py-0.5 rounded flex-shrink-0"
-                      style={{ background: ds.bg, color: ds.color }}
-                    >
-                      {step.enforce_decision}
-                    </span>
-                  </div>
-                )
-              })}
-            </div>
-          </div>
-
-          {/* Violations */}
-          {result.report.violations.length > 0 && (
-            <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-4">
-              <h3 className="text-sm font-semibold text-gray-900 mb-3">
-                Violations ({result.report.violations.length})
-              </h3>
-              <div className="space-y-2">
-                {result.report.violations.map((v, i) => {
-                  const sev = SEVERITY_COLORS[v.severity] ?? SEVERITY_COLORS.medium
-                  return (
-                    <div
-                      key={i}
-                      className="flex items-start gap-2 p-3 rounded-lg border-l-4 text-xs"
-                      style={{ background: sev.bg, borderLeftColor: sev.border }}
-                    >
-                      <span
-                        className="font-semibold px-1.5 py-0.5 rounded capitalize flex-shrink-0"
-                        style={{ background: sev.bg, color: sev.color }}
-                      >
-                        {v.severity}
-                      </span>
-                      <strong className="text-gray-900 flex-shrink-0">{v.title}</strong>
-                      <span className="text-gray-500">{v.description}</span>
-                    </div>
-                  )
-                })}
-              </div>
-            </div>
-          )}
-
-          {/* Chains */}
-          {result.report.chains_triggered.length > 0 && (
-            <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-4">
-              <h3 className="text-sm font-semibold text-gray-900 mb-3">
-                Chains Triggered ({result.report.chains_triggered.length})
-              </h3>
-              <div className="space-y-2">
-                {result.report.chains_triggered.map((c, i) => {
-                  const sev = SEVERITY_COLORS[c.severity] ?? SEVERITY_COLORS.high
-                  return (
-                    <div
-                      key={i}
-                      className="flex items-start gap-2 p-3 rounded-lg border-l-4 text-xs"
-                      style={{ background: sev.bg, borderLeftColor: sev.border }}
-                    >
-                      <span
-                        className="font-semibold px-1.5 py-0.5 rounded capitalize flex-shrink-0"
-                        style={{ background: sev.bg, color: sev.color }}
-                      >
-                        {c.severity}
-                      </span>
-                      <div className="min-w-0">
-                        <strong className="text-gray-900 block">{chainShortLabel(c.chain_name)}</strong>
-                        <span className="text-gray-500">{c.description}</span>
-                        <div className="text-gray-400 mt-0.5">Steps: {c.step_indices.join(' → ')}</div>
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-            </div>
-          )}
-
-          {/* Recommendations */}
-          {result.report.recommendations.length > 0 && (
-            <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-4">
-              <div className="flex items-center justify-between mb-3">
-                <h3 className="text-sm font-semibold text-gray-900">Recommendations</h3>
-                {result.report.recommendations.some(
-                  (r) => typeof r !== 'string' && (r as Recommendation).actionable,
-                ) && (
-                  <Button
-                    size="sm"
-                    onClick={async () => {
-                      const actionable = result.report.recommendations.filter(
-                        (r) => typeof r !== 'string' && (r as Recommendation).actionable,
-                      ) as Recommendation[]
-                      try {
-                        const data = await apiFetch<{ created: number; skipped: number }>(
-                          '/api/sandbox/apply-all-policies',
-                          {
-                            method: 'POST',
-                            body: JSON.stringify({
-                              agent_id: selectedAgent,
-                              policies: actionable.map((r) => ({
-                                agent_id: selectedAgent,
-                                action_pattern: r.action_pattern,
-                                effect: r.effect,
-                                reason: r.reason,
-                              })),
-                            }),
-                          },
-                        )
-                        toast(
-                          `Applied ${data.created} polic${data.created !== 1 ? 'ies' : 'y'}${
-                            data.skipped ? ` · ${data.skipped} already existed` : ''
-                          }`,
-                        )
-                      } catch (err) {
-                        toast('Failed: ' + (err as Error).message, 'error')
-                      }
-                    }}
-                  >
-                    Apply All Policies
-                  </Button>
-                )}
-              </div>
-              <div className="space-y-2">
-                {result.report.recommendations.map((r, i) => {
-                  const rec: Recommendation =
-                    typeof r === 'string' ? { message: r, actionable: false } : (r as Recommendation)
-                  return (
-                    <div key={i} className="flex items-start gap-2 text-xs">
-                      <span className="flex-1 text-gray-600">{rec.message}</span>
-                      {rec.actionable && (
-                        <button
-                          className="flex-shrink-0 text-xs font-medium border px-2 py-1 rounded hover:bg-gray-50 transition-colors"
-                          style={{
-                            color: rec.effect === 'BLOCK' ? '#dc2626' : '#ca8a04',
-                            borderColor: rec.effect === 'BLOCK' ? '#fca5a5' : '#fde68a',
-                          }}
-                          onClick={async () => {
-                            try {
-                              const data = await apiFetch<{ already_exists: boolean }>(
-                                '/api/sandbox/apply-policy',
-                                {
-                                  method: 'POST',
-                                  body: JSON.stringify({
-                                    agent_id: selectedAgent,
-                                    action_pattern: rec.action_pattern,
-                                    effect: rec.effect,
-                                    reason: rec.reason,
-                                  }),
-                                },
-                              )
-                              toast(data.already_exists ? 'Policy already exists' : 'Policy created')
-                            } catch (err) {
-                              toast('Failed: ' + (err as Error).message, 'error')
-                            }
-                          }}
-                        >
-                          {rec.effect === 'BLOCK' ? 'Block' : 'Require Approval'}
-                        </button>
-                      )}
-                    </div>
-                  )
-                })}
-              </div>
-            </div>
-          )}
-        </section>
-      )}
-
-      {/* Compare runs banner */}
-      {result && previousResult && (
-        <div className="flex items-center justify-between gap-4 bg-gray-50 border border-gray-200 rounded-xl px-4 py-3">
-          <div className="text-sm text-gray-700">
-            <strong>You've run 2 simulations.</strong> Compare them to see the impact of your policies.
-          </div>
-          <Link
-            to={`/compare?a=${previousResult.simulation_id}&b=${result.simulation_id}`}
-            className="flex-shrink-0 inline-flex items-center gap-1"
-            style={{ background: 'var(--color-cta)', color: 'var(--text-inverse)', borderRadius: 'var(--radius-full)', border: 'none', padding: '8px 20px', fontWeight: 600, fontSize: 13, textDecoration: 'none' }}
-          >
-            Compare Runs <ArrowRight size={13} className="inline ml-1" />
-          </Link>
-        </div>
-      )}
 
       </>)}
 
@@ -1312,14 +945,11 @@ export default function Sandbox() {
                     .replace(/-/g, ' ')
                     .replace(/\b\w/g, (c) => c.toUpperCase()) || 'Custom Prompt'
                 const isClean = !sim.violations && !sim.actions_blocked
-                const isCurrent = result && sim.id === result.simulation_id
 
                 return (
                   <div
                     key={sim.id}
-                    className={`bg-white border border-gray-200 rounded-xl shadow-sm p-3 flex items-center gap-3 ${
-                      isCurrent ? 'ring-2 ring-gray-900' : ''
-                    }`}
+                    className="bg-white border border-gray-200 rounded-xl shadow-sm p-3 flex items-center gap-3"
                     style={{ borderLeftWidth: 3, borderLeftColor: scoreColor }}
                   >
                     <div className="flex flex-col items-center flex-shrink-0 w-10">
@@ -1332,11 +962,6 @@ export default function Sandbox() {
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-1.5 flex-wrap">
                         <span className="text-sm font-semibold text-gray-900 truncate">{scenarioLabel}</span>
-                        {isCurrent && (
-                          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-gray-900 text-white">
-                            Latest Run
-                          </span>
-                        )}
                       </div>
                       <div className="text-xs text-gray-400 mt-0.5">
                         {agentName} · {timeAgo(sim.created_at)}

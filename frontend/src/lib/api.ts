@@ -7,6 +7,9 @@ let authToken: string | null = localStorage.getItem("arceo_token");
 
 export interface ApiFetchOptions extends RequestInit {
   skipLogoutOn401?: boolean;
+  /** Per-request timeout in ms. Defaults to 15s so a hung backend surfaces an
+   *  error instead of spinning forever. Long jobs (sweeps) pass a larger value. */
+  timeoutMs?: number;
 }
 
 export function setToken(token: string | null): void {
@@ -29,6 +32,7 @@ export function isLoggedIn(): boolean {
 export function logout(): void {
   setToken(null);
   localStorage.removeItem("arceo_user");
+  localStorage.removeItem("arceo_demo_session");
   window.location.href = "/login";
 }
 
@@ -45,7 +49,7 @@ export async function apiFetch<T>(
   path: string,
   options: ApiFetchOptions = {}
 ): Promise<T> {
-  const { skipLogoutOn401, ...fetchOptions } = options;
+  const { skipLogoutOn401, timeoutMs = 15_000, signal, ...fetchOptions } = options;
 
   const headers: Record<string, string> = {
     ...(fetchOptions.headers as Record<string, string> | undefined),
@@ -59,7 +63,21 @@ export async function apiFetch<T>(
     headers["Content-Type"] = "application/json";
   }
 
-  const res = await fetch(`${API_BASE}${path}`, { ...fetchOptions, headers });
+  // Abort on timeout OR if the caller passed its own signal.
+  const timeoutSignal = AbortSignal.timeout(timeoutMs);
+  const combinedSignal = signal
+    ? (AbortSignal as unknown as { any(s: AbortSignal[]): AbortSignal }).any([signal, timeoutSignal])
+    : timeoutSignal;
+
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}${path}`, { ...fetchOptions, headers, signal: combinedSignal });
+  } catch (err) {
+    if (err instanceof DOMException && err.name === "TimeoutError") {
+      throw new Error("The server took too long to respond. Please try again.");
+    }
+    throw new Error(err instanceof Error ? err.message : "Network error — check your connection.");
+  }
 
   if (res.status === 401) {
     if (!skipLogoutOn401) {

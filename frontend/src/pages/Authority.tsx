@@ -16,6 +16,10 @@ import { chainShortLabel } from '@/lib/chainLabels'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import NewAgentCard, { type AgentCardData } from '@/components/agents/AgentCard'
+import PageHeader from '@/components/shared/PageHeader'
+import ErrorState from '@/components/shared/ErrorState'
+import { pluralize } from '@/lib/strings'
+import { formatMoney } from '@/lib/format'
 import FleetStrip from '@/components/agents/FleetStrip'
 import AgentDrawer from '@/components/agents/AgentDrawer'
 
@@ -141,10 +145,9 @@ export default function Authority() {
   const [agents, setAgents] = useState<AgentListItem[]>([])
   const [spendForecasts, setSpendForecasts] = useState<Record<string, MockSpend | null>>({})
   const [chains, setChains] = useState<ChainItem[]>([])
-  const [, setExecutions] = useState<ExecutionEntry[]>([])
-  const [, setSimulations] = useState<SimulationRun[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const loadingRef = useRef(false)
 
   // Filters
   const [search, setSearch] = useState('')
@@ -189,25 +192,27 @@ export default function Authority() {
   const [, setAnimReady] = useState(false)
 
   const loadData = () => {
+    // In-flight guard: the 30s poll, form-submit refreshes and unmount can
+    // otherwise interleave and let an older response overwrite a newer one.
+    if (loadingRef.current) return
+    loadingRef.current = true
     Promise.all([
       apiFetch<{ agents: AgentListItem[] }>('/api/authority/agents'),
       apiFetch<{ chains: ChainItem[] }>('/api/authority/chains'),
-      apiFetch<{ entries: ExecutionEntry[] }>('/api/executions').catch(() => ({ entries: [] as ExecutionEntry[] })),
-      apiFetch<{ simulations: SimulationRun[] }>('/api/sandbox/simulations').catch(() => ({ simulations: [] as SimulationRun[] })),
     ])
-      .then(([agentData, chainData, execData, simData]) => {
+      .then(([agentData, chainData]) => {
         setAgents(agentData.agents)
         setChains(chainData.chains)
-        setExecutions(execData.entries || [])
-        setSimulations(simData.simulations || [])
+        setError(null)
         setLoading(false)
-        // Fire spend-forecast batch fetch in the background.
-        fetchBatchSpendForecasts().then(setSpendForecasts).catch(() => { /* ignore — cards fall back to local mock */ })
+        // Fire spend-forecast batch fetch in the background (best-effort).
+        fetchBatchSpendForecasts().then(setSpendForecasts).catch(() => { /* forecasts are optional */ })
       })
       .catch((err: Error) => {
         setError(err.message)
         setLoading(false)
       })
+      .finally(() => { loadingRef.current = false })
   }
 
   useEffect(() => {
@@ -219,6 +224,7 @@ export default function Authority() {
   useEffect(() => {
     if (searchParams.get('connect') === 'true') {
       setShowCreate(true)
+      setAgentTab('agents')       // the connect form only renders on the Agents tab
       setConnectTab('upload')
       setSearchParams({}, { replace: true })
       setTimeout(
@@ -241,8 +247,10 @@ export default function Authority() {
   useEffect(() => {
     if (loading || initialTabRef.current) return
     if (agents.length === 0) {
+      // Land on Overview for a first-run account, but leave the connect form
+      // CLOSED — otherwise the header CTA reads "Cancel" over a hidden form.
+      // The user opens it via the "Connect agent" button (which switches tabs).
       setAgentTab('overview')
-      setShowCreate(true)
       setShowConnectTabs(false)
     } else {
       setAgentTab('agents')
@@ -471,14 +479,7 @@ export default function Authority() {
   }
 
   if (error) {
-    return (
-      <div className="flex flex-col items-center justify-center h-64 gap-3 text-center p-10">
-        <AlertTriangle size={32} className="text-red-500" />
-        <h2 className="font-semibold text-gray-900">Failed to load data</h2>
-        <p className="text-sm text-gray-500">{error}</p>
-        <Button onClick={() => window.location.reload()}>Retry</Button>
-      </div>
-    )
+    return <div style={{ padding: 40 }}><ErrorState message={error} onRetry={loadData} /></div>
   }
 
   // ─── Main dashboard ─────────────────────────────────────────────────────────
@@ -497,53 +498,34 @@ export default function Authority() {
     return clean.charAt(0).toUpperCase() + clean.slice(1).toLowerCase()
   })()
 
+  // The form is only *visible* on the Agents tab — the CTA label must track
+  // that, not the raw showCreate flag (which can be true on Overview).
+  const formVisible = showCreate && agentTab === 'agents'
   return (
-    <div style={{ maxWidth: 1240, margin: '0 auto', padding: '34px 40px 64px', fontFamily: 'var(--font-sans)' }}>
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
-        <div>
-          <div
+    <div style={{ padding: '34px 40px 64px', fontFamily: 'var(--font-sans)' }}>
+      <PageHeader
+        title="Agents"
+        description="Every action your AI agents can take — scored, chained, and governed before production."
+        actions={
+          <button
+            type="button"
+            onClick={() => {
+              const next = !formVisible
+              setShowCreate(next); setShowMcpConnect(false); setAgentTab('agents')
+            }}
+            className="ag-btn"
             style={{
-              fontSize: 11,
-              fontWeight: 600,
-              color: 'var(--ink-400)',
-              letterSpacing: 1.1,
-              textTransform: 'uppercase',
-              marginBottom: 10,
+              display: 'inline-flex', alignItems: 'center', gap: 8, whiteSpace: 'nowrap',
+              background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: 'var(--radius-md)',
+              padding: '10px 16px', fontSize: 'var(--fs-body)', fontWeight: 600, fontFamily: 'var(--font-sans)',
+              cursor: 'pointer', boxShadow: 'var(--shadow-card-new)',
             }}
           >
-            Agents
-          </div>
-          <h1
-            style={{
-              margin: 0,
-              fontSize: 32,
-              fontWeight: 700,
-              letterSpacing: -0.8,
-              color: 'var(--ink-900)',
-              lineHeight: 1.15,
-            }}
-          >
-            Welcome back{greetingName ? <>, <span style={{ color: 'var(--accent)' }}>{greetingName}</span></> : ''}
-          </h1>
-          <p style={{ margin: '8px 0 0', fontSize: 14.5, color: 'var(--ink-500)', maxWidth: 520, lineHeight: 1.5 }}>
-            Inventory every action your AI agents can take, and enforce the ones that matter.
-          </p>
-        </div>
-        <button
-          type="button"
-          onClick={() => { setShowCreate(!showCreate); setShowMcpConnect(false); setAgentTab('agents') }}
-          className="ag-btn"
-          style={{
-            display: 'inline-flex', alignItems: 'center', gap: 8, whiteSpace: 'nowrap',
-            background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: 9,
-            padding: '11px 17px', fontSize: 14, fontWeight: 550, fontFamily: 'var(--font-sans)',
-            cursor: 'pointer', boxShadow: 'var(--shadow-card-new)',
-          }}
-        >
-          {showCreate ? <X size={16} strokeWidth={2} /> : <Plus size={16} strokeWidth={2} />}
-          {showCreate ? 'Cancel' : 'Connect agent'}
-        </button>
-      </div>
+            {formVisible ? <X size={16} strokeWidth={2} /> : <Plus size={16} strokeWidth={2} />}
+            {formVisible ? 'Cancel' : 'Connect agent'}
+          </button>
+        }
+      />
 
       <div style={{ display: 'flex', gap: 26, borderBottom: '1px solid var(--line)', margin: '24px 0 26px' }}>
         {(agents.length === 0
@@ -1156,42 +1138,62 @@ export default function Authority() {
           })
         }
 
-        const tile = (label: string, value: React.ReactNode, valueColor?: string, note?: string) => (
-          <div
+        const tile = (
+          label: string, value: React.ReactNode,
+          opts?: { valueColor?: string; note?: string; onClick?: () => void }
+        ) => (
+          <button
+            type="button"
+            onClick={opts?.onClick}
+            className={opts?.onClick ? 'ag-card' : undefined}
             style={{
+              textAlign: 'left', width: '100%', font: 'inherit',
               background: 'var(--card)',
               border: '1px solid var(--line)',
-              borderRadius: 12,
+              borderRadius: 'var(--radius-lg)',
               padding: '18px 20px',
               boxShadow: 'var(--shadow-card-new)',
+              cursor: opts?.onClick ? 'pointer' : 'default',
             }}
           >
-            <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: 0.6, textTransform: 'uppercase', color: 'var(--ink-400)' }}>
+            <div style={{ fontSize: 'var(--fs-micro)', fontWeight: 600, letterSpacing: 0.5, textTransform: 'uppercase', color: 'var(--ink-400)' }}>
               {label}
             </div>
             <div
               className="mono"
-              style={{ fontSize: 30, fontWeight: 600, color: valueColor ?? 'var(--ink-900)', letterSpacing: -0.6, marginTop: 8 }}
+              style={{ fontSize: 28, fontWeight: 600, color: opts?.valueColor ?? 'var(--ink-900)', letterSpacing: -0.6, marginTop: 8 }}
             >
               {value}
             </div>
-            {note && (
-              <div style={{ fontSize: 12, color: 'var(--ink-400)', marginTop: 6 }}>{note}</div>
+            {opts?.note && (
+              <div style={{ fontSize: 'var(--fs-small)', color: 'var(--ink-500)', marginTop: 6 }}>{opts.note}</div>
             )}
-          </div>
+          </button>
         )
 
         return (
           <section>
-            {/* 4 stat tiles */}
+            {/* 4 stat tiles — clickable, each routes to the relevant view */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16 }}>
-              {tile('Agents monitored', `${totalAgents} of ${totalAgents}`)}
-              {tile('Forecast spend / mo', sumSpend !== null ? `$${sumSpend.toLocaleString()}` : '—', 'var(--accent)',
-                sumSpend === null ? 'Awaiting forecasts' : `Across ${forecastRows.length} ${forecastRows.length === 1 ? 'agent' : 'agents'}`)}
-              {tile('Critical chains', criticalChainsCount, 'var(--critical)',
-                criticalChainsCount > 0 ? 'Review and add policies' : 'None outstanding')}
-              {tile('Unguarded agents', unguardedCount, 'var(--caution)',
-                unguardedCount > 0 ? 'Policy not set' : 'All covered')}
+              {tile('Agents', totalAgents, {
+                note: `${pluralize(totalAgents, 'agent')} governed`,
+                onClick: () => setAgentTab('agents'),
+              })}
+              {tile('Forecast spend / mo', sumSpend !== null ? formatMoney(sumSpend) : '—', {
+                valueColor: 'var(--accent)',
+                note: sumSpend === null ? 'Awaiting forecasts' : `Across ${pluralize(forecastRows.length, 'agent')}`,
+                onClick: () => navigate('/spend'),
+              })}
+              {tile('Critical chains', criticalChainsCount, {
+                valueColor: criticalChainsCount > 0 ? 'var(--critical)' : 'var(--ink-900)',
+                note: criticalChainsCount > 0 ? 'Review and add policies' : 'None outstanding',
+                onClick: () => setAgentTab('chains'),
+              })}
+              {tile('Unguarded agents', unguardedCount, {
+                valueColor: unguardedCount > 0 ? 'var(--caution)' : 'var(--ink-900)',
+                note: unguardedCount > 0 ? 'No policy set' : 'All covered',
+                onClick: () => setAgentTab('agents'),
+              })}
             </div>
 
             {/* Two panels */}
@@ -1398,7 +1400,6 @@ export default function Authority() {
       <section>
         {agents.length > 0 && (
           <FleetStrip
-            monitored={agents.length}
             total={agents.length}
             spend={Object.values(spendForecasts).reduce<number | null>((acc, f) => {
               if (f === null) return acc
@@ -1452,10 +1453,10 @@ export default function Authority() {
               </p>
             </div>
           ) : (
-          <div className="flex flex-col items-center justify-center py-16 gap-2 text-gray-400">
+          <div className="flex flex-col items-center justify-center py-16 gap-2" style={{ color: 'var(--ink-400)' }}>
             <Settings2 size={28} />
-            <span className="text-sm font-medium">No agents match your filters</span>
-            <span className="text-xs">Try adjusting your search or risk filter</span>
+            <span className="text-sm font-medium">No agents match your search</span>
+            <span className="text-xs">Try a different name or tool</span>
           </div>
           )
         ) : (

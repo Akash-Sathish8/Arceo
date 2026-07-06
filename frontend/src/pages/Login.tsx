@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Shield, ArrowRight, ArrowLeft, Check, Eye, EyeOff, AlertCircle } from 'lucide-react'
 import { apiFetch, setToken, setUser } from '@/lib/api'
+import { toast } from '@/components/shared/Toast'
 import type { User } from '@/lib/types'
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -137,8 +138,6 @@ const GRAPH_EDGES: GraphEdge[] = [
 // ── CSS animations (injected once) ────────────────────────────────────────
 
 const GRAPH_STYLES = `
-  @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap');
-
   @keyframes lgn-node-pulse {
     0%, 100% { transform: scale(1); }
     50%       { transform: scale(1.15); }
@@ -340,17 +339,6 @@ export default function Login() {
   const [autoLogging, setAutoLogging] = useState(false)
   const navigate = useNavigate()
 
-  // Load DM Sans for card text
-  useEffect(() => {
-    if (!document.querySelector('link[data-dm-sans]')) {
-      const link = document.createElement('link')
-      link.rel = 'stylesheet'
-      link.setAttribute('data-dm-sans', 'true')
-      link.href = 'https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap'
-      document.head.appendChild(link)
-    }
-  }, [])
-
   useEffect(() => {
     apiFetch<DemoModeResponse>('/api/demo-mode', { skipLogoutOn401: true })
       .then((data) => {
@@ -365,16 +353,34 @@ export default function Login() {
       }).catch(() => {})
   }, [navigate])
 
+  // Mark (or clear) a demo session so the sidebar can label it honestly. The
+  // demo account is entered whenever the login falls back to the shared admin
+  // credentials — either an empty form or the magic "demo" email.
+  const markDemoSession = (usedFallback: boolean) => {
+    try {
+      if (usedFallback) localStorage.setItem('arceo_demo_session', '1')
+      else localStorage.removeItem('arceo_demo_session')
+    } catch { /* storage may be unavailable */ }
+  }
+
   const doLogin = async () => {
     setLoading(true); setError(null)
+    const isDemo = !email.trim() || email.trim().toLowerCase() === 'demo'
     try {
       const data = await apiFetch<LoginResponse>('/api/auth/login', {
         method: 'POST',
         body: JSON.stringify({ email: email || 'admin@actiongate.io', password: password || 'admin123' }),
         skipLogoutOn401: true,
       })
-      setToken(data.token); setUser(data.user); navigate('/')
-    } catch { setError('Invalid email or password') }
+      setToken(data.token); setUser(data.user); markDemoSession(isDemo)
+      if (isDemo) toast('Signed in to the shared demo account')
+      navigate('/')
+    } catch (err) {
+      // 401 is genuinely bad credentials; anything else (network, 500, rate
+      // limit) must surface its real message, not a misleading "wrong password".
+      setError(err instanceof Error && !/log in again|expired/i.test(err.message)
+        ? err.message : 'Invalid email or password')
+    }
     setLoading(false)
   }
 
@@ -400,6 +406,8 @@ export default function Login() {
         skipLogoutOn401: true,
       })
       setToken(data.token); setUser(data.user)
+      markDemoSession(!email.trim())
+      let created = 0
       for (const typeId of selectedTypes.filter((id) => id !== 'custom' && AGENT_TYPE_TEMPLATES[id])) {
         const tmpl = AGENT_TYPE_TEMPLATES[typeId]
         try {
@@ -407,10 +415,18 @@ export default function Login() {
             method: 'POST',
             body: JSON.stringify({ name: tmpl.name, description: tmpl.description, tools: templateToTools(tmpl.tools) }),
           })
-        } catch { /* non-fatal */ }
+          created++
+        } catch { /* non-fatal — surfaced in aggregate below */ }
+      }
+      const wanted = selectedTypes.filter((id) => id !== 'custom' && AGENT_TYPE_TEMPLATES[id]).length
+      if (wanted > 0 && created < wanted) {
+        toast(`Signed in — but ${wanted - created} of ${wanted} starter agents couldn't be created`, 'error')
       }
       navigate('/')
-    } catch { setError('Invalid email or password') }
+    } catch (err) {
+      setError(err instanceof Error && !/log in again|expired/i.test(err.message)
+        ? err.message : 'Invalid email or password')
+    }
     setLoading(false)
   }
 
@@ -565,6 +581,14 @@ export default function Login() {
             })}
           </div>
         </div>
+        {error && (
+          <div className="mx-auto w-full max-w-[640px] px-16">
+            <div className="flex items-center gap-2.5 rounded-[10px] px-4 py-3 mb-2" style={{ background: 'var(--critical-bg)', border: '1px solid var(--critical-line)' }}>
+              <AlertCircle size={15} color="var(--critical)" style={{ flexShrink: 0 }} />
+              <span className="text-[14px] font-medium" style={{ color: 'var(--critical)' }}>{error}</span>
+            </div>
+          </div>
+        )}
         <div className="flex justify-between items-center px-10 py-5 border-t border-gray-100 flex-shrink-0">
           <button type="button" onClick={() => setStep(1)} className={backBtnClass}><ArrowLeft size={14} />Back</button>
           <div className="flex items-center gap-2.5">
@@ -583,7 +607,9 @@ export default function Login() {
 
   // ── Step 0: Login card ────────────────────────────────────────────────────
 
-  const dmSans = "'DM Sans', system-ui, -apple-system, sans-serif"
+  // Use the product font (Schibsted Grotesk) — the login card no longer loads
+  // its own DM Sans. Name kept as `dmSans` to avoid churning ~40 references.
+  const dmSans = "var(--font-sans)"
 
   return (
     <div style={{ minHeight: '100vh', position: 'relative', isolation: 'isolate', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -628,8 +654,12 @@ export default function Login() {
           {/* Email */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '7px' }}>
             <label style={{ fontSize: '14px', fontWeight: 600, color: '#374151', fontFamily: dmSans }}>Email</label>
+            {/* type="text" (not "email") so the magic "demo" value isn't rejected
+                by native validation — inputMode still brings up the email keyboard. */}
             <input
-              type="email"
+              type="text"
+              inputMode="email"
+              autoComplete="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="you@example.com"
@@ -641,12 +671,7 @@ export default function Login() {
 
           {/* Password */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '7px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <label style={{ fontSize: '14px', fontWeight: 600, color: '#374151', fontFamily: dmSans }}>Password</label>
-              <button type="button" style={{ background: 'none', border: 'none', padding: 0, fontSize: '13px', fontWeight: 500, color: '#6b7280', cursor: 'pointer', fontFamily: dmSans }}>
-                Forgot password?
-              </button>
-            </div>
+            <label style={{ fontSize: '14px', fontWeight: 600, color: '#374151', fontFamily: dmSans }}>Password</label>
             <div style={{ position: 'relative' }}>
               <input
                 type={showPassword ? 'text' : 'password'}

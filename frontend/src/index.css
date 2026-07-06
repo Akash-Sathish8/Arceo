@@ -1,14 +1,24 @@
-@import '@fontsource-variable/geist';
+@import '@fontsource-variable/schibsted-grotesk';
 @import '@fontsource-variable/jetbrains-mono';
 @import "tailwindcss";
 
 :root {
   /* ── Typography ──────────────────────────────────────────────── */
-  /* Schibsted Grotesk is the redesign font. Geist is kept as a fallback
-     and is still wired in via @fontsource so older surfaces don't break. */
-  --font-sans: 'Schibsted Grotesk', 'Geist Variable', system-ui, -apple-system, sans-serif;
-  --font-mono: 'JetBrains Mono', 'JetBrains Mono Variable', 'Fira Code', 'Cascadia Code', monospace;
+  /* Schibsted Grotesk (self-hosted via @fontsource) is THE product font;
+     JetBrains Mono for numerals/code. No CDN fonts — index.html is clean. */
+  --font-sans: 'Schibsted Grotesk Variable', 'Schibsted Grotesk', system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono Variable', 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
   --font-num:  var(--font-mono);
+
+  /* ── Type scale ──────────────────────────────────────────────── */
+  /* Six steps. Rule: --fs-micro is the ONLY uppercase tier and appears at
+     most once per card; body text never goes below --fs-small. */
+  --fs-micro:   11px;    /* uppercase eyebrow labels, letter-spacing .5px */
+  --fs-small:   12.5px;  /* secondary text, meta, chips */
+  --fs-body:    14px;    /* default body */
+  --fs-title:   16px;    /* card & section titles */
+  --fs-page:    21px;    /* page headers */
+  --fs-display: 26px;    /* login only */
 
   /* ── Redesign tokens (added 2026-06-01 from design handoff). ──
      Coexist with the existing tokens below so other pages keep working
@@ -36,10 +46,15 @@
 
   --safe:        #3f865f; --safe-bg:     #ecf3ef; --safe-line:     #d7e7dd;
   --caution:     #98711f; --caution-bg:  #f5eedd; --caution-line:  #e8dcbd;
+  /* High band (60-79) — added 2026-07-03. Orange-700 family: 5.4:1 on white,
+     distinct from both amber (medium) and red (critical). Replaces the
+     unreadable #fed7aa/#ea580c hardcodes. */
+  --high:        #c2410c; --high-bg:     #fdf0e7; --high-line:     #f5d5bc;
   --critical:    #cf4636; --critical-bg: #fbece8; --critical-line: #f3d6cf;
   /* Ring/score variants — slightly punchier than the text tones. */
   --safe-ring:     #2f8a5b;
   --caution-ring:  #c79320;
+  --high-ring:     #d9560f;
   --critical-ring: #c1452f;
 
   --shadow-card-new: 0 1px 2px rgba(20,25,35,.06), 0 1px 0 rgba(20,25,35,.02);
@@ -52,13 +67,14 @@
   --bg-overlay:       rgba(8, 9, 20, 0.52);
 
   /* ── Sidebar ─────────────────────────────────────────────────── */
-  --sidebar-bg:            #0C0E15;
-  --sidebar-hover:         #13162A;
-  --sidebar-active:        #181C32;
-  --sidebar-border:        #1E2238;
-  --sidebar-text:          #52587A;
-  --sidebar-text-active:   #EDEEF5;
-  --sidebar-text-dim:      rgba(237, 238, 245, 0.32);
+  /* Single source of truth for the dark rail — the component reads these. */
+  --sidebar-bg:            #1b1e24;
+  --sidebar-hover:         rgba(255,255,255,0.055);
+  --sidebar-active:        rgba(255,255,255,0.08);
+  --sidebar-border:        rgba(255,255,255,0.08);
+  --sidebar-text:          #a4abb6;
+  --sidebar-text-active:   #ffffff;
+  --sidebar-text-dim:      #79808b;
 
   /* ── Borders ─────────────────────────────────────────────────── */
   /* Legacy names aliased to handoff tokens so non-redesigned pages
@@ -83,13 +99,13 @@
   --color-accent-hover: var(--accent-ink);
 
   /* ── Severity ────────────────────────────────────────────────── */
-  /* The handoff collapses high+medium → caution; redirect both. */
+  /* Four real tiers since 2026-07-03 (matches the backend band scale). */
   --severity-critical:         var(--critical);
   --severity-critical-bg:      var(--critical-bg);
   --severity-critical-border:  var(--critical-line);
-  --severity-high:             var(--caution);
-  --severity-high-bg:          var(--caution-bg);
-  --severity-high-border:      var(--caution-line);
+  --severity-high:             var(--high);
+  --severity-high-bg:          var(--high-bg);
+  --severity-high-border:      var(--high-line);
   --severity-medium:           var(--caution);
   --severity-medium-bg:        var(--caution-bg);
   --severity-medium-border:    var(--caution-line);
@@ -248,6 +264,26 @@ body {
 }
 
 .ag-nav { transition: background .12s ease, color .12s ease; }
+/* !important overrides the NavLink's inline background/color (the reason the
+   old transition animated nothing). Active items opt out via .ag-nav--active. */
+.ag-nav:hover:not(.ag-nav--active) {
+  background: var(--sidebar-hover) !important;
+  color: var(--sidebar-text-active) !important;
+}
+.ag-nav:hover:not(.ag-nav--active) svg { color: var(--sidebar-text-active) !important; }
+
+/* Command-palette keyboard selection — cmdk sets [data-selected] on arrow-key
+   nav; without this the highlight is invisible (was faked via onMouseEnter). */
+[cmdk-item][data-selected="true"] {
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+}
+
+/* Respect reduced-motion: damp transitions/animations for users who ask. */
+@media (prefers-reduced-motion: reduce) {
+  html:focus-within { scroll-behavior: auto; }
+  .ag-card, .ag-row, .ag-nav, .ag-tab, .ag-btn, .ag-spend-cta { transition: none !important; }
+}
 
 .ag-tab { transition: color .14s ease, border-color .14s ease; }
 

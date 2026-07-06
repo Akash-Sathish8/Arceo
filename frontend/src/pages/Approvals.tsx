@@ -6,6 +6,7 @@ import { toast } from '@/components/shared/Toast'
 import { timeAgo } from '@/lib/utils'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
+import ErrorState from '@/components/shared/ErrorState'
 
 interface ApprovalItem {
   id: string
@@ -41,14 +42,18 @@ export default function Approvals() {
   const [deciding, setDeciding] = useState<DecisionMap>({})
   const [notes, setNotes] = useState<NotesMap>({})
   const [decided, setDecided] = useState<DecisionMap>({})
+  const [loadError, setLoadError] = useState<string | null>(null)
 
   const load = useCallback(() => {
+    setLoadError(null)
     apiFetch<ApprovalsResponse>('/api/approvals')
       .then((d) => {
         setApprovals(d.approvals ?? [])
         setLoading(false)
       })
-      .catch(() => setLoading(false))
+      // An outage must NOT render the green "all caught up" state — that reads
+      // as a clean queue when the truth is we couldn't reach the server.
+      .catch((e: Error) => { setLoadError(e.message); setLoading(false) })
   }, [])
 
   useEffect(() => {
@@ -118,8 +123,10 @@ export default function Approvals() {
         )}
       </div>
 
-      {/* Empty state */}
-      {approvals.length === 0 ? (
+      {/* Load error — must win over the "all caught up" empty state */}
+      {loadError && approvals.length === 0 ? (
+        <ErrorState message={loadError} onRetry={load} />
+      ) : approvals.length === 0 ? (
         <div style={{ display: "flex", flexDirection: "column", alignItems: "center", textAlign: "center", paddingTop: 64, paddingBottom: 64 }}>
           <div style={{ width: 64, height: 64, borderRadius: "50%", background: "var(--severity-safe-bg)", border: "1px solid var(--severity-safe-border)", display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 16 }}>
             <CheckCircle2 size={32} style={{ color: "var(--severity-safe)" }} />

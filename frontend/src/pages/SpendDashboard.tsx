@@ -8,20 +8,24 @@
  * brain/Signals/Cost calculation methodology.md
  */
 
-import { useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { Link } from "react-router-dom"
 import {
   FileText, Banknote, X, Download,
   Headset, Terminal, BarChart2, Settings2, Bot,
 } from "lucide-react"
 import type { LucideIcon } from "lucide-react"
-import { PDFDownloadLink } from "@react-pdf/renderer"
+import { lazy, Suspense } from "react"
 import { apiFetch } from "@/lib/api"
+import ErrorState from "@/components/shared/ErrorState"
 import { agentIcon, scoreBand, timeAgo } from "@/lib/utils"
 import type { MockSpend } from "@/lib/mockSpend"
 import { fetchBatchSpendForecasts } from "@/lib/spendApi"
 import { pluralize } from "@/lib/strings"
-import { FleetCFOReport, type FleetReportData } from "@/components/FleetCFOReport"
+import { type FleetReportData } from "@/components/FleetCFOReport"
+
+// @react-pdf/renderer (~1MB) loads only when a user opens the fleet export.
+const FleetCFODownloadLink = lazy(() => import("@/components/FleetCFODownloadLink"))
 
 function todayIso(): string {
   return new Date().toISOString().slice(0, 10)
@@ -102,24 +106,25 @@ export default function SpendDashboard() {
   const [forecasts, setForecasts] = useState<Record<string, MockSpend | null>>({})
   const [loading, setLoading] = useState(true)
   const [loadedAt, setLoadedAt] = useState<string | null>(null)
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [showMethodology, setShowMethodology] = useState(false)
 
-  useEffect(() => {
-    Promise.all([
-      apiFetch<{ agents: AgentSummary[] }>("/api/authority/agents"),
-      fetchBatchSpendForecasts(),
-    ])
-      .then(([agentData, fc]) => {
+  const load = useCallback(() => {
+    setLoading(true)
+    setLoadError(null)
+    // agents is the primary load; forecasts are secondary and may degrade.
+    apiFetch<{ agents: AgentSummary[] }>("/api/authority/agents")
+      .then(async (agentData) => {
         setAgents(agentData.agents ?? [])
-        setForecasts(fc)
+        setForecasts(await fetchBatchSpendForecasts())
         setLoadedAt(new Date().toISOString())
       })
-      .catch(() => {
-        setAgents([])
-        setForecasts({})
-      })
+      // Don't fake "No agents connected yet." on an outage.
+      .catch((e: Error) => setLoadError(e.message))
       .finally(() => setLoading(false))
   }, [])
+
+  useEffect(() => { load() }, [load])
 
   const fleet = useMemo(() => {
     return agents.map((a) => {
@@ -239,7 +244,9 @@ export default function SpendDashboard() {
       <p className="text-sm text-gray-600 mt-1">
         {loading
           ? "Loading fleet…"
-          : agents.length === 0
+          : loadError
+            ? "Couldn't load the fleet."
+            : agents.length === 0
             ? "No agents connected yet."
             : `Fleet-wide forecast across ${withForecast.length} ${pluralize(withForecast.length, "agent")}${noForecast.length > 0 ? ` · ${noForecast.length} more need sandbox runs` : ""}`}
       </p>
@@ -297,7 +304,11 @@ export default function SpendDashboard() {
         </div>
       )}
 
-      {!loading && agents.length === 0 && (
+      {!loading && loadError && (
+        <div className="mt-6"><ErrorState message={loadError} onRetry={load} /></div>
+      )}
+
+      {!loading && !loadError && agents.length === 0 && (
         <div className="panel-card mt-6 text-center" style={{ padding: 40 }}>
           <Banknote className="mx-auto mb-3 text-gray-400" size={32} />
           <div className="text-gray-900 font-semibold">No connected agents to forecast yet</div>
@@ -466,17 +477,13 @@ export default function SpendDashboard() {
               >
                 <Download size={14} /> Export CSV
               </button>
-              <PDFDownloadLink
-                document={<FleetCFOReport data={fleetReportData} />}
-                fileName={`arceo-fleet-cfo-report-${todayIso()}.pdf`}
-                className="text-sm px-4 py-2 rounded-lg bg-gray-900 text-white font-medium inline-flex items-center gap-2 no-underline"
-              >
-                {({ loading: building }) =>
-                  building
-                    ? (<><FileText size={14} /> Building PDF…</>)
-                    : (<><FileText size={14} /> CFO report (PDF)</>)
-                }
-              </PDFDownloadLink>
+              <Suspense fallback={
+                <span className="text-sm px-4 py-2 rounded-lg bg-gray-900 text-white font-medium inline-flex items-center gap-2 opacity-60">
+                  <FileText size={14} /> Preparing export…
+                </span>
+              }>
+                <FleetCFODownloadLink data={fleetReportData} fileName={`arceo-fleet-cfo-report-${todayIso()}.pdf`} />
+              </Suspense>
             </div>
           )}
         </>

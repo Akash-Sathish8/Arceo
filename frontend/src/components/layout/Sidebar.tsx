@@ -29,10 +29,22 @@ interface NavItem {
 
 const ACCENT = "var(--accent)";
 
+const CONSUMER_DOMAINS = new Set([
+  "gmail", "googlemail", "yahoo", "outlook", "hotmail", "live", "icloud",
+  "me", "aol", "proton", "protonmail", "pm",
+]);
+
+function isDemoSession(): boolean {
+  try { return localStorage.getItem("arceo_demo_session") === "1"; } catch { return false; }
+}
+
 function deriveOrgName(email: string | undefined): string {
+  if (isDemoSession()) return "Shared demo account";
   if (!email) return "Arceo";
   const domain = email.split("@")[1] ?? "";
-  const root = domain.split(".")[0] ?? "arceo";
+  const root = domain.split(".")[0] ?? "";
+  // A personal inbox has no meaningful org name — showing "Gmail" reads as a bug.
+  if (!root || CONSUMER_DOMAINS.has(root.toLowerCase())) return "Personal workspace";
   return root.charAt(0).toUpperCase() + root.slice(1);
 }
 
@@ -56,12 +68,18 @@ export default function Sidebar(): React.ReactElement {
     async function fetchPending() {
       if (document.hidden) return;
       try {
-        const data = await apiFetch<{ approvals?: { status: string }[] }>("/api/approvals");
+        // skipLogoutOn401: a background poll must never yank the user to /login
+        // mid-task just because the token lapsed.
+        const data = await apiFetch<{ approvals?: { status: string }[] }>(
+          "/api/approvals", { skipLogoutOn401: true }
+        );
         const items = data?.approvals ?? [];
-        const pending = items.filter((a) => a.status === "PENDING").length;
+        // Backend status is PENDING_APPROVAL — the old "PENDING" filter kept the
+        // badge permanently at 0.
+        const pending = items.filter((a) => a.status === "PENDING_APPROVAL").length;
         setPendingCount(pending);
       } catch {
-        /* silent */
+        /* silent by design — a badge is not worth an error surface */
       }
     }
 
@@ -93,21 +111,21 @@ export default function Sidebar(): React.ReactElement {
     else groups.push({ name: item.group, items: [item] });
   }
 
-  // Dark palette from the handoff.
+  // Dark rail palette — sourced from the --sidebar-* tokens (single source).
   const C = {
-    bg: "#1b1e24",
-    word: "#ffffff",
+    bg: "var(--sidebar-bg)",
+    word: "var(--sidebar-text-active)",
     mark: ACCENT,
-    grp: "#79808b",
-    txt: "#a4abb6",
-    txtOn: "#ffffff",
-    icon: "#79808b",
+    grp: "var(--sidebar-text-dim)",
+    txt: "var(--sidebar-text)",
+    txtOn: "var(--sidebar-text-active)",
+    icon: "var(--sidebar-text-dim)",
     iconOn: ACCENT,
-    onBg: "rgba(255,255,255,0.06)",
-    border: "rgba(255,255,255,0.08)",
+    onBg: "var(--sidebar-active)",
+    border: "var(--sidebar-border)",
     subA: "rgba(255,255,255,0.09)",
     subT: "#e0e4ea",
-    subS: "#79808b",
+    subS: "var(--sidebar-text-dim)",
   };
 
   const toggleBtn = (
@@ -211,7 +229,7 @@ export default function Sidebar(): React.ReactElement {
               key={item.id}
               to={item.to}
               end={item.to === "/"}
-              className="ag-nav"
+              className={({ isActive }) => `ag-nav${isActive ? " ag-nav--active" : ""}`}
               title={collapsed ? item.label : undefined}
               style={({ isActive }) => ({
                 display: "flex",
@@ -278,7 +296,7 @@ export default function Sidebar(): React.ReactElement {
 
       <NavLink
         to="/settings"
-        className="ag-nav"
+        className={({ isActive }) => `ag-nav${isActive ? " ag-nav--active" : ""}`}
         title={collapsed ? "Settings" : undefined}
         style={({ isActive }) => ({
           display: "flex",

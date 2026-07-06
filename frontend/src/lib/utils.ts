@@ -1,28 +1,16 @@
 import type { RiskLabel, Severity } from "./types";
 
-export function timeAgo(ts: string): string {
-  const normalized = ts.endsWith("Z") ? ts : ts + "Z";
-  const diffMs = Date.now() - new Date(normalized).getTime();
-  const diffSec = Math.floor(diffMs / 1000);
-
-  if (diffSec < 10) return "just now";
-  if (diffSec < 60) return `${diffSec}s ago`;
-
-  const diffMin = Math.floor(diffSec / 60);
-  if (diffMin < 60) return `${diffMin}m ago`;
-
-  const diffHr = Math.floor(diffMin / 60);
-  if (diffHr < 24) return `${diffHr}h ago`;
-
-  const diffDay = Math.floor(diffHr / 24);
-  return `${diffDay}d ago`;
-}
+// Timestamps live in lib/time.ts now (one implementation, offset-safe).
+// Re-exported here so existing `@/lib/utils` imports keep working.
+export { timeAgo, formatDateTime, formatDateShort, parseTimestamp } from "./time";
 
 export interface ScoreBand {
   key: Severity;
   label: "Critical" | "High" | "Medium" | "Low";
-  color: string;
-  bg: string;
+  color: string;   // text/number color (AA on white)
+  bg: string;      // tint background
+  ring: string;    // graphics-only ring stroke (>=3:1)
+  line: string;    // border
 }
 
 /**
@@ -33,6 +21,10 @@ export interface ScoreBand {
  * chains never reads below Medium (the score rates actions individually,
  * chains rate combinations — "Low" next to "2 critical chains" reads as the
  * product contradicting itself).
+ *
+ * All colors are CSS-variable references (design tokens), so the same band
+ * looks identical everywhere and theming stays central. NOTE: callers must
+ * NOT string-concatenate these (e.g. `color + "18"`); use `bg` for tints.
  */
 export function scoreBand(score: number, criticalChains = 0, backendBand?: string): ScoreBand {
   const k = backendBand
@@ -41,11 +33,21 @@ export function scoreBand(score: number, criticalChains = 0, backendBand?: strin
       : score >= 40 || criticalChains > 0 ? "medium"
       : "low");
   switch (k) {
-    case "critical": return { key: "critical", label: "Critical", color: "#dc2626", bg: "#fef2f2" };
-    case "high":     return { key: "high",     label: "High",     color: "#ea580c", bg: "#fff7ed" };
-    case "medium":   return { key: "medium",   label: "Medium",   color: "#d97706", bg: "#fffbeb" };
-    default:         return { key: "safe",     label: "Low",      color: "#16a34a", bg: "#f0fdf4" };
+    case "critical": return { key: "critical", label: "Critical", color: "var(--critical)", bg: "var(--critical-bg)", ring: "var(--critical-ring)", line: "var(--critical-line)" };
+    case "high":     return { key: "high",     label: "High",     color: "var(--high)",     bg: "var(--high-bg)",     ring: "var(--high-ring)",     line: "var(--high-line)" };
+    case "medium":   return { key: "medium",   label: "Medium",   color: "var(--caution)",  bg: "var(--caution-bg)",  ring: "var(--caution-ring)",  line: "var(--caution-line)" };
+    default:         return { key: "safe",     label: "Low",      color: "var(--safe)",     bg: "var(--safe-bg)",     ring: "var(--safe-ring)",     line: "var(--safe-line)" };
   }
+}
+
+/**
+ * Presentation for a single simulated run's risk_score. Deliberately the SAME
+ * 0-100 band scale as blast radius (so users don't juggle two mental models),
+ * but it's a distinct metric — labelled "Sim risk" at call sites, with its own
+ * SIM_RISK_METHODOLOGY tooltip. Rounds so decimals never leak.
+ */
+export function simRiskBand(score: number): ScoreBand {
+  return scoreBand(Math.round(score));
 }
 
 export function bandDescription(key: Severity): string {
@@ -78,20 +80,21 @@ export function agentIcon(agentType: string | null | undefined): string {
   return "Bot";
 }
 
+// Sourced from the --label-* design tokens so every surface agrees.
 const RISK_LABEL_COLORS: Record<RiskLabel, string> = {
-  moves_money:        "#dc2626",
-  touches_pii:        "#7c3aed",
-  deletes_data:       "#ea580c",
-  sends_external:     "#0891b2", // cyan-600 — resolves collision with accent blue
-  changes_production: "#b45309", // amber-700 — raises severity signal vs. calm teal
+  moves_money:        "var(--label-moves-money)",
+  touches_pii:        "var(--label-touches-pii)",
+  deletes_data:       "var(--label-deletes-data)",
+  sends_external:     "var(--label-sends-external)",
+  changes_production: "var(--label-changes-production)",
 };
 
 const RISK_LABEL_BGS: Record<RiskLabel, string> = {
-  moves_money:        "#fef2f2",
-  touches_pii:        "#f5f3ff",
-  deletes_data:       "#fff7ed",
-  sends_external:     "#ecfeff",
-  changes_production: "#fffbeb",
+  moves_money:        "var(--label-moves-money-bg)",
+  touches_pii:        "var(--label-touches-pii-bg)",
+  deletes_data:       "var(--label-deletes-data-bg)",
+  sends_external:     "var(--label-sends-external-bg)",
+  changes_production: "var(--label-changes-production-bg)",
 };
 
 export function riskLabelColor(label: RiskLabel): string {
@@ -102,14 +105,5 @@ export function riskLabelBg(label: RiskLabel): string {
   return RISK_LABEL_BGS[label];
 }
 
-export function formatDate(ts: string): string {
-  const normalized = ts.endsWith("Z") ? ts : ts + "Z";
-  return new Date(normalized).toLocaleString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-    hour12: true,
-  });
-}
+// Legacy alias — delegates to the offset-safe formatter in lib/time.ts.
+export { formatDateTime as formatDate } from "./time";

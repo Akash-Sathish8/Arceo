@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { useSearchParams, useNavigate } from "react-router-dom";
+import { useSearchParams, Link } from "react-router-dom";
 import { Button } from "@/components/ui/Button";
 import {
   ArrowLeft,
@@ -109,9 +109,26 @@ function SimulationPicker({
 }) {
   const [open, setOpen] = useState(false);
   const selected = simulations.find((s) => s.id === value);
+  const ref = useRef<HTMLDivElement>(null);
+
+  // Close on outside-click or Escape (the dropdown used to stay open over
+  // content until you re-clicked the trigger).
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
 
   return (
-    <div style={{ position: "relative" }}>
+    <div ref={ref} style={{ position: "relative" }}>
       <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 4 }}>
         {label}
       </div>
@@ -269,29 +286,21 @@ function MetricRow({
           >
             <Minus size={12} /> no change
           </span>
-        ) : improved ? (
-          <span
-            style={{
-              fontSize: 12,
-              color: "#16a34a",
-              display: "flex",
-              alignItems: "center",
-              gap: 2,
-            }}
-          >
-            <TrendingDown size={12} /> {Math.abs(delta)}
-          </span>
         ) : (
+          // Arrow direction follows the actual delta sign; color follows whether
+          // that direction is an improvement (a rise in Blocked Actions is good,
+          // so it's a green up-arrow — not a green down-arrow).
           <span
             style={{
               fontSize: 12,
-              color: "#dc2626",
+              color: improved ? "var(--safe)" : "var(--critical)",
               display: "flex",
               alignItems: "center",
               gap: 2,
             }}
           >
-            <TrendingUp size={12} /> +{delta}
+            {delta > 0 ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
+            {delta > 0 ? `+${delta}` : Math.abs(delta)}
           </span>
         )}
       </div>
@@ -301,7 +310,6 @@ function MetricRow({
 
 export default function Comparison() {
   const [searchParams, setSearchParams] = useSearchParams();
-  const navigate = useNavigate();
 
   const [simulations, setSimulations] = useState<SimRun[]>([]);
   const [simA, setSimA] = useState<SimRun | null>(null);
@@ -447,9 +455,11 @@ export default function Comparison() {
     >
       {/* Header */}
       <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-        <Button variant="secondary" size="sm" onClick={() => navigate(-1)} icon={<ArrowLeft size={14} />}>
-          Back
-        </Button>
+        <Link to="/sandbox">
+          <Button variant="secondary" size="sm" icon={<ArrowLeft size={14} />}>
+            Back to Sandbox
+          </Button>
+        </Link>
         <span style={{ color: "#d1d5db" }}>/</span>
         <h1 style={{ fontSize: 24, fontWeight: 700, color: "var(--text-primary)", margin: 0 }}>
           Compare Simulations

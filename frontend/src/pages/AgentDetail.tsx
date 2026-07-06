@@ -18,6 +18,7 @@ import { toast } from '@/components/shared/Toast'
 import { bandDescription, scoreBand, scoreToColor } from '@/lib/utils'
 import { chainNarrative, chainShortLabel } from '@/lib/chainLabels'
 import Tooltip from '@/components/shared/Tooltip'
+import ErrorState from '@/components/shared/ErrorState'
 import { RISK_SCORE_METHODOLOGY } from '@/lib/methodology'
 
 // ── Local types ───────────────────────────────────────────────────────────────
@@ -232,10 +233,12 @@ const fmtUsd = (usd: number): string => {
   return `$${Math.round(usd)}`
 }
 
+// Confidence is trust in the NUMBER, not risk level — so high = reassuring
+// green, not alarming red (the old styling made the best state look worst).
 const CONF_STYLE: Record<string, { background: string; color: string; label: string }> = {
-  high: { background: '#fef2f2', color: '#b91c1c', label: 'Confirmed by simulation' },
-  medium: { background: '#fffbeb', color: '#b45309', label: 'Simulated' },
-  low: { background: '#f3f4f6', color: '#6b7280', label: 'Static estimate' },
+  high: { background: 'var(--safe-bg)', color: 'var(--safe)', label: 'Confirmed by simulation' },
+  medium: { background: 'var(--accent-soft)', color: 'var(--accent-ink)', label: 'Simulated' },
+  low: { background: 'var(--paper-2)', color: 'var(--ink-500)', label: 'Static estimate' },
 }
 
 const formatExecTime = (ts: string): string => {
@@ -658,7 +661,7 @@ function WorstCasePanel({
                 style={{
                   background: CONF_STYLE[br.confidence].background,
                   color: CONF_STYLE[br.confidence].color,
-                  borderColor: CONF_STYLE[br.confidence].color + '33',
+                  borderColor: 'transparent',
                 }}
                 title="How the score is graded: static estimate vs simulated vs confirmed by a simulation"
               >
@@ -1208,9 +1211,11 @@ export default function AgentDetail() {
   }
   const removePattern = (p: string) => setNewPatterns((prev) => prev.filter((x) => x !== p))
 
-  const loadData = () => {
+  // soft=true refreshes data in place without the full-page spinner — used
+  // after mutations so the user keeps their scroll position and tab.
+  const loadData = (opts?: { soft?: boolean }) => {
     if (!agentId) return
-    setLoading(true)
+    if (!opts?.soft) setLoading(true)
     setError(null)
     Promise.all([
       apiFetch<AgentDetailResponse>(`/api/authority/agent/${agentId}`),
@@ -1264,7 +1269,7 @@ export default function AgentDetail() {
       })
       toast('Agent updated')
       setEditMode(false)
-      loadData()
+      loadData({ soft: true })
     } catch (err: unknown) {
       toast(
         'Failed to update: ' + (err instanceof Error ? err.message : 'Unknown error'),
@@ -1318,8 +1323,11 @@ export default function AgentDetail() {
       setNewConditions([])
       setShowConditions(false)
       setPolicyAdded(true)
+      // Auto-dismiss the confirmation banner — it used to persist forever, even
+      // after the policies were later deleted.
+      window.setTimeout(() => setPolicyAdded(false), 4000)
       toast(`${newPatterns.length} polic${newPatterns.length !== 1 ? 'ies' : 'y'} added`)
-      loadData()
+      loadData({ soft: true })
     } catch (err: unknown) {
       toast(
         'Failed to add policy: ' + (err instanceof Error ? err.message : 'Unknown error'),
@@ -1381,7 +1389,7 @@ export default function AgentDetail() {
       )
       toast(`Applied ${toCreate.size} polic${toCreate.size !== 1 ? 'ies' : 'y'}`)
       setAppliedRecIndices((prev) => new Set([...prev, ...recs.map(({ i }) => i)]))
-      loadData()
+      loadData({ soft: true })
     } catch (err: unknown) {
       toast('Failed: ' + (err instanceof Error ? err.message : 'Unknown error'), 'error')
     }
@@ -1425,7 +1433,7 @@ export default function AgentDetail() {
       )
       toast(`Applied ${toCreate.size} polic${toCreate.size !== 1 ? 'ies' : 'y'}`)
       setAppliedRecIndices((prev) => new Set([...prev, ...selectedRecs]))
-      loadData()
+      loadData({ soft: true })
       setShowRecsMenu(false)
     } catch (err: unknown) {
       toast('Failed: ' + (err instanceof Error ? err.message : 'Unknown error'), 'error')
@@ -1437,7 +1445,7 @@ export default function AgentDetail() {
     try {
       await apiFetch(`/api/authority/policy/${policyId}`, { method: 'DELETE' })
       toast('Policy removed')
-      loadData()
+      loadData({ soft: true })
     } catch (err: unknown) {
       toast(
         'Failed to delete policy: ' + (err instanceof Error ? err.message : 'Unknown error'),
@@ -1450,7 +1458,9 @@ export default function AgentDetail() {
     if (newEffect === policy.effect) return
     setChangingEffectId(policy.id)
     try {
-      await apiFetch(`/api/authority/policy/${policy.id}`, { method: 'DELETE' })
+      // POST the replacement FIRST, then DELETE the old one. There is no policy
+      // PUT on the backend, and DELETE-then-POST loses the policy entirely if the
+      // POST fails. A brief duplicate window is acceptable; data loss is not.
       await apiFetch(`/api/authority/agent/${agentId}/policies`, {
         method: 'POST',
         body: JSON.stringify({
@@ -1460,8 +1470,16 @@ export default function AgentDetail() {
           conditions: policy.conditions,
         }),
       })
+      try {
+        await apiFetch(`/api/authority/policy/${policy.id}`, { method: 'DELETE' })
+      } catch {
+        toast('Effect changed, but the old policy could not be removed — delete it manually', 'error')
+        loadData({ soft: true })
+        setChangingEffectId(null)
+        return
+      }
       toast('Policy updated')
-      loadData()
+      loadData({ soft: true })
     } catch (err: unknown) {
       toast('Failed: ' + (err instanceof Error ? err.message : 'Unknown error'), 'error')
     }
@@ -1498,20 +1516,7 @@ export default function AgentDetail() {
           <ArrowLeft className="w-4 h-4" />
           All Agents
         </Link>
-        <div className="flex flex-col items-center justify-center py-20 gap-3">
-          <div className="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center">
-            <AlertTriangle className="w-5 h-5 text-red-500" />
-          </div>
-          <h2 className="text-base font-semibold text-gray-800">Failed to load agent</h2>
-          <p className="text-sm text-gray-500">{error}</p>
-          <button
-            style={{ background: 'var(--color-cta)', color: 'var(--text-inverse)', borderRadius: 'var(--radius-full)', border: 'none', padding: '8px 20px', fontWeight: 600, fontSize: 13, fontFamily: 'inherit', cursor: 'pointer' }}
-            className="hover:opacity-80 transition-opacity"
-            onClick={() => window.location.reload()}
-          >
-            Retry
-          </button>
-        </div>
+        <ErrorState title="Couldn't load this agent" message={error ?? 'This agent could not be found.'} onRetry={loadData} />
       </div>
     )
   }
