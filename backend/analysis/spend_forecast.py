@@ -1457,10 +1457,21 @@ def forecast_spend(
     infra_per_call = infra_base + runtime * compute_per_sec
 
     # ── Monthly totals ──
-    # All three are PER-LLM-CALL costs → scale by llm_calls_per_day (= runs×turns).
+    # LLM + infra are per-LLM-CALL → scale by llm_calls_per_day (= runs×turns).
+    # Tool calls are NOT one-per-turn: a run can't invoke more DISTINCT actions
+    # than it exposes, and a specific action fires ~once per run. Without a trace
+    # to measure the real mix, scale tool volume by runs × min(turns, n_actions)
+    # so a rare write (e.g. a payout among 3 actions in an 8-turn loop) reads as
+    # ~1/run, not 2.67/run (= runs×turns/n). A measured mix already reflects the
+    # true per-step share, so it keeps the full llm_calls_per_day scale.
     days_per_month = 30
+    _n_actions = len(actions_with_cost) or 1
+    tool_calls_per_day = (
+        llm_calls_per_day if tool_mix_measured
+        else runs_per_day * min(turns_per_run, _n_actions)
+    )
     monthly_llm = llm_cost_per_call * llm_calls_per_day * days_per_month
-    monthly_tools = tool_cost_per_call * llm_calls_per_day * days_per_month
+    monthly_tools = tool_cost_per_call * tool_calls_per_day * days_per_month
     monthly_infra = infra_per_call * llm_calls_per_day * days_per_month
     monthly_point = monthly_llm + monthly_tools + monthly_infra
 
@@ -1477,7 +1488,8 @@ def forecast_spend(
 
     # ── Top tool calls ── projected by per-action weight (observed share when
     # traces exist, else uniform 1/N — disclosed via inputSources.toolMix).
-    monthly_calls = llm_calls_per_day * days_per_month
+    # Uses the tool-call volume (bounded per run), not the raw LLM-call count.
+    monthly_calls = tool_calls_per_day * days_per_month
     top_tools: list[dict] = []
     for tool_name, action_name, cost_per, weight in actions_with_cost:
         calls = monthly_calls * weight
