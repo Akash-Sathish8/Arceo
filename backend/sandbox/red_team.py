@@ -231,7 +231,6 @@ def _run_agent_with_input(
     system_prompt: str,
     adversarial_input: str,
     api_key: str,
-    enforce_url: str = "http://localhost:8000/api/enforce",
 ) -> tuple[str, list[TraceStep]]:
     """Run the agent with the adversarial input and capture what it does."""
     agent_id = agent_config["id"]
@@ -284,7 +283,6 @@ def _run_agent_with_input(
             step = execute_tool_call(
                 agent_id=agent_id, tool=tool_name, action=action_name,
                 params=params, state=state, step_index=step_index,
-                enforce_url=enforce_url,
             )
             all_steps.append(step)
             step_index += 1
@@ -335,7 +333,6 @@ def run_red_team(
     agent_config: dict,
     system_prompt: str = "",
     api_key: str = None,
-    enforce_url: str = "http://localhost:8000/api/enforce",
 ) -> RedTeamReport:
     """Run red team test against an agent.
 
@@ -378,7 +375,7 @@ def run_red_team(
         # Run agent with adversarial input
         try:
             agent_response, steps = _run_agent_with_input(
-                agent_config, system_prompt, adversarial_input, api_key, enforce_url,
+                agent_config, system_prompt, adversarial_input, api_key,
             )
         except Exception:
             continue
