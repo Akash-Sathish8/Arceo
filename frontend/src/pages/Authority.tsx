@@ -915,16 +915,16 @@ export default function Authority() {
                 <div>{'    '}runs-on: ubuntu-latest</div>
                 <div>{'    '}steps:</div>
                 <div>{'      '}- uses: actions/checkout@v4</div>
-                <div>{'      '}- uses: Akash-Sathish8/Arceo/.github/actions/scan@dev</div>
+                <div>{'      '}- uses: Akash-Sathish8/Arceo/.github/actions/scan@main</div>
                 <div>{'        '}with:</div>
                 <div>{'          '}api-key: <span className="text-amber-300">${'${{ secrets.ARCEO_API_KEY }}'}</span></div>
                 <div>{'          '}threshold: <span className="text-amber-300">60</span></div>
               </div>
               <div className="flex flex-wrap gap-2">
-                <Button size="sm" variant="secondary" onClick={() => { navigator.clipboard.writeText(`name: Arceo Agent Security\n\non:\n  push:\n  pull_request:\n\njobs:\n  scan:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n      - uses: Akash-Sathish8/Arceo/.github/actions/scan@dev\n        with:\n          api-key: \${{ secrets.ARCEO_API_KEY }}\n          threshold: 60\n`); toast('Workflow YAML copied') }}>
+                <Button size="sm" variant="secondary" onClick={() => { navigator.clipboard.writeText(`name: Arceo Agent Security\n\non:\n  push:\n  pull_request:\n\njobs:\n  scan:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n      - uses: Akash-Sathish8/Arceo/.github/actions/scan@main\n        with:\n          api-key: \${{ secrets.ARCEO_API_KEY }}\n          threshold: 60\n`); toast('Workflow YAML copied') }}>
                   Copy YAML
                 </Button>
-                <a href="https://github.com/Akash-Sathish8/Arceo/tree/dev/.github/actions/scan" target="_blank" rel="noopener noreferrer" className="inline-flex items-center px-3 py-1.5 text-xs font-medium text-gray-700 bg-white border border-gray-200 rounded-md hover:bg-gray-50">
+                <a href="https://github.com/Akash-Sathish8/Arceo/tree/main/.github/actions/scan" target="_blank" rel="noopener noreferrer" className="inline-flex items-center px-3 py-1.5 text-xs font-medium text-gray-700 bg-white border border-gray-200 rounded-md hover:bg-gray-50">
                   Full docs
                 </a>
               </div>

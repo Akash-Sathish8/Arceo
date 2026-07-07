@@ -30,7 +30,7 @@ from authority.chain_detector import detect_chains as _detect_chains
 from authority.enforcement import enforce_check, match_policy as _match_policy
 from authority.graph import build_agent_graph, calculate_blast_radius, graph_to_dict
 from authority.parser import AgentConfig, ToolDef
-from authority.risk_classifier import classify_with_fallback, schema_hints
+from authority.risk_classifier import classify_with_fallback
 
 import os
 import time
@@ -615,7 +615,7 @@ def submit_post_hoc_report(req: PostHocReport, request: Request = None):
     with get_db() as conn:
         for action in req.actions:
             log_execution(conn, req.agent_id, action.tool, action.action, "REPORTED",
-                          detail="post-hoc report")
+                          detail="post-hoc report", org_id=org_id)
 
         # Store as a simulation for dashboard visibility
         def _asdict_safe(obj):
@@ -632,7 +632,8 @@ def submit_post_hoc_report(req: PostHocReport, request: Request = None):
         )
         log_audit(conn, None, req.agent_id, "POST_HOC_REPORT",
                   resource=req.agent_id,
-                  detail=f"Reported {len(req.actions)} actions, risk score: {report.risk_score}")
+                  detail=f"Reported {len(req.actions)} actions, risk score: {report.risk_score}",
+                  org_id=org_id)
 
     return {
         "simulation_id": trace.simulation_id,
@@ -1560,8 +1561,16 @@ def _upsert_agent(
 
 @app.post("/api/authority/agents/register")
 def register_agent(req: RegisterAgentInput):
-    """Unauthenticated — agents call this at startup to self-register."""
-    agent_id = req.name.lower().replace(" ", "-").replace("_", "-")
+    """Unauthenticated — agents call this at startup to self-register.
+
+    Note: agent_id is derived from the name (idempotent self-register: a re-register
+    updates the same agent). Distinct agents that pick the same name will share an
+    id in the default org — an inherent limit of unauthenticated name-based
+    registration; authenticated import paths namespace per org.
+    """
+    agent_id = (req.name or "").strip().lower().replace(" ", "-").replace("_", "-")
+    if not agent_id:
+        raise HTTPException(status_code=400, detail="Agent name is required")
 
     tools = []
     for t in req.tools:
@@ -1655,20 +1664,28 @@ def _extract_and_register(content: str, filename: str = "", agent_name_hint: str
     try:
         response = client.messages.create(
             model=FAST_MODEL,
-            max_tokens=4000,
+            # 8000 (up from 4000): a big tool list overflowed the old budget, the
+            # JSON came back truncated, and json.loads 502'd with no recovery.
+            max_tokens=8000,
             temperature=0,
             system=_EXTRACTION_PROMPT,
             messages=[{
                 "role": "user",
-                "content": f"File: {filename or 'agent.py'}\n\n```\n{content[:150000]}\n```",
+                # Slice matches the 200KB gate above — was 150K, silently dropping
+                # ~50K chars of any 150–200KB file that passed the gate.
+                "content": f"File: {filename or 'agent.py'}\n\n```\n{content[:200_000]}\n```",
             }],
         )
+        if getattr(response, "stop_reason", None) == "max_tokens":
+            raise HTTPException(status_code=422, detail="File exposes too many tools to extract in one pass — split it or register the agent manually.")
         text = response.content[0].text.strip()
         if text.startswith("```"):
             text = text.split("\n", 1)[1].rsplit("```", 1)[0].strip()
         parsed = json.loads(text)
-    except json.JSONDecodeError as e:
-        raise HTTPException(status_code=502, detail=f"Extraction returned non-JSON: {str(e)}")
+    except HTTPException:
+        raise
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=502, detail="Extraction returned invalid JSON — the file may not be a recognizable agent definition.")
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Extraction failed: {str(e)}")
 
@@ -1772,7 +1789,14 @@ async def extract_agents_from_github(req: GithubExtractInput, user: dict = Depen
 
     skip_dirs = ("node_modules/", ".venv/", "venv/", "__pycache__/", "dist/", "build/", ".git/", ".next/", "vendor/")
     valid_ext = ("py", "ts", "tsx", "js", "jsx", "mjs")
-    indicators = ("anthropic", "openai", "langchain", "messages.create", "chat.completions.create", "@tool", "ChatAnthropic", "ChatOpenAI")
+    indicators = (
+        "anthropic", "openai", "langchain", "messages.create", "chat.completions.create",
+        "@tool", "ChatAnthropic", "ChatOpenAI",
+        # Frameworks/providers the original list missed — a file that only uses
+        # one of these was filtered out and never extracted.
+        "bedrock", "vertex", "vertexai", "litellm", "gemini", "google.generativeai",
+        "genai", "crewai", "autogen", "llama_index", "llamaindex",
+    )
 
     headers = {"Accept": "application/vnd.github+json", "User-Agent": "arceo-scanner"}
     gh_token = os.getenv("GITHUB_TOKEN")
@@ -1785,6 +1809,7 @@ async def extract_agents_from_github(req: GithubExtractInput, user: dict = Depen
         branches_to_try += ["main", "master"]
         tree_data = None
         used_branch = None
+        last_status = None
         for branch in branches_to_try:
             if not branch:
                 continue
@@ -1793,9 +1818,17 @@ async def extract_agents_from_github(req: GithubExtractInput, user: dict = Depen
                 tree_data = r.json()
                 used_branch = branch
                 break
+            last_status = r.status_code
             if r.status_code == 403:
                 raise HTTPException(status_code=429, detail="GitHub API rate limit hit. Set GITHUB_TOKEN env var on the backend to raise to 5000/hr.")
         if not tree_data:
+            # GitHub returns 404 for a private repo to an unauthenticated caller —
+            # indistinguishable from truly-missing without a token. Say so instead
+            # of a flat "Repo not found".
+            if last_status == 404 and not gh_token:
+                raise HTTPException(status_code=404, detail=f"{owner}/{repo} not found. If it is private, set GITHUB_TOKEN on the backend — GitHub returns 404 for private repos to unauthenticated callers.")
+            if last_status in (401, 403):
+                raise HTTPException(status_code=403, detail=f"Access to {owner}/{repo} denied — the configured GITHUB_TOKEN lacks access to this (private?) repo.")
             raise HTTPException(status_code=404, detail=f"Repo not found or no main/master branch: {owner}/{repo}")
 
         candidates: list[str] = []
@@ -1810,14 +1843,22 @@ async def extract_agents_from_github(req: GithubExtractInput, user: dict = Depen
                 continue
             candidates.append(path)
 
-        # Fetch raw content + filter by indicator presence
+        # Fetch raw content + filter by indicator presence.
+        CANDIDATE_SCAN_CAP = 300
         agent_files: list[dict] = []
         scanned = 0
-        for path in candidates[:300]:
+        fetch_errors = 0        # files we couldn't fetch (rate limit / transient)
+        rate_limited = False
+        for path in candidates[:CANDIDATE_SCAN_CAP]:
             scanned += 1
             raw_url = f"https://raw.githubusercontent.com/{owner}/{repo}/{used_branch}/{path}"
             r = await client.get(raw_url)
             if r.status_code != 200:
+                # A 403/429 is a rate-limit drop, not "not an agent file" — track it
+                # so a partial scan doesn't silently under-report.
+                if r.status_code in (403, 429):
+                    fetch_errors += 1
+                    rate_limited = True
                 continue
             content = r.text
             if not any(ind.lower() in content.lower() for ind in indicators):
@@ -1826,12 +1867,17 @@ async def extract_agents_from_github(req: GithubExtractInput, user: dict = Depen
             if len(agent_files) >= req.max_files:
                 break
 
-    # Extract each via Haiku
+    # Extract each via Haiku. Offloaded to the threadpool: _extract_and_register
+    # makes a SYNCHRONOUS Anthropic call, which run directly on the event loop
+    # blocked the whole server for the minutes a multi-file scan takes.
+    from fastapi.concurrency import run_in_threadpool
     results = []
     for f in agent_files:
+        hint = f["path"].rsplit("/", 1)[-1].rsplit(".", 1)[0]
         try:
-            hint = f["path"].rsplit("/", 1)[-1].rsplit(".", 1)[0]
-            extracted = _extract_and_register(f["content"], f["path"], hint, org_id=_org(user), skip_if_empty=True)
+            extracted = await run_in_threadpool(
+                _extract_and_register, f["content"], f["path"], hint, _org(user), True
+            )
             results.append({
                 "path": f["path"],
                 "status": "registered",
@@ -1845,14 +1891,30 @@ async def extract_agents_from_github(req: GithubExtractInput, user: dict = Depen
         except Exception as e:
             results.append({"path": f["path"], "status": "failed", "error": str(e)})
 
+    # Disclose when the scan was cut short so the caller knows the result is partial.
+    candidates_capped = len(candidates) > CANDIDATE_SCAN_CAP
+    max_files_reached = len(agent_files) >= req.max_files
+    truncated = candidates_capped or max_files_reached or fetch_errors > 0
+    notes = []
+    if candidates_capped:
+        notes.append(f"scanned first {CANDIDATE_SCAN_CAP} of {len(candidates)} candidate files")
+    if max_files_reached:
+        notes.append(f"stopped at the {req.max_files}-file limit — more agents may exist")
+    if fetch_errors:
+        notes.append(f"{fetch_errors} file(s) could not be fetched" + (" (GitHub rate limit — set GITHUB_TOKEN)" if rate_limited else ""))
+
     return {
         "owner": owner,
         "repo": repo,
         "branch": used_branch,
         "files_scanned": scanned,
         "candidates_total": len(candidates),
+        "candidates_scanned": min(len(candidates), CANDIDATE_SCAN_CAP),
         "agents_detected": len(agent_files),
         "agents_registered": len([r for r in results if r["status"] == "registered"]),
+        "truncated": truncated,
+        "fetch_errors": fetch_errors,
+        "scan_notes": notes,
         "results": results,
     }
 
@@ -1886,12 +1948,12 @@ def _score_in_memory(file_path: str, content: str, anthropic_client) -> dict | N
     try:
         response = anthropic_client.messages.create(
             model=FAST_MODEL,
-            max_tokens=4000,
+            max_tokens=8000,  # was 4000 — a big tool list truncated → parse fail → file silently skipped
             temperature=0,
             system=_EXTRACTION_PROMPT,
             messages=[{
                 "role": "user",
-                "content": f"File: {file_path}\n\n```\n{content[:150000]}\n```",
+                "content": f"File: {file_path}\n\n```\n{content[:200_000]}\n```",  # match the 200KB gate above (was 150K)
             }],
         )
         text = response.content[0].text.strip()
@@ -2259,36 +2321,84 @@ class MCPConnectInput(BaseModel):
     url: str  # MCP server HTTP/SSE URL
     agent_name: str
     agent_description: str = ""
+    auth_token: str = ""  # optional bearer for authenticated MCP servers
+
+
+def _mcp_parse(resp) -> dict:
+    """Parse an MCP HTTP reply — plain JSON, or the JSON inside an SSE `data:`
+    frame (Streamable-HTTP servers answer via text/event-stream)."""
+    if "text/event-stream" in resp.headers.get("content-type", ""):
+        for line in resp.text.splitlines():
+            line = line.strip()
+            if line.startswith("data:"):
+                payload = line[5:].strip()
+                if payload and payload != "[DONE]":
+                    try:
+                        return json.loads(payload)
+                    except json.JSONDecodeError:
+                        continue
+        raise ValueError("no JSON object in the SSE stream")
+    return resp.json()
 
 
 @app.post("/api/authority/agents/connect/mcp")
 def connect_mcp_server(req: MCPConnectInput, user: dict = Depends(get_current_user)):
-    """Connect to a live MCP server, pull its tools, and register as an agent."""
+    """Connect to a live MCP server, pull its tools, and register as an agent.
+
+    Runs the MCP initialize handshake, accepts SSE (Streamable-HTTP), and forwards
+    an optional bearer token; falls back to a bare tools/list for simple servers.
+    """
     import httpx as _httpx
 
-    # Call the MCP server's tools/list via JSON-RPC
     url = req.url.rstrip("/")
     validate_external_url(url)  # IC3: block SSRF to internal/metadata addresses
+
+    headers = {
+        "Content-Type": "application/json",
+        # Streamable-HTTP MCP servers reply via SSE and reject callers that don't
+        # accept it; spec-compliant servers also require the handshake below.
+        "Accept": "application/json, text/event-stream",
+    }
+    if req.auth_token:
+        headers["Authorization"] = f"Bearer {req.auth_token}"
+
+    def _post(body: dict, extra: dict | None = None):
+        return _httpx.post(url, json=body, headers={**headers, **(extra or {})}, timeout=15.0)
+
+    data = None
     try:
-        rpc_request = {
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "tools/list",
-            "params": {},
-        }
-        resp = _httpx.post(url, json=rpc_request, timeout=15.0)
-        resp.raise_for_status()
-        data = resp.json()
+        # 1. initialize → 2. notifications/initialized → 3. tools/list
+        init = _post({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {
+            "protocolVersion": "2025-06-18",
+            "capabilities": {},
+            "clientInfo": {"name": "arceo", "version": "1.0"},
+        }})
+        init.raise_for_status()
+        _mcp_parse(init)  # validate it answers
+        session = ({"Mcp-Session-Id": init.headers["mcp-session-id"]}
+                   if init.headers.get("mcp-session-id") else None)
+        _post({"jsonrpc": "2.0", "method": "notifications/initialized"}, extra=session)
+        tl = _post({"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}}, extra=session)
+        tl.raise_for_status()
+        data = _mcp_parse(tl)
     except _httpx.TimeoutException:
         raise HTTPException(status_code=504, detail=f"MCP server at {url} timed out")
-    except _httpx.HTTPError:
-        # Try as a plain REST endpoint (some MCP servers expose tools/list as GET)
+    except Exception:
+        data = None  # handshake unsupported — fall back to the simple paths below
+
+    if data is None:
         try:
-            resp = _httpx.get(f"{url}/tools/list", timeout=15.0)
+            resp = _post({"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}})
             resp.raise_for_status()
-            data = resp.json()
-        except Exception as e:
-            raise HTTPException(status_code=502, detail=f"Could not connect to MCP server at {url}: {str(e)}")
+            data = _mcp_parse(resp)
+        except Exception:
+            # Some servers expose tools/list as a plain GET.
+            try:
+                resp = _httpx.get(f"{url}/tools/list", headers=headers, timeout=15.0)
+                resp.raise_for_status()
+                data = _mcp_parse(resp)
+            except Exception as e:
+                raise HTTPException(status_code=502, detail=f"Could not connect to MCP server at {url}: {str(e)}")
 
     # Parse response — handle JSON-RPC envelope or plain response
     if "result" in data:
@@ -2346,7 +2456,6 @@ def import_mcp(req: MCPImportInput, user: dict = Depends(get_current_user)):
         # All MCP tools become actions under one ActionGate tool
         actions = []
         for mt in req.mcp_tools:
-            extra_labels = schema_hints(mt.inputSchema.get("properties", {})) if mt.inputSchema else []
             actions.append({
                 "name": mt.name,
                 "description": mt.description,

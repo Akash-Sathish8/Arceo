@@ -244,8 +244,8 @@ function downloadForecastCsv(
     ["Retry rate (%)", m.retryRate],
     [],
     ["Cost composition", "USD", "Percent"],
-    ["LLM tokens", m.tokensUsd, m.tokensPct],
-    ["Tool calls", m.toolsUsd, m.toolsPct],
+    ["AI model usage", m.tokensUsd, m.tokensPct],
+    ["Software fees", m.toolsUsd, m.toolsPct],
     ["Infrastructure", m.infraUsd, m.infraPct],
   ]
   if (m.topTools?.length) {
@@ -830,7 +830,9 @@ function CostPortfolioContent({
             >{conf.label}</span>
             {m.observedDays != null && (
               <span className="text-xs text-gray-500 mr-2">
-                based on {m.observedDays <= 1 ? "1 day" : `${Math.round(m.observedDays)} days`} of observed traffic
+                {m.observedDays <= 1
+                  ? "based on 1 day of observed traffic"
+                  : `averaged over the last ${Math.round(m.observedDays)} days of traffic, including any days this agent didn't run`}
                 {m.confidence !== "high" && " — early days, so the range is wide; it tightens as more calls come through"}
               </span>
             )}
@@ -1031,17 +1033,17 @@ function CostPortfolioContent({
                 <div className="flex-1 space-y-2 text-xs">
                   <div className="flex items-center gap-2">
                     <span className="w-2 h-2 rounded-sm" style={{ background: "var(--chart-tokens)" }} />
-                    LLM tokens
+                    AI model usage
                     <span className="ml-auto text-gray-900 font-semibold mono">${m.tokensUsd.toLocaleString()} ({m.tokensPct}%)</span>
                   </div>
                   <div className="flex items-center gap-2">
                     <span className="w-2 h-2 rounded-sm" style={{ background: "var(--chart-tools)" }} />
-                    Tool API calls
+                    Software fees
                     <span className="ml-auto text-gray-900 font-semibold mono">${m.toolsUsd.toLocaleString()} ({m.toolsPct}%)</span>
                   </div>
                   <div className="flex items-center gap-2">
                     <span className="w-2 h-2 rounded-sm" style={{ background: "var(--chart-infra)" }} />
-                    Compute / sandbox
+                    Infrastructure
                     <span className="ml-auto text-gray-900 font-semibold mono">${m.infraUsd.toLocaleString()} ({m.infraPct}%)</span>
                   </div>
                 </div>
