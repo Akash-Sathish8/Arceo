@@ -830,7 +830,9 @@ function CostPortfolioContent({
             >{conf.label}</span>
             {m.observedDays != null && (
               <span className="text-xs text-gray-500 mr-2">
-                based on {m.observedDays <= 1 ? "1 day" : `${Math.round(m.observedDays)} days`} of observed traffic
+                {m.observedDays <= 1
+                  ? "based on 1 day of observed traffic"
+                  : `averaged over the last ${Math.round(m.observedDays)} days of traffic, including any days this agent didn't run`}
                 {m.confidence !== "high" && " — early days, so the range is wide; it tightens as more calls come through"}
               </span>
             )}
