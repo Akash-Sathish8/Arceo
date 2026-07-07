@@ -4,13 +4,9 @@ from __future__ import annotations
 
 from datetime import datetime
 
-import httpx
-
+from authority.enforcement import enforce_check
 from sandbox.models import TraceStep
 from sandbox.mocks.registry import MockState, call_mock
-
-
-ENFORCE_URL = "http://localhost:8000/api/enforce"
 
 
 def execute_tool_call(
@@ -20,14 +16,13 @@ def execute_tool_call(
     params: dict,
     state: MockState,
     step_index: int,
-    enforce_url: str = ENFORCE_URL,
     session_context: list[str] | None = None,
     approval_mode: str = "pause",
 ) -> TraceStep:
     """Execute a single tool call with enforcement and mock.
 
-    1. Call /api/enforce to check policy (includes session_context for
-       requires_prior conditions)
+    1. Check policy via enforce_check (includes params for conditional
+       policies and session_context for requires_prior conditions)
     2. If allowed, call the mock function
     3. If REQUIRE_APPROVAL, behaviour depends on approval_mode:
          "pause"  — record as pending, return message telling agent to wait
@@ -35,30 +30,21 @@ def execute_tool_call(
          "deny"   — treat as BLOCK
     4. Return a TraceStep with the full result
     """
-    # Step 1: Check enforcement
-    enforce_decision = "ALLOW"
-    enforce_policy = None
-
+    # Step 1: Check enforcement — in-process, same engine the API endpoint
+    # uses. This was an HTTP call to /api/enforce; when that endpoint gained
+    # auth, the credential-less 401 fell through as ALLOW, so every simulated
+    # action executed with policies silently ignored. It also never sent
+    # params, so conditional (e.g. amount-based) policies never fired in sims.
     try:
-        resp = httpx.post(
-            enforce_url,
-            json={
-                "agent_id": agent_id,
-                "tool": tool,
-                "action": action,
-                "session_context": session_context or [],
-            },
-            timeout=5.0,
-        )
-        if resp.status_code == 200:
-            data = resp.json()
-            enforce_decision = data.get("decision", "ALLOW")
-            enforce_policy = data.get("policy")
-    except httpx.HTTPError:
-        # Fail CLOSED: an unreachable enforce endpoint is an UNKNOWN outcome,
-        # not a pass. Mark ERROR and skip the mock so the sim never silently
+        data = enforce_check(agent_id, tool, action, params or None, session_context or [])
+        enforce_decision = data.get("decision", "ALLOW")
+        enforce_policy = data.get("policy")
+    except Exception:
+        # Fail CLOSED: an enforcement failure is an UNKNOWN outcome, not a
+        # pass. Mark ERROR and skip the mock so the sim never silently
         # under-blocks a dangerous action.
         enforce_decision = "ERROR"
+        enforce_policy = None
 
     # Step 2: Execute mock based on decision + approval_mode
     result = None

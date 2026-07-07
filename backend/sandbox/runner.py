@@ -317,7 +317,6 @@ def _call_ollama(model, system_prompt, messages, tools):
 def run_simulation(
     agent_config: dict,
     scenario: Scenario,
-    enforce_url: str = "http://localhost:8000/api/enforce",
     api_key: str | None = None,
     max_turns: int = MAX_TURNS,
     custom_data: dict | None = None,
@@ -329,7 +328,6 @@ def run_simulation(
     Args:
         agent_config: Full agent config dict from DB (with tools and actions).
         scenario: The scenario to run.
-        enforce_url: URL for the ActionGate enforce endpoint.
         api_key: Anthropic API key. If None, uses ANTHROPIC_API_KEY env var.
         max_turns: Maximum number of tool-calling turns.
         approval_mode: How to handle REQUIRE_APPROVAL decisions:
@@ -456,7 +454,6 @@ def run_simulation(
                 params=params,
                 state=state,
                 step_index=step_index,
-                enforce_url=enforce_url,
                 session_context=session_context,
                 approval_mode=approval_mode,
             )
@@ -501,7 +498,6 @@ def run_simulation(
 def run_simulation_dry(
     agent_config: dict,
     scenario: Scenario,
-    enforce_url: str = "http://localhost:8000/api/enforce",
     custom_data: dict | None = None,
     seed: int | None = None,
 ) -> SimulationTrace:

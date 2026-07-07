@@ -57,7 +57,6 @@ def _run_single_agent(
     agent_config: dict,
     prompt: str,
     state: MockState,
-    enforce_url: str,
     api_key: str | None,
     agent_configs: dict[str, dict],
     multi_trace: MultiAgentTrace,
@@ -187,7 +186,6 @@ def _run_single_agent(
                         agent_config=agent_configs[target_id],
                         prompt=full_prompt,
                         state=state,
-                        enforce_url=enforce_url,
                         api_key=api_key,
                         agent_configs=agent_configs,
                         multi_trace=multi_trace,
@@ -223,7 +221,7 @@ def _run_single_agent(
             step = execute_tool_call(
                 agent_id=agent_id, tool=tool_name, action=action_name,
                 params=params, state=state, step_index=step_index,
-                enforce_url=enforce_url, session_context=session_context,
+                session_context=session_context,
             )
             step.source_agent_id = agent_id
             # Update per-agent session context
@@ -267,7 +265,6 @@ def run_multi_simulation(
     agent_configs: dict[str, dict],
     coordinator_id: str,
     scenario: Scenario,
-    enforce_url: str = "http://localhost:8000/api/enforce",
     api_key: str | None = None,
     max_turns: int = MAX_TURNS,
     custom_data: dict | None = None,
@@ -278,7 +275,6 @@ def run_multi_simulation(
         agent_configs: {agent_id: full_agent_config_dict}
         coordinator_id: which agent gets the initial prompt
         scenario: the scenario to run
-        enforce_url: URL for enforcement checks
         api_key: Anthropic API key
         max_turns: max turns per agent
         custom_data: optional custom mock data
@@ -300,7 +296,6 @@ def run_multi_simulation(
         agent_config=agent_configs[coordinator_id],
         prompt=scenario.prompt,
         state=state,
-        enforce_url=enforce_url,
         api_key=api_key,
         agent_configs=agent_configs,
         multi_trace=multi_trace,
@@ -318,7 +313,6 @@ def run_multi_simulation_dry(
     agent_configs: dict[str, dict],
     coordinator_id: str,
     scenario: Scenario,
-    enforce_url: str = "http://localhost:8000/api/enforce",
     custom_data: dict | None = None,
 ) -> MultiAgentTrace:
     """Dry-run multi-agent simulation — exercises all agents sequentially without LLM."""
@@ -349,7 +343,6 @@ def run_multi_simulation_dry(
                 step = execute_tool_call(
                     agent_id=agent_id, tool=tool_name, action=action_name,
                     params={}, state=state, step_index=step_index,
-                    enforce_url=enforce_url,
                 )
                 step.source_agent_id = agent_id
                 trace.steps.append(step)
