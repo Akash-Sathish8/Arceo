@@ -1183,7 +1183,35 @@ def list_cross_agent_chains(user: dict = Depends(get_current_user)):
                     "from_label": t.from_label,
                     "to_label": t.to_label,
                 })
-    return {"chains": chains}
+
+    # Mirror detect_chains (authority/chain_detector.py) so this endpoint agrees
+    # with the /top-pairings preview, which runs detect_chains on the merged pair.
+    # (1) Collapse symmetric duplicates: both directions of a symmetric label pair
+    #     fire on the same unordered agent pair and double-count — keep the
+    #     highest-severity entry per (unordered agent pair, unordered label pair).
+    _sev_rank = {"critical": 3, "high": 2, "medium": 1}
+    deduped: list[dict] = []
+    pair_index: dict[tuple, int] = {}
+    for c in chains:
+        key = (
+            frozenset((c["from_agent_id"], c["to_agent_id"])),
+            frozenset((c["from_label"], c["to_label"])),
+        )
+        if key not in pair_index:
+            pair_index[key] = len(deduped)
+            deduped.append(c)
+        elif _sev_rank.get(c["severity"], 0) > _sev_rank.get(deduped[pair_index[key]]["severity"], 0):
+            deduped[pair_index[key]] = c
+
+    # (2) Downgrade the marquee pii-exfil chain critical→high unless the pair has a
+    #     bulk_export capability — a single-record read + send is not mass exfil.
+    for c in deduped:
+        if c["chain_id"] == "pii-exfil" and c["severity"] == "critical":
+            pair_labels = agent_labels.get(c["from_agent_id"], set()) | agent_labels.get(c["to_agent_id"], set())
+            if "bulk_export" not in pair_labels:
+                c["severity"] = "high"
+
+    return {"chains": deduped}
 
 
 # ── Agent CRUD ──────────────────────────────────────────────────────────────
@@ -3449,6 +3477,20 @@ def optimize_workflow_permissions(req: WorkflowOptimizeRequest, user: dict = Dep
         # Approval gates: cross-agent chains involving this agent
         my_chains = [c for c in cross_chains if c["from_agent_id"] == aid or c["to_agent_id"] == aid]
 
+        # For gates where THIS agent produces the risky label, attach the real
+        # tool.action patterns that begin the chain so the UI can create a scoped
+        # REQUIRE_APPROVAL policy the enforcer actually matches (a bare "*" never
+        # matches — see authority/enforcement.match_policy).
+        approval_gates = []
+        for c in my_chains:
+            if c["from_agent_id"] != aid:
+                continue
+            patterns = sorted(
+                key for key, info in all_registered.items()
+                if c["from_label"] in info["risk_labels"]
+            )
+            approval_gates.append({**c, "action_patterns": patterns})
+
         # Optimization score: 0=perfectly tight, 100=extremely overprivileged
         total_risky = sum(1 for info in all_registered.values() if info["risk_labels"] or not info["reversible"])
         over_count = len(overprivileged)
@@ -3463,7 +3505,7 @@ def optimize_workflow_permissions(req: WorkflowOptimizeRequest, user: dict = Dep
             "optimization_score": opt_score,  # 0=tight, 100=very overprivileged
             "overprivileged": sorted(overprivileged, key=lambda x: (0 if x["severity"] == "high" else 1, x["action"])),
             "permission_gaps": permission_gaps,
-            "approval_gates_needed": [c for c in my_chains if c["from_agent_id"] == aid],
+            "approval_gates_needed": approval_gates,
             "summary": _build_agent_summary(agent["name"], over_count, len(permission_gaps), len(my_chains)),
         }
 

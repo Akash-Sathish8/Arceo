@@ -15,8 +15,7 @@ import {
 } from 'lucide-react'
 import { apiFetch, getToken } from '@/lib/api'
 import { toast } from '@/components/shared/Toast'
-import { bandDescription, scoreBand, scoreToColor, riskLabelName } from '@/lib/utils'
-import { chainNarrative, chainShortLabel } from '@/lib/chainLabels'
+import { bandDescription, scoreBand, scoreToColor } from '@/lib/utils'
 import Tooltip from '@/components/shared/Tooltip'
 import ErrorState from '@/components/shared/ErrorState'
 import { RISK_SCORE_METHODOLOGY } from '@/lib/methodology'
@@ -553,11 +552,9 @@ function WorstCasePanel({
   const hasCoveringPolicy = (policies || []).some(
     (p) => p.effect === 'BLOCK' || p.effect === 'REQUIRE_APPROVAL'
   )
-  const chainText = topChain
-    ? chainNarrative(topChain.chain_name) ||
-      topChain.description ||
-      `${riskLabelName(topChain.from_label || '')} → ${riskLabelName(topChain.to_label || '')}`
-    : null
+  // Backend agent-detail chains carry `description` (a plain-English sentence)
+  // and `name` (a short title) — not the legacy `chain_name`/`from_label`.
+  const chainText = topChain ? (topChain.description || topChain.name) : null
 
   const scoreColor = scoreToColor(br.score)
   const criticalUnreviewed = chains.some((c) => c.severity === 'critical') && !hasCoveringPolicy
@@ -603,8 +600,8 @@ function WorstCasePanel({
                   {topChain.severity.toUpperCase()}
                 </span>
               )}
-              {topChain?.chain_name && (
-                <span className="text-xs text-gray-500">{chainShortLabel(topChain.chain_name)}</span>
+              {topChain?.name && (
+                <span className="text-xs text-gray-500">{topChain.name}</span>
               )}
               {!hasCoveringPolicy && (
                 <>

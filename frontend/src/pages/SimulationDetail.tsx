@@ -33,7 +33,9 @@ interface TraceStep {
 }
 
 interface Violation {
-  rule: string;
+  // Mirrors backend Violation (backend/sandbox/models.py): title/type, not `rule`.
+  title: string;
+  type?: string;
   severity: string;
   description: string;
   from_label?: string;
@@ -41,7 +43,8 @@ interface Violation {
 }
 
 interface Chain {
-  type: string;
+  // Mirrors backend ChainViolation: chain_name, not `type`.
+  chain_name: string;
   severity: string;
   description: string;
 }
@@ -327,14 +330,40 @@ export default function SimulationDetail() {
   async function applyAllRecommendations() {
     if (!sim) return;
     setApplyingAll(true);
+    // Create a policy per actionable recommendation via the real policies
+    // endpoint (there is no /apply-recommendations route). Same contract the
+    // Workflows page uses: {action_pattern, effect, reason}.
+    const seen = new Set<string>();
+    let applied = 0;
+    let failed = 0;
     try {
-      await apiFetch(`/api/authority/agent/${sim.agent_id}/apply-recommendations`, {
-        method: "POST",
-        body: JSON.stringify({ simulation_id: sim.id }),
-      });
-      toast("Recommendations applied");
-    } catch {
-      toast("Failed to apply recommendations", "error");
+      for (const rec of sim.report.recommendations) {
+        if (typeof rec === "string") continue;
+        if (!rec.actionable || !rec.action_pattern || !rec.effect) continue;
+        const key = `${rec.action_pattern}|${rec.effect}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        try {
+          await apiFetch(`/api/authority/agent/${sim.agent_id}/policies`, {
+            method: "POST",
+            body: JSON.stringify({
+              action_pattern: rec.action_pattern,
+              effect: rec.effect,
+              reason: rec.reason ?? rec.message ?? "Applied from simulation recommendation",
+            }),
+          });
+          applied++;
+        } catch {
+          failed++;
+        }
+      }
+      if (applied === 0 && failed === 0) {
+        toast("No actionable recommendations to apply");
+      } else if (failed > 0) {
+        toast(`Applied ${applied} recommendation${applied !== 1 ? "s" : ""}, ${failed} failed`, "error");
+      } else {
+        toast(`Applied ${applied} recommendation${applied !== 1 ? "s" : ""}`);
+      }
     } finally {
       setApplyingAll(false);
     }
@@ -465,7 +494,7 @@ export default function SimulationDetail() {
                     style={{ color: sty.color }}
                   />
                   <div className="flex-1">
-                    <div className="font-medium text-sm" style={{ color: sty.color }}>{v.rule}</div>
+                    <div className="font-medium text-sm" style={{ color: sty.color }}>{v.title}</div>
                     <div style={{ fontSize: 12, color: "var(--text-secondary)", marginTop: 2 }}>{v.description}</div>
                     {v.from_label && v.to_label && (
                       <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 4 }}>
@@ -512,7 +541,7 @@ export default function SimulationDetail() {
                   style={{ backgroundColor: sty.bg, borderColor: sty.color + "40" }}
                 >
                   <div className="flex items-center gap-2 mb-1">
-                    <span className="font-medium text-sm" style={{ color: sty.color }}>{c.type}</span>
+                    <span className="font-medium text-sm" style={{ color: sty.color }}>{c.chain_name}</span>
                     <span
                       className="text-xs font-semibold px-1.5 py-0.5 rounded capitalize text-white"
                       style={{ backgroundColor: sty.color }}
