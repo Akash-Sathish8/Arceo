@@ -301,7 +301,7 @@ export default function SpendDashboard() {
                   </div>
                   <div>
                     <div className="text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-1">Confidence band</div>
-                    <p>The ±28% band is a medium-confidence estimate applied across the fleet, not measured run-to-run variance, and it does not yet aggregate each agent's individual confidence. Connect production traces and accumulate 30+ days of live data to tighten it.</p>
+                    <p>The band is aggregated from each agent's own confidence tier — wider for low-confidence agents (few or no live traces), tighter for those with production data — so it is asymmetric: the low and high ends are summed across the fleet rather than a fixed ±%. Connect production traces and accumulate 30+ days of live data to tighten it.</p>
                   </div>
                   <div>
                     <div className="text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-1">Agents not forecasted</div>
@@ -352,8 +352,8 @@ export default function SpendDashboard() {
               />
               <StatCard
                 label="Confidence band"
-                value={withForecast.length > 0 ? "±28%" : "—"}
-                delta={withForecast.length > 0 ? `$${Math.round(totalSpend * 0.72).toLocaleString()} – $${Math.round(totalSpend * 1.28).toLocaleString()}` : "needs more data"}
+                value={withForecast.length > 0 ? fleetBandLabel : "—"}
+                delta={withForecast.length > 0 ? `$${fleetLow.toLocaleString()} – $${fleetHigh.toLocaleString()}` : "needs more data"}
               />
               <StatCard
                 label="Agents forecasted"
@@ -439,10 +439,7 @@ export default function SpendDashboard() {
                           {a.risk}
                         </td>
                         <td className="px-4 py-4 text-right tabular-nums font-medium">${monthly.toLocaleString()}</td>
-                        <td className="px-4 py-4 text-right tabular-nums">
-                          <span className="inline-block h-1.5 rounded-sm align-middle mr-2" style={{ background: "var(--color-cta)", width: `${share * 2}px` }} />
-                          {share}%
-                        </td>
+                        <td className="px-4 py-4 text-right tabular-nums">{share}%</td>
                         <td
                           className="px-4 py-4 text-right tabular-nums"
                           style={{ color: a.forecast?.vsLastMonthAvailable ? deltaTone(vsLast) : "var(--text-muted)" }}
