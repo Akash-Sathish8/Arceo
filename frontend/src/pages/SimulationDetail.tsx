@@ -326,15 +326,37 @@ export default function SimulationDetail() {
 
   async function applyAllRecommendations() {
     if (!sim) return;
+    // Only object recommendations with a pattern + effect can become policies;
+    // prose-only recommendations have nothing to enforce.
+    const policies = sim.report.recommendations
+      .filter((rec): rec is Exclude<typeof rec, string> => typeof rec !== "string")
+      .filter((rec) => rec.action_pattern && rec.effect)
+      .map((rec) => ({
+        agent_id: sim.agent_id,
+        action_pattern: rec.action_pattern,
+        effect: rec.effect,
+        reason: rec.reason ?? rec.message ?? "Applied from simulation recommendations",
+      }));
+    if (policies.length === 0) {
+      toast("No enforceable recommendations in this report");
+      return;
+    }
     setApplyingAll(true);
     try {
-      await apiFetch(`/api/authority/agent/${sim.agent_id}/apply-recommendations`, {
-        method: "POST",
-        body: JSON.stringify({ simulation_id: sim.id }),
-      });
-      toast("Recommendations applied");
-    } catch {
-      toast("Failed to apply recommendations", "error");
+      const res = await apiFetch<{ created: number; skipped: number }>(
+        "/api/sandbox/apply-all-policies",
+        {
+          method: "POST",
+          body: JSON.stringify({ agent_id: sim.agent_id, policies }),
+        }
+      );
+      toast(
+        res.created === 0
+          ? "All recommended policies already exist"
+          : `Applied ${res.created} polic${res.created !== 1 ? "ies" : "y"}${res.skipped ? ` (${res.skipped} already existed)` : ""}`
+      );
+    } catch (err) {
+      toast("Failed to apply recommendations: " + (err instanceof Error ? err.message : "unknown error"), "error");
     } finally {
       setApplyingAll(false);
     }
