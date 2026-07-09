@@ -235,8 +235,13 @@ def fire_block_notification(agent_id: str, tool: str, action: str, reason: str):
 
 # ── Enforcement Decision ──────────────────────────────────────────────────────
 
-def enforce_check(agent_id: str, tool: str, action: str, params: dict = None, session_context: list = None) -> dict:
+def enforce_check(agent_id: str, tool: str, action: str, params: dict = None, session_context: list = None, source: str = "runtime") -> dict:
     """Shared enforce logic — used by the API endpoint, proxy, and sandbox executor.
+
+    `source` labels the execution row's provenance (runtime | sandbox |
+    boundary_test | replay | test) so reviewers can tell live agent traffic
+    from simulations. Defaults to "runtime" — the API endpoint and service
+    proxy are real traffic; every sandbox-side caller must override it.
 
     Returns a dict with:
         decision: "ALLOW" | "BLOCK" | "REQUIRE_APPROVAL"
@@ -271,7 +276,7 @@ def enforce_check(agent_id: str, tool: str, action: str, params: dict = None, se
         log_execution(conn, agent_id, tool, action, status,
                       policy_id=matched_policy["id"] if matched_policy else None,
                       detail=matched_policy["reason"] if matched_policy else "No matching policy",
-                      org_id=agent_org, params=params)
+                      org_id=agent_org, params=params, source=source)
 
         if status == "BLOCKED":
             fire_block_notification(agent_id, tool, action, matched_policy["reason"] if matched_policy else "")

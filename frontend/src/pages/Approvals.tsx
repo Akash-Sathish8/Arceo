@@ -18,9 +18,27 @@ interface ApprovalItem {
   detail?: string
   params?: Record<string, unknown>
   risk_labels?: string[]
+  source?: string | null
+  policy?: {
+    action_pattern: string
+    reason?: string
+    created_by?: string
+    created_at?: string
+  } | null
   timestamp: string
   status: string
 }
+
+// Provenance: every row answers "where did this come from?" so a reviewer can
+// tell live agent traffic from simulations and seeded test data at a glance.
+const SOURCE_BADGE: Record<string, { label: string; bg: string; color: string }> = {
+  runtime:       { label: 'Live traffic',        bg: 'var(--severity-safe-bg)',     color: 'var(--severity-safe)' },
+  sandbox:       { label: 'Sandbox simulation',  bg: '#f5f3ff',                     color: '#7c3aed' },
+  boundary_test: { label: 'Boundary test',       bg: '#f5f3ff',                     color: '#7c3aed' },
+  replay:        { label: 'Trace replay',        bg: '#f5f3ff',                     color: '#7c3aed' },
+  test:          { label: 'Test data (seeded)',  bg: 'var(--status-pending-bg)',    color: 'var(--status-pending)' },
+}
+const UNKNOWN_SOURCE_BADGE = { label: 'Unlabeled (recorded before source tracking)', bg: 'var(--bg-sunken)', color: 'var(--text-muted)' }
 
 interface ApprovalsResponse {
   approvals: ApprovalItem[]
@@ -359,7 +377,7 @@ export default function Approvals() {
                     disabled={isBusy || bulkRunning != null}
                     aria-label={`Select ${a.agent_name || a.agent_id}: ${a.tool} ${a.action}`}
                   />
-                  <div className="flex items-center gap-1.5">
+                  <div className="flex items-center gap-1.5 flex-wrap">
                   <Link
                     to={`/agent/${a.agent_id}`}
                     style={{ fontWeight: 600, color: "var(--text-primary)", textDecoration: "none" }}
@@ -370,6 +388,17 @@ export default function Approvals() {
                   </Link>
                   <span className="text-gray-300">·</span>
                   <span className="text-gray-400 text-xs">{timeAgo(a.timestamp)}</span>
+                  {(() => {
+                    const badge = SOURCE_BADGE[a.source ?? ''] ?? UNKNOWN_SOURCE_BADGE
+                    return (
+                      <span
+                        className="text-[11px] px-2 py-0.5 rounded-full font-medium"
+                        style={{ background: badge.bg, color: badge.color }}
+                      >
+                        {badge.label}
+                      </span>
+                    )
+                  })()}
                   </div>
                 </div>
 
@@ -397,13 +426,23 @@ export default function Approvals() {
                 {(() => {
                   const line = scenarioLine(a)
                   return line ? (
-                    <p className="text-sm text-gray-800 mb-3">
+                    <p className="text-sm text-gray-800 mb-2">
                       {line.pre}
                       {line.money && <strong className="font-semibold">{line.money}</strong>}
                       {line.post}
                     </p>
                   ) : null
                 })()}
+
+                {/* Why this is in front of you: the policy that paused it */}
+                {a.policy && (
+                  <p className="text-xs mb-3" style={{ color: 'var(--text-secondary)' }}>
+                    Paused by a policy requiring sign-off on <code className="px-1 py-0.5 rounded" style={{ background: 'var(--bg-sunken)', fontSize: 11 }}>{a.policy.action_pattern}</code>
+                    {a.policy.reason ? <> — “{a.policy.reason}”</> : null}
+                    {a.policy.created_by ? <> · set by {a.policy.created_by}</> : null}
+                    {a.policy.created_at ? <> on {new Date(a.policy.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</> : null}
+                  </p>
+                )}
 
                 {/* Optional detail */}
                 {a.detail != null && a.detail !== '' && (
@@ -488,6 +527,11 @@ export default function Approvals() {
                       />
                     </div>
                   </div>
+                  <p className="text-[11px] m-0" style={{ color: 'var(--text-muted)' }}>
+                    {['sandbox', 'boundary_test', 'replay'].includes(a.source ?? '')
+                      ? 'This came from a simulation — deciding updates the record for reporting; no agent is waiting to execute.'
+                      : 'Approving marks this action allowed — the paused agent proceeds with exactly the arguments shown. Rejecting records it as blocked.'}
+                  </p>
                 </div>
               </div>
             )

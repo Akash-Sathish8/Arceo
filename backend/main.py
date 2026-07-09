@@ -614,7 +614,7 @@ def submit_post_hoc_report(req: PostHocReport, request: Request = None):
     # Log each action
     with get_db() as conn:
         for action in req.actions:
-            log_execution(conn, req.agent_id, action.tool, action.action, "REPORTED",
+            log_execution(conn, req.agent_id, action.tool, action.action, "REPORTED", source="report",
                           detail="post-hoc report", org_id=org_id)
 
         # Store as a simulation for dashboard visibility
@@ -2872,14 +2872,18 @@ def get_agent_executions(agent_id: str, user: dict = Depends(get_current_user)):
 def get_pending_approvals(user: dict = Depends(get_current_user)):
     """Return all PENDING_APPROVAL executions across all agents."""
     with get_db() as conn:
-        # risk_labels joined per row so the queue can say WHY an action needed
-        # approval (moves money, deletes data, …) without a second request.
+        # risk_labels + the firing policy joined per row so the queue can say
+        # WHY an action needed approval and WHICH rule put it here, without a
+        # second request. Provenance (e.source) says where the call came from.
         rows = conn.execute(
-            """SELECT e.*, a.name as agent_name, ta.risk_labels as risk_labels
+            """SELECT e.*, a.name as agent_name, ta.risk_labels as risk_labels,
+                      p.action_pattern as policy_pattern, p.reason as policy_reason,
+                      p.created_by as policy_created_by, p.created_at as policy_created_at
                FROM execution_log e
                LEFT JOIN agents a ON e.agent_id = a.id
                LEFT JOIN agent_tools t ON t.agent_id = e.agent_id AND t.name = e.tool
                LEFT JOIN tool_actions ta ON ta.tool_id = t.id AND ta.action = e.action
+               LEFT JOIN policies p ON p.id = e.policy_id
                WHERE e.status = 'PENDING_APPROVAL' AND e.org_id = ?
                GROUP BY e.id
                ORDER BY e.timestamp DESC""",
@@ -2898,6 +2902,15 @@ def get_pending_approvals(user: dict = Depends(get_current_user)):
             item["risk_labels"] = json.loads(item["risk_labels"]) if item.get("risk_labels") else []
         except (json.JSONDecodeError, TypeError):
             item["risk_labels"] = []
+        pattern = item.pop("policy_pattern", None)
+        reason = item.pop("policy_reason", None)
+        created_by = item.pop("policy_created_by", None)
+        created_at = item.pop("policy_created_at", None)
+        item["policy"] = (
+            {"action_pattern": pattern, "reason": reason,
+             "created_by": created_by, "created_at": created_at}
+            if pattern else None
+        )
         approvals.append(item)
     return {"approvals": approvals}
 
@@ -5363,7 +5376,7 @@ async def call_mock_endpoint(tool: str, action: str, request: Request):
                 enforce_reason = matched["reason"]
 
             status = "BLOCKED" if enforce_decision == "BLOCK" else "PENDING_APPROVAL" if enforce_decision == "REQUIRE_APPROVAL" else "EXECUTED"
-            log_execution(conn, agent_id, tool, action, status, detail=enforce_reason or "Mock endpoint")
+            log_execution(conn, agent_id, tool, action, status, detail=enforce_reason or "Mock endpoint", source="sandbox")
     except Exception as e:
         logger.warning("Mock endpoint enforcement/logging error for %s.%s: %s", tool, action, e)
 

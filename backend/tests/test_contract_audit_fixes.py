@@ -88,6 +88,11 @@ def test_pending_approval_carries_params(client):
     assert mine, "pending approval row missing"
     assert mine[0]["params"] == {"amount": 420, "customer": "cus_bob"}, \
         f"approval row lost its params: {mine[0].get('params')!r}"
+    # Provenance: the API endpoint is real traffic, and the row must carry
+    # the policy that paused it so the reviewer knows why it's in front of them.
+    assert mine[0]["source"] == "runtime"
+    assert mine[0]["policy"]["action_pattern"] == "stripe.create_refund"
+    assert "review refunds" in (mine[0]["policy"]["reason"] or "")
 
 
 def test_requires_prior_condition_is_accepted(client):
