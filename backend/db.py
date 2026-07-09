@@ -154,6 +154,7 @@ def init_db():
                 status TEXT,
                 policy_id INTEGER,
                 detail TEXT,
+                params TEXT,
                 org_id TEXT DEFAULT 'default',
                 timestamp TEXT
             );
@@ -303,6 +304,16 @@ def init_db():
         except Exception:
             pass
 
+        # Defensive migration: action params on execution rows (JSON). Without
+        # this, the approvals queue showed reviewers nothing about what they
+        # were approving — no amount, no recipient. NULL on pre-migration rows.
+        try:
+            el_cols = [r[1] for r in conn.execute("PRAGMA table_info(execution_log)").fetchall()]
+            if "params" not in el_cols:
+                conn.execute("ALTER TABLE execution_log ADD COLUMN params TEXT")
+        except Exception:
+            pass
+
         # Seed default org and demo user if empty
         org_count = conn.execute("SELECT COUNT(*) FROM organizations").fetchone()[0]
         if org_count == 0:
@@ -425,9 +436,12 @@ def log_audit(conn, user_id: str | None, user_email: str | None, action: str, re
         pass
 
 
-def log_execution(conn, agent_id: str, tool: str, action: str, status: str, policy_id: int = None, detail: str = None, org_id: str = DEFAULT_ORG_ID):
-    """Write an execution log entry."""
+def log_execution(conn, agent_id: str, tool: str, action: str, status: str, policy_id: int = None, detail: str = None, org_id: str = DEFAULT_ORG_ID, params: dict = None):
+    """Write an execution log entry. `params` (the action's arguments) are
+    stored as JSON so the approvals queue can show reviewers WHAT they are
+    approving, not just which action."""
     conn.execute(
-        "INSERT INTO execution_log (agent_id, tool, action, status, policy_id, detail, org_id, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-        (agent_id, tool, action, status, policy_id, detail, org_id, datetime.utcnow().isoformat()),
+        "INSERT INTO execution_log (agent_id, tool, action, status, policy_id, detail, params, org_id, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (agent_id, tool, action, status, policy_id, detail,
+         json.dumps(params) if params else None, org_id, datetime.utcnow().isoformat()),
     )

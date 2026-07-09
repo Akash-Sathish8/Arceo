@@ -271,7 +271,7 @@ def enforce_check(agent_id: str, tool: str, action: str, params: dict = None, se
         log_execution(conn, agent_id, tool, action, status,
                       policy_id=matched_policy["id"] if matched_policy else None,
                       detail=matched_policy["reason"] if matched_policy else "No matching policy",
-                      org_id=agent_org)
+                      org_id=agent_org, params=params)
 
         if status == "BLOCKED":
             fire_block_notification(agent_id, tool, action, matched_policy["reason"] if matched_policy else "")

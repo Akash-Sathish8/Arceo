@@ -65,6 +65,31 @@ def test_explicit_tools_update_still_replaces(client):
     assert tool_names == ["zendesk"], "explicit tools update must replace the set"
 
 
+def test_pending_approval_carries_params(client):
+    """Reviewers must see WHAT they are approving — params flow from the
+    enforce call through execution_log into the approvals queue."""
+    h = _auth(client, "reviewer@example.com")
+    r = client.post("/api/authority/agents", headers=h, json={"name": "param-agent", "tools": [STRIPE_TOOL]})
+    agent_id = r.json()["id"]
+    r = client.post(f"/api/authority/agent/{agent_id}/policies", headers=h, json={
+        "action_pattern": "stripe.create_refund", "effect": "REQUIRE_APPROVAL", "reason": "review refunds",
+    })
+    assert r.status_code == 200, r.text
+
+    r = client.post("/api/enforce", headers=h, json={
+        "agent_id": agent_id, "tool": "stripe", "action": "create_refund",
+        "params": {"amount": 420, "customer": "cus_bob"},
+    })
+    assert r.status_code == 200, r.text
+    assert r.json()["decision"] == "REQUIRE_APPROVAL"
+
+    queue = client.get("/api/approvals", headers=h).json()["approvals"]
+    mine = [a for a in queue if a["agent_id"] == agent_id]
+    assert mine, "pending approval row missing"
+    assert mine[0]["params"] == {"amount": 420, "customer": "cus_bob"}, \
+        f"approval row lost its params: {mine[0].get('params')!r}"
+
+
 def test_requires_prior_condition_is_accepted(client):
     h = _auth(client, "prior@example.com")
     r = client.post("/api/authority/agents", headers=h, json={"name": "prior-agent", "tools": [STRIPE_TOOL]})
