@@ -82,7 +82,7 @@ def _check_policy(agent_id: str, tool: str, action: str, session_context: list =
     """Check a single action against the policy engine. Returns decision + matched policy."""
     try:
         from main import enforce_check
-        result = enforce_check(agent_id, tool, action, session_context=session_context)
+        result = enforce_check(agent_id, tool, action, session_context=session_context, source="boundary_test")
         return {
             "decision": result.get("decision", "ALLOW"),
             "policy": result.get("policy"),

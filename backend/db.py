@@ -155,6 +155,7 @@ def init_db():
                 policy_id INTEGER,
                 detail TEXT,
                 params TEXT,
+                source TEXT,
                 org_id TEXT DEFAULT 'default',
                 timestamp TEXT
             );
@@ -311,6 +312,11 @@ def init_db():
             el_cols = [r[1] for r in conn.execute("PRAGMA table_info(execution_log)").fetchall()]
             if "params" not in el_cols:
                 conn.execute("ALTER TABLE execution_log ADD COLUMN params TEXT")
+            # Provenance: runtime | sandbox | boundary_test | replay | report |
+            # test. Every number on a reviewer-facing surface must answer
+            # "where did you come from?" — NULL marks pre-tracking rows.
+            if "source" not in el_cols:
+                conn.execute("ALTER TABLE execution_log ADD COLUMN source TEXT")
         except Exception:
             pass
 
@@ -436,12 +442,14 @@ def log_audit(conn, user_id: str | None, user_email: str | None, action: str, re
         pass
 
 
-def log_execution(conn, agent_id: str, tool: str, action: str, status: str, policy_id: int = None, detail: str = None, org_id: str = DEFAULT_ORG_ID, params: dict = None):
+def log_execution(conn, agent_id: str, tool: str, action: str, status: str, policy_id: int = None, detail: str = None, org_id: str = DEFAULT_ORG_ID, params: dict = None, source: str = None):
     """Write an execution log entry. `params` (the action's arguments) are
     stored as JSON so the approvals queue can show reviewers WHAT they are
-    approving, not just which action."""
+    approving, not just which action. `source` records where the call came
+    from (runtime | sandbox | boundary_test | replay | report | test) so a
+    reviewer can tell live agent traffic from simulations and seeded data."""
     conn.execute(
-        "INSERT INTO execution_log (agent_id, tool, action, status, policy_id, detail, params, org_id, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO execution_log (agent_id, tool, action, status, policy_id, detail, params, source, org_id, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (agent_id, tool, action, status, policy_id, detail,
-         json.dumps(params) if params else None, org_id, datetime.utcnow().isoformat()),
+         json.dumps(params) if params else None, source, org_id, datetime.utcnow().isoformat()),
     )

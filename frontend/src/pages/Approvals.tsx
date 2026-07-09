@@ -3,7 +3,8 @@ import { Link } from 'react-router-dom'
 import { Check, X, CheckCircle2 } from 'lucide-react'
 import { apiFetch } from '@/lib/api'
 import { toast } from '@/components/shared/Toast'
-import { timeAgo } from '@/lib/utils'
+import { timeAgo, riskLabelBg, riskLabelColor, riskLabelName } from '@/lib/utils'
+import type { RiskLabel } from '@/lib/types'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import ErrorState from '@/components/shared/ErrorState'
@@ -16,9 +17,28 @@ interface ApprovalItem {
   action: string
   detail?: string
   params?: Record<string, unknown>
+  risk_labels?: string[]
+  source?: string | null
+  policy?: {
+    action_pattern: string
+    reason?: string
+    created_by?: string
+    created_at?: string
+  } | null
   timestamp: string
   status: string
 }
+
+// Provenance: every row answers "where did this come from?" so a reviewer can
+// tell live agent traffic from simulations and seeded test data at a glance.
+const SOURCE_BADGE: Record<string, { label: string; bg: string; color: string }> = {
+  runtime:       { label: 'Live traffic',        bg: 'var(--severity-safe-bg)',     color: 'var(--severity-safe)' },
+  sandbox:       { label: 'Sandbox simulation',  bg: '#f5f3ff',                     color: '#7c3aed' },
+  boundary_test: { label: 'Boundary test',       bg: '#f5f3ff',                     color: '#7c3aed' },
+  replay:        { label: 'Trace replay',        bg: '#f5f3ff',                     color: '#7c3aed' },
+  test:          { label: 'Test data (seeded)',  bg: 'var(--status-pending-bg)',    color: 'var(--status-pending)' },
+}
+const UNKNOWN_SOURCE_BADGE = { label: 'Unlabeled (recorded before source tracking)', bg: 'var(--bg-sunken)', color: 'var(--text-muted)' }
 
 interface ApprovalsResponse {
   approvals: ApprovalItem[]
@@ -31,9 +51,58 @@ function formatAction(s: string): string {
   return s.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
 }
 
-function formatParamValue(v: unknown): string {
-  if (typeof v === 'object' && v !== null) return JSON.stringify(v)
+// ── Readable parameters ───────────────────────────────────────────────────────
+// Format values by what they represent so a reviewer scans instead of parsing.
+// The formatted view never replaces the contract: the raw JSON the agent sent
+// stays one click away, and currency formatting is labeled as no-conversion
+// (an integration passing cents would otherwise read 100× too large).
+
+const MONEY_KEY = /(^|_)(amount|price|total|cost|fee|refund|charge|value_usd|usd)($|_)/i
+const ISO_TS = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/
+
+function isMoneyParam(key: string, v: unknown): boolean {
+  return MONEY_KEY.test(key) && typeof v === 'number'
+}
+
+function formatParamValue(key: string, v: unknown): string {
+  if (v === null || v === undefined) return '—'
+  if (typeof v === 'boolean') return v ? 'Yes' : 'No'
+  if (typeof v === 'number') {
+    return isMoneyParam(key, v) ? `$${v.toLocaleString()}` : v.toLocaleString()
+  }
+  if (typeof v === 'string' && ISO_TS.test(v)) {
+    const d = new Date(v)
+    if (!isNaN(d.getTime())) {
+      return d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+    }
+  }
+  if (typeof v === 'object') return JSON.stringify(v)
   return String(v)
+}
+
+// Who/what the action is aimed at, in priority order.
+const TARGET_KEYS = ['customer', 'recipient', 'to', 'email', 'user', 'account', 'target', 'resource', 'instance', 'repo', 'id']
+const REASON_KEYS = ['reason', 'note', 'message', 'description', 'subject']
+
+// One deterministic sentence answering "what is this agent about to do?" —
+// interpolates only the actual values, so it cannot drift from the contract.
+function scenarioLine(a: ApprovalItem): { pre: string; money: string | null; post: string } | null {
+  const p = a.params
+  if (!p || Object.keys(p).length === 0) return null
+  const moneyKey = Object.keys(p).find((k) => isMoneyParam(k, p[k]))
+  const targetKey = TARGET_KEYS.find((k) => k in p && p[k] != null && String(p[k]) !== '')
+  const reasonKey = REASON_KEYS.find((k) => k in p && typeof p[k] === 'string' && p[k] !== '')
+  if (!moneyKey && !targetKey && !reasonKey) return null
+
+  const actionPhrase = a.action.replace(/_/g, ' ')
+  let post = ''
+  if (targetKey) post += ` for ${String(p[targetKey])}`
+  if (reasonKey) post += ` — “${String(p[reasonKey])}”`
+  return {
+    pre: `Wants to ${actionPhrase}${moneyKey ? ': ' : ''}`,
+    money: moneyKey ? formatParamValue(moneyKey, p[moneyKey]) : null,
+    post,
+  }
 }
 
 export default function Approvals() {
@@ -45,6 +114,7 @@ export default function Approvals() {
   const [loadError, setLoadError] = useState<string | null>(null)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [bulkRunning, setBulkRunning] = useState<'approve' | 'reject' | null>(null)
+  const [rawOpen, setRawOpen] = useState<Set<string>>(new Set())
   const selectAllRef = useRef<HTMLInputElement>(null)
 
   const load = useCallback(() => {
@@ -307,7 +377,7 @@ export default function Approvals() {
                     disabled={isBusy || bulkRunning != null}
                     aria-label={`Select ${a.agent_name || a.agent_id}: ${a.tool} ${a.action}`}
                   />
-                  <div className="flex items-center gap-1.5">
+                  <div className="flex items-center gap-1.5 flex-wrap">
                   <Link
                     to={`/agent/${a.agent_id}`}
                     style={{ fontWeight: 600, color: "var(--text-primary)", textDecoration: "none" }}
@@ -318,11 +388,22 @@ export default function Approvals() {
                   </Link>
                   <span className="text-gray-300">·</span>
                   <span className="text-gray-400 text-xs">{timeAgo(a.timestamp)}</span>
+                  {(() => {
+                    const badge = SOURCE_BADGE[a.source ?? ''] ?? UNKNOWN_SOURCE_BADGE
+                    return (
+                      <span
+                        className="text-[11px] px-2 py-0.5 rounded-full font-medium"
+                        style={{ background: badge.bg, color: badge.color }}
+                      >
+                        {badge.label}
+                      </span>
+                    )
+                  })()}
                   </div>
                 </div>
 
-                {/* Tool chip → action name */}
-                <div className="flex items-center gap-2 mb-3">
+                {/* Tool chip → action name + why-it-paused risk labels */}
+                <div className="flex items-center gap-2 mb-3 flex-wrap">
                   <span style={{ background: 'var(--bg-sunken)', color: 'var(--text-secondary)', borderRadius: 'var(--radius-full)', padding: '2px 10px', fontSize: 12, fontWeight: 500 }}>
                     {a.tool}
                   </span>
@@ -330,31 +411,86 @@ export default function Approvals() {
                   <span className="text-sm font-medium text-gray-800">
                     {formatAction(a.action)}
                   </span>
+                  {(a.risk_labels ?? []).map((label) => (
+                    <span
+                      key={label}
+                      className="text-xs px-1.5 py-0.5 rounded font-medium"
+                      style={{ backgroundColor: riskLabelBg(label as RiskLabel), color: riskLabelColor(label as RiskLabel) }}
+                    >
+                      {riskLabelName(label)}
+                    </span>
+                  ))}
                 </div>
+
+                {/* Scenario line — what is this agent about to do, in one claim */}
+                {(() => {
+                  const line = scenarioLine(a)
+                  return line ? (
+                    <p className="text-sm text-gray-800 mb-2">
+                      {line.pre}
+                      {line.money && <strong className="font-semibold">{line.money}</strong>}
+                      {line.post}
+                    </p>
+                  ) : null
+                })()}
+
+                {/* Why this is in front of you: the policy that paused it */}
+                {a.policy && (
+                  <p className="text-xs mb-3" style={{ color: 'var(--text-secondary)' }}>
+                    Paused by a policy requiring sign-off on <code className="px-1 py-0.5 rounded" style={{ background: 'var(--bg-sunken)', fontSize: 11 }}>{a.policy.action_pattern}</code>
+                    {a.policy.reason ? <> — “{a.policy.reason}”</> : null}
+                    {a.policy.created_by ? <> · set by {a.policy.created_by}</> : null}
+                    {a.policy.created_at ? <> on {new Date(a.policy.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</> : null}
+                  </p>
+                )}
 
                 {/* Optional detail */}
                 {a.detail != null && a.detail !== '' && (
                   <p className="text-sm text-gray-600 mb-3">{a.detail}</p>
                 )}
 
-                {/* Params grid */}
+                {/* Params grid — formatted for scanning; raw JSON is the contract */}
                 {hasParams && (
                   <div className="rounded-xl p-3 mb-4" style={{ background: 'var(--bg-sunken)', border: '1px solid var(--border)' }}>
-                    <p className="text-xs font-semibold text-gray-500 mb-2">
-                      Parameters
-                    </p>
-                    <div className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5">
-                      {Object.entries(a.params!).map(([k, v]) => (
-                        <div key={k} className="contents">
-                          <span className="text-xs text-gray-500 font-medium whitespace-nowrap">
-                            {k.replace(/_/g, ' ')}
-                          </span>
-                          <span className="text-xs text-gray-800 font-mono break-all">
-                            {formatParamValue(v)}
-                          </span>
-                        </div>
-                      ))}
+                    <div className="flex items-center justify-between mb-2">
+                      <p className="text-xs font-semibold text-gray-500">Parameters</p>
+                      <button
+                        type="button"
+                        onClick={() => setRawOpen((prev) => {
+                          const next = new Set(prev)
+                          if (next.has(a.id)) next.delete(a.id)
+                          else next.add(a.id)
+                          return next
+                        })}
+                        className="text-xs bg-transparent border-0 p-0 cursor-pointer underline underline-offset-2"
+                        style={{ color: 'var(--text-secondary)' }}
+                      >
+                        {rawOpen.has(a.id) ? 'formatted' : 'raw'}
+                      </button>
                     </div>
+                    {rawOpen.has(a.id) ? (
+                      <pre className="text-xs font-mono break-all whitespace-pre-wrap m-0" style={{ color: 'var(--text-primary)' }}>
+                        {JSON.stringify(a.params, null, 2)}
+                      </pre>
+                    ) : (
+                      <div className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5">
+                        {Object.entries(a.params!).map(([k, v]) => (
+                          <div key={k} className="contents">
+                            <span className="text-xs text-gray-500 font-medium whitespace-nowrap">
+                              {k.replace(/_/g, ' ')}
+                            </span>
+                            <span className="text-xs text-gray-800 font-mono break-all">
+                              {formatParamValue(k, v)}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {Object.entries(a.params!).some(([k, v]) => isMoneyParam(k, v)) && (
+                      <p className="text-[11px] mt-2 mb-0" style={{ color: 'var(--text-muted)' }}>
+                        Amounts shown as sent by the agent — no unit conversion applied.
+                      </p>
+                    )}
                   </div>
                 )}
 
@@ -391,6 +527,11 @@ export default function Approvals() {
                       />
                     </div>
                   </div>
+                  <p className="text-[11px] m-0" style={{ color: 'var(--text-muted)' }}>
+                    {['sandbox', 'boundary_test', 'replay'].includes(a.source ?? '')
+                      ? 'This came from a simulation — deciding updates the record for reporting; no agent is waiting to execute.'
+                      : 'Approving marks this action allowed — the paused agent proceeds with exactly the arguments shown. Rejecting records it as blocked.'}
+                  </p>
                 </div>
               </div>
             )
