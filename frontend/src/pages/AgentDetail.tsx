@@ -157,10 +157,13 @@ interface AgentDetailResponse {
   executions: Execution[]
 }
 
+// Backend shape: {policy_a, policy_b, overlap, winner: {id, effect}} — the
+// winner/loser policies are derived by matching winner.id.
 interface PolicyConflict {
-  winner: { action_pattern: string }
-  loser: { action_pattern: string }
-  pattern?: string
+  policy_a?: { id: number; pattern: string; effect: string; priority: number }
+  policy_b?: { id: number; pattern: string; effect: string; priority: number }
+  winner?: { id: number; effect: string }
+  overlap?: string
 }
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -2155,17 +2158,22 @@ export default function AgentDetail() {
                   Overlapping rules — only the highest-priority policy applies per action.
                 </div>
                 <div className="space-y-1 mt-1">
-                  {policyConflicts.slice(0, 3).map((c, i) => (
+                  {policyConflicts.slice(0, 3).map((c, i) => {
+                    const aWins = c.policy_a?.id === c.winner?.id
+                    const winnerPattern = (aWins ? c.policy_a : c.policy_b)?.pattern
+                    const loserPattern = (aWins ? c.policy_b : c.policy_a)?.pattern
+                    return (
                     <div key={i} className="flex items-center gap-2 text-xs flex-wrap">
                       <code className="px-1.5 py-0.5 bg-white border border-amber-200 rounded text-amber-800">
-                        {c.winner?.action_pattern || c.pattern || '—'}
+                        {winnerPattern || '—'}
                       </code>
                       <span className="text-amber-500">overrides</span>
                       <code className="px-1.5 py-0.5 bg-white border border-amber-200 rounded text-amber-800">
-                        {c.loser?.action_pattern || '—'}
+                        {loserPattern || '—'}
                       </code>
                     </div>
-                  ))}
+                    )
+                  })}
                   {policyConflicts.length > 3 && (
                     <span className="text-xs text-amber-600">
                       +{policyConflicts.length - 3} more

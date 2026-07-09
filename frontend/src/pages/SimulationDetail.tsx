@@ -431,7 +431,7 @@ export default function SimulationDetail() {
                   fontWeight: 500,
                   ...(sim.status === "completed"
                     ? { background: "var(--status-executed-bg)", color: "var(--status-executed)" }
-                    : sim.status === "failed"
+                    : sim.status === "failed" || sim.status === "error"
                     ? { background: "var(--severity-critical-bg)", color: "var(--severity-critical)" }
                     : { background: "var(--status-pending-bg)", color: "var(--status-pending)" }),
                 }}

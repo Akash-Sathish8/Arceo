@@ -1237,7 +1237,10 @@ class ToolInput(BaseModel):
 class AgentInput(BaseModel):
     name: str
     description: str = ""
-    tools: list[ToolInput] = []
+    # None (absent) must stay distinguishable from [] (explicitly no tools):
+    # update_agent rewrites the tool set only when the caller sent one. With a
+    # [] default, a rename-only PUT wiped every tool and action on the agent.
+    tools: Optional[list[ToolInput]] = None
     # Forecast inputs (optional). simulation_model prices the LLM at the right
     # rate; expected_calls_per_day is the #1 cost driver; avg_context_tokens
     # captures RAG/long-prompt agents the tool-count heuristic misses.
@@ -1285,7 +1288,7 @@ def create_agent(req: AgentInput, user: dict = Depends(get_current_user)):
             agent_id = f"{agent_id}-{uuid.uuid4().hex[:6]}"
             _insert_agent_row(agent_id)
 
-        for tool in req.tools:
+        for tool in req.tools or []:
             cur = conn.execute(
                 "INSERT INTO agent_tools (agent_id, name, service, description) VALUES (?, ?, ?, ?)",
                 (agent_id, tool.name, tool.service, tool.description),
@@ -1301,7 +1304,7 @@ def create_agent(req: AgentInput, user: dict = Depends(get_current_user)):
                 )
 
         log_audit(conn, user["sub"], user["email"], "CREATE_AGENT", resource=agent_id,
-                  detail=f"Created agent '{req.name}' with {len(req.tools)} tools")
+                  detail=f"Created agent '{req.name}' with {len(req.tools or [])} tools")
 
     return {"id": agent_id, "message": "Agent created"}
 
@@ -1371,23 +1374,25 @@ def update_agent(agent_id: str, req: AgentInput, user: dict = Depends(get_curren
              now, agent_id),
         )
 
-        # Delete old tools/actions and re-insert
-        conn.execute("DELETE FROM agent_tools WHERE agent_id = ?", (agent_id,))
+        # Rewrite the tool set only when the caller sent one — a metadata-only
+        # edit (rename/description) must not touch tools.
+        if req.tools is not None:
+            conn.execute("DELETE FROM agent_tools WHERE agent_id = ?", (agent_id,))
 
-        for tool in req.tools:
-            cur = conn.execute(
-                "INSERT INTO agent_tools (agent_id, name, service, description) VALUES (?, ?, ?, ?)",
-                (agent_id, tool.name, tool.service, tool.description),
-            )
-            tool_id = cur.lastrowid
-            for a in tool.actions:
-                # BR2: classify server-side; never trust client-supplied risk_labels.
-                mapped = classify_with_fallback(tool.name, a.action, a.description,
-                                                input_schema=a.input_schema)
-                conn.execute(
-                    "INSERT INTO tool_actions (tool_id, action, description, risk_labels, reversible, classification_source) VALUES (?, ?, ?, ?, ?, ?)",
-                    (tool_id, a.action, a.description, json.dumps(mapped.risk_labels), mapped.reversible, mapped.classification_source),
+            for tool in req.tools:
+                cur = conn.execute(
+                    "INSERT INTO agent_tools (agent_id, name, service, description) VALUES (?, ?, ?, ?)",
+                    (agent_id, tool.name, tool.service, tool.description),
                 )
+                tool_id = cur.lastrowid
+                for a in tool.actions:
+                    # BR2: classify server-side; never trust client-supplied risk_labels.
+                    mapped = classify_with_fallback(tool.name, a.action, a.description,
+                                                    input_schema=a.input_schema)
+                    conn.execute(
+                        "INSERT INTO tool_actions (tool_id, action, description, risk_labels, reversible, classification_source) VALUES (?, ?, ?, ?, ?, ?)",
+                        (tool_id, a.action, a.description, json.dumps(mapped.risk_labels), mapped.reversible, mapped.classification_source),
+                    )
 
         log_audit(conn, user["sub"], user["email"], "UPDATE_AGENT", resource=agent_id,
                   detail=f"Updated agent '{req.name}'")
@@ -2584,8 +2589,11 @@ from typing import Union
 
 
 class ConditionInput(BaseModel):
-    field: str       # param field name, e.g. "amount"
-    op: str          # gt, gte, lt, lte, eq, neq, in, not_in, contains
+    # Optional because requires_prior conditions carry no param field — a
+    # required `field` made Pydantic 422 every requires_prior policy before
+    # the handler (whose valid_ops includes it) ever ran.
+    field: str = ""  # param field name, e.g. "amount"
+    op: str          # gt, gte, lt, lte, eq, neq, in, not_in, contains, requires_prior
     value: Union[str, int, float, list] = ""
 
 
@@ -3728,7 +3736,9 @@ def list_simulations(user: dict = Depends(get_current_user)):
     """List past simulation runs."""
     with get_db() as conn:
         rows = conn.execute(
-            "SELECT id, agent_id, scenario_id, status, created_at, report_json FROM simulations WHERE org_id = ? ORDER BY created_at DESC LIMIT 50",
+            "SELECT s.id, s.agent_id, s.scenario_id, s.status, s.created_at, s.report_json, a.name AS agent_name "
+            "FROM simulations s LEFT JOIN agents a ON a.id = s.agent_id AND a.org_id = s.org_id "
+            "WHERE s.org_id = ? ORDER BY s.created_at DESC LIMIT 50",
             (_org(user),)
         ).fetchall()
     simulations = []
