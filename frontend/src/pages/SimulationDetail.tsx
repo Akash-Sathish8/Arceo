@@ -513,13 +513,19 @@ export default function SimulationDetail() {
             })}
           </div>
           {sim.agent_id && (
-            <Link
-              to={`/agent/${sim.agent_id}?tab=policies`}
-              className="flex items-center gap-1.5 mt-3 text-sm font-medium"
+            // Opens in a new tab: the ExternalLink icon promises "goes
+            // elsewhere", and a reviewer setting a policy wants to keep this
+            // simulation open to keep reviewing. Same-tab navigation ate the
+            // simulation page, which has no easy return path.
+            <a
+              href={`/agent/${sim.agent_id}?tab=policies`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 mt-3 text-sm font-medium"
               style={{ color: 'var(--text-link)' }}
             >
               Fix in production <ExternalLink size={12} />
-            </Link>
+            </a>
           )}
         </div>
       )}
