@@ -1555,14 +1555,14 @@ export default function AgentDetail() {
 
   const statItems = [
     {
-      label: 'Total Actions',
+      label: 'Total actions',
       tooltip: 'Every individual API call or operation this agent can perform across all its connected tools.',
       value: br.total_actions,
       color: null as string | null,
       riskKey: 'all',
     },
     {
-      label: 'Move Money',
+      label: 'Move money',
       tooltip: 'Charges, refunds, transfers, and subscription changes — any action that moves funds.',
       value: br.moves_money,
       color: '#dc2626',
@@ -1576,21 +1576,21 @@ export default function AgentDetail() {
       riskKey: 'touches_pii',
     },
     {
-      label: 'Delete Data',
+      label: 'Delete data',
       tooltip: 'Permanently removes records, files, or data. Cannot be undone.',
       value: br.deletes_data,
       color: '#ea580c',
       riskKey: 'deletes_data',
     },
     {
-      label: 'Send External',
+      label: 'Send external',
       tooltip: 'Emails, messages, or webhooks sent to customers or third-party services outside your system.',
       value: br.sends_external,
       color: '#2563eb',
       riskKey: 'sends_external',
     },
     {
-      label: 'Change Prod',
+      label: 'Change prod',
       tooltip: 'Edits to live configuration, infrastructure, or deployment settings.',
       value: br.changes_production,
       color: '#0d9488',
@@ -1906,7 +1906,7 @@ export default function AgentDetail() {
             const clickable = s.value > 0
             const isActive = activeStatFilter === s.riskKey
             return (
-              <div key={s.label} className="flex flex-col items-center gap-0.5 text-center">
+              <div key={s.label} className="flex flex-col items-center text-center px-1">
                 <button
                   type="button"
                   disabled={!clickable}
@@ -1914,25 +1914,31 @@ export default function AgentDetail() {
                   style={{
                     background: isActive ? (s.color ?? '#374151') + '18' : 'transparent',
                     border: isActive ? `1.5px solid ${s.color ?? '#374151'}30` : '1.5px solid transparent',
-                    borderRadius: 6, padding: '2px 8px',
+                    borderRadius: 6, padding: '2px 10px',
                     cursor: clickable ? 'pointer' : 'default',
                     color: s.color ?? 'inherit',
                     transition: 'all 120ms',
                   }}
-                  className="text-lg font-bold leading-snug hover:opacity-80"
+                  className="text-lg font-bold leading-none hover:opacity-80"
                 >
                   {s.value}
                 </button>
-                <span className="text-xs text-gray-500 flex items-center gap-0.5">
-                  {s.label}
+                {/* Fixed-height label block with the help icon pinned to the
+                    first line (items-start) so icons align across all tiles,
+                    whether the label is one line or two. */}
+                <div
+                  className="mt-2 flex items-start justify-center gap-1"
+                  style={{ minHeight: '2.1rem' }}
+                >
+                  <span className="text-xs text-gray-500 leading-tight">{s.label}</span>
                   {s.tooltip && (
                     <Tooltip text={s.tooltip}>
-                      <span className="inline-flex items-center justify-center w-3.5 h-3.5 text-xs bg-gray-200 text-gray-600 rounded-full cursor-help ml-0.5">
+                      <span className="inline-flex items-center justify-center w-3.5 h-3.5 text-[10px] bg-gray-100 text-gray-400 rounded-full cursor-help flex-shrink-0" style={{ marginTop: '1px' }}>
                         ?
                       </span>
                     </Tooltip>
                   )}
-                </span>
+                </div>
               </div>
             )
           })}
