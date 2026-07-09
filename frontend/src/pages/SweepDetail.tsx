@@ -60,7 +60,7 @@ const FALLBACK_STYLE = { bg: "var(--bg-sunken)", color: "var(--text-secondary)" 
 
 function statusStyle(status: string): { background: string; color: string } {
   if (status === "completed") return { background: "var(--status-executed-bg)", color: "var(--status-executed)" };
-  if (status === "failed")    return { background: "var(--severity-critical-bg)", color: "var(--severity-critical)" };
+  if (status === "failed" || status === "error") return { background: "var(--severity-critical-bg)", color: "var(--severity-critical)" };
   return { background: "var(--status-pending-bg)", color: "var(--status-pending)" };
 }
 

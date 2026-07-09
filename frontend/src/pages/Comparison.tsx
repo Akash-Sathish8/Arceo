@@ -65,7 +65,7 @@ interface SimDetail {
     actions_blocked: number;
     total_steps: number;
   };
-  trace: { steps: SimStep[] };
+  trace: { steps?: SimStep[]; unified_steps?: SimStep[] };
 }
 
 function useAnimatedNumber(target: number, trigger: boolean) {
@@ -420,12 +420,17 @@ export default function Comparison() {
   const blockedA = detailA?.report?.actions_blocked ?? 0;
   const blockedB = detailB?.report?.actions_blocked ?? 0;
 
+  // Multi-agent traces store their steps as `unified_steps` (MultiAgentTrace),
+  // single-agent as `steps` — support both so comparing multi-agent runs
+  // doesn't silently diff empty lists.
+  const stepsA = detailA?.trace?.steps ?? detailA?.trace?.unified_steps ?? [];
+  const stepsB = detailB?.trace?.steps ?? detailB?.trace?.unified_steps ?? [];
   const actionsA = new Set(
-    (detailA?.trace?.steps ?? [])
+    stepsA
       .filter((s) => s.enforce_decision === "BLOCK")
       .map((s) => `${s.tool}.${s.action}`)
   );
-  const newlyBlocked = (detailB?.trace?.steps ?? [])
+  const newlyBlocked = stepsB
     .filter((s) => s.enforce_decision === "BLOCK" && !actionsA.has(`${s.tool}.${s.action}`))
     .map((s) => `${s.tool}.${s.action}`);
 

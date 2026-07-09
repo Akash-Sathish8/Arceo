@@ -18,15 +18,12 @@ interface BlastRadius {
   score: number
 }
 
-interface AgentTool {
-  service?: string
-  name?: string
-}
-
+// /api/authority/agents returns tools as plain service-name strings
+// ("tools": [t["service"] for t in agent["tools"]]), not objects.
 interface AgentListItem {
   id: string
   name: string
-  tools: AgentTool[]
+  tools: string[]
   blast_radius: BlastRadius
 }
 
@@ -560,12 +557,9 @@ export default function Sandbox() {
                     <>
                       <div className="text-left min-w-0">
                         <div className="font-semibold text-gray-900 truncate">{sel.name}</div>
-                        {sel.tools?.filter((t) => t.service).length > 0 && (
+                        {(sel.tools?.length ?? 0) > 0 && (
                           <div className="text-[11px] text-gray-400 truncate">
-                            {sel.tools
-                              .filter((t) => t.service)
-                              .map((t) => t.service)
-                              .join(' · ')}
+                            {sel.tools.filter(Boolean).join(' · ')}
                           </div>
                         )}
                       </div>
@@ -596,9 +590,9 @@ export default function Sandbox() {
                         >
                           <div className="min-w-0">
                             <div className="font-semibold text-gray-900 truncate">{a.name}</div>
-                            {a.tools?.filter((t) => t.service).length > 0 && (
+                            {(a.tools?.length ?? 0) > 0 && (
                               <div className="text-[11px] text-gray-400 truncate">
-                                {a.tools.filter((t) => t.service).map((t) => t.service).join(' · ')}
+                                {a.tools.filter(Boolean).join(' · ')}
                               </div>
                             )}
                           </div>
