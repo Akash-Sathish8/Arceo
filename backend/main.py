@@ -2872,11 +2872,16 @@ def get_agent_executions(agent_id: str, user: dict = Depends(get_current_user)):
 def get_pending_approvals(user: dict = Depends(get_current_user)):
     """Return all PENDING_APPROVAL executions across all agents."""
     with get_db() as conn:
+        # risk_labels joined per row so the queue can say WHY an action needed
+        # approval (moves money, deletes data, …) without a second request.
         rows = conn.execute(
-            """SELECT e.*, a.name as agent_name
+            """SELECT e.*, a.name as agent_name, ta.risk_labels as risk_labels
                FROM execution_log e
                LEFT JOIN agents a ON e.agent_id = a.id
+               LEFT JOIN agent_tools t ON t.agent_id = e.agent_id AND t.name = e.tool
+               LEFT JOIN tool_actions ta ON ta.tool_id = t.id AND ta.action = e.action
                WHERE e.status = 'PENDING_APPROVAL' AND e.org_id = ?
+               GROUP BY e.id
                ORDER BY e.timestamp DESC""",
             (_org(user),),
         ).fetchall()
@@ -2889,6 +2894,10 @@ def get_pending_approvals(user: dict = Depends(get_current_user)):
             item["params"] = json.loads(item["params"]) if item.get("params") else None
         except (json.JSONDecodeError, TypeError):
             item["params"] = None
+        try:
+            item["risk_labels"] = json.loads(item["risk_labels"]) if item.get("risk_labels") else []
+        except (json.JSONDecodeError, TypeError):
+            item["risk_labels"] = []
         approvals.append(item)
     return {"approvals": approvals}
 
