@@ -1898,10 +1898,9 @@ export default function AgentDetail() {
           </Tooltip>
         </div>
 
-        <div
-          className="grid mt-6"
-          style={{ gridTemplateColumns: `repeat(${visibleStats.length}, 1fr)` }}
-        >
+        {/* Content-sized tiles that wrap as a group, so each label keeps its
+            help icon on one line instead of being squeezed by equal columns. */}
+        <div className="flex flex-wrap justify-center gap-x-7 gap-y-4 mt-6">
           {visibleStats.map((s) => {
             const clickable = s.value > 0
             const isActive = activeStatFilter === s.riskKey
@@ -1923,17 +1922,14 @@ export default function AgentDetail() {
                 >
                   {s.value}
                 </button>
-                {/* Fixed-height label block with the help icon pinned to the
-                    first line (items-start) so icons align across all tiles,
-                    whether the label is one line or two. */}
-                <div
-                  className="mt-2 flex items-start justify-center gap-1"
-                  style={{ minHeight: '2.1rem' }}
-                >
-                  <span className="text-xs text-gray-500 leading-tight">{s.label}</span>
+                {/* Label + help icon on one line (nowrap), icon vertically
+                    centered with the text — tiles are content-sized so nothing
+                    forces the label to break. */}
+                <div className="mt-2 flex items-center gap-1 whitespace-nowrap">
+                  <span className="text-xs text-gray-500 leading-none">{s.label}</span>
                   {s.tooltip && (
                     <Tooltip text={s.tooltip}>
-                      <span className="inline-flex items-center justify-center w-3.5 h-3.5 text-[10px] bg-gray-100 text-gray-400 rounded-full cursor-help flex-shrink-0" style={{ marginTop: '1px' }}>
+                      <span className="inline-flex items-center justify-center w-3.5 h-3.5 text-[10px] bg-gray-100 text-gray-400 rounded-full cursor-help flex-shrink-0">
                         ?
                       </span>
                     </Tooltip>
