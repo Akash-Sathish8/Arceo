@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import { Check, X, CheckCircle2 } from 'lucide-react'
 import { apiFetch } from '@/lib/api'
@@ -43,12 +43,22 @@ export default function Approvals() {
   const [notes, setNotes] = useState<NotesMap>({})
   const [decided, setDecided] = useState<DecisionMap>({})
   const [loadError, setLoadError] = useState<string | null>(null)
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [bulkRunning, setBulkRunning] = useState<'approve' | 'reject' | null>(null)
+  const selectAllRef = useRef<HTMLInputElement>(null)
 
   const load = useCallback(() => {
     setLoadError(null)
     apiFetch<ApprovalsResponse>('/api/approvals')
       .then((d) => {
-        setApprovals(d.approvals ?? [])
+        const items = d.approvals ?? []
+        setApprovals(items)
+        // The 10s poll can remove items decided elsewhere — never keep a
+        // selection pointing at rows that are no longer in the queue.
+        setSelected((prev) => {
+          const alive = new Set(items.map((a) => a.id))
+          return new Set([...prev].filter((id) => alive.has(id)))
+        })
         setLoading(false)
       })
       // An outage must NOT render the green "all caught up" state — that reads
@@ -93,6 +103,68 @@ export default function Approvals() {
 
   const handleNoteChange = (id: string, value: string) => {
     setNotes((prev) => ({ ...prev, [id]: value }))
+  }
+
+  const toggleSelected = (id: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  const toggleSelectAll = () => {
+    setSelected((prev) =>
+      prev.size === approvals.length ? new Set() : new Set(approvals.map((a) => a.id))
+    )
+  }
+
+  // Native indeterminate state is only settable via the DOM property.
+  useEffect(() => {
+    if (selectAllRef.current) {
+      selectAllRef.current.indeterminate = selected.size > 0 && selected.size < approvals.length
+    }
+  }, [selected, approvals])
+
+  const bulkDecide = async (decision: 'approve' | 'reject') => {
+    const ids = [...selected].filter((id) => !(id in deciding))
+    if (ids.length === 0) return
+    setBulkRunning(decision)
+    setDeciding((prev) => ({ ...prev, ...Object.fromEntries(ids.map((id) => [id, decision])) }))
+
+    const results = await Promise.allSettled(
+      ids.map((id) =>
+        apiFetch(`/api/approvals/${id}`, {
+          method: 'POST',
+          body: JSON.stringify({ decision, reason: notes[id] ?? '' }),
+        })
+      )
+    )
+    const okIds = ids.filter((_, i) => results[i].status === 'fulfilled')
+    const failed = ids.length - okIds.length
+
+    setDecided((prev) => ({ ...prev, ...Object.fromEntries(okIds.map((id) => [id, decision])) }))
+    setSelected((prev) => new Set([...prev].filter((id) => !okIds.includes(id))))
+    setDeciding((prev) => {
+      const next = { ...prev }
+      ids.forEach((id) => delete next[id])
+      return next
+    })
+    setBulkRunning(null)
+
+    const verb = decision === 'approve' ? 'resumed' : 'blocked'
+    if (failed === 0) toast(`${okIds.length} agent action${okIds.length !== 1 ? 's' : ''} ${verb}`)
+    else toast(`${okIds.length} ${verb}, ${failed} failed — still in the queue`, 'error')
+
+    setTimeout(() => {
+      setApprovals((prev) => prev.filter((a) => !okIds.includes(a.id)))
+      setDecided((prev) => {
+        const next = { ...prev }
+        okIds.forEach((id) => delete next[id])
+        return next
+      })
+    }, 2000)
   }
 
   if (loading) {
@@ -146,6 +218,56 @@ export default function Approvals() {
         </div>
       ) : (
         <div>
+          {/* Bulk selection toolbar */}
+          <div
+            className="flex items-center gap-3 rounded-xl border px-4 py-2.5 mb-4"
+            style={{
+              background: selected.size > 0 ? 'var(--bg-sunken)' : 'var(--bg-card)',
+              borderColor: 'var(--border)',
+            }}
+          >
+            <label className="flex items-center gap-2 cursor-pointer select-none">
+              <input
+                ref={selectAllRef}
+                type="checkbox"
+                className="w-4 h-4 cursor-pointer"
+                style={{ accentColor: 'var(--text-primary)' }}
+                checked={selected.size === approvals.length && approvals.length > 0}
+                onChange={toggleSelectAll}
+                disabled={bulkRunning != null}
+              />
+              <span className="text-sm font-medium text-gray-700">
+                {selected.size > 0 ? `${selected.size} of ${approvals.length} selected` : 'Select all'}
+              </span>
+            </label>
+            {selected.size > 0 && (
+              <div className="flex items-center gap-2 ml-auto">
+                <Button
+                  size="sm"
+                  onClick={() => bulkDecide('approve')}
+                  disabled={bulkRunning != null}
+                  loading={bulkRunning === 'approve'}
+                  icon={<Check size={14} />}
+                >
+                  {bulkRunning === 'approve' ? 'Approving...' : `Approve ${selected.size}`}
+                </Button>
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  onClick={() => bulkDecide('reject')}
+                  disabled={bulkRunning != null}
+                  loading={bulkRunning === 'reject'}
+                  icon={<X size={14} />}
+                >
+                  {bulkRunning === 'reject' ? 'Rejecting...' : `Reject ${selected.size}`}
+                </Button>
+                <Button variant="ghost" size="sm" onClick={() => setSelected(new Set())} disabled={bulkRunning != null}>
+                  Clear
+                </Button>
+              </div>
+            )}
+          </div>
+
           {approvals.map((a) => {
             const isBusy = a.id in deciding
             const postDecision = decided[a.id]
@@ -174,8 +296,18 @@ export default function Approvals() {
                   </div>
                 )}
 
-                {/* Card header: agent name + timestamp */}
-                <div className="flex items-center gap-1.5 text-sm mb-3">
+                {/* Card header: select checkbox + agent name + timestamp */}
+                <div className="flex items-center gap-2.5 text-sm mb-3">
+                  <input
+                    type="checkbox"
+                    className="w-4 h-4 cursor-pointer flex-shrink-0"
+                    style={{ accentColor: 'var(--text-primary)' }}
+                    checked={selected.has(a.id)}
+                    onChange={() => toggleSelected(a.id)}
+                    disabled={isBusy || bulkRunning != null}
+                    aria-label={`Select ${a.agent_name || a.agent_id}: ${a.tool} ${a.action}`}
+                  />
+                  <div className="flex items-center gap-1.5">
                   <Link
                     to={`/agent/${a.agent_id}`}
                     style={{ fontWeight: 600, color: "var(--text-primary)", textDecoration: "none" }}
@@ -186,6 +318,7 @@ export default function Approvals() {
                   </Link>
                   <span className="text-gray-300">·</span>
                   <span className="text-gray-400 text-xs">{timeAgo(a.timestamp)}</span>
+                  </div>
                 </div>
 
                 {/* Tool chip → action name */}
