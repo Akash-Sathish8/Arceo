@@ -2880,7 +2880,17 @@ def get_pending_approvals(user: dict = Depends(get_current_user)):
                ORDER BY e.timestamp DESC""",
             (_org(user),),
         ).fetchall()
-    return {"approvals": [dict(r) for r in rows]}
+    approvals = []
+    for r in rows:
+        item = dict(r)
+        # Stored as JSON; the frontend renders a params object (or nothing on
+        # pre-migration rows / malformed data — never break the queue).
+        try:
+            item["params"] = json.loads(item["params"]) if item.get("params") else None
+        except (json.JSONDecodeError, TypeError):
+            item["params"] = None
+        approvals.append(item)
+    return {"approvals": approvals}
 
 
 class ApprovalDecision(BaseModel):
