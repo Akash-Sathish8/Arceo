@@ -452,6 +452,64 @@ async def proxy_llm_request(provider: str, path: str, request: Request):
     )
 
 
+class _VaultForwardBlocked(Exception):
+    """The egress forward could not proceed (unknown service, or the vault
+    required a credential it couldn't provide). Carries a reason with no secret
+    material."""
+    def __init__(self, reason: str):
+        self.reason = reason
+        super().__init__(reason)
+
+
+async def _vault_forward(service: str, method: str, path: str, query: dict,
+                         headers: dict, body: bytes, org_id: str,
+                         idempotency_key: str | None = None):
+    """Inject the vaulted credential and forward to the upstream service.
+
+    The single source of truth for egress: BOTH the live proxy and
+    replay-on-approve call this, so a replayed request injects the credential
+    exactly like the original — they cannot drift. Raises _VaultForwardBlocked
+    on unknown service / undecryptable / missing-required credential. Returns
+    the httpx.Response.
+    """
+    import httpx as _httpx
+
+    base_url = SERVICE_BASE_URLS.get(service)
+    if not base_url:
+        raise _VaultForwardBlocked(f"unknown service '{service}'")
+    upstream_url = f"{base_url}/{path}"
+    forward_headers = {k: v for k, v in (headers or {}).items()
+                       if k.lower() not in ("host", "x-agent-id", "content-length")}
+
+    with get_db() as conn:
+        cred_row = conn.execute(
+            "SELECT encrypted_config, wrapped_dek FROM provider_credentials "
+            "WHERE org_id = %s AND provider = %s", (org_id, service),
+        ).fetchone()
+
+    if cred_row:
+        try:
+            cred_config = vault.decrypt_credential(cred_row["wrapped_dek"], cred_row["encrypted_config"])
+        except Exception:
+            raise _VaultForwardBlocked(f"vault credential for {service} could not be decrypted")
+        forward_headers = {k: v for k, v in forward_headers.items()
+                           if k.lower() not in ("authorization", "x-api-key")}
+        forward_headers["Authorization"] = f"Bearer {cred_config['secret']}"
+    elif _vault_require_on() and service in VAULT_SUPPORTED_PROVIDERS:
+        raise _VaultForwardBlocked(f"no vaulted credential for {service}")
+
+    # Exactly-once at the provider: Stripe (and others) dedup on this header, so
+    # a network retry of a replay can't double-charge.
+    if idempotency_key:
+        forward_headers["Idempotency-Key"] = idempotency_key
+
+    async with _httpx.AsyncClient(timeout=30.0) as client:
+        return await client.request(
+            method=method, url=upstream_url, headers=forward_headers,
+            content=body if body else None, params=query or None,
+        )
+
+
 @app.api_route("/proxy/{service}/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
 async def proxy_request(service: str, path: str, request: Request):
     """Transparent proxy — enforces policies then forwards to the real API.
@@ -525,71 +583,34 @@ async def proxy_request(service: str, path: str, request: Request):
         return {"pending_approval": True, "reason": result["message"], "action": result["action"],
                 "agent_id": agent_id, "pending_id": pending_id, "execution_id": exec_id}
 
-    # Forward to upstream
-    upstream_url = f"{base_url}/{path}"
-    # Forward all headers except host and agent-id
-    forward_headers = {k: v for k, v in request.headers.items()
-                       if k.lower() not in ("host", "x-agent-id", "content-length")}
-
-    # Credential vault: on a hit, the agent's own Authorization (and the Arceo
-    # X-API-Key) never reach the upstream — the vaulted secret is injected
-    # instead. The org is the AGENT's org from the DB, never a caller header:
-    # a caller-supplied org would let any keyholder borrow another tenant's
-    # credentials. On a miss, ARCEO_REQUIRE_VAULT decides: off (default) keeps
-    # today's passthrough so rollout breaks nothing; on = no credential, no
-    # call, for the providers the vault supports.
+    # Forward to upstream via the shared vault-inject path (same code replay
+    # uses, so a held request replays identically). The org is the AGENT's from
+    # the DB, never a caller header.
     with get_db() as conn:
         agent_row = conn.execute("SELECT org_id FROM agents WHERE id = %s", (agent_id,)).fetchone()
-        cred_row = None
-        if agent_row:
-            cred_row = conn.execute(
-                "SELECT encrypted_config, wrapped_dek FROM provider_credentials "
-                "WHERE org_id = %s AND provider = %s",
-                (agent_row["org_id"], service),
-            ).fetchone()
-
-    if cred_row:
-        try:
-            cred_config = vault.decrypt_credential(cred_row["wrapped_dek"], cred_row["encrypted_config"])
-        except Exception:
-            # Wrong/missing master key or corrupt row: fail CLOSED for this
-            # call — forwarding the agent's own key here would silently undo
-            # the vault's guarantee. Reason string carries no secret material.
-            with get_db() as conn:
-                log_execution(conn, agent_id, service, action, "BLOCKED",
-                              detail=f"vault decrypt failed for {service} credential",
-                              org_id=agent_row["org_id"], source="runtime")
-            return {"blocked": True, "reason": f"vault credential for {service} could not be decrypted",
-                    "action": f"{service}.{action}", "agent_id": agent_id}
-        forward_headers = {k: v for k, v in forward_headers.items()
-                           if k.lower() not in ("authorization", "x-api-key")}
-        forward_headers["Authorization"] = f"Bearer {cred_config['secret']}"
-    elif _vault_require_on() and service in VAULT_SUPPORTED_PROVIDERS:
-        with get_db() as conn:
-            log_execution(conn, agent_id, service, action, "BLOCKED",
-                          detail=f"no vaulted credential for {service}",
-                          org_id=(agent_row["org_id"] if agent_row else DEFAULT_ORG_ID), source="runtime")
-        return {"blocked": True, "reason": f"no vaulted credential for {service}",
-                "action": f"{service}.{action}", "agent_id": agent_id}
+    agent_org = agent_row["org_id"] if agent_row else DEFAULT_ORG_ID
 
     try:
-        async with _httpx.AsyncClient(timeout=30.0) as client:
-            resp = await client.request(
-                method=request.method,
-                url=upstream_url,
-                headers=forward_headers,
-                content=body if body else None,
-                params=dict(request.query_params),
-            )
-        return StreamingResponse(
-            iter([resp.content]),
-            status_code=resp.status_code,
-            headers={k: v for k, v in resp.headers.items() if k.lower() not in ("content-encoding", "content-length", "transfer-encoding")},
+        resp = await _vault_forward(
+            service, request.method, path, dict(request.query_params),
+            {k: v for k, v in request.headers.items()}, body, agent_org,
         )
+    except _VaultForwardBlocked as blocked:
+        with get_db() as conn:
+            log_execution(conn, agent_id, service, action, "BLOCKED",
+                          detail=blocked.reason, org_id=agent_org, source="runtime")
+        return {"blocked": True, "reason": blocked.reason,
+                "action": f"{service}.{action}", "agent_id": agent_id}
     except _httpx.TimeoutException:
         raise HTTPException(status_code=504, detail=f"Upstream {service} timed out")
     except _httpx.HTTPError as e:
         raise HTTPException(status_code=502, detail=f"Upstream {service} error: {str(e)}")
+
+    return StreamingResponse(
+        iter([resp.content]),
+        status_code=resp.status_code,
+        headers={k: v for k, v in resp.headers.items() if k.lower() not in ("content-encoding", "content-length", "transfer-encoding")},
+    )
 
 
 # ── Post-Hoc Report (zero-friction audit) ────────────────────────────────
@@ -3226,21 +3247,41 @@ class ApprovalDecision(BaseModel):
     reason: str = ""
 
 
+def _replay_enabled() -> bool:
+    """Whether an approval actually performs the held external call. Default OFF
+    so enabling live replay is a deliberate per-environment choice."""
+    return os.getenv("ARCEO_REPLAY_ENABLED", "").lower() in ("1", "true", "yes")
+
+
 @app.post("/api/approvals/{execution_id}")
-def decide_approval(execution_id: int, body: ApprovalDecision, user: dict = Depends(get_current_user)):
-    """Approve or reject a PENDING_APPROVAL execution."""
+async def decide_approval(execution_id: int, body: ApprovalDecision, user: dict = Depends(get_current_user)):
+    """Approve or reject a held action. On approve, if it's a proxy request and
+    live replay is enabled, the exact held request is replayed EXACTLY ONCE
+    through the vault. The status transition is an atomic conditional UPDATE, so
+    two approvers racing can't both release it."""
     if body.decision not in ("approve", "reject"):
         raise HTTPException(status_code=400, detail="decision must be 'approve' or 'reject'")
     new_status = "EXECUTED" if body.decision == "approve" else "BLOCKED"
     detail_suffix = f" [{'Approved' if body.decision == 'approve' else 'Rejected'} by {user['email']}]"
     if body.reason:
         detail_suffix += f": {body.reason}"
+
     with get_db() as conn:
         row = conn.execute("SELECT * FROM execution_log WHERE id = %s AND org_id = %s", (execution_id, _org(user))).fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="Execution not found")
         if row["status"] != "PENDING_APPROVAL":
             raise HTTPException(status_code=400, detail="Execution is not pending approval")
+
+        # Atomic claim: only one caller can transition the linked pending row
+        # PENDING → APPROVED/REJECTED. A legacy row with no pending_requests
+        # entry (pre-Phase-4) falls through to the plain status flip.
+        claimed = approvals.claim_decision(conn, execution_id, body.decision, user["email"])
+        pending = claimed if claimed else approvals.get_by_execution(conn, execution_id)
+        if pending is not None and claimed is None:
+            # Someone else already decided this pending row.
+            raise HTTPException(status_code=409, detail="This action was already decided")
+
         existing_detail = row["detail"] or ""
         conn.execute(
             "UPDATE execution_log SET status = %s, detail = %s WHERE id = %s",
@@ -3248,6 +3289,41 @@ def decide_approval(execution_id: int, body: ApprovalDecision, user: dict = Depe
         )
         log_audit(conn, user["sub"], user["email"], body.decision.upper() + "_EXECUTION", str(execution_id),
                   f"{'Approved' if body.decision == 'approve' else 'Rejected'} execution #{execution_id}")
+
+    # Replay happens AFTER the claim commits, so the atomic guard has already
+    # ruled out a double-release before any external call is made.
+    replay = None
+    if body.decision == "approve" and pending and pending.get("kind") == "proxy":
+        replay = await _replay_pending(pending)
+
+    return {"id": execution_id, "status": new_status, "replay": replay}
+
+
+async def _replay_pending(pending: dict) -> dict:
+    """Replay a held proxy request exactly once. The pending row's status was
+    already moved off PENDING by the atomic claim, so this runs at most once per
+    approval; on retry the row is no longer PENDING and never re-enters here."""
+    if not _replay_enabled():
+        return {"status": "skipped", "reason": "live replay disabled (ARCEO_REPLAY_ENABLED off)"}
+    import json as _json
+    query = _json.loads(pending["query_json"]) if pending.get("query_json") else {}
+    headers = _json.loads(pending["headers_json"]) if pending.get("headers_json") else {}
+    body = approvals.decoded_body(pending)
+    ok, detail = False, ""
+    try:
+        resp = await _vault_forward(
+            pending["service"], pending["method"], pending["path"], query,
+            headers, body, pending["org_id"], idempotency_key=pending["idempotency_key"],
+        )
+        ok = 200 <= resp.status_code < 300
+        detail = f"HTTP {resp.status_code}"
+    except _VaultForwardBlocked as blocked:
+        detail = blocked.reason
+    except Exception as e:  # network/timeout — recorded, not raised (approval already committed)
+        detail = f"replay error: {type(e).__name__}"
+    with get_db() as conn:
+        approvals.mark_replayed(conn, pending["id"], ok, detail)
+    return {"status": "replayed" if ok else "replay_failed", "detail": detail}
     return {"id": execution_id, "status": new_status}
 
 
