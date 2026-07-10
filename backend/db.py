@@ -100,6 +100,7 @@ def init_db():
                 environment TEXT,
                 trigger_source TEXT,
                 human_in_loop INTEGER,
+                default_effect TEXT NOT NULL DEFAULT 'ALLOW',
                 created_at TEXT,
                 updated_at TEXT
             );
@@ -289,6 +290,9 @@ def init_db():
                 ("environment", "TEXT"),          # prod | staging | dev — exposure context
                 ("trigger_source", "TEXT"),       # untrusted | internal | scheduled
                 ("human_in_loop", "INTEGER"),     # 1 if a human approves actions
+                # Opt-in fail-closed posture: with DENY, an action no policy
+                # matches is BLOCKED instead of implicitly allowed (Phase 1, B1).
+                ("default_effect", "TEXT NOT NULL DEFAULT 'ALLOW'"),
             ):
                 if col not in agent_cols:
                     conn.execute(f"ALTER TABLE agents ADD COLUMN {col} {decl}")
@@ -386,6 +390,7 @@ def get_agent_from_db(conn, agent_id: str, org_id: str = None) -> dict | None:
         "environment": row["environment"] if "environment" in row.keys() else None,
         "trigger_source": row["trigger_source"] if "trigger_source" in row.keys() else None,
         "human_in_loop": row["human_in_loop"] if "human_in_loop" in row.keys() else None,
+        "default_effect": (row["default_effect"] if "default_effect" in row.keys() else None) or "ALLOW",
         "created_at": row["created_at"],
         "updated_at": row["updated_at"],
         "tools": [],

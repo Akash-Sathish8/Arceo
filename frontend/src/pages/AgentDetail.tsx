@@ -41,6 +41,7 @@ interface AgentDetailAgent {
   name: string
   description: string
   agent_type: string
+  default_effect?: 'ALLOW' | 'DENY'
   tools: AgentTool[]
 }
 
@@ -1186,6 +1187,7 @@ export default function AgentDetail() {
   const [editName, setEditName] = useState('')
   const [editDesc, setEditDesc] = useState('')
   const [editSaving, setEditSaving] = useState(false)
+  const [defaultEffectSaving, setDefaultEffectSaving] = useState(false)
 
   // Delete state
   const [confirmDelete, setConfirmDelete] = useState(false)
@@ -1292,6 +1294,34 @@ export default function AgentDetail() {
       )
     }
     setEditSaving(false)
+  }
+
+  const handleToggleDefaultEffect = async () => {
+    if (!data) return
+    const next = data.agent.default_effect === 'DENY' ? 'ALLOW' : 'DENY'
+    setDefaultEffectSaving(true)
+    try {
+      await apiFetch(`/api/authority/agent/${agentId}`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          name: data.agent.name,
+          description: data.agent.description,
+          default_effect: next,
+        }),
+      })
+      toast(
+        next === 'DENY'
+          ? 'Fail-closed on — actions with no matching policy are now blocked'
+          : 'Fail-closed off — unmatched actions are allowed again'
+      )
+      loadData({ soft: true })
+    } catch (err: unknown) {
+      toast(
+        'Failed to update: ' + (err instanceof Error ? err.message : 'Unknown error'),
+        'error'
+      )
+    }
+    setDefaultEffectSaving(false)
   }
 
   const handleDelete = async () => {
@@ -2111,7 +2141,39 @@ export default function AgentDetail() {
                 </span>
               </Tooltip>
             </h2>
-            <div className="flex gap-1.5">
+            <div className="flex items-center gap-3">
+              {/* Opt-in fail-closed posture: unmatched actions BLOCK instead of
+                  the implicit allow. Off by default so no agent goes dark. */}
+              <label
+                className="flex items-center gap-2 text-xs text-gray-600 cursor-pointer select-none"
+                title="With this on, any action no policy matches is blocked instead of implicitly allowed."
+              >
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={data.agent.default_effect === 'DENY'}
+                  disabled={defaultEffectSaving}
+                  onClick={handleToggleDefaultEffect}
+                  className="relative inline-flex flex-shrink-0 rounded-full transition-colors border-0 cursor-pointer"
+                  style={{
+                    background: data.agent.default_effect === 'DENY' ? 'var(--accent)' : '#d1d5db',
+                    height: 18,
+                    width: 32,
+                    opacity: defaultEffectSaving ? 0.6 : 1,
+                  }}
+                >
+                  <span
+                    className="absolute top-0.5 rounded-full bg-white transition-all"
+                    style={{
+                      width: 14,
+                      height: 14,
+                      left: data.agent.default_effect === 'DENY' ? 16 : 2,
+                    }}
+                  />
+                </button>
+                Deny unmatched actions (fail closed)
+              </label>
+              <div className="flex gap-1.5">
               {policyEffectCounts['BLOCK'] > 0 && (
                 <span
                   className="text-xs px-2 py-0.5 rounded-full font-medium"
@@ -2136,6 +2198,7 @@ export default function AgentDetail() {
                   {policyEffectCounts['ALLOW']} Allow
                 </span>
               )}
+              </div>
             </div>
           </div>
 
