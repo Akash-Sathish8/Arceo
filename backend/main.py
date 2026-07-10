@@ -38,6 +38,7 @@ from collections import defaultdict
 
 from contextlib import asynccontextmanager
 from llm_models import FAST_MODEL, DEEP_MODEL, verify_models_at_startup
+import shared_state
 
 
 @asynccontextmanager
@@ -65,8 +66,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Arceo", version="0.4.0", lifespan=lifespan)
 
-# Simple in-memory rate limiter
-_rate_limits: dict[str, list[float]] = defaultdict(list)
+# Rate limiter (Redis-backed via shared_state; see check_rate_limit).
 RATE_LIMIT_MAX = int(os.getenv("RATE_LIMIT_MAX", "100"))  # requests per window
 RATE_LIMIT_WINDOW = int(os.getenv("RATE_LIMIT_WINDOW", "60"))  # seconds
 
@@ -92,15 +92,12 @@ def _caller_org(request: Request) -> str:
 def check_rate_limit(key: str, max_requests: int = RATE_LIMIT_MAX, window: int = RATE_LIMIT_WINDOW):
     """Check rate limit for a key. Raises 429 if exceeded.
 
-    max_requests/window default to the general limit; auth endpoints pass the
-    tighter auth limit to blunt credential brute-force.
+    Backed by Redis (shared_state) so the window is shared across workers — the
+    old per-process dict let a client get `max_requests` PER worker. Signature
+    is unchanged so every existing call site is untouched.
     """
-    now = time.time()
-    window_start = now - window
-    _rate_limits[key] = [t for t in _rate_limits[key] if t > window_start]
-    if len(_rate_limits[key]) >= max_requests:
+    if not shared_state.rate_limit_ok(key, max_requests, window):
         raise HTTPException(status_code=429, detail="Too many attempts. Try again later.")
-    _rate_limits[key].append(now)
 
 
 # Auth endpoints get a tighter budget than the general API — brute-forcing a
@@ -183,6 +180,14 @@ def _snapshot_scheduler_loop():
     can't duplicate rows.
     """
     while True:
+        # Leader lock: only one worker runs the jobs each tick. The DB writes
+        # are idempotent anyway, but this stops N workers doing N identical
+        # passes (and N Slack digests) every interval. TTL > poll interval so
+        # the holder keeps re-winning; if it dies the lock lapses and another
+        # worker takes over on the next tick.
+        if not shared_state.try_acquire_leader("scheduler", _SNAPSHOT_POLL_SECONDS + 30):
+            time.sleep(_SNAPSHOT_POLL_SECONDS)
+            continue
         try:
             from jobs.snapshot_forecasts import snapshot_all_agents
             result = snapshot_all_agents()
@@ -3974,24 +3979,9 @@ def apply_prelaunch_fixes(agent_id: str, user: dict = Depends(get_current_user))
 
 import threading
 
-# In-memory buffer: agent_id → list of events (auto-expire after 5 min)
-_live_traces: dict[str, list[dict]] = {}
-_live_trace_lock = threading.Lock()
-_ws_subscribers: dict[str, list[WebSocket]] = {}
-
-# TTL cleanup
-_TRACE_TTL_SECONDS = 300
-_LIVE_TRACE_MAX_PER_AGENT = 500  # ID6: cap per-agent buffer to bound memory
-
-
-def _cleanup_old_events():
-    """Remove events older than TTL."""
-    cutoff = time.time() - _TRACE_TTL_SECONDS
-    with _live_trace_lock:
-        for agent_id in list(_live_traces.keys()):
-            _live_traces[agent_id] = [e for e in _live_traces[agent_id] if e.get("_ts", 0) > cutoff]
-            if not _live_traces[agent_id]:
-                del _live_traces[agent_id]
+# Live traces live in Redis (shared_state): a bounded per-agent buffer for the
+# poll endpoint plus pub/sub fan-out so a WebSocket subscriber on any worker
+# receives an event pushed on any other worker.
 
 
 class LiveTraceEvent(BaseModel):
@@ -4030,31 +4020,9 @@ async def push_live_trace(event: LiveTraceEvent, request: Request):
         "duration_ms": event.duration_ms,
         "risk_labels": event.risk_labels,
         "timestamp": event.timestamp or datetime.utcnow().isoformat(),
-        "_ts": time.time(),
     }
-
-    with _live_trace_lock:
-        if event.agent_id not in _live_traces:
-            _live_traces[event.agent_id] = []
-        _live_traces[event.agent_id].append(entry)
-        if len(_live_traces[event.agent_id]) > _LIVE_TRACE_MAX_PER_AGENT:
-            _live_traces[event.agent_id] = _live_traces[event.agent_id][-_LIVE_TRACE_MAX_PER_AGENT:]
-
-    # Broadcast to WebSocket subscribers
-    subs = _ws_subscribers.get(event.agent_id, [])
-    dead = []
-    for ws in subs:
-        try:
-            await ws.send_json(entry)
-        except Exception:
-            dead.append(ws)
-    for ws in dead:
-        subs.remove(ws)
-
-    # Periodic cleanup
-    if len(_live_traces) > 100:
-        _cleanup_old_events()
-
+    # Buffer + publish in one shot: any worker's WS subscriber receives it.
+    shared_state.push_trace(event.agent_id, json.dumps(entry))
     return {"status": "ok"}
 
 
@@ -4064,11 +4032,7 @@ def get_live_traces(agent_id: str, user: dict = Depends(get_current_user)):
     with get_db() as conn:
         if not get_agent_from_db(conn, agent_id, org_id=_org(user)):
             raise HTTPException(status_code=404, detail=f"Agent '{agent_id}' not found")
-    with _live_trace_lock:
-        events = _live_traces.pop(agent_id, [])
-    # Strip internal timestamps
-    for e in events:
-        e.pop("_ts", None)
+    events = [json.loads(e) for e in shared_state.drain_traces(agent_id)]
     return {"agent_id": agent_id, "events": events, "count": len(events)}
 
 
@@ -4089,10 +4053,20 @@ async def ws_live_traces(websocket: WebSocket, agent_id: str):
                 return
     await websocket.accept()
 
-    if agent_id not in _ws_subscribers:
-        _ws_subscribers[agent_id] = []
-    _ws_subscribers[agent_id].append(websocket)
+    # Subscribe to this agent's Redis channel — events published by ANY worker
+    # (push_live_trace above) arrive here, so a subscriber connected to worker B
+    # sees a trace pushed to worker A.
+    aclient, pubsub = shared_state.subscribe_channel(agent_id)
+    await pubsub.subscribe(shared_state.channel(agent_id))
 
+    import asyncio
+
+    async def _forward():
+        async for message in pubsub.listen():
+            if message.get("type") == "message":
+                await websocket.send_text(message["data"])
+
+    forward_task = asyncio.create_task(_forward())
     try:
         while True:
             # Keep connection alive, wait for client messages (ping/close)
@@ -4100,11 +4074,13 @@ async def ws_live_traces(websocket: WebSocket, agent_id: str):
     except WebSocketDisconnect:
         pass
     finally:
-        if agent_id in _ws_subscribers:
-            try:
-                _ws_subscribers[agent_id].remove(websocket)
-            except ValueError:
-                pass
+        forward_task.cancel()
+        try:
+            await pubsub.unsubscribe(shared_state.channel(agent_id))
+            await pubsub.aclose()
+            await aclient.aclose()
+        except Exception:
+            pass
 
 
 # ── Cost-of-Breach Report ─────────────────────────────────────────────────
@@ -5305,7 +5281,27 @@ def apply_all_recommended_policies(req: ApplyAllPoliciesRequest, user: dict = De
 
 # ── Mock HTTP Endpoints (for real agents to call) ─────────────────────────
 
-_mock_sessions: dict[str, dict] = {}  # session_id -> {state, agent_id, steps}
+# The mock HTTP surface holds a live MockState object per session, which isn't
+# cheaply serializable — so unlike rate limits / live traces it stays
+# in-process and REQUIRES session affinity in a multi-worker deploy (a session
+# created on one worker must keep hitting that worker). It's a sandbox/testing
+# convenience, not production agent traffic, so this is an acceptable limit.
+# Bound the store so it can't grow without limit (the old leak).
+_mock_sessions: dict[str, dict] = {}  # session_id -> {state, agent_id, org_id, steps}
+_MOCK_SESSION_MAX = 500
+_MOCK_SESSION_TTL_SECONDS = 24 * 3600
+
+
+def _evict_mock_sessions() -> None:
+    """Drop sessions older than TTL, and hard-cap the total (oldest-first)."""
+    cutoff = (datetime.utcnow() - timedelta(seconds=_MOCK_SESSION_TTL_SECONDS)).isoformat()
+    for sid in [s for s, v in _mock_sessions.items() if v.get("created_at", "") < cutoff]:
+        _mock_sessions.pop(sid, None)
+    if len(_mock_sessions) > _MOCK_SESSION_MAX:
+        for sid in sorted(_mock_sessions, key=lambda s: _mock_sessions[s].get("created_at", ""))[
+            : len(_mock_sessions) - _MOCK_SESSION_MAX
+        ]:
+            _mock_sessions.pop(sid, None)
 
 
 class MockSessionRequest(BaseModel):
@@ -5325,6 +5321,7 @@ def create_mock_session(req: MockSessionRequest, request: Request):
     org_id = _caller_org(request)
     agent_id = req.agent_id
     session_id = uuid.uuid4().hex[:12]
+    _evict_mock_sessions()
 
     # Load custom test data if available for this agent
     custom_data = _get_custom_data(agent_id)

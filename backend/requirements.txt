@@ -14,3 +14,6 @@ psycopg[binary]>=3.1
 psycopg-pool>=3.2
 alembic>=1.13
 sqlalchemy>=2.0
+# Cross-worker shared state (Phase 3): rate limits, live-trace pub/sub,
+# scheduler leader lock, notification dedup.
+redis>=5.0

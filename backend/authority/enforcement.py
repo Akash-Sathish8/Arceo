@@ -274,6 +274,16 @@ def fire_block_notification(agent_id: str, tool: str, action: str, reason: str):
         slack_url = row["slack_webhook_url"] or ""
         if not slack_url:
             return
+        # Cross-worker dedup: the same BLOCK evaluated on two workers should
+        # send ONE Slack message, not two. Short TTL so a genuinely repeated
+        # block later still alerts. Best-effort — if Redis is unreachable the
+        # notification still fires (worse to go silent than to double-send).
+        try:
+            import shared_state
+            if not shared_state.should_fire_once(f"block:{org_id}:{agent_id}:{tool}:{action}", 60):
+                return
+        except Exception:
+            pass
         import httpx
         payload = {
             "blocks": [
