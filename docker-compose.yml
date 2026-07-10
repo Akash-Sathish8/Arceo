@@ -1,0 +1,29 @@
+# Local Postgres for development and tests (Phase 2).
+#
+# Contributor flow, two commands:
+#   docker compose up -d postgres
+#   cd backend && ./venv/bin/python -m pytest tests/ -q
+#
+# Credentials match what CI's service container and the test suite default to
+# (postgres/postgres on localhost:5432). The `arceo` database is the dev
+# default; the test suite creates and manages its own scratch database on the
+# same server, so tests never touch dev data.
+services:
+  postgres:
+    image: postgres:16-alpine
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: arceo
+    volumes:
+      - arceo-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d arceo"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
+volumes:
+  arceo-pgdata:

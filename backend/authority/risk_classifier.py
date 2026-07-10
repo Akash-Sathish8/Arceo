@@ -16,6 +16,7 @@ import json
 import os
 import re
 import logging
+from pathlib import Path
 
 from authority.action_mapper import ACTION_CATALOG, MappedAction
 from llm_models import FAST_MODEL
@@ -528,18 +529,25 @@ _pending_cache_rows: list[tuple] = []
 
 
 def _cache_conn():
-    """Lazy, short-timeout connection to the cache's OWN SQLite file
-    (llm_cache.db next to the app DB). A separate file, deliberately:
-    registration classifies INSIDE an open write transaction on the app DB
-    (create_agent wraps its inserts in `with get_db()`), so a cache write to
-    the same file would always see "database is locked" and starve. db is
-    imported here (not at module top) so this module keeps working standalone,
-    and so tests that set ARCEO_DB_PATH before importing anything are honored.
+    """Lazy, short-timeout connection to the cache's OWN SQLite file.
+
+    This cache deliberately stays SQLite even as the app DB moves to Postgres:
+    it is local, per-process, best-effort memoization of LLM classifications —
+    losing it costs one re-classification per action, and keeping it out of the
+    app DB means a cache write can never contend with an open app transaction
+    (registration classifies INSIDE `with get_db()` on the app DB).
+
+    The path is its own setting (ARCEO_LLM_CACHE_PATH) rather than being
+    derived from the app DB location: once the app DB is a Postgres URL there
+    is no "parent directory" to derive from. Default: beside the backend
+    package. Resolved per call so tests that set the env var late are honored.
     """
     global _cache_table_ready
     import sqlite3
-    import db as _db
-    cache_path = _db.DB_PATH.parent / "llm_cache.db"
+    cache_path = os.environ.get(
+        "ARCEO_LLM_CACHE_PATH",
+        str(Path(__file__).resolve().parent.parent / "llm_cache.db"),
+    )
     conn = sqlite3.connect(str(cache_path), timeout=0.5)
     conn.row_factory = sqlite3.Row
     if not _cache_table_ready:

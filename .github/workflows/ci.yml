@@ -17,6 +17,25 @@ jobs:
     defaults:
       run:
         working-directory: backend
+    # Phase 2 (PR-1): the postgres service proves container wiring before the
+    # cutover PR depends on it. Tests still run on SQLite in this phase, so
+    # DATABASE_URL is exported but unused until the cutover lands.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: arceo
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 15
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/arceo
     steps:
       - name: Checkout
         uses: actions/checkout@v4

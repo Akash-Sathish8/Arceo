@@ -60,17 +60,32 @@ def _get_latest_baseline(agent_id: str) -> dict | None:
 
 
 def _get_baseline_history(agent_id: str, limit: int = 20) -> list[dict]:
-    """Get regression test history for an agent."""
+    """Get regression test history for an agent.
+
+    The result-summary fields live inside result_json; they are extracted in
+    Python rather than with SQL JSON functions so the query is portable across
+    engines. At most `limit` (20) small rows — no cost concern.
+    """
     with get_db() as conn:
         rows = conn.execute(
-            "SELECT id, agent_id, version, status, created_at, "
-            "json_extract(result_json, '$.regressions_found') as regressions_found, "
-            "json_extract(result_json, '$.improvements_found') as improvements_found, "
-            "json_extract(result_json, '$.total_tests') as total_tests "
+            "SELECT id, agent_id, version, status, created_at, result_json "
             "FROM regression_baselines WHERE agent_id = ? ORDER BY version DESC LIMIT ?",
             (agent_id, limit),
         ).fetchall()
-    return [dict(r) for r in rows]
+    history = []
+    for r in rows:
+        result = json.loads(r["result_json"]) if r["result_json"] else {}
+        history.append({
+            "id": r["id"],
+            "agent_id": r["agent_id"],
+            "version": r["version"],
+            "status": r["status"],
+            "created_at": r["created_at"],
+            "regressions_found": result.get("regressions_found"),
+            "improvements_found": result.get("improvements_found"),
+            "total_tests": result.get("total_tests"),
+        })
+    return history
 
 
 def save_baseline(agent_id: str, test_results: list[dict]) -> dict:
