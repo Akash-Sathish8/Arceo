@@ -643,7 +643,9 @@ function CostPortfolioContent({
   const [applyingGate, setApplyingGate] = useState(false)
   const [showMethodology, setShowMethodology] = useState(false)
 
-  // Restore a previously-saved budget so the panel reflects the real cap.
+  // Restore a previously-saved budget so the panel reflects the saved alert
+  // threshold. It IS only an alert — nothing enforces spend, so the UI must
+  // never call it a cap.
   const loadSavedBudget = useRef<() => void>(() => {})
   loadSavedBudget.current = () => {
     if (!agentId) return
@@ -668,8 +670,10 @@ function CostPortfolioContent({
 
   const onSaveBudgetAlert = async () => {
     if (!agentId || budget <= 0) return
-    const ok = await saveBudget(agentId, budget)
-    toast(ok ? `Alert set — we'll ping Slack at 80% of $${budget.toLocaleString()}/mo` : "Couldn't save the alert", ok ? undefined : "error")
+    // Preserve an existing saved threshold instead of silently resetting to 80.
+    const threshold = savedBudget?.alertThresholdPct ?? 80
+    const ok = await saveBudget(agentId, budget, threshold)
+    toast(ok ? `Alert set — we'll ping Slack at ${threshold}% of $${budget.toLocaleString()}/mo` : "Couldn't save the alert", ok ? undefined : "error")
     if (ok) loadSavedBudget.current()
   }
 
@@ -1135,15 +1139,15 @@ function CostPortfolioContent({
               className="text-xs px-3 py-2 rounded-md font-medium cursor-pointer whitespace-nowrap text-white"
               style={{ background: "var(--text-primary, #0f172a)" }}
             >
-              {savedBudget?.budget === budget ? "Alert set ✓" : "Set a cap alert"}
+              {savedBudget?.budget === budget ? "Alert set ✓" : "Set a spend alert"}
             </button>
           </div>
 
-          {/* Month-to-date actual spend vs the saved cap. */}
+          {/* Month-to-date actual spend vs the saved alert budget. */}
           {savedBudget?.budget != null && (
             <div className="text-xs text-gray-600 mb-3">
               Spent <span className="mono font-semibold text-gray-900">${savedBudget.monthToDateUsd.toLocaleString()}</span> of
-              your <span className="mono">${savedBudget.budget.toLocaleString()}</span> cap this month
+              your <span className="mono">${savedBudget.budget.toLocaleString()}</span> alert budget this month
               {savedBudget.pctUsed != null && <> (<strong className={savedBudget.pctUsed >= (savedBudget.alertThresholdPct ?? 80) ? "" : "text-gray-900"} style={savedBudget.pctUsed >= (savedBudget.alertThresholdPct ?? 80) ? { color: "var(--severity-critical, #dc2626)" } : undefined}>{savedBudget.pctUsed}%</strong>)</>}.
               {savedBudget.alertThresholdPct != null && <span className="text-gray-400"> Slack alert at {savedBudget.alertThresholdPct}%.</span>}
             </div>
