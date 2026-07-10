@@ -68,6 +68,55 @@ def stub_llm_classifier(monkeypatch):
     rc._pending_cache_rows.clear()
 
 
+# ── Shared HTTP fixtures ──────────────────────────────────────────────────────
+# The session-scoped temp DB persists across tests, so fixtures use unique
+# emails per invocation. Existing per-file TestClient/_auth patterns keep
+# working; these exist so new tests (cross-tenant, security baseline) don't
+# each reinvent signup plumbing.
+
+
+@pytest.fixture()
+def client():
+    """App client; entering the context runs startup (init_db seeds the default org)."""
+    from fastapi.testclient import TestClient
+
+    import main
+
+    with TestClient(main.app) as c:
+        yield c
+
+
+def _signup_org(client, email: str) -> dict:
+    """Create an account (signup mints a fresh org — the tenant boundary)."""
+    password = "pw12345678"
+    r = client.post("/api/auth/signup", json={"email": email, "password": password, "name": email.split("@")[0]})
+    assert r.status_code == 200, f"signup failed: {r.text}"
+    token = r.json()["token"]
+
+    from db import get_db
+
+    with get_db() as conn:
+        org_id = conn.execute("SELECT org_id FROM users WHERE email = ?", (email,)).fetchone()["org_id"]
+    return {
+        "token": token,
+        "org_id": org_id,
+        "email": email,
+        "headers": {"Authorization": f"Bearer {token}"},
+    }
+
+
+@pytest.fixture()
+def two_orgs(client):
+    """Two isolated tenants, for cross-org leak tests: {org_a: {...}, org_b: {...}}."""
+    import uuid
+
+    suffix = uuid.uuid4().hex[:8]
+    return {
+        "org_a": _signup_org(client, f"org-a-{suffix}@example.com"),
+        "org_b": _signup_org(client, f"org-b-{suffix}@example.com"),
+    }
+
+
 def pytest_sessionfinish(session, exitstatus):
     if _MISSING_FIXTURE_KEYS:
         unique = sorted(set(_MISSING_FIXTURE_KEYS))

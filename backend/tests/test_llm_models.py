@@ -35,7 +35,8 @@ def test_no_hardcoded_model_ids_outside_llm_models():
     offenders = []
     for path in glob.glob(os.path.join(BACKEND, "**", "*.py"), recursive=True):
         rel = os.path.relpath(path, BACKEND)
-        if rel.startswith(("tests/", "analysis/")) or rel == "llm_models.py":
+        # venv/ holds the vendored Anthropic SDK — third-party code, not call sites.
+        if rel.startswith(("tests/", "analysis/", "venv/")) or rel == "llm_models.py":
             continue
         if "node_modules" in rel or rel.startswith("."):
             continue
