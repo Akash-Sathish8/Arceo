@@ -47,7 +47,7 @@ def ingest_trace(
         _upsert_agent(conn, agent_id, agent_name, agent_name, reg_tools, f"ingest-{source}")
 
         # Set org_id on the agent
-        conn.execute("UPDATE agents SET org_id = ? WHERE id = ?", (org_id, agent_id))
+        conn.execute("UPDATE agents SET org_id = %s WHERE id = %s", (org_id, agent_id))
 
     # Build simulation trace
     trace = SimulationTrace(
@@ -77,7 +77,7 @@ def ingest_trace(
     # Store
     with get_db() as conn:
         conn.execute(
-            "INSERT INTO simulations (id, agent_id, scenario_id, status, trace_json, report_json, org_id, created_at, run_mode) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO simulations (id, agent_id, scenario_id, status, trace_json, report_json, org_id, created_at, run_mode) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
             # Imported real traces are LIVE evidence — actual agent behavior,
             # the strongest class. (A distinct 'captured' value is a Phase-6
             # refinement once trace-replay is first-class.)

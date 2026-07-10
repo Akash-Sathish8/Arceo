@@ -74,7 +74,7 @@ def _fetch_org_default_model(org_id: str) -> Optional[str]:
         from db import get_db
         with get_db() as conn:
             row = conn.execute(
-                "SELECT default_model FROM workspace_settings WHERE org_id = ?",
+                "SELECT default_model FROM workspace_settings WHERE org_id = %s",
                 (org_id,),
             ).fetchone()
         return (row["default_model"] or None) if row else None
@@ -89,7 +89,7 @@ def _fetch_org_overrides(org_id: str) -> list[tuple]:
         from db import get_db
         with get_db() as conn:
             rows = conn.execute(
-                "SELECT scope, key, sub_key, value FROM cost_overrides WHERE org_id = ?",
+                "SELECT scope, key, sub_key, value FROM cost_overrides WHERE org_id = %s",
                 (org_id,),
             ).fetchall()
         return [(r["scope"], r["key"], r["sub_key"], float(r["value"])) for r in rows]
@@ -480,7 +480,7 @@ def _parse_iso(ts: Any):
 
 
 def _row_get(row: Any, key: str) -> Any:
-    """Read a column from a sqlite3.Row or a plain dict."""
+    """Read a column from a DB row dict (or any mapping)."""
     try:
         return row[key]
     except (KeyError, IndexError, TypeError):
@@ -492,7 +492,7 @@ def _row_get(row: Any, key: str) -> Any:
 def compute_live_rolling_averages(audit_rows: list) -> dict:
     """Per-agent rolling averages from captured LLM calls.
 
-    `audit_rows` are LLM_CALL audit entries (sqlite3.Row or dict) exposing
+    `audit_rows` are LLM_CALL audit entries (row dicts) exposing
     `detail` (JSON string) and `timestamp` (ISO). Returns override keys ready to
     merge into `forecast_spend`: {llm_calls_per_day, cache_hit, input_tokens,
     output_tokens, llm_cost_per_call}. `llm_cost_per_call` is the mean of each
@@ -722,7 +722,7 @@ def detect_spend_anomaly(
     daily average (excluding the last 24h) and flag a >=SPEND_ANOMALY_RATIO
     jump.
 
-    `audit_rows` are LLM_CALL audit entries (sqlite3.Row or dict) covering the
+    `audit_rows` are LLM_CALL audit entries (row dicts) covering the
     last 8 days for one agent. Returns:
 
       {"flagged": bool, "ratio": float, "last24hUsd": float,

@@ -23,14 +23,14 @@ db.init_db()
 def _seed_policy(agent_id, pattern, effect, priority, conditions="[]"):
     with db.get_db() as conn:
         # Existence check instead of INSERT OR IGNORE — portable across engines.
-        exists = conn.execute("SELECT 1 FROM agents WHERE id = ?", (agent_id,)).fetchone()
+        exists = conn.execute("SELECT 1 FROM agents WHERE id = %s", (agent_id,)).fetchone()
         if not exists:
             conn.execute(
-                "INSERT INTO agents (id, name, description, org_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+                "INSERT INTO agents (id, name, description, org_id, created_at, updated_at) VALUES (%s, %s, %s, %s, %s, %s)",
                 (agent_id, agent_id, "test agent", db.DEFAULT_ORG_ID, "2026-07-07T00:00:00", "2026-07-07T00:00:00"),
             )
         conn.execute(
-            "INSERT INTO policies (agent_id, action_pattern, effect, reason, conditions, priority, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO policies (agent_id, action_pattern, effect, reason, conditions, priority, created_by, created_at) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
             (agent_id, pattern, effect, "test policy", conditions, priority, "test", "2026-07-07T00:00:00"),
         )
 

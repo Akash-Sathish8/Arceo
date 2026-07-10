@@ -1,10 +1,9 @@
 """Shared pytest config: environment isolation + deterministic LLM stubbing.
 
 This module is imported by pytest BEFORE any test module, which matters:
-db.py resolves DB_PATH at import time, so ARCEO_DB_PATH must be set here —
-otherwise a test module that transitively imports db would point writes
-(including the persistent LLM-classification cache) at the developer's real
-actiongate.db.
+db.py resolves DATABASE_URL at import time, so the test database must be
+created and DATABASE_URL exported here — otherwise a test module that
+transitively imports db would bind its pool to the developer's dev database.
 
 ANTHROPIC_API_KEY is forced to "" so no test can hit the live API even though
 backend/.env contains a key (main.py's load_dotenv(override=False) will not
@@ -21,12 +20,45 @@ import os
 import tempfile
 
 _TEST_DIR = tempfile.mkdtemp(prefix="arceo-test-")
-os.environ["ARCEO_DB_PATH"] = os.path.join(_TEST_DIR, "test.db")
-# The LLM cache resolves its own path now (no longer derived from the app DB
-# location) — point it at the same tempdir so tests never write beside the repo.
+# The LLM cache stays SQLite and resolves its own path — point it at a tempdir
+# so tests never write beside the repo.
 os.environ["ARCEO_LLM_CACHE_PATH"] = os.path.join(_TEST_DIR, "llm_cache.db")
 os.environ.setdefault("JWT_SECRET", "test-secret-not-for-prod")
 os.environ["ANTHROPIC_API_KEY"] = ""
+
+# Fresh Postgres database per session (dropped and recreated so every run
+# starts clean), then exported as DATABASE_URL before any app import. The
+# suite's isolation model is unchanged: one shared session DB, unique
+# orgs/emails per test. Server credentials match docker-compose.yml and CI.
+_TEST_DATABASE_URL = os.environ.get(
+    "ARCEO_TEST_DATABASE_URL",
+    "postgresql://postgres:postgres@localhost:5432/arceo_test",
+)
+
+
+def _recreate_test_db(url: str) -> None:
+    import psycopg
+    from urllib.parse import urlsplit
+
+    dbname = urlsplit(url).path.lstrip("/")
+    admin_url = url.rsplit("/", 1)[0] + "/postgres"
+    with psycopg.connect(admin_url, autocommit=True) as admin:
+        admin.execute(f'DROP DATABASE IF EXISTS "{dbname}" WITH (FORCE)')
+        admin.execute(f'CREATE DATABASE "{dbname}"')
+
+
+_recreate_test_db(_TEST_DATABASE_URL)
+os.environ["DATABASE_URL"] = _TEST_DATABASE_URL
+
+# Migrate once up front so test modules that hit the DB directly at import
+# don't depend on a TestClient (whose lifespan runs init_db) starting first.
+# init_db()'s own upgrade call then no-ops.
+from alembic import command as _alembic_command  # noqa: E402
+from alembic.config import Config as _AlembicConfig  # noqa: E402
+
+_alembic_command.upgrade(
+    _AlembicConfig(os.path.join(os.path.dirname(__file__), "..", "alembic.ini")), "head"
+)
 
 import pytest  # noqa: E402
 
@@ -99,7 +131,7 @@ def _signup_org(client, email: str) -> dict:
     from db import get_db
 
     with get_db() as conn:
-        org_id = conn.execute("SELECT org_id FROM users WHERE email = ?", (email,)).fetchone()["org_id"]
+        org_id = conn.execute("SELECT org_id FROM users WHERE email = %s", (email,)).fetchone()["org_id"]
     return {
         "token": token,
         "org_id": org_id,

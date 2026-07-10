@@ -30,7 +30,7 @@ def _insert_sim(agent_id: str, run_mode: str, report: dict, created_at: str,
     with get_db() as conn:
         conn.execute(
             "INSERT INTO simulations (id, agent_id, scenario_id, status, trace_json, report_json, org_id, created_at, run_mode) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
             (uuid.uuid4().hex[:12], agent_id, "test-scenario", "completed",
              json.dumps({"prompt": trace_prompt}), json.dumps(report), org_id, created_at, run_mode),
         )
@@ -91,30 +91,28 @@ def test_evidence_grade_gates_high_confidence_behind_live():
     assert conf == "high" and uplift > 0
 
 
-def test_backfill_tags_static_analysis_rows_as_dry():
-    # Simulate a pre-migration DB: drop the column, seed a marker row and a
-    # normal row, then re-run init_db's defensive migration.
-    import db as db_mod
+# test_backfill_tags_static_analysis_rows_as_dry was removed in the Postgres
+# cutover: it simulated a pre-migration SQLite DB (DROP COLUMN run_mode, then
+# re-run init_db's defensive PRAGMA/ALTER migration + backfill). That defensive
+# path was deleted — Alembic owns all schema and 0001_baseline includes
+# run_mode from birth, so the pre-migration state is unreachable on Postgres.
+# The behavior it protected (dry rows are never evidence) stays covered by the
+# tests above; the schema-level guarantee it relied on is covered below.
 
+
+def test_fresh_schema_defaults_run_mode_to_live():
+    """Alembic 0001 bakes run_mode in from birth: a row inserted without it
+    must land as 'live' (NOT NULL DEFAULT), keeping the evidence gate's
+    live-only filter meaningful without any backfill machinery."""
     agent = f"evi-{uuid.uuid4().hex[:8]}"
     with get_db() as conn:
-        conn.execute("ALTER TABLE simulations DROP COLUMN run_mode")
         conn.execute(
             "INSERT INTO simulations (id, agent_id, scenario_id, status, trace_json, report_json, org_id, created_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            (uuid.uuid4().hex[:12], agent, "s", "completed",
-             json.dumps({"prompt": "[STATIC ANALYSIS] probe"}), json.dumps(RISKY_REPORT), "default", _ts(2)),
-        )
-        conn.execute(
-            "INSERT INTO simulations (id, agent_id, scenario_id, status, trace_json, report_json, org_id, created_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
             (uuid.uuid4().hex[:12], agent, "s", "completed",
              json.dumps({"prompt": "real run"}), json.dumps(CLEAN_REPORT), "default", _ts(1)),
         )
-
-    db_mod.init_db()  # idempotent; re-adds the column + backfills
-
-    with get_db() as conn:
-        modes = {r["run_mode"] for r in conn.execute(
-            "SELECT run_mode FROM simulations WHERE agent_id = ?", (agent,)).fetchall()}
-    assert modes == {"dry", "live"}
+        mode = conn.execute(
+            "SELECT run_mode FROM simulations WHERE agent_id = %s", (agent,)
+        ).fetchone()["run_mode"]
+    assert mode == "live"

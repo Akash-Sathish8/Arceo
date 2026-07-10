@@ -51,7 +51,7 @@ def _get_latest_baseline(agent_id: str) -> dict | None:
     """Get the most recent baseline for an agent."""
     with get_db() as conn:
         row = conn.execute(
-            "SELECT * FROM regression_baselines WHERE agent_id = ? ORDER BY version DESC LIMIT 1",
+            "SELECT * FROM regression_baselines WHERE agent_id = %s ORDER BY version DESC LIMIT 1",
             (agent_id,),
         ).fetchone()
     if not row:
@@ -69,7 +69,7 @@ def _get_baseline_history(agent_id: str, limit: int = 20) -> list[dict]:
     with get_db() as conn:
         rows = conn.execute(
             "SELECT id, agent_id, version, status, created_at, result_json "
-            "FROM regression_baselines WHERE agent_id = ? ORDER BY version DESC LIMIT ?",
+            "FROM regression_baselines WHERE agent_id = %s ORDER BY version DESC LIMIT %s",
             (agent_id, limit),
         ).fetchall()
     history = []
@@ -103,7 +103,7 @@ def save_baseline(agent_id: str, test_results: list[dict]) -> dict:
     with get_db() as conn:
         conn.execute(
             "INSERT INTO regression_baselines (id, agent_id, version, baseline_json, status, created_at) "
-            "VALUES (?, ?, ?, ?, 'baseline', ?)",
+            "VALUES (%s, %s, %s, %s, 'baseline', %s)",
             (baseline_id, agent_id, version, baseline_json, datetime.utcnow().isoformat()),
         )
 
@@ -222,7 +222,7 @@ def run_regression_test(agent_id: str, agent_config: dict) -> RegressionReport:
     with get_db() as conn:
         conn.execute(
             "INSERT INTO regression_baselines (id, agent_id, version, baseline_json, result_json, regressions_json, status, created_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
             (run_id, agent_id, new_version, latest["baseline_json"], result_json, regressions_json, status, datetime.utcnow().isoformat()),
         )
 

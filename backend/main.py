@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import sqlite3
 import uuid
 from dataclasses import asdict
 from datetime import datetime, timedelta
@@ -12,6 +11,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 from pathlib import Path
+import psycopg
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -44,16 +44,17 @@ from llm_models import FAST_MODEL, DEEP_MODEL, verify_models_at_startup
 async def lifespan(app: FastAPI):
     # Startup (migrated from the deprecated @app.on_event("startup")). The
     # scheduler helpers are defined later in the module but resolved at call time.
-    init_db()
-    # Warn loudly if running on the default DB path — on an ephemeral container
-    # filesystem (e.g. Railway without a volume) all data is lost on redeploy.
-    if not os.environ.get("ARCEO_DB_PATH"):
-        from db import DB_PATH
+    # Warn loudly if running on the dev-default database URL — a real deploy
+    # must point DATABASE_URL at the production Postgres (db.py refuses to
+    # boot on known prod platforms without it). Checked before init_db(),
+    # which exports the resolved URL for alembic.
+    if not os.environ.get("DATABASE_URL"):
         logging.getLogger("arceo").warning(
-            "ARCEO_DB_PATH is not set — using the default DB at %s. On an "
-            "ephemeral filesystem this is wiped on every redeploy. Set "
-            "ARCEO_DB_PATH to a persistent volume path in production.", DB_PATH,
+            "DATABASE_URL is not set — using the docker-compose default "
+            "(postgresql://postgres:postgres@localhost:5432/arceo). Set "
+            "DATABASE_URL explicitly in production."
         )
+    init_db()
     verify_models_at_startup(os.environ.get("ANTHROPIC_API_KEY"))
     if not _snapshot_scheduler_disabled():
         import threading
@@ -295,11 +296,11 @@ async def proxy_llm_request(provider: str, path: str, request: Request):
 
     # Auto-create agent on first call
     with get_db() as conn:
-        existing = conn.execute("SELECT id FROM agents WHERE id = ?", (agent_id,)).fetchone()
+        existing = conn.execute("SELECT id FROM agents WHERE id = %s", (agent_id,)).fetchone()
         if not existing:
             now = datetime.utcnow().isoformat()
             conn.execute(
-                "INSERT INTO agents (id, name, description, org_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+                "INSERT INTO agents (id, name, description, org_id, created_at, updated_at) VALUES (%s, %s, %s, %s, %s, %s)",
                 (agent_id, agent_id, f"Auto-created from {provider} proxy", proxy_org, now, now),
             )
             log_audit(conn, None, agent_id, "AUTO_CREATE_AGENT", resource=agent_id,
@@ -496,7 +497,7 @@ def analyze_sdk_trace(req: SDKTraceInput, request: Request = None):
     if request:
         key_info = verify_api_key(request)
         with get_db() as conn:
-            key_count = conn.execute("SELECT COUNT(*) FROM api_keys WHERE active = 1").fetchone()[0]
+            key_count = conn.execute("SELECT COUNT(*) AS n FROM api_keys WHERE active = 1").fetchone()["n"]
         if key_count > 0 and not key_info:
             raise HTTPException(status_code=401, detail="X-API-Key required")
         if key_info and key_info.get("org_id"):
@@ -558,7 +559,7 @@ def analyze_sdk_trace(req: SDKTraceInput, request: Request = None):
     # Store as simulation
     with get_db() as conn:
         conn.execute(
-            "INSERT INTO simulations (id, agent_id, scenario_id, status, trace_json, report_json, org_id, created_at, run_mode) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO simulations (id, agent_id, scenario_id, status, trace_json, report_json, org_id, created_at, run_mode) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
             (trace.simulation_id, agent_id, "sdk-trace", "completed",
              json.dumps(asdict(trace), default=str),
              json.dumps(asdict(report), default=str),
@@ -579,7 +580,7 @@ def submit_post_hoc_report(req: PostHocReport, request: Request = None):
     if request:
         key_info = verify_api_key(request)
         with get_db() as conn:
-            key_count = conn.execute("SELECT COUNT(*) FROM api_keys WHERE active = 1").fetchone()[0]
+            key_count = conn.execute("SELECT COUNT(*) AS n FROM api_keys WHERE active = 1").fetchone()["n"]
         if key_count > 0 and not key_info:
             raise HTTPException(status_code=401, detail="X-API-Key required")
         if key_info and key_info.get("org_id"):
@@ -626,7 +627,7 @@ def submit_post_hoc_report(req: PostHocReport, request: Request = None):
             return obj
 
         conn.execute(
-            "INSERT INTO simulations (id, agent_id, scenario_id, status, trace_json, report_json, org_id, created_at, run_mode) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO simulations (id, agent_id, scenario_id, status, trace_json, report_json, org_id, created_at, run_mode) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
             (trace.simulation_id, req.agent_id, "post-hoc", "completed",
              json.dumps(asdict(trace), default=str),
              json.dumps(asdict(report), default=str),
@@ -705,18 +706,18 @@ def _latest_sim_evidence(conn, agent_id: str, org_id: str = None) -> dict | None
         # flags must never upgrade confidence or mint "Demonstrated" badges.
         if org_id:
             row = conn.execute(
-                "SELECT report_json FROM simulations WHERE agent_id = ? AND status = 'completed' "
-                "AND run_mode = 'live' AND org_id = ? ORDER BY created_at DESC LIMIT 1",
+                "SELECT report_json FROM simulations WHERE agent_id = %s AND status = 'completed' "
+                "AND run_mode = 'live' AND org_id = %s ORDER BY created_at DESC LIMIT 1",
                 (agent_id, org_id)).fetchone()
         else:
             row = conn.execute(
-                "SELECT report_json FROM simulations WHERE agent_id = ? AND status = 'completed' "
+                "SELECT report_json FROM simulations WHERE agent_id = %s AND status = 'completed' "
                 "AND run_mode = 'live' ORDER BY created_at DESC LIMIT 1", (agent_id,)).fetchone()
         if not row or not row["report_json"]:
             # Distinguish "never simulated" from "only statically analyzed" so
             # the UI can say so instead of rendering an empty state.
             dry = conn.execute(
-                "SELECT 1 FROM simulations WHERE agent_id = ? AND status = 'completed' "
+                "SELECT 1 FROM simulations WHERE agent_id = %s AND status = 'completed' "
                 "AND run_mode = 'dry' LIMIT 1", (agent_id,)).fetchone()
             if dry:
                 return {"ran": False, "dry_run_only": True}
@@ -790,7 +791,7 @@ def _compute_agent_summary(agent_dict: dict, conn=None) -> dict:
 
     org_id = agent_dict.get("org_id") or DEFAULT_ORG_ID
     policies = [dict(p) for p in conn.execute(
-        "SELECT * FROM policies WHERE agent_id = ?", (agent_dict["id"],)).fetchall()]
+        "SELECT * FROM policies WHERE agent_id = %s", (agent_dict["id"],)).fetchall()]
     from analysis.cost_model import raw_action_magnitudes
     sev_overrides = _fetch_breach_overrides(conn, org_id)
     magnitude = raw_action_magnitudes(agent_dict, severity_overrides=sev_overrides or None)
@@ -890,7 +891,7 @@ def signup(req: SignupRequest):
         raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
 
     with get_db() as conn:
-        existing = conn.execute("SELECT id FROM users WHERE email = ?", (req.email,)).fetchone()
+        existing = conn.execute("SELECT id FROM users WHERE email = %s", (req.email,)).fetchone()
         if existing:
             raise HTTPException(status_code=409, detail="Email already registered")
 
@@ -904,11 +905,11 @@ def signup(req: SignupRequest):
         # Each new account gets its own organization — the tenant boundary every
         # other query scopes by. (The seeded demo admin stays in DEFAULT_ORG_ID.)
         conn.execute(
-            "INSERT INTO organizations (id, name, created_at) VALUES (?, ?, ?)",
+            "INSERT INTO organizations (id, name, created_at) VALUES (%s, %s, %s)",
             (org_id, org_name, now),
         )
         conn.execute(
-            "INSERT INTO users (id, email, password_hash, name, role, org_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO users (id, email, password_hash, name, role, org_id, created_at) VALUES (%s, %s, %s, %s, %s, %s, %s)",
             (user_id, req.email, pw_hash, name, "admin", org_id, now),
         )
         log_audit(conn, user_id, req.email, "SIGNUP", detail="New account created", org_id=org_id)
@@ -968,13 +969,13 @@ def change_password(req: ChangePasswordRequest, user: dict = Depends(get_current
     if len(req.new_password) < 6:
         raise HTTPException(status_code=400, detail="New password must be at least 6 characters")
     with get_db() as conn:
-        row = conn.execute("SELECT * FROM users WHERE id = ?", (user["sub"],)).fetchone()
+        row = conn.execute("SELECT * FROM users WHERE id = %s", (user["sub"],)).fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="User not found")
         if not verify_password(req.current_password, row["password_hash"]):
             raise HTTPException(status_code=401, detail="Current password is incorrect")
         new_hash = hash_password(req.new_password)
-        conn.execute("UPDATE users SET password_hash = ? WHERE id = ?", (new_hash, user["sub"]))
+        conn.execute("UPDATE users SET password_hash = %s WHERE id = %s", (new_hash, user["sub"]))
         log_audit(conn, user["sub"], user["email"], "CHANGE_PASSWORD", detail="Password changed")
     return {"message": "Password updated"}
 
@@ -995,22 +996,22 @@ def list_agents(user: dict = Depends(get_current_user)):
         for agent in agents:
             summary = _compute_agent_summary(agent, conn)
             policy_count = conn.execute(
-                "SELECT COUNT(*) FROM policies WHERE agent_id = ?", (agent["id"],)
-            ).fetchone()[0]
+                "SELECT COUNT(*) AS n FROM policies WHERE agent_id = %s", (agent["id"],)
+            ).fetchone()["n"]
             # Per-effect breakdown so the dashboard card can tell "enforced
             # coverage" (BLOCK/ALLOW → green check) from a still-pending
             # REQUIRE_APPROVAL gate (amber, NOT a green "approved" check).
             policies_by_effect = {"BLOCK": 0, "REQUIRE_APPROVAL": 0, "ALLOW": 0}
             for row in conn.execute(
-                "SELECT effect, COUNT(*) AS n FROM policies WHERE agent_id = ? GROUP BY effect",
+                "SELECT effect, COUNT(*) AS n FROM policies WHERE agent_id = %s GROUP BY effect",
                 (agent["id"],),
             ).fetchall():
                 policies_by_effect[row["effect"]] = row["n"]
             pending_count = conn.execute(
-                "SELECT COUNT(*) FROM execution_log WHERE agent_id = ? AND status = 'PENDING_APPROVAL'", (agent["id"],)
-            ).fetchone()[0]
+                "SELECT COUNT(*) AS n FROM execution_log WHERE agent_id = %s AND status = 'PENDING_APPROVAL'", (agent["id"],)
+            ).fetchone()["n"]
             last_exec = conn.execute(
-                "SELECT timestamp FROM execution_log WHERE agent_id = ? ORDER BY timestamp DESC LIMIT 1", (agent["id"],)
+                "SELECT timestamp FROM execution_log WHERE agent_id = %s ORDER BY timestamp DESC LIMIT 1", (agent["id"],)
             ).fetchone()
             results.append({
                 "id": agent["id"],
@@ -1041,12 +1042,12 @@ def get_agent_detail(agent_id: str, user: dict = Depends(get_current_user)):
 
         # Get policies for this agent
         policies = conn.execute(
-            "SELECT * FROM policies WHERE agent_id = ? ORDER BY created_at DESC", (agent_id,)
+            "SELECT * FROM policies WHERE agent_id = %s ORDER BY created_at DESC", (agent_id,)
         ).fetchall()
 
         # Get execution logs for this agent
         executions = conn.execute(
-            "SELECT * FROM execution_log WHERE agent_id = ? AND org_id = ? ORDER BY timestamp DESC LIMIT 50", (agent_id, _org(user))
+            "SELECT * FROM execution_log WHERE agent_id = %s AND org_id = %s ORDER BY timestamp DESC LIMIT 50", (agent_id, _org(user))
         ).fetchall()
 
         # Signals for the residual/evidence/magnitude blast model (need the conn).
@@ -1284,7 +1285,7 @@ def create_agent(req: AgentInput, user: dict = Depends(get_current_user)):
         # ID8: org-scoped "free slug" check so we don't reveal another org's agent
         # ids. agents.id is a global PRIMARY KEY, so a cross-org collision would
         # raise IntegrityError on INSERT — suffix + retry to stay globally unique.
-        if conn.execute("SELECT 1 FROM agents WHERE id = ? AND org_id = ?", (agent_id, org_id)).fetchone():
+        if conn.execute("SELECT 1 FROM agents WHERE id = %s AND org_id = %s", (agent_id, org_id)).fetchone():
             agent_id = f"{agent_id}-{uuid.uuid4().hex[:6]}"
         _hitl = (1 if req.human_in_loop else 0) if req.human_in_loop is not None else None
 
@@ -1293,7 +1294,7 @@ def create_agent(req: AgentInput, user: dict = Depends(get_current_user)):
                 "INSERT INTO agents (id, name, description, org_id, simulation_model, "
                 "expected_calls_per_day, expected_turns_per_run, avg_context_tokens, system_prompt, "
                 "environment, trigger_source, human_in_loop, created_at, updated_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
                 (aid, req.name, req.description, org_id, req.simulation_model,
                  req.expected_calls_per_day, req.expected_turns_per_run, req.avg_context_tokens, req.system_prompt,
                  req.environment, req.trigger_source, _hitl, now, now),
@@ -1301,24 +1302,28 @@ def create_agent(req: AgentInput, user: dict = Depends(get_current_user)):
 
         # ID8: global PRIMARY KEY means a cross-org slug collision raises
         # IntegrityError on INSERT — suffix + retry to stay globally unique.
+        # The nested transaction() block is a SAVEPOINT: without it a failed
+        # INSERT aborts the whole Postgres transaction and the retry (plus
+        # everything already written in this request) would be lost.
         try:
-            _insert_agent_row(agent_id)
-        except sqlite3.IntegrityError:
+            with conn.transaction():
+                _insert_agent_row(agent_id)
+        except psycopg.IntegrityError:
             agent_id = f"{agent_id}-{uuid.uuid4().hex[:6]}"
             _insert_agent_row(agent_id)
 
         for tool in req.tools or []:
             cur = conn.execute(
-                "INSERT INTO agent_tools (agent_id, name, service, description) VALUES (?, ?, ?, ?)",
+                "INSERT INTO agent_tools (agent_id, name, service, description) VALUES (%s, %s, %s, %s) RETURNING id",
                 (agent_id, tool.name, tool.service, tool.description),
             )
-            tool_id = cur.lastrowid
+            tool_id = cur.fetchone()["id"]
             for a in tool.actions:
                 # BR2: classify server-side; never trust client-supplied risk_labels.
                 mapped = classify_with_fallback(tool.name, a.action, a.description,
                                                 input_schema=a.input_schema)
                 conn.execute(
-                    "INSERT INTO tool_actions (tool_id, action, description, risk_labels, reversible, classification_source) VALUES (?, ?, ?, ?, ?, ?)",
+                    "INSERT INTO tool_actions (tool_id, action, description, risk_labels, reversible, classification_source) VALUES (%s, %s, %s, %s, %s, %s)",
                     (tool_id, a.action, a.description, json.dumps(mapped.risk_labels), mapped.reversible, mapped.classification_source),
                 )
 
@@ -1346,15 +1351,15 @@ def set_agent_forecast_inputs(agent_id: str, req: ForecastInputsInput, user: dic
     org_id = _org(user)
     now = datetime.utcnow().isoformat()
     with get_db() as conn:
-        existing = conn.execute("SELECT id FROM agents WHERE id = ? AND org_id = ?", (agent_id, org_id)).fetchone()
+        existing = conn.execute("SELECT id FROM agents WHERE id = %s AND org_id = %s", (agent_id, org_id)).fetchone()
         if not existing:
             raise HTTPException(status_code=404, detail=f"Agent '{agent_id}' not found")
         conn.execute(
-            "UPDATE agents SET expected_calls_per_day = COALESCE(?, expected_calls_per_day), "
-            "expected_turns_per_run = COALESCE(?, expected_turns_per_run), "
-            "simulation_model = COALESCE(?, simulation_model), "
-            "avg_context_tokens = COALESCE(?, avg_context_tokens), updated_at = ? "
-            "WHERE id = ? AND org_id = ?",
+            "UPDATE agents SET expected_calls_per_day = COALESCE(%s, expected_calls_per_day), "
+            "expected_turns_per_run = COALESCE(%s, expected_turns_per_run), "
+            "simulation_model = COALESCE(%s, simulation_model), "
+            "avg_context_tokens = COALESCE(%s, avg_context_tokens), updated_at = %s "
+            "WHERE id = %s AND org_id = %s",
             (req.expected_calls_per_day, req.expected_turns_per_run, req.simulation_model,
              req.avg_context_tokens, now, agent_id, org_id),
         )
@@ -1372,24 +1377,24 @@ def update_agent(agent_id: str, req: AgentInput, user: dict = Depends(get_curren
         raise HTTPException(status_code=400, detail="default_effect must be ALLOW or DENY")
 
     with get_db() as conn:
-        existing = conn.execute("SELECT id FROM agents WHERE id = ? AND org_id = ?", (agent_id, _org(user))).fetchone()
+        existing = conn.execute("SELECT id FROM agents WHERE id = %s AND org_id = %s", (agent_id, _org(user))).fetchone()
         if not existing:
             raise HTTPException(status_code=404, detail=f"Agent '{agent_id}' not found")
 
         # COALESCE preserves forecast inputs the editor didn't resend (e.g. an
         # extraction-derived model) instead of wiping them to NULL.
         conn.execute(
-            "UPDATE agents SET name = ?, description = ?, "
-            "simulation_model = COALESCE(?, simulation_model), "
-            "expected_calls_per_day = COALESCE(?, expected_calls_per_day), "
-            "expected_turns_per_run = COALESCE(?, expected_turns_per_run), "
-            "avg_context_tokens = COALESCE(?, avg_context_tokens), "
-            "system_prompt = COALESCE(?, system_prompt), "
-            "environment = COALESCE(?, environment), "
-            "trigger_source = COALESCE(?, trigger_source), "
-            "human_in_loop = COALESCE(?, human_in_loop), "
-            "default_effect = COALESCE(?, default_effect), "
-            "updated_at = ? WHERE id = ?",
+            "UPDATE agents SET name = %s, description = %s, "
+            "simulation_model = COALESCE(%s, simulation_model), "
+            "expected_calls_per_day = COALESCE(%s, expected_calls_per_day), "
+            "expected_turns_per_run = COALESCE(%s, expected_turns_per_run), "
+            "avg_context_tokens = COALESCE(%s, avg_context_tokens), "
+            "system_prompt = COALESCE(%s, system_prompt), "
+            "environment = COALESCE(%s, environment), "
+            "trigger_source = COALESCE(%s, trigger_source), "
+            "human_in_loop = COALESCE(%s, human_in_loop), "
+            "default_effect = COALESCE(%s, default_effect), "
+            "updated_at = %s WHERE id = %s",
             (req.name, req.description, req.simulation_model, req.expected_calls_per_day,
              req.expected_turns_per_run, req.avg_context_tokens, req.system_prompt,
              req.environment, req.trigger_source,
@@ -1405,20 +1410,20 @@ def update_agent(agent_id: str, req: AgentInput, user: dict = Depends(get_curren
         # Rewrite the tool set only when the caller sent one — a metadata-only
         # edit (rename/description) must not touch tools.
         if req.tools is not None:
-            conn.execute("DELETE FROM agent_tools WHERE agent_id = ?", (agent_id,))
+            conn.execute("DELETE FROM agent_tools WHERE agent_id = %s", (agent_id,))
 
             for tool in req.tools:
                 cur = conn.execute(
-                    "INSERT INTO agent_tools (agent_id, name, service, description) VALUES (?, ?, ?, ?)",
+                    "INSERT INTO agent_tools (agent_id, name, service, description) VALUES (%s, %s, %s, %s) RETURNING id",
                     (agent_id, tool.name, tool.service, tool.description),
                 )
-                tool_id = cur.lastrowid
+                tool_id = cur.fetchone()["id"]
                 for a in tool.actions:
                     # BR2: classify server-side; never trust client-supplied risk_labels.
                     mapped = classify_with_fallback(tool.name, a.action, a.description,
                                                     input_schema=a.input_schema)
                     conn.execute(
-                        "INSERT INTO tool_actions (tool_id, action, description, risk_labels, reversible, classification_source) VALUES (?, ?, ?, ?, ?, ?)",
+                        "INSERT INTO tool_actions (tool_id, action, description, risk_labels, reversible, classification_source) VALUES (%s, %s, %s, %s, %s, %s)",
                         (tool_id, a.action, a.description, json.dumps(mapped.risk_labels), mapped.reversible, mapped.classification_source),
                     )
 
@@ -1442,12 +1447,12 @@ def set_agent_context(agent_id: str, req: ExposureContextInput, user: dict = Dep
     org_id = _org(user)
     now = datetime.utcnow().isoformat()
     with get_db() as conn:
-        existing = conn.execute("SELECT id FROM agents WHERE id = ? AND org_id = ?", (agent_id, org_id)).fetchone()
+        existing = conn.execute("SELECT id FROM agents WHERE id = %s AND org_id = %s", (agent_id, org_id)).fetchone()
         if not existing:
             raise HTTPException(status_code=404, detail=f"Agent '{agent_id}' not found")
         conn.execute(
-            "UPDATE agents SET environment = ?, trigger_source = ?, human_in_loop = ?, updated_at = ? "
-            "WHERE id = ? AND org_id = ?",
+            "UPDATE agents SET environment = %s, trigger_source = %s, human_in_loop = %s, updated_at = %s "
+            "WHERE id = %s AND org_id = %s",
             (req.environment, req.trigger_source,
              (1 if req.human_in_loop else 0) if req.human_in_loop is not None else None,
              now, agent_id, org_id),
@@ -1461,19 +1466,19 @@ def set_agent_context(agent_id: str, req: ExposureContextInput, user: dict = Dep
 def delete_agent(agent_id: str, user: dict = Depends(get_current_user)):
     org_id = _org(user)
     with get_db() as conn:
-        existing = conn.execute("SELECT name FROM agents WHERE id = ? AND org_id = ?", (agent_id, org_id)).fetchone()
+        existing = conn.execute("SELECT name FROM agents WHERE id = %s AND org_id = %s", (agent_id, org_id)).fetchone()
         if not existing:
             raise HTTPException(status_code=404, detail=f"Agent '{agent_id}' not found")
 
         # Clean up all related data
-        sim_count = conn.execute("SELECT COUNT(*) FROM simulations WHERE agent_id = ?", (agent_id,)).fetchone()[0]
-        sweep_count = conn.execute("SELECT COUNT(*) FROM sweeps WHERE agent_id = ?", (agent_id,)).fetchone()[0]
-        exec_count = conn.execute("SELECT COUNT(*) FROM execution_log WHERE agent_id = ?", (agent_id,)).fetchone()[0]
+        sim_count = conn.execute("SELECT COUNT(*) AS n FROM simulations WHERE agent_id = %s", (agent_id,)).fetchone()["n"]
+        sweep_count = conn.execute("SELECT COUNT(*) AS n FROM sweeps WHERE agent_id = %s", (agent_id,)).fetchone()["n"]
+        exec_count = conn.execute("SELECT COUNT(*) AS n FROM execution_log WHERE agent_id = %s", (agent_id,)).fetchone()["n"]
 
-        conn.execute("DELETE FROM simulations WHERE agent_id = ?", (agent_id,))
-        conn.execute("DELETE FROM sweeps WHERE agent_id = ?", (agent_id,))
-        conn.execute("DELETE FROM execution_log WHERE agent_id = ?", (agent_id,))
-        conn.execute("DELETE FROM agents WHERE id = ?", (agent_id,))  # cascades to tools, actions, policies, test_data
+        conn.execute("DELETE FROM simulations WHERE agent_id = %s", (agent_id,))
+        conn.execute("DELETE FROM sweeps WHERE agent_id = %s", (agent_id,))
+        conn.execute("DELETE FROM execution_log WHERE agent_id = %s", (agent_id,))
+        conn.execute("DELETE FROM agents WHERE id = %s", (agent_id,))  # cascades to tools, actions, policies, test_data
 
         log_audit(conn, user["sub"], user["email"], "DELETE_AGENT", resource=agent_id,
                   detail=f"Deleted agent '{existing['name']}' + {sim_count} simulations, {sweep_count} sweeps, {exec_count} executions")
@@ -1493,15 +1498,15 @@ def bulk_delete_agents(req: BulkDeleteRequest, user: dict = Depends(get_current_
     org_id = _org(user)
     with get_db() as conn:
         for agent_id in req.agent_ids:
-            existing = conn.execute("SELECT name FROM agents WHERE id = ? AND org_id = ?", (agent_id, org_id)).fetchone()
+            existing = conn.execute("SELECT name FROM agents WHERE id = %s AND org_id = %s", (agent_id, org_id)).fetchone()
             if not existing:
                 not_found.append(agent_id)
                 continue
 
-            conn.execute("DELETE FROM simulations WHERE agent_id = ?", (agent_id,))
-            conn.execute("DELETE FROM sweeps WHERE agent_id = ?", (agent_id,))
-            conn.execute("DELETE FROM execution_log WHERE agent_id = ?", (agent_id,))
-            conn.execute("DELETE FROM agents WHERE id = ?", (agent_id,))
+            conn.execute("DELETE FROM simulations WHERE agent_id = %s", (agent_id,))
+            conn.execute("DELETE FROM sweeps WHERE agent_id = %s", (agent_id,))
+            conn.execute("DELETE FROM execution_log WHERE agent_id = %s", (agent_id,))
+            conn.execute("DELETE FROM agents WHERE id = %s", (agent_id,))
             deleted.append(agent_id)
 
         if deleted:
@@ -1562,34 +1567,34 @@ def _upsert_agent(
     are COALESCE'd on update so a re-import that omits them keeps prior values.
     """
     now = datetime.utcnow().isoformat()
-    existing = conn.execute("SELECT id FROM agents WHERE id = ? AND org_id = ?", (agent_id, org_id)).fetchone()
+    existing = conn.execute("SELECT id FROM agents WHERE id = %s AND org_id = %s", (agent_id, org_id)).fetchone()
 
     if existing:
         conn.execute(
-            "UPDATE agents SET name = ?, description = ?, "
-            "simulation_model = COALESCE(?, simulation_model), "
-            "expected_calls_per_day = COALESCE(?, expected_calls_per_day), "
-            "expected_turns_per_run = COALESCE(?, expected_turns_per_run), "
-            "avg_context_tokens = COALESCE(?, avg_context_tokens), "
-            "system_prompt = COALESCE(?, system_prompt), "
-            "environment = COALESCE(?, environment), "
-            "trigger_source = COALESCE(?, trigger_source), "
-            "human_in_loop = COALESCE(?, human_in_loop), "
-            "updated_at = ? WHERE id = ? AND org_id = ?",
+            "UPDATE agents SET name = %s, description = %s, "
+            "simulation_model = COALESCE(%s, simulation_model), "
+            "expected_calls_per_day = COALESCE(%s, expected_calls_per_day), "
+            "expected_turns_per_run = COALESCE(%s, expected_turns_per_run), "
+            "avg_context_tokens = COALESCE(%s, avg_context_tokens), "
+            "system_prompt = COALESCE(%s, system_prompt), "
+            "environment = COALESCE(%s, environment), "
+            "trigger_source = COALESCE(%s, trigger_source), "
+            "human_in_loop = COALESCE(%s, human_in_loop), "
+            "updated_at = %s WHERE id = %s AND org_id = %s",
             (name, description, simulation_model, expected_calls_per_day,
              expected_turns_per_run, avg_context_tokens, system_prompt,
              environment, trigger_source,
              (1 if human_in_loop else 0) if human_in_loop is not None else None,
              now, agent_id, org_id),
         )
-        conn.execute("DELETE FROM agent_tools WHERE agent_id = ?", (agent_id,))
+        conn.execute("DELETE FROM agent_tools WHERE agent_id = %s", (agent_id,))
         status = "updated"
     else:
         conn.execute(
             "INSERT INTO agents (id, name, description, org_id, simulation_model, "
             "expected_calls_per_day, expected_turns_per_run, avg_context_tokens, system_prompt, "
             "environment, trigger_source, human_in_loop, created_at, updated_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
             (agent_id, name, description, org_id, simulation_model,
              expected_calls_per_day, expected_turns_per_run, avg_context_tokens, system_prompt,
              environment, trigger_source,
@@ -1600,17 +1605,17 @@ def _upsert_agent(
 
     for tool in tools:
         cur = conn.execute(
-            "INSERT INTO agent_tools (agent_id, name, service, description) VALUES (?, ?, ?, ?)",
+            "INSERT INTO agent_tools (agent_id, name, service, description) VALUES (%s, %s, %s, %s) RETURNING id",
             (agent_id, tool["name"], tool["service"], tool["description"]),
         )
-        tool_id = cur.lastrowid
+        tool_id = cur.fetchone()["id"]
         for a in tool["actions"]:
             mapped = classify_with_fallback(
                 tool["name"], a["name"], a.get("description", ""),
                 input_schema=a.get("input_schema"),
             )
             conn.execute(
-                "INSERT INTO tool_actions (tool_id, action, description, risk_labels, reversible, classification_source) VALUES (?, ?, ?, ?, ?, ?)",
+                "INSERT INTO tool_actions (tool_id, action, description, risk_labels, reversible, classification_source) VALUES (%s, %s, %s, %s, %s, %s)",
                 (tool_id, a["name"], mapped.description, json.dumps(mapped.risk_labels), mapped.reversible, mapped.classification_source),
             )
 
@@ -2222,11 +2227,11 @@ def _maybe_fire_spend_anomaly_alert(agent_id: str):
 
         with get_db() as conn:
             org_row = conn.execute(
-                "SELECT org_id FROM agents WHERE id = ?", (agent_id,)
+                "SELECT org_id FROM agents WHERE id = %s", (agent_id,)
             ).fetchone()
             agent_org = org_row["org_id"] if org_row else None
             row = conn.execute(
-                "SELECT slack_webhook_url FROM workspace_settings WHERE org_id = ?", (agent_org,)
+                "SELECT slack_webhook_url FROM workspace_settings WHERE org_id = %s", (agent_org,)
             ).fetchone()
             slack_url = (row["slack_webhook_url"] or "") if row else ""
             if not slack_url:
@@ -2234,7 +2239,7 @@ def _maybe_fire_spend_anomaly_alert(agent_id: str):
             eight_days_ago = (datetime.utcnow() - timedelta(days=8)).isoformat()
             rows = conn.execute(
                 "SELECT detail, timestamp FROM audit_log "
-                "WHERE action IN ('LLM_CALL', 'LLM_CALL_PROXY') AND user_email = ? AND timestamp > ? "
+                "WHERE action IN ('LLM_CALL', 'LLM_CALL_PROXY') AND user_email = %s AND timestamp > %s "
                 "ORDER BY timestamp ASC",
                 (agent_id, eight_days_ago),
             ).fetchall()
@@ -2283,7 +2288,7 @@ def ingest_llm_call(agent_id: str, payload: dict, request: Request):
     if key_row.get("agent_id") and key_row["agent_id"] != agent_id:
         raise HTTPException(status_code=403, detail="API key is scoped to a different agent")
     with get_db() as conn:
-        agent = conn.execute("SELECT id, org_id FROM agents WHERE id = ?", (agent_id,)).fetchone()
+        agent = conn.execute("SELECT id, org_id FROM agents WHERE id = %s", (agent_id,)).fetchone()
         if not agent:
             raise HTTPException(status_code=404, detail=f"Unknown agent: {agent_id}")
         if agent["org_id"] != key_row.get("org_id"):
@@ -2329,13 +2334,13 @@ def _maybe_fire_budget_alert(agent_id: str):
 
         with get_db() as conn:
             row = conn.execute(
-                "SELECT org_id, monthly_budget_usd, alert_threshold_pct FROM agent_budgets WHERE agent_id = ?",
+                "SELECT org_id, monthly_budget_usd, alert_threshold_pct FROM agent_budgets WHERE agent_id = %s",
                 (agent_id,),
             ).fetchone()
             if not row:
                 return
             org_id = row["org_id"]
-            ws = conn.execute("SELECT slack_webhook_url FROM workspace_settings WHERE org_id = ?", (org_id,)).fetchone()
+            ws = conn.execute("SELECT slack_webhook_url FROM workspace_settings WHERE org_id = %s", (org_id,)).fetchone()
             slack_url = (ws["slack_webhook_url"] or "") if ws else ""
             if not slack_url:
                 return
@@ -2344,7 +2349,7 @@ def _maybe_fire_budget_alert(agent_id: str):
             month_start = datetime.utcnow().replace(day=1, hour=0, minute=0, second=0, microsecond=0).isoformat()
             rows = conn.execute(
                 "SELECT detail, timestamp FROM audit_log "
-                "WHERE action IN ('LLM_CALL', 'LLM_CALL_PROXY') AND user_email = ? AND timestamp >= ?",
+                "WHERE action IN ('LLM_CALL', 'LLM_CALL_PROXY') AND user_email = %s AND timestamp >= %s",
                 (agent_id, month_start),
             ).fetchall()
 
@@ -2635,10 +2640,10 @@ class PolicyInput(BaseModel):
 @app.get("/api/authority/agent/{agent_id}/policies")
 def list_policies(agent_id: str, user: dict = Depends(get_current_user)):
     with get_db() as conn:
-        if not conn.execute("SELECT 1 FROM agents WHERE id = ? AND org_id = ?", (agent_id, _org(user))).fetchone():
+        if not conn.execute("SELECT 1 FROM agents WHERE id = %s AND org_id = %s", (agent_id, _org(user))).fetchone():
             raise HTTPException(status_code=404, detail=f"Agent '{agent_id}' not found")
         policies = conn.execute(
-            "SELECT * FROM policies WHERE agent_id = ? ORDER BY created_at DESC", (agent_id,)
+            "SELECT * FROM policies WHERE agent_id = %s ORDER BY created_at DESC", (agent_id,)
         ).fetchall()
     result = []
     for p in policies:
@@ -2664,33 +2669,34 @@ def create_policy(agent_id: str, req: PolicyInput, user: dict = Depends(get_curr
     priority = {"BLOCK": 100, "REQUIRE_APPROVAL": 50, "ALLOW": 10}.get(req.effect, 0)
 
     with get_db() as conn:
-        existing = conn.execute("SELECT id FROM agents WHERE id = ? AND org_id = ?", (agent_id, _org(user))).fetchone()
+        existing = conn.execute("SELECT id FROM agents WHERE id = %s AND org_id = %s", (agent_id, _org(user))).fetchone()
         if not existing:
             raise HTTPException(status_code=404, detail=f"Agent '{agent_id}' not found")
 
         cur = conn.execute(
-            "INSERT INTO policies (agent_id, action_pattern, effect, reason, conditions, priority, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO policies (agent_id, action_pattern, effect, reason, conditions, priority, created_by, created_at) VALUES (%s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
             (agent_id, req.action_pattern, req.effect, req.reason, conditions_json, priority, user["email"], datetime.utcnow().isoformat()),
         )
+        policy_id = cur.fetchone()["id"]
 
         condition_desc = f" when {conditions_json}" if req.conditions else ""
         log_audit(conn, user["sub"], user["email"], "CREATE_POLICY", resource=agent_id,
                   detail=f"{req.effect} on {req.action_pattern}{condition_desc}")
 
-    return {"id": cur.lastrowid, "priority": priority, "message": "Policy created"}
+    return {"id": policy_id, "priority": priority, "message": "Policy created"}
 
 
 @app.delete("/api/authority/policy/{policy_id}")
 def delete_policy(policy_id: int, user: dict = Depends(get_current_user)):
     with get_db() as conn:
         policy = conn.execute(
-            "SELECT p.* FROM policies p JOIN agents a ON p.agent_id = a.id WHERE p.id = ? AND a.org_id = ?",
+            "SELECT p.* FROM policies p JOIN agents a ON p.agent_id = a.id WHERE p.id = %s AND a.org_id = %s",
             (policy_id, _org(user)),
         ).fetchone()
         if not policy:
             raise HTTPException(status_code=404, detail="Policy not found")
 
-        conn.execute("DELETE FROM policies WHERE id = ?", (policy_id,))
+        conn.execute("DELETE FROM policies WHERE id = %s", (policy_id,))
         log_audit(conn, user["sub"], user["email"], "DELETE_POLICY", resource=str(policy_id),
                   detail=f"Removed {policy['effect']} on {policy['action_pattern']}")
 
@@ -2701,10 +2707,10 @@ def delete_policy(policy_id: int, user: dict = Depends(get_current_user)):
 def detect_policy_conflicts(agent_id: str, user: dict = Depends(get_current_user)):
     """Find overlapping policies that might conflict (e.g., BLOCK on stripe.* and ALLOW on stripe.get_customer)."""
     with get_db() as conn:
-        if not conn.execute("SELECT 1 FROM agents WHERE id = ? AND org_id = ?", (agent_id, _org(user))).fetchone():
+        if not conn.execute("SELECT 1 FROM agents WHERE id = %s AND org_id = %s", (agent_id, _org(user))).fetchone():
             raise HTTPException(status_code=404, detail=f"Agent '{agent_id}' not found")
         policies = conn.execute(
-            "SELECT * FROM policies WHERE agent_id = ? ORDER BY priority DESC, id", (agent_id,)
+            "SELECT * FROM policies WHERE agent_id = %s ORDER BY priority DESC, id", (agent_id,)
         ).fetchall()
 
     policy_list = []
@@ -2789,7 +2795,7 @@ def enforce_action(req: EnforceRequest, request: Request):
     else:
         caller_org = _org(get_current_user(request))  # raises 401 if no valid bearer token
     with get_db() as conn:
-        agent = conn.execute("SELECT org_id FROM agents WHERE id = ?", (req.agent_id,)).fetchone()
+        agent = conn.execute("SELECT org_id FROM agents WHERE id = %s", (req.agent_id,)).fetchone()
         if agent and caller_org and agent["org_id"] != caller_org:
             raise HTTPException(status_code=403, detail="Not authorized for this agent")
     check_rate_limit(f"enforce:{req.agent_id}")
@@ -2809,7 +2815,7 @@ def get_notification_settings(user: dict = Depends(get_current_user)):
     """Get this org's notification settings."""
     org_id = _org(user)
     with get_db() as conn:
-        row = conn.execute("SELECT * FROM workspace_settings WHERE org_id = ?", (org_id,)).fetchone()
+        row = conn.execute("SELECT * FROM workspace_settings WHERE org_id = %s", (org_id,)).fetchone()
     if not row:
         return {"slack_webhook_url": "", "alert_email": "", "notify_on_block": True}
     return {
@@ -2825,17 +2831,17 @@ def save_notification_settings(req: NotificationSettingsRequest, user: dict = De
     org_id = _org(user)
     now = datetime.utcnow().isoformat()
     with get_db() as conn:
-        existing = conn.execute("SELECT id FROM workspace_settings WHERE org_id = ?", (org_id,)).fetchone()
+        existing = conn.execute("SELECT id FROM workspace_settings WHERE org_id = %s", (org_id,)).fetchone()
         if existing:
             conn.execute(
-                "UPDATE workspace_settings SET slack_webhook_url=?, alert_email=?, notify_on_block=?, updated_at=? WHERE org_id=?",
+                "UPDATE workspace_settings SET slack_webhook_url=%s, alert_email=%s, notify_on_block=%s, updated_at=%s WHERE org_id=%s",
                 (req.slack_webhook_url, req.alert_email, 1 if req.notify_on_block else 0, now, org_id),
             )
         else:
             # id=NULL lets SQLite assign a fresh rowid per org (the column DEFAULT 1
             # would otherwise collide across orgs).
             conn.execute(
-                "INSERT INTO workspace_settings (id, slack_webhook_url, alert_email, notify_on_block, org_id, updated_at) VALUES (NULL, ?, ?, ?, ?, ?)",
+                "INSERT INTO workspace_settings (slack_webhook_url, alert_email, notify_on_block, org_id, updated_at) VALUES (%s, %s, %s, %s, %s)",
                 (req.slack_webhook_url, req.alert_email, 1 if req.notify_on_block else 0, org_id, now),
             )
         log_audit(conn, user["sub"], user["email"], "UPDATE_NOTIFICATIONS", detail="Notification settings updated", org_id=org_id)
@@ -2847,8 +2853,8 @@ def send_test_digest(user: dict = Depends(get_current_user)):
     """Send the weekly cost + risk digest to this org's alert email right now."""
     org_id = _org(user)
     with get_db() as conn:
-        ws = conn.execute("SELECT alert_email FROM workspace_settings WHERE org_id = ?", (org_id,)).fetchone()
-        org_row = conn.execute("SELECT name FROM organizations WHERE id = ?", (org_id,)).fetchone()
+        ws = conn.execute("SELECT alert_email FROM workspace_settings WHERE org_id = %s", (org_id,)).fetchone()
+        org_row = conn.execute("SELECT name FROM organizations WHERE id = %s", (org_id,)).fetchone()
     email = ((ws["alert_email"] if ws else "") or "").strip()
     if not email:
         raise HTTPException(status_code=400, detail="No alert email set. Add one above and save first.")
@@ -2868,7 +2874,7 @@ def send_test_digest(user: dict = Depends(get_current_user)):
 def get_audit_log(user: dict = Depends(get_current_user)):
     with get_db() as conn:
         rows = conn.execute(
-            "SELECT * FROM audit_log WHERE org_id = ? ORDER BY timestamp DESC LIMIT 100",
+            "SELECT * FROM audit_log WHERE org_id = %s ORDER BY timestamp DESC LIMIT 100",
             (_org(user),)
         ).fetchall()
     return {"entries": [dict(r) for r in rows]}
@@ -2880,7 +2886,7 @@ def get_audit_log(user: dict = Depends(get_current_user)):
 def get_execution_log(user: dict = Depends(get_current_user)):
     with get_db() as conn:
         rows = conn.execute(
-            "SELECT * FROM execution_log WHERE org_id = ? ORDER BY timestamp DESC LIMIT 100",
+            "SELECT * FROM execution_log WHERE org_id = %s ORDER BY timestamp DESC LIMIT 100",
             (_org(user),)
         ).fetchall()
     return {"entries": [dict(r) for r in rows]}
@@ -2890,7 +2896,7 @@ def get_execution_log(user: dict = Depends(get_current_user)):
 def get_agent_executions(agent_id: str, user: dict = Depends(get_current_user)):
     with get_db() as conn:
         rows = conn.execute(
-            "SELECT * FROM execution_log WHERE agent_id = ? AND org_id = ? ORDER BY timestamp DESC LIMIT 50",
+            "SELECT * FROM execution_log WHERE agent_id = %s AND org_id = %s ORDER BY timestamp DESC LIMIT 50",
             (agent_id, _org(user)),
         ).fetchall()
     return {"entries": [dict(r) for r in rows]}
@@ -2903,18 +2909,24 @@ def get_pending_approvals(user: dict = Depends(get_current_user)):
         # risk_labels + the firing policy joined per row so the queue can say
         # WHY an action needed approval and WHICH rule put it here, without a
         # second request. Provenance (e.source) says where the call came from.
+        # DISTINCT ON keeps one row per execution when the tool/action joins
+        # multi-match (the SQLite version used GROUP BY e.id with bare columns
+        # for the same effect); the outer SELECT restores timestamp ordering.
         rows = conn.execute(
-            """SELECT e.*, a.name as agent_name, ta.risk_labels as risk_labels,
-                      p.action_pattern as policy_pattern, p.reason as policy_reason,
-                      p.created_by as policy_created_by, p.created_at as policy_created_at
-               FROM execution_log e
-               LEFT JOIN agents a ON e.agent_id = a.id
-               LEFT JOIN agent_tools t ON t.agent_id = e.agent_id AND t.name = e.tool
-               LEFT JOIN tool_actions ta ON ta.tool_id = t.id AND ta.action = e.action
-               LEFT JOIN policies p ON p.id = e.policy_id
-               WHERE e.status = 'PENDING_APPROVAL' AND e.org_id = ?
-               GROUP BY e.id
-               ORDER BY e.timestamp DESC""",
+            """SELECT * FROM (
+                 SELECT DISTINCT ON (e.id)
+                        e.*, a.name as agent_name, ta.risk_labels as risk_labels,
+                        p.action_pattern as policy_pattern, p.reason as policy_reason,
+                        p.created_by as policy_created_by, p.created_at as policy_created_at
+                 FROM execution_log e
+                 LEFT JOIN agents a ON e.agent_id = a.id
+                 LEFT JOIN agent_tools t ON t.agent_id = e.agent_id AND t.name = e.tool
+                 LEFT JOIN tool_actions ta ON ta.tool_id = t.id AND ta.action = e.action
+                 LEFT JOIN policies p ON p.id = e.policy_id
+                 WHERE e.status = 'PENDING_APPROVAL' AND e.org_id = %s
+                 ORDER BY e.id
+               ) pending
+               ORDER BY pending.timestamp DESC""",
             (_org(user),),
         ).fetchall()
     approvals = []
@@ -2958,14 +2970,14 @@ def decide_approval(execution_id: int, body: ApprovalDecision, user: dict = Depe
     if body.reason:
         detail_suffix += f": {body.reason}"
     with get_db() as conn:
-        row = conn.execute("SELECT * FROM execution_log WHERE id = ? AND org_id = ?", (execution_id, _org(user))).fetchone()
+        row = conn.execute("SELECT * FROM execution_log WHERE id = %s AND org_id = %s", (execution_id, _org(user))).fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="Execution not found")
         if row["status"] != "PENDING_APPROVAL":
             raise HTTPException(status_code=400, detail="Execution is not pending approval")
         existing_detail = row["detail"] or ""
         conn.execute(
-            "UPDATE execution_log SET status = ?, detail = ? WHERE id = ?",
+            "UPDATE execution_log SET status = %s, detail = %s WHERE id = %s",
             (new_status, existing_detail + detail_suffix, execution_id),
         )
         log_audit(conn, user["sub"], user["email"], body.decision.upper() + "_EXECUTION", str(execution_id),
@@ -2995,19 +3007,19 @@ class TestDataInput(BaseModel):
 def upload_test_data(agent_id: str, req: TestDataInput, user: dict = Depends(get_current_user)):
     """Upload custom test data for an agent's sandbox simulations."""
     with get_db() as conn:
-        existing = conn.execute("SELECT id FROM agents WHERE id = ? AND org_id = ?", (agent_id, _org(user))).fetchone()
+        existing = conn.execute("SELECT id FROM agents WHERE id = %s AND org_id = %s", (agent_id, _org(user))).fetchone()
         if not existing:
             raise HTTPException(status_code=404, detail=f"Agent '{agent_id}' not found")
 
         data = {k: v for k, v in req.dict().items() if v is not None}
         now = datetime.utcnow().isoformat()
 
-        row = conn.execute("SELECT id FROM test_data WHERE agent_id = ?", (agent_id,)).fetchone()
+        row = conn.execute("SELECT id FROM test_data WHERE agent_id = %s", (agent_id,)).fetchone()
         if row:
-            conn.execute("UPDATE test_data SET data_json = ?, updated_at = ? WHERE agent_id = ?",
+            conn.execute("UPDATE test_data SET data_json = %s, updated_at = %s WHERE agent_id = %s",
                          (json.dumps(data), now, agent_id))
         else:
-            conn.execute("INSERT INTO test_data (agent_id, data_json, created_at, updated_at) VALUES (?, ?, ?, ?)",
+            conn.execute("INSERT INTO test_data (agent_id, data_json, created_at, updated_at) VALUES (%s, %s, %s, %s)",
                          (agent_id, json.dumps(data), now, now))
 
         log_audit(conn, user["sub"], user["email"], "UPLOAD_TEST_DATA", resource=agent_id,
@@ -3020,10 +3032,10 @@ def upload_test_data(agent_id: str, req: TestDataInput, user: dict = Depends(get
 def get_test_data(agent_id: str, user: dict = Depends(get_current_user)):
     """Get custom test data for an agent."""
     with get_db() as conn:
-        owns = conn.execute("SELECT 1 FROM agents WHERE id = ? AND org_id = ?", (agent_id, _org(user))).fetchone()
+        owns = conn.execute("SELECT 1 FROM agents WHERE id = %s AND org_id = %s", (agent_id, _org(user))).fetchone()
         if not owns:
             raise HTTPException(status_code=404, detail=f"Agent '{agent_id}' not found")
-        row = conn.execute("SELECT data_json FROM test_data WHERE agent_id = ?", (agent_id,)).fetchone()
+        row = conn.execute("SELECT data_json FROM test_data WHERE agent_id = %s", (agent_id,)).fetchone()
     if not row:
         return {"agent_id": agent_id, "data": None, "message": "No custom test data — using defaults"}
     return {"agent_id": agent_id, "data": json.loads(row["data_json"])}
@@ -3033,17 +3045,17 @@ def get_test_data(agent_id: str, user: dict = Depends(get_current_user)):
 def delete_test_data(agent_id: str, user: dict = Depends(get_current_user)):
     """Delete custom test data, revert to defaults."""
     with get_db() as conn:
-        owns = conn.execute("SELECT 1 FROM agents WHERE id = ? AND org_id = ?", (agent_id, _org(user))).fetchone()
+        owns = conn.execute("SELECT 1 FROM agents WHERE id = %s AND org_id = %s", (agent_id, _org(user))).fetchone()
         if not owns:
             raise HTTPException(status_code=404, detail=f"Agent '{agent_id}' not found")
-        conn.execute("DELETE FROM test_data WHERE agent_id = ?", (agent_id,))
+        conn.execute("DELETE FROM test_data WHERE agent_id = %s", (agent_id,))
     return {"message": "Test data deleted — simulations will use defaults"}
 
 
 def _get_custom_data(agent_id: str) -> dict | None:
     """Load custom test data for an agent if it exists."""
     with get_db() as conn:
-        row = conn.execute("SELECT data_json FROM test_data WHERE agent_id = ?", (agent_id,)).fetchone()
+        row = conn.execute("SELECT data_json FROM test_data WHERE agent_id = %s", (agent_id,)).fetchone()
     if row:
         return json.loads(row["data_json"])
     return None
@@ -3265,7 +3277,7 @@ def run_sandbox_simulation(req: SimulateRequest, user: dict = Depends(get_curren
     with get_db() as conn:
         conn.execute("""
             INSERT INTO simulations (id, agent_id, scenario_id, status, trace_json, report_json, org_id, created_at, run_mode)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
         """, (
             trace.simulation_id, trace.agent_id, trace.scenario_id,
             trace.status, json.dumps(_asdict(trace)), json.dumps(_asdict(report)),
@@ -3342,7 +3354,7 @@ def run_multi_agent_simulation(req: MultiSimulateRequest, user: dict = Depends(g
     # Store simulation
     with get_db() as conn:
         conn.execute(
-            "INSERT INTO simulations (id, agent_id, scenario_id, status, trace_json, report_json, org_id, created_at, run_mode) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO simulations (id, agent_id, scenario_id, status, trace_json, report_json, org_id, created_at, run_mode) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
             (multi_trace.simulation_id, req.coordinator_id, scenario.id, multi_trace.status,
              json.dumps(_asdict(multi_trace), default=str),
              json.dumps(_asdict(report), default=str),
@@ -3718,7 +3730,7 @@ def list_simulations(user: dict = Depends(get_current_user)):
         rows = conn.execute(
             "SELECT s.id, s.agent_id, s.scenario_id, s.status, s.created_at, s.report_json, a.name AS agent_name "
             "FROM simulations s LEFT JOIN agents a ON a.id = s.agent_id AND a.org_id = s.org_id "
-            "WHERE s.org_id = ? ORDER BY s.created_at DESC LIMIT 50",
+            "WHERE s.org_id = %s ORDER BY s.created_at DESC LIMIT 50",
             (_org(user),)
         ).fetchall()
     simulations = []
@@ -3737,7 +3749,7 @@ def list_simulations(user: dict = Depends(get_current_user)):
 def get_simulation(simulation_id: str, user: dict = Depends(get_current_user)):
     """Get full simulation detail with trace and report."""
     with get_db() as conn:
-        row = conn.execute("SELECT * FROM simulations WHERE id = ? AND org_id = ?", (simulation_id, _org(user))).fetchone()
+        row = conn.execute("SELECT * FROM simulations WHERE id = %s AND org_id = %s", (simulation_id, _org(user))).fetchone()
         if not row:
             raise HTTPException(status_code=404, detail=f"Simulation '{simulation_id}' not found")
     return {
@@ -3846,7 +3858,7 @@ def run_prelaunch_audit_endpoint(agent_id: str, req: PrelaunchRequest = None, us
         agent = get_agent_from_db(conn, agent_id, org_id=_org(user))
         if not agent:
             raise HTTPException(status_code=404, detail=f"Agent '{agent_id}' not found")
-        policies = conn.execute("SELECT * FROM policies WHERE agent_id = ?", (agent_id,)).fetchall()
+        policies = conn.execute("SELECT * FROM policies WHERE agent_id = %s", (agent_id,)).fetchall()
 
     body = req or PrelaunchRequest()
 
@@ -3876,7 +3888,7 @@ def apply_prelaunch_fixes(agent_id: str, user: dict = Depends(get_current_user))
         agent = get_agent_from_db(conn, agent_id, org_id=_org(user))
         if not agent:
             raise HTTPException(status_code=404, detail=f"Agent '{agent_id}' not found")
-        policies = conn.execute("SELECT * FROM policies WHERE agent_id = ?", (agent_id,)).fetchall()
+        policies = conn.execute("SELECT * FROM policies WHERE agent_id = %s", (agent_id,)).fetchall()
 
     report = run_prelaunch_audit(agent_config=agent, policies=[dict(p) for p in policies])
 
@@ -3888,7 +3900,7 @@ def apply_prelaunch_fixes(agent_id: str, user: dict = Depends(get_current_user))
             ps = fix.policy_suggestion
             # Check if policy already exists
             existing = conn.execute(
-                "SELECT id FROM policies WHERE agent_id = ? AND action_pattern = ? AND effect = ?",
+                "SELECT id FROM policies WHERE agent_id = %s AND action_pattern = %s AND effect = %s",
                 (agent_id, ps["action_pattern"], ps["effect"]),
             ).fetchone()
             if existing:
@@ -3896,7 +3908,7 @@ def apply_prelaunch_fixes(agent_id: str, user: dict = Depends(get_current_user))
 
             priority = {"BLOCK": 100, "REQUIRE_APPROVAL": 50, "ALLOW": 10}.get(ps["effect"], 0)
             conn.execute(
-                "INSERT INTO policies (agent_id, action_pattern, effect, reason, conditions, priority, created_by, created_at) VALUES (?, ?, ?, ?, '[]', ?, ?, ?)",
+                "INSERT INTO policies (agent_id, action_pattern, effect, reason, conditions, priority, created_by, created_at) VALUES (%s, %s, %s, %s, '[]', %s, %s, %s)",
                 (agent_id, ps["action_pattern"], ps["effect"], ps["reason"], priority, user["email"], datetime.utcnow().isoformat()),
             )
             applied.append({"action_pattern": ps["action_pattern"], "effect": ps["effect"]})
@@ -4057,7 +4069,7 @@ def get_cost_report(agent_id: str, daily_runs: int = 0, user: dict = Depends(get
         if not agent:
             raise HTTPException(status_code=404, detail=f"Agent '{agent_id}' not found")
         policies = conn.execute(
-            "SELECT * FROM policies WHERE agent_id = ?", (agent_id,)
+            "SELECT * FROM policies WHERE agent_id = %s", (agent_id,)
         ).fetchall()
         severity_overrides = _fetch_breach_overrides(conn, _org(user))
 
@@ -4074,7 +4086,7 @@ def _fetch_breach_overrides(conn, org_id: str) -> dict:
     """An org's breach-cost overrides shaped for generate_cost_report:
     {category: {per_incident_min_usd|per_incident_max_usd: value}}."""
     rows = conn.execute(
-        "SELECT key, sub_key, value FROM cost_overrides WHERE org_id = ? AND scope = 'breach'",
+        "SELECT key, sub_key, value FROM cost_overrides WHERE org_id = %s AND scope = 'breach'",
         (org_id,),
     ).fetchall()
     out: dict[str, dict] = {}
@@ -4110,19 +4122,19 @@ def _prev_snapshot_point(conn, agent_id: str, org_id: str, before_iso: str) -> O
     from analysis.spend_forecast import FORECAST_FORMULA_VERSION
     row = conn.execute(
         "SELECT point_usd, composition_json FROM forecast_snapshots "
-        "WHERE agent_id = ? AND org_id = ? AND captured_at <= ? "
+        "WHERE agent_id = %s AND org_id = %s AND captured_at <= %s "
         "ORDER BY captured_at DESC LIMIT 1",
         (agent_id, org_id, before_iso),
     ).fetchone()
     if not row:
         return None
     try:
-        comp = json.loads(row[1] or "{}")
+        comp = json.loads(row["composition_json"] or "{}")
     except (json.JSONDecodeError, TypeError):
         comp = {}
     if comp.get("formulaVersion") != FORECAST_FORMULA_VERSION:
         return None
-    return float(row[0])
+    return float(row["point_usd"])
 
 
 @app.get("/api/agents/{agent_id}/spend-forecast")
@@ -4160,24 +4172,24 @@ def get_spend_forecast(
             raise HTTPException(status_code=404, detail=f"Agent '{agent_id}' not found")
         # Pull any sandbox traces (for medium tier upgrade)
         sims = conn.execute(
-            "SELECT trace_json FROM simulations WHERE agent_id = ? AND status = 'completed' AND org_id = ? ORDER BY created_at DESC LIMIT 10",
+            "SELECT trace_json FROM simulations WHERE agent_id = %s AND status = 'completed' AND org_id = %s ORDER BY created_at DESC LIMIT 10",
             (agent_id, _org(user)),
         ).fetchall()
         # Count live traces in last 7 days (for high tier)
         seven_days_ago = (datetime.utcnow() - timedelta(days=7)).isoformat()
         live_count_row = conn.execute(
-            "SELECT COUNT(*) FROM audit_log l JOIN agents a ON a.id = l.user_email "
-            "WHERE l.action IN ('LLM_CALL', 'LLM_CALL_PROXY') AND l.user_email = ? AND a.org_id = ? AND l.timestamp > ?",
+            "SELECT COUNT(*) AS n FROM audit_log l JOIN agents a ON a.id = l.user_email "
+            "WHERE l.action IN ('LLM_CALL', 'LLM_CALL_PROXY') AND l.user_email = %s AND a.org_id = %s AND l.timestamp > %s",
             (agent_id, _org(user), seven_days_ago),
         ).fetchone()
-        live_count = int(live_count_row[0]) if live_count_row else 0
+        live_count = int(live_count_row["n"]) if live_count_row else 0
         # Rolling averages from captured calls — early live traffic (≥5 calls)
         # feeds the forecast at a wide band; the high tier still needs 50 (D27).
         live_rows = []
         if live_count >= LIVE_TRACE_MIN_CALLS_FORECAST:
             live_rows = conn.execute(
                 "SELECT l.detail, l.timestamp FROM audit_log l JOIN agents a ON a.id = l.user_email "
-                "WHERE l.action IN ('LLM_CALL', 'LLM_CALL_PROXY') AND l.user_email = ? AND a.org_id = ? AND l.timestamp > ?",
+                "WHERE l.action IN ('LLM_CALL', 'LLM_CALL_PROXY') AND l.user_email = %s AND a.org_id = %s AND l.timestamp > %s",
                 (agent_id, _org(user), seven_days_ago),
             ).fetchall()
         # Most recent forecast snapshot at least 30 days old (powers vsLastMonth)
@@ -4185,15 +4197,15 @@ def get_spend_forecast(
         previous_snapshot_point = _prev_snapshot_point(conn, agent_id, _org(user), thirty_days_ago)
         # Data sources panel inputs
         sandbox_sim_count = int(conn.execute(
-            "SELECT COUNT(*) FROM simulations WHERE agent_id = ? AND status = 'completed' AND org_id = ?",
+            "SELECT COUNT(*) AS n FROM simulations WHERE agent_id = %s AND status = 'completed' AND org_id = %s",
             (agent_id, _org(user)),
-        ).fetchone()[0])
+        ).fetchone()["n"])
         snap_stats = conn.execute(
-            "SELECT COUNT(*), MIN(captured_at) FROM forecast_snapshots WHERE agent_id = ? AND org_id = ?",
+            "SELECT COUNT(*) AS n, MIN(captured_at) AS oldest FROM forecast_snapshots WHERE agent_id = %s AND org_id = %s",
             (agent_id, _org(user)),
         ).fetchone()
-        snapshot_count = int(snap_stats[0]) if snap_stats else 0
-        oldest_snapshot_iso = snap_stats[1] if snap_stats else None
+        snapshot_count = int(snap_stats["n"]) if snap_stats else 0
+        oldest_snapshot_iso = snap_stats["oldest"] if snap_stats else None
 
     oldest_snapshot_days: Optional[int] = None
     if oldest_snapshot_iso:
@@ -4284,16 +4296,16 @@ def get_budget_fit(
             raise HTTPException(status_code=404, detail=f"Agent '{agent_id}' not found")
         seven_days_ago = (datetime.utcnow() - timedelta(days=7)).isoformat()
         live_count = int(conn.execute(
-            "SELECT COUNT(*) FROM audit_log l JOIN agents a ON a.id = l.user_email "
-            "WHERE l.action IN ('LLM_CALL', 'LLM_CALL_PROXY') AND l.user_email = ? AND a.org_id = ? AND l.timestamp > ?",
+            "SELECT COUNT(*) AS n FROM audit_log l JOIN agents a ON a.id = l.user_email "
+            "WHERE l.action IN ('LLM_CALL', 'LLM_CALL_PROXY') AND l.user_email = %s AND a.org_id = %s AND l.timestamp > %s",
             (agent_id, org_id, seven_days_ago),
-        ).fetchone()[0])
+        ).fetchone()["n"])
         live_rows = conn.execute(
             "SELECT l.detail, l.timestamp FROM audit_log l JOIN agents a ON a.id = l.user_email "
-            "WHERE l.action IN ('LLM_CALL', 'LLM_CALL_PROXY') AND l.user_email = ? AND a.org_id = ? AND l.timestamp > ?",
+            "WHERE l.action IN ('LLM_CALL', 'LLM_CALL_PROXY') AND l.user_email = %s AND a.org_id = %s AND l.timestamp > %s",
             (agent_id, org_id, seven_days_ago),
         ).fetchall() if live_count >= LIVE_TRACE_MIN_CALLS_FORECAST else []
-        policies = conn.execute("SELECT * FROM policies WHERE agent_id = ?", (agent_id,)).fetchall()
+        policies = conn.execute("SELECT * FROM policies WHERE agent_id = %s", (agent_id,)).fetchall()
         severity_overrides = _fetch_breach_overrides(conn, org_id)
 
     # Same baseline as the forecast: live averages, then explicit slider params.
@@ -4341,7 +4353,7 @@ def _month_to_date_spend(conn, agent_id: str, org_id: str) -> float:
     month_start = datetime.utcnow().replace(day=1, hour=0, minute=0, second=0, microsecond=0).isoformat()
     rows = conn.execute(
         "SELECT detail, timestamp FROM audit_log "
-        "WHERE action IN ('LLM_CALL', 'LLM_CALL_PROXY') AND user_email = ? AND timestamp >= ?",
+        "WHERE action IN ('LLM_CALL', 'LLM_CALL_PROXY') AND user_email = %s AND timestamp >= %s",
         (agent_id, month_start),
     ).fetchall()
     return compute_month_to_date_spend(rows, defaults=load_defaults(org_id))
@@ -4357,7 +4369,7 @@ def get_agent_budget(agent_id: str, user: dict = Depends(get_current_user)):
         if not agent:
             raise HTTPException(status_code=404, detail=f"Agent '{agent_id}' not found")
         row = conn.execute(
-            "SELECT monthly_budget_usd, alert_threshold_pct FROM agent_budgets WHERE agent_id = ? AND org_id = ?",
+            "SELECT monthly_budget_usd, alert_threshold_pct FROM agent_budgets WHERE agent_id = %s AND org_id = %s",
             (agent_id, org_id),
         ).fetchone()
         mtd = _month_to_date_spend(conn, agent_id, org_id)
@@ -4388,7 +4400,7 @@ def set_agent_budget(agent_id: str, req: AgentBudgetInput, user: dict = Depends(
             raise HTTPException(status_code=404, detail=f"Agent '{agent_id}' not found")
         conn.execute(
             "INSERT INTO agent_budgets (agent_id, org_id, monthly_budget_usd, alert_threshold_pct, updated_at) "
-            "VALUES (?, ?, ?, ?, ?) ON CONFLICT(agent_id) DO UPDATE SET "
+            "VALUES (%s, %s, %s, %s, %s) ON CONFLICT(agent_id) DO UPDATE SET "
             "monthly_budget_usd = excluded.monthly_budget_usd, alert_threshold_pct = excluded.alert_threshold_pct, updated_at = excluded.updated_at",
             (agent_id, org_id, req.monthly_budget_usd, req.alert_threshold_pct, datetime.utcnow().isoformat()),
         )
@@ -4401,7 +4413,7 @@ def set_agent_budget(agent_id: str, req: AgentBudgetInput, user: dict = Depends(
 def delete_agent_budget(agent_id: str, user: dict = Depends(get_current_user)):
     org_id = _org(user)
     with get_db() as conn:
-        conn.execute("DELETE FROM agent_budgets WHERE agent_id = ? AND org_id = ?", (agent_id, org_id))
+        conn.execute("DELETE FROM agent_budgets WHERE agent_id = %s AND org_id = %s", (agent_id, org_id))
     return {"ok": True}
 
 
@@ -4429,7 +4441,7 @@ def get_spend_forecasts_batch(user: dict = Depends(get_current_user)):
 
     with get_db() as conn:
         agent_rows = conn.execute(
-            "SELECT id FROM agents WHERE org_id = ?", (org_id,)
+            "SELECT id FROM agents WHERE org_id = %s", (org_id,)
         ).fetchall()
 
         forecasts: dict[str, Any] = {}
@@ -4448,7 +4460,7 @@ def get_spend_forecasts_batch(user: dict = Depends(get_current_user)):
 
             # Sandbox traces for tier
             sims = conn.execute(
-                "SELECT trace_json FROM simulations WHERE agent_id = ? AND status = 'completed' AND org_id = ? LIMIT 10",
+                "SELECT trace_json FROM simulations WHERE agent_id = %s AND status = 'completed' AND org_id = %s LIMIT 10",
                 (aid, org_id),
             ).fetchall()
             sandbox_traces = []
@@ -4465,28 +4477,28 @@ def get_spend_forecasts_batch(user: dict = Depends(get_current_user)):
 
             # Data sources inputs
             sandbox_sim_count = int(conn.execute(
-                "SELECT COUNT(*) FROM simulations WHERE agent_id = ? AND status = 'completed' AND org_id = ?",
+                "SELECT COUNT(*) AS n FROM simulations WHERE agent_id = %s AND status = 'completed' AND org_id = %s",
                 (aid, org_id),
-            ).fetchone()[0])
+            ).fetchone()["n"])
             seven_days_ago = (datetime.utcnow() - timedelta(days=7)).isoformat()
             live_count = int(conn.execute(
-                "SELECT COUNT(*) FROM audit_log WHERE action IN ('LLM_CALL', 'LLM_CALL_PROXY') AND user_email = ? AND timestamp > ?",
+                "SELECT COUNT(*) AS n FROM audit_log WHERE action IN ('LLM_CALL', 'LLM_CALL_PROXY') AND user_email = %s AND timestamp > %s",
                 (aid, seven_days_ago),
-            ).fetchone()[0])
+            ).fetchone()["n"])
             live_overrides = {}
             if live_count >= LIVE_TRACE_MIN_CALLS_FORECAST:
                 live_rows = conn.execute(
                     "SELECT detail, timestamp FROM audit_log "
-                    "WHERE action IN ('LLM_CALL', 'LLM_CALL_PROXY') AND user_email = ? AND timestamp > ?",
+                    "WHERE action IN ('LLM_CALL', 'LLM_CALL_PROXY') AND user_email = %s AND timestamp > %s",
                     (aid, seven_days_ago),
                 ).fetchall()
                 live_overrides = compute_live_rolling_averages(live_rows)
             snap_stats = conn.execute(
-                "SELECT COUNT(*), MIN(captured_at) FROM forecast_snapshots WHERE agent_id = ? AND org_id = ?",
+                "SELECT COUNT(*) AS n, MIN(captured_at) AS oldest FROM forecast_snapshots WHERE agent_id = %s AND org_id = %s",
                 (aid, org_id),
             ).fetchone()
-            snapshot_count = int(snap_stats[0]) if snap_stats else 0
-            oldest_snapshot_iso = snap_stats[1] if snap_stats else None
+            snapshot_count = int(snap_stats["n"]) if snap_stats else 0
+            oldest_snapshot_iso = snap_stats["oldest"] if snap_stats else None
             oldest_snapshot_days: Optional[int] = None
             if oldest_snapshot_iso:
                 try:
@@ -4553,16 +4565,16 @@ def get_spend_timeseries(agent_id: str, user: dict = Depends(get_current_user)):
         thirty_days_ago = (datetime.utcnow() - timedelta(days=30)).isoformat()
         rows = conn.execute(
             "SELECT detail, timestamp FROM audit_log "
-            "WHERE action IN ('LLM_CALL', 'LLM_CALL_PROXY') AND user_email = ? AND timestamp > ? "
+            "WHERE action IN ('LLM_CALL', 'LLM_CALL_PROXY') AND user_email = %s AND timestamp > %s "
             "ORDER BY timestamp ASC",
             (agent_id, thirty_days_ago),
         ).fetchall()
 
         seven_days_ago = (datetime.utcnow() - timedelta(days=7)).isoformat()
         live_count = int(conn.execute(
-            "SELECT COUNT(*) FROM audit_log WHERE action IN ('LLM_CALL', 'LLM_CALL_PROXY') AND user_email = ? AND timestamp > ?",
+            "SELECT COUNT(*) AS n FROM audit_log WHERE action IN ('LLM_CALL', 'LLM_CALL_PROXY') AND user_email = %s AND timestamp > %s",
             (agent_id, seven_days_ago),
-        ).fetchone()[0])
+        ).fetchone()["n"])
         live_rows = [r for r in rows if r["timestamp"] > seven_days_ago]
 
     org_defaults = load_defaults(_org(user))
@@ -4618,7 +4630,7 @@ def get_spend_anomalies(user: dict = Depends(get_current_user)):
         rows = conn.execute(
             "SELECT a.id AS agent_id, a.name AS agent_name, l.detail, l.timestamp "
             "FROM audit_log l JOIN agents a ON a.id = l.user_email "
-            "WHERE l.action IN ('LLM_CALL', 'LLM_CALL_PROXY') AND a.org_id = ? AND l.timestamp > ? "
+            "WHERE l.action IN ('LLM_CALL', 'LLM_CALL_PROXY') AND a.org_id = %s AND l.timestamp > %s "
             "ORDER BY l.timestamp ASC",
             (org_id, eight_days_ago),
         ).fetchall()
@@ -4713,7 +4725,7 @@ def list_cost_models(user: dict = Depends(get_current_user)):
     org_id = _org(user)
     with get_db() as conn:
         row = conn.execute(
-            "SELECT default_model FROM workspace_settings WHERE org_id = ?", (org_id,)
+            "SELECT default_model FROM workspace_settings WHERE org_id = %s", (org_id,)
         ).fetchone()
     org_default = (row["default_model"] if row else None) or None
     models = base.get("models", {})
@@ -4747,13 +4759,13 @@ def set_org_default_model(req: DefaultModelInput, user: dict = Depends(get_curre
         raise HTTPException(status_code=400, detail=f"Unknown model '{model}' — not in the pricing catalog")
     now = datetime.utcnow().isoformat()
     with get_db() as conn:
-        existing = conn.execute("SELECT id FROM workspace_settings WHERE org_id = ?", (org_id,)).fetchone()
+        existing = conn.execute("SELECT id FROM workspace_settings WHERE org_id = %s", (org_id,)).fetchone()
         if existing:
-            conn.execute("UPDATE workspace_settings SET default_model = ?, updated_at = ? WHERE org_id = ?",
+            conn.execute("UPDATE workspace_settings SET default_model = %s, updated_at = %s WHERE org_id = %s",
                          (model, now, org_id))
         else:
             conn.execute(
-                "INSERT INTO workspace_settings (id, default_model, org_id, updated_at) VALUES (NULL, ?, ?, ?)",
+                "INSERT INTO workspace_settings (default_model, org_id, updated_at) VALUES (%s, %s, %s)",
                 (model, org_id, now),
             )
         log_audit(conn, user["sub"], user["email"], "SET_DEFAULT_MODEL", detail=str(model), org_id=org_id)
@@ -4792,7 +4804,7 @@ def list_cost_overrides(user: dict = Depends(get_current_user)):
     base = load_defaults()  # pristine — the form shows defaults vs overrides
     with get_db() as conn:
         rows = conn.execute(
-            "SELECT id, scope, key, sub_key, value, updated_at FROM cost_overrides WHERE org_id = ? ORDER BY scope, key, sub_key",
+            "SELECT id, scope, key, sub_key, value, updated_at FROM cost_overrides WHERE org_id = %s ORDER BY scope, key, sub_key",
             (_org(user),),
         ).fetchall()
 
@@ -4823,7 +4835,7 @@ def upsert_cost_override(req: CostOverrideInput, user: dict = Depends(get_curren
     now = datetime.utcnow().isoformat()
     with get_db() as conn:
         conn.execute(
-            "INSERT INTO cost_overrides (org_id, scope, key, sub_key, value, updated_at) VALUES (?, ?, ?, ?, ?, ?) "
+            "INSERT INTO cost_overrides (org_id, scope, key, sub_key, value, updated_at) VALUES (%s, %s, %s, %s, %s, %s) "
             "ON CONFLICT(org_id, scope, key, sub_key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
             (_org(user), req.scope, req.key, req.sub_key, req.value, now),
         )
@@ -4838,12 +4850,12 @@ def delete_cost_override(override_id: int, user: dict = Depends(get_current_user
     """Remove an override — the forecast falls back to the YAML default."""
     with get_db() as conn:
         row = conn.execute(
-            "SELECT scope, key, sub_key FROM cost_overrides WHERE id = ? AND org_id = ?",
+            "SELECT scope, key, sub_key FROM cost_overrides WHERE id = %s AND org_id = %s",
             (override_id, _org(user)),
         ).fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="Override not found")
-        conn.execute("DELETE FROM cost_overrides WHERE id = ? AND org_id = ?", (override_id, _org(user)))
+        conn.execute("DELETE FROM cost_overrides WHERE id = %s AND org_id = %s", (override_id, _org(user)))
         log_audit(conn, user["sub"], user["email"], "COST_OVERRIDE_DELETE",
                   resource=f"{row['scope']}:{row['key']}:{row['sub_key']}", org_id=_org(user))
     _bust_forecast_caches()
@@ -4892,7 +4904,7 @@ def run_regression_test_endpoint(agent_id: str, create_baseline: bool = False, u
 def get_regression_history(agent_id: str, user: dict = Depends(get_current_user)):
     """Get regression test history for an agent."""
     with get_db() as conn:
-        if not conn.execute("SELECT 1 FROM agents WHERE id = ? AND org_id = ?", (agent_id, _org(user))).fetchone():
+        if not conn.execute("SELECT 1 FROM agents WHERE id = %s AND org_id = %s", (agent_id, _org(user))).fetchone():
             raise HTTPException(status_code=404, detail=f"Agent '{agent_id}' not found")
     from testing.regression import _get_baseline_history
     return {"agent_id": agent_id, "history": _get_baseline_history(agent_id)}
@@ -5080,7 +5092,7 @@ def run_sweep(req: SweepRequest, user: dict = Depends(get_current_user)):
     now_iso = datetime.utcnow().isoformat()
     with get_db() as conn:
         conn.execute(
-            "INSERT INTO sweeps (id, agent_id, status, total_scenarios, completed, report_json, org_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO sweeps (id, agent_id, status, total_scenarios, completed, report_json, org_id, created_at) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
             (sweep_id, req.agent_id, "completed", sweep_report.total_scenarios,
              sweep_report.completed, json.dumps(_asdict(sweep_report), default=str),
              _org(user), now_iso),
@@ -5093,7 +5105,7 @@ def run_sweep(req: SweepRequest, user: dict = Depends(get_current_user)):
             if req.dry_run or getattr(trace, "status", None) == "error":
                 continue
             conn.execute(
-                "INSERT INTO simulations (id, agent_id, scenario_id, status, trace_json, report_json, org_id, created_at, run_mode) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO simulations (id, agent_id, scenario_id, status, trace_json, report_json, org_id, created_at, run_mode) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
                 (uuid.uuid4().hex[:12], req.agent_id, scenario.id, "completed",
                  json.dumps(_asdict(trace), default=str), json.dumps(_asdict(report), default=str),
                  _org(user), now_iso, "live"),
@@ -5109,7 +5121,7 @@ def list_sweeps(user: dict = Depends(get_current_user)):
     """List past sweep runs."""
     with get_db() as conn:
         rows = conn.execute(
-            "SELECT id, agent_id, status, total_scenarios, completed, created_at, report_json FROM sweeps WHERE org_id = ? ORDER BY created_at DESC LIMIT 50",
+            "SELECT id, agent_id, status, total_scenarios, completed, created_at, report_json FROM sweeps WHERE org_id = %s ORDER BY created_at DESC LIMIT 50",
             (_org(user),)
         ).fetchall()
     sweeps = []
@@ -5128,7 +5140,7 @@ def list_sweeps(user: dict = Depends(get_current_user)):
 def get_sweep(sweep_id: str, user: dict = Depends(get_current_user)):
     """Get full sweep detail."""
     with get_db() as conn:
-        row = conn.execute("SELECT * FROM sweeps WHERE id = ? AND org_id = ?", (sweep_id, _org(user))).fetchone()
+        row = conn.execute("SELECT * FROM sweeps WHERE id = %s AND org_id = %s", (sweep_id, _org(user))).fetchone()
         if not row:
             raise HTTPException(status_code=404, detail=f"Sweep '{sweep_id}' not found")
     return json.loads(row["report_json"])
@@ -5162,13 +5174,13 @@ def apply_recommended_policy(req: ApplyPolicyRequest, user: dict = Depends(get_c
         raise HTTPException(status_code=400, detail="Effect must be BLOCK, REQUIRE_APPROVAL, or ALLOW")
 
     with get_db() as conn:
-        existing = conn.execute("SELECT id FROM agents WHERE id = ? AND org_id = ?", (req.agent_id, _org(user))).fetchone()
+        existing = conn.execute("SELECT id FROM agents WHERE id = %s AND org_id = %s", (req.agent_id, _org(user))).fetchone()
         if not existing:
             raise HTTPException(status_code=404, detail=f"Agent '{req.agent_id}' not found")
 
         # Check if policy already exists
         dupe = conn.execute(
-            "SELECT id FROM policies WHERE agent_id = ? AND action_pattern = ? AND effect = ?",
+            "SELECT id FROM policies WHERE agent_id = %s AND action_pattern = %s AND effect = %s",
             (req.agent_id, req.action_pattern, req.effect),
         ).fetchone()
         if dupe:
@@ -5179,13 +5191,14 @@ def apply_recommended_policy(req: ApplyPolicyRequest, user: dict = Depends(get_c
         # at enforcement (ORDER BY priority DESC): the recommended block was fail-open.
         priority = {"BLOCK": 100, "REQUIRE_APPROVAL": 50, "ALLOW": 10}.get(req.effect, 0)
         cur = conn.execute(
-            "INSERT INTO policies (agent_id, action_pattern, effect, reason, priority, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO policies (agent_id, action_pattern, effect, reason, priority, created_by, created_at) VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING id",
             (req.agent_id, req.action_pattern, req.effect, req.reason, priority, user["email"], datetime.utcnow().isoformat()),
         )
+        policy_id = cur.fetchone()["id"]
         log_audit(conn, user["sub"], user["email"], "APPLY_RECOMMENDATION", resource=req.agent_id,
                   detail=f"{req.effect} on {req.action_pattern}")
 
-    return {"id": cur.lastrowid, "message": "Policy created", "already_exists": False}
+    return {"id": policy_id, "message": "Policy created", "already_exists": False}
 
 
 class ApplyAllPoliciesRequest(BaseModel):
@@ -5200,13 +5213,13 @@ def apply_all_recommended_policies(req: ApplyAllPoliciesRequest, user: dict = De
     skipped = 0
 
     with get_db() as conn:
-        existing = conn.execute("SELECT id FROM agents WHERE id = ? AND org_id = ?", (req.agent_id, _org(user))).fetchone()
+        existing = conn.execute("SELECT id FROM agents WHERE id = %s AND org_id = %s", (req.agent_id, _org(user))).fetchone()
         if not existing:
             raise HTTPException(status_code=404, detail=f"Agent '{req.agent_id}' not found")
 
         for p in req.policies:
             dupe = conn.execute(
-                "SELECT id FROM policies WHERE agent_id = ? AND action_pattern = ? AND effect = ?",
+                "SELECT id FROM policies WHERE agent_id = %s AND action_pattern = %s AND effect = %s",
                 (req.agent_id, p.action_pattern, p.effect),
             ).fetchone()
             if dupe:
@@ -5215,7 +5228,7 @@ def apply_all_recommended_policies(req: ApplyAllPoliciesRequest, user: dict = De
 
             priority = {"BLOCK": 100, "REQUIRE_APPROVAL": 50, "ALLOW": 10}.get(p.effect, 0)
             conn.execute(
-                "INSERT INTO policies (agent_id, action_pattern, effect, reason, priority, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO policies (agent_id, action_pattern, effect, reason, priority, created_by, created_at) VALUES (%s, %s, %s, %s, %s, %s, %s)",
                 (req.agent_id, p.action_pattern, p.effect, p.reason, priority, user["email"], datetime.utcnow().isoformat()),
             )
             created += 1
@@ -5314,7 +5327,7 @@ async def call_mock_endpoint(tool: str, action: str, request: Request):
     try:
         with get_db() as conn:
             policies = conn.execute(
-                "SELECT * FROM policies WHERE agent_id = ? ORDER BY id", (agent_id,)
+                "SELECT * FROM policies WHERE agent_id = %s ORDER BY id", (agent_id,)
             ).fetchall()
 
             action_key = f"{tool}.{action}"
@@ -5418,9 +5431,9 @@ def verify_api_key(request: Request) -> dict | None:
         return None
     key_hash = _hashlib.sha256(key.encode()).hexdigest()
     with get_db() as conn:
-        row = conn.execute("SELECT * FROM api_keys WHERE key_hash = ? AND active = 1", (key_hash,)).fetchone()
+        row = conn.execute("SELECT * FROM api_keys WHERE key_hash = %s AND active = 1", (key_hash,)).fetchone()
         if row:
-            conn.execute("UPDATE api_keys SET last_used = ? WHERE id = ?", (datetime.utcnow().isoformat(), row["id"]))
+            conn.execute("UPDATE api_keys SET last_used = %s WHERE id = %s", (datetime.utcnow().isoformat(), row["id"]))
             return dict(row)
     return None
 
@@ -5438,7 +5451,7 @@ def create_api_key(req: CreateApiKeyRequest, user: dict = Depends(get_current_us
 
     with get_db() as conn:
         conn.execute(
-            "INSERT INTO api_keys (id, key_hash, key_prefix, name, created_by, agent_id, org_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO api_keys (id, key_hash, key_prefix, name, created_by, agent_id, org_id, created_at) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
             (key_id, key_hash, key_prefix, req.name, user["email"], req.agent_id or None, _org(user), datetime.utcnow().isoformat()),
         )
         log_audit(conn, user["sub"], user["email"], "CREATE_API_KEY", resource=key_id,
@@ -5454,7 +5467,7 @@ def list_api_keys(user: dict = Depends(get_current_user)):
     """List all API keys (shows prefix only, not the full key)."""
     with get_db() as conn:
         rows = conn.execute(
-            "SELECT id, key_prefix, name, agent_id, active, last_used, created_at, created_by FROM api_keys WHERE org_id = ? ORDER BY created_at DESC",
+            "SELECT id, key_prefix, name, agent_id, active, last_used, created_at, created_by FROM api_keys WHERE org_id = %s ORDER BY created_at DESC",
             (_org(user),)
         ).fetchall()
     return {"keys": [dict(r) for r in rows]}
@@ -5464,10 +5477,10 @@ def list_api_keys(user: dict = Depends(get_current_user)):
 def revoke_api_key(key_id: str, user: dict = Depends(get_current_user)):
     """Revoke an API key."""
     with get_db() as conn:
-        row = conn.execute("SELECT * FROM api_keys WHERE id = ? AND org_id = ?", (key_id, _org(user))).fetchone()
+        row = conn.execute("SELECT * FROM api_keys WHERE id = %s AND org_id = %s", (key_id, _org(user))).fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="API key not found")
-        conn.execute("UPDATE api_keys SET active = 0 WHERE id = ? AND org_id = ?", (key_id, _org(user)))
+        conn.execute("UPDATE api_keys SET active = 0 WHERE id = %s AND org_id = %s", (key_id, _org(user)))
         log_audit(conn, user["sub"], user["email"], "REVOKE_API_KEY", resource=key_id,
                   detail=f"Revoked key '{row['name']}'")
     return {"message": "API key revoked"}

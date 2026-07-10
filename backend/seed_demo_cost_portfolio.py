@@ -20,14 +20,13 @@ fresh window ending today, so it's safe to run right before each demo.
 """
 
 import random
-import sqlite3
 import sys
 import json
 from datetime import datetime, timedelta
 
 import httpx
 
-from db import DB_PATH
+from db import get_db
 
 BASE = "http://localhost:8000"
 AGENT_NAME = "Acme Support Copilot"
@@ -86,15 +85,12 @@ def seed_trace(agent_org: str) -> int:
             cache_read = rng.choice([0, 1800, 2000, 2200])  # ~55% cache hit on avg
             rows.append((None, AGENT_ID, "LLM_CALL", f"anthropic:{MODEL}",
                          _usage_detail(in_base, out, cache_read), agent_org, ts.isoformat()))
-    conn = sqlite3.connect(str(DB_PATH))
-    try:
-        conn.execute("DELETE FROM audit_log WHERE action='LLM_CALL' AND user_email=?", (AGENT_ID,))
-        conn.executemany(
-            "INSERT INTO audit_log (user_id, user_email, action, resource, detail, org_id, timestamp) "
-            "VALUES (?,?,?,?,?,?,?)", rows)
-        conn.commit()
-    finally:
-        conn.close()
+    with get_db() as conn:
+        conn.execute("DELETE FROM audit_log WHERE action='LLM_CALL' AND user_email=%s", (AGENT_ID,))
+        with conn.cursor() as cur:
+            cur.executemany(
+                "INSERT INTO audit_log (user_id, user_email, action, resource, detail, org_id, timestamp) "
+                "VALUES (%s,%s,%s,%s,%s,%s,%s)", rows)
     return len(rows)
 
 
@@ -106,7 +102,7 @@ def seed_prior_snapshot(agent_org: str):
     """
     import uuid
     # Derive the prior point from a local forecast (no HTTP/auth needed).
-    from db import get_db, get_agent_from_db
+    from db import get_agent_from_db
     from analysis.spend_forecast import (
         forecast_spend, compute_live_rolling_averages, LIVE_TRACE_MIN_CALLS,
         FORECAST_FORMULA_VERSION,
@@ -115,9 +111,9 @@ def seed_prior_snapshot(agent_org: str):
         agent = get_agent_from_db(conn, AGENT_ID, org_id=agent_org)
         seven_days_ago = (datetime.utcnow() - timedelta(days=7)).isoformat()
         live_count = int(conn.execute(
-            "SELECT COUNT(*) FROM audit_log WHERE action='LLM_CALL' AND user_email=? AND timestamp > ?",
+            "SELECT COUNT(*) AS n FROM audit_log WHERE action='LLM_CALL' AND user_email=%s AND timestamp > %s",
             (AGENT_ID, seven_days_ago),
-        ).fetchone()[0])
+        ).fetchone()["n"])
         # Mirror /api/agents/{id}/spend-forecast EXACTLY: at high tier it feeds
         # the live rolling averages back in as overrides. If we forecast without
         # them here, `current` falls back to capability-tree defaults (~3.5x
@@ -127,7 +123,7 @@ def seed_prior_snapshot(agent_org: str):
         if live_count >= LIVE_TRACE_MIN_CALLS:
             live_rows = conn.execute(
                 "SELECT detail, timestamp FROM audit_log "
-                "WHERE action='LLM_CALL' AND user_email=? AND timestamp > ?",
+                "WHERE action='LLM_CALL' AND user_email=%s AND timestamp > %s",
                 (AGENT_ID, seven_days_ago),
             ).fetchall()
             overrides = compute_live_rolling_averages(live_rows) or None
@@ -157,17 +153,16 @@ def seed_prior_snapshot(agent_org: str):
             "confidence": current.get("confidence"),
             "formulaVersion": FORECAST_FORMULA_VERSION,
         })
-        conn.execute("DELETE FROM forecast_snapshots WHERE agent_id=?", (AGENT_ID,))
+        conn.execute("DELETE FROM forecast_snapshots WHERE agent_id=%s", (AGENT_ID,))
         conn.execute(
             "INSERT INTO forecast_snapshots "
             "(id, agent_id, org_id, snapshot_date, point_usd, low_usd, high_usd, composition_json, captured_at) "
-            "VALUES (?,?,?,?,?,?,?,?,?)",
+            "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)",
             (str(uuid.uuid4()), AGENT_ID, agent_org,
              (datetime.utcnow() - timedelta(days=31)).date().isoformat(),
              prior_point, round(prior_point * 0.85, 2), round(prior_point * 1.15, 2),
              composition_json, captured),
         )
-        conn.commit()
     return prior_point, current["point"]
 
 
@@ -177,9 +172,8 @@ def main() -> int:
     except Exception as e:
         print(f"Could not register agent (is the server up on :8000?): {e}", file=sys.stderr)
         return 1
-    conn = sqlite3.connect(str(DB_PATH))
-    agent_org = conn.execute("SELECT org_id FROM agents WHERE id=?", (aid,)).fetchone()[0]
-    conn.close()
+    with get_db() as conn:
+        agent_org = conn.execute("SELECT org_id FROM agents WHERE id=%s", (aid,)).fetchone()["org_id"]
 
     n = seed_trace(agent_org)
     prior, current = seed_prior_snapshot(agent_org)

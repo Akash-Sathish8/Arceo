@@ -26,7 +26,7 @@ def _load_sandbox_traces(conn, agent_id: str, org_id: str) -> list:
     """Most recent 10 completed sandbox traces for the agent."""
     rows = conn.execute(
         "SELECT trace_json FROM simulations "
-        "WHERE agent_id = ? AND status = 'completed' AND org_id = ? "
+        "WHERE agent_id = %s AND status = 'completed' AND org_id = %s "
         "ORDER BY created_at DESC LIMIT 10",
         (agent_id, org_id),
     ).fetchall()
@@ -45,7 +45,7 @@ def _live_trace_count_7d(conn, agent_id: str) -> int:
     # provider:model). Both capture paths (SDK wrap_llm + transparent proxy) count.
     seven_days_ago = (datetime.utcnow() - timedelta(days=7)).isoformat()
     row = conn.execute(
-        "SELECT COUNT(*) FROM audit_log WHERE action IN ('LLM_CALL', 'LLM_CALL_PROXY') AND user_email = ? AND timestamp > ?",
+        "SELECT COUNT(*) FROM audit_log WHERE action IN ('LLM_CALL', 'LLM_CALL_PROXY') AND user_email = %s AND timestamp > %s",
         (agent_id, seven_days_ago),
     ).fetchone()
     return int(row[0]) if row else 0
@@ -72,7 +72,7 @@ def snapshot_all_agents() -> dict:
             # Idempotent per day — safe to re-run (and lets the in-process
             # scheduler poll without duplicating rows).
             already = conn.execute(
-                "SELECT 1 FROM forecast_snapshots WHERE agent_id = ? AND org_id = ? AND snapshot_date = ? LIMIT 1",
+                "SELECT 1 FROM forecast_snapshots WHERE agent_id = %s AND org_id = %s AND snapshot_date = %s LIMIT 1",
                 (agent_id, org_id, snapshot_date),
             ).fetchone()
             if already:
@@ -109,7 +109,7 @@ def snapshot_all_agents() -> dict:
                 conn.execute(
                     "INSERT INTO forecast_snapshots "
                     "(id, agent_id, org_id, snapshot_date, point_usd, low_usd, high_usd, composition_json, captured_at) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
                     (
                         str(uuid.uuid4()),
                         agent_id,
