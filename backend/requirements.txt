@@ -14,3 +14,5 @@ psycopg[binary]>=3.1
 psycopg-pool>=3.2
 alembic>=1.13
 sqlalchemy>=2.0
+# Credential vault (Phase 2): AES-256-GCM envelope encryption.
+cryptography>=42

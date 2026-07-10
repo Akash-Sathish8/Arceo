@@ -26,6 +26,7 @@ from db import (
     get_db, init_db, get_agent_from_db, get_all_agents_from_db,
     log_audit, log_execution, DEFAULT_ORG_ID,
 )
+import vault
 from authority.chain_detector import detect_chains as _detect_chains
 from authority.enforcement import enforce_check, safe_enforce_check, match_policy as _match_policy
 from authority.graph import build_agent_graph, calculate_blast_radius, graph_to_dict
@@ -74,6 +75,16 @@ RATE_LIMIT_WINDOW = int(os.getenv("RATE_LIMIT_WINDOW", "60"))  # seconds
 def _org(user: dict) -> str:
     """Extract org_id from authenticated user. Every query uses this."""
     return user.get("org_id", DEFAULT_ORG_ID)
+
+
+def require_admin(user: dict) -> None:
+    """403 unless the caller's role is 'admin' — the first role-enforced
+    surface in the codebase (users.role existed but nothing gated on it).
+    Phase 5 generalizes this into real RBAC; until then only the credential
+    vault needs it, because a viewer who can write credentials can redirect
+    every proxied call."""
+    if (user.get("role") or "") != "admin":
+        raise HTTPException(status_code=403, detail="Admin role required")
 
 
 def _caller_org(request: Request) -> str:
@@ -462,6 +473,47 @@ async def proxy_request(service: str, path: str, request: Request):
     # Forward all headers except host and agent-id
     forward_headers = {k: v for k, v in request.headers.items()
                        if k.lower() not in ("host", "x-agent-id", "content-length")}
+
+    # Credential vault: on a hit, the agent's own Authorization (and the Arceo
+    # X-API-Key) never reach the upstream — the vaulted secret is injected
+    # instead. The org is the AGENT's org from the DB, never a caller header:
+    # a caller-supplied org would let any keyholder borrow another tenant's
+    # credentials. On a miss, ARCEO_REQUIRE_VAULT decides: off (default) keeps
+    # today's passthrough so rollout breaks nothing; on = no credential, no
+    # call, for the providers the vault supports.
+    with get_db() as conn:
+        agent_row = conn.execute("SELECT org_id FROM agents WHERE id = %s", (agent_id,)).fetchone()
+        cred_row = None
+        if agent_row:
+            cred_row = conn.execute(
+                "SELECT encrypted_config, wrapped_dek FROM provider_credentials "
+                "WHERE org_id = %s AND provider = %s",
+                (agent_row["org_id"], service),
+            ).fetchone()
+
+    if cred_row:
+        try:
+            cred_config = vault.decrypt_credential(cred_row["wrapped_dek"], cred_row["encrypted_config"])
+        except Exception:
+            # Wrong/missing master key or corrupt row: fail CLOSED for this
+            # call — forwarding the agent's own key here would silently undo
+            # the vault's guarantee. Reason string carries no secret material.
+            with get_db() as conn:
+                log_execution(conn, agent_id, service, action, "BLOCKED",
+                              detail=f"vault decrypt failed for {service} credential",
+                              org_id=agent_row["org_id"], source="runtime")
+            return {"blocked": True, "reason": f"vault credential for {service} could not be decrypted",
+                    "action": f"{service}.{action}", "agent_id": agent_id}
+        forward_headers = {k: v for k, v in forward_headers.items()
+                           if k.lower() not in ("authorization", "x-api-key")}
+        forward_headers["Authorization"] = f"Bearer {cred_config['secret']}"
+    elif _vault_require_on() and service in VAULT_SUPPORTED_PROVIDERS:
+        with get_db() as conn:
+            log_execution(conn, agent_id, service, action, "BLOCKED",
+                          detail=f"no vaulted credential for {service}",
+                          org_id=(agent_row["org_id"] if agent_row else DEFAULT_ORG_ID), source="runtime")
+        return {"blocked": True, "reason": f"no vaulted credential for {service}",
+                "action": f"{service}.{action}", "agent_id": agent_id}
 
     try:
         async with _httpx.AsyncClient(timeout=30.0) as client:
@@ -2910,6 +2962,100 @@ def send_test_digest(user: dict = Depends(get_current_user)):
     if not ok:
         raise HTTPException(status_code=502, detail=f"Could not send: {reason}")
     return {"ok": True, "sent_to": email}
+
+
+# ── Credential Vault (Phase 2) ───────────────────────────────────────────────
+# Org-scoped upstream provider credentials, envelope-encrypted (vault.py).
+# The proxy strips whatever Authorization an agent sent and injects these —
+# "no credential, no call" once ARCEO_REQUIRE_VAULT is on.
+
+# Launch providers — all Bearer-token auth. zendesk/salesforce need base-URL
+# placeholder substitution ({subdomain}/{instance}) before vaulting makes
+# sense for them; until then PUT refuses them rather than storing credentials
+# that would silently never be injected.
+VAULT_SUPPORTED_PROVIDERS = {"stripe", "github", "sendgrid"}
+
+
+def _vault_require_on() -> bool:
+    return os.getenv("ARCEO_REQUIRE_VAULT", "").lower() in ("1", "true", "on", "yes")
+
+
+class CredentialRequest(BaseModel):
+    secret: str
+    subdomain: str = ""
+    instance: str = ""
+
+
+@app.get("/api/credentials")
+def list_credentials(user: dict = Depends(get_current_user)):
+    """List this org's vaulted credentials — metadata only, never the secret.
+    There is deliberately no show-key path: rotation is the only recovery."""
+    require_admin(user)
+    with get_db() as conn:
+        rows = conn.execute(
+            "SELECT provider, auth_type, created_by, created_at, updated_at "
+            "FROM provider_credentials WHERE org_id = %s ORDER BY provider",
+            (_org(user),),
+        ).fetchall()
+    return {"credentials": [dict(r) for r in rows], "supported_providers": sorted(VAULT_SUPPORTED_PROVIDERS)}
+
+
+@app.put("/api/credentials/{provider}")
+def set_credential(provider: str, req: CredentialRequest, user: dict = Depends(get_current_user)):
+    """Create or rotate the org's credential for a provider (fresh DEK either way)."""
+    require_admin(user)
+    if provider not in VAULT_SUPPORTED_PROVIDERS:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Provider '{provider}' is not vault-supported yet. Supported: "
+                   f"{', '.join(sorted(VAULT_SUPPORTED_PROVIDERS))}",
+        )
+    if not req.secret or not req.secret.strip():
+        raise HTTPException(status_code=422, detail="secret must be non-empty")
+
+    config = {"secret": req.secret}
+    if req.subdomain:
+        config["subdomain"] = req.subdomain
+    if req.instance:
+        config["instance"] = req.instance
+    try:
+        wrapped_dek, encrypted_config = vault.encrypt_credential(config)
+    except vault.VaultConfigError as e:
+        # Configuration problem (missing/weak master key) — the message is
+        # operator guidance and contains no secret material.
+        raise HTTPException(status_code=503, detail=str(e))
+
+    org_id = _org(user)
+    now = datetime.utcnow().isoformat()
+    with get_db() as conn:
+        conn.execute(
+            "INSERT INTO provider_credentials (id, org_id, provider, auth_type, encrypted_config, wrapped_dek, created_by, created_at, updated_at) "
+            "VALUES (%s, %s, %s, 'bearer', %s, %s, %s, %s, %s) "
+            "ON CONFLICT (org_id, provider) DO UPDATE SET "
+            "encrypted_config = EXCLUDED.encrypted_config, wrapped_dek = EXCLUDED.wrapped_dek, "
+            "auth_type = EXCLUDED.auth_type, updated_at = EXCLUDED.updated_at",
+            (uuid.uuid4().hex[:12], org_id, provider, encrypted_config, wrapped_dek, user["email"], now, now),
+        )
+        log_audit(conn, user["sub"], user["email"], "VAULT_SET_CREDENTIAL", resource=provider,
+                  detail=f"Credential set/rotated for {provider}", org_id=org_id)
+    return {"message": f"Credential stored for {provider}", "provider": provider}
+
+
+@app.delete("/api/credentials/{provider}")
+def delete_credential(provider: str, user: dict = Depends(get_current_user)):
+    """Revoke the org's credential for a provider."""
+    require_admin(user)
+    org_id = _org(user)
+    with get_db() as conn:
+        cur = conn.execute(
+            "DELETE FROM provider_credentials WHERE org_id = %s AND provider = %s",
+            (org_id, provider),
+        )
+        if cur.rowcount == 0:
+            raise HTTPException(status_code=404, detail=f"No credential stored for '{provider}'")
+        log_audit(conn, user["sub"], user["email"], "VAULT_DELETE_CREDENTIAL", resource=provider,
+                  detail=f"Credential revoked for {provider}", org_id=org_id)
+    return {"message": f"Credential revoked for {provider}"}
 
 
 # ── Audit Log ───────────────────────────────────────────────────────────────
