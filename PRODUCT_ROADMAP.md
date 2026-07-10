@@ -81,6 +81,8 @@ existing agents don't go dark.
 
 **Goal:** production datastore; Arceo holds the credentials (the keystone primitive).
 
+> **Delegation package (2026-07-09):** [[Phase 2 — delegation package]] — operator instructions + verbatim agent prompt, verified against `dev` post-Phase-1. Three PRs (`phase2/prep`, `phase2/postgres-cutover`, `phase2/credential-vault`), owner-reviewed, vault PR gated on the security-specialist sign-off.
+
 | Task | Owner | ew | Files |
 |---|---|---|---|
 | SQLite→Postgres: SQLAlchemy/psycopg engine + pool; port `init_db` executescript → **Alembic** migrations; rewrite ~200 `?`→`%s` + `sqlite3.Row` sites; kill WAL/busy_timeout + audit-drop-on-lock hacks; data-copy + rollback script | A | 5.0 (→P3) | `db.py:44-304`; ~95 endpoints in `main.py`; `auth.py`; `enforcement.py` |
