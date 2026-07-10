@@ -22,6 +22,9 @@ import tempfile
 
 _TEST_DIR = tempfile.mkdtemp(prefix="arceo-test-")
 os.environ["ARCEO_DB_PATH"] = os.path.join(_TEST_DIR, "test.db")
+# The LLM cache resolves its own path now (no longer derived from the app DB
+# location) — point it at the same tempdir so tests never write beside the repo.
+os.environ["ARCEO_LLM_CACHE_PATH"] = os.path.join(_TEST_DIR, "llm_cache.db")
 os.environ.setdefault("JWT_SECRET", "test-secret-not-for-prod")
 os.environ["ANTHROPIC_API_KEY"] = ""
 
