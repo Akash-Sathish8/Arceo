@@ -276,7 +276,8 @@ export default function AgentDrawer({
             display: "flex",
             alignItems: "center",
             justifyContent: "space-between",
-            padding: "16px 24px",
+            gap: 10,
+            padding: "14px 20px",
             borderBottom: "1px solid var(--line)",
             flexShrink: 0,
           }}
@@ -287,74 +288,88 @@ export default function AgentDrawer({
             style={{
               display: "inline-flex",
               alignItems: "center",
-              gap: 7,
+              gap: 5,
               background: "transparent",
               border: "none",
               color: "var(--ink-600)",
-              fontSize: 13.5,
+              fontSize: 12.5,
               fontWeight: 500,
               fontFamily: "inherit",
               cursor: "pointer",
               padding: 4,
+              whiteSpace: "nowrap",
+              flexShrink: 0,
             }}
           >
-            <ArrowLeft size={17} strokeWidth={1.7} /> All agents
+            <ArrowLeft size={16} strokeWidth={1.7} /> All agents
           </button>
-          <button
-            type="button"
-            onClick={() => onSimulate?.(a.id)}
-            className="ag-btn"
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 7,
-              background: "var(--accent)",
-              color: "#fff",
-              border: "none",
-              borderRadius: 8,
-              padding: "8px 14px",
-              fontSize: 13,
-              fontWeight: 550,
-              fontFamily: "inherit",
-              cursor: "pointer",
-            }}
-          >
-            <FlaskConical size={14} strokeWidth={1.7} /> Simulate in sandbox
-          </button>
-          <Link
-            to={`/agent/${a.id}`}
-            className="ag-btn"
-            style={{
-              display: "inline-flex", alignItems: "center", gap: 7,
-              background: "var(--card)", color: "var(--ink-800)",
-              border: "1px solid var(--line)", borderRadius: 8,
-              padding: "8px 14px", fontSize: 13, fontWeight: 550,
-              fontFamily: "inherit", cursor: "pointer", textDecoration: "none",
-            }}
-          >
-            <Bot size={14} strokeWidth={1.7} /> Open agent page
-          </Link>
-          <Link
-            to={`/agent/${a.id}/spend`}
-            className="ag-btn"
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 7,
-              background: "var(--card)",
-              color: "var(--ink-800)",
-              border: "1px solid var(--line)",
-              borderRadius: 8,
-              padding: "8px 14px",
-              fontSize: 13,
-              fontWeight: 550,
-              fontFamily: "inherit",
-              cursor: "pointer",
-              textDecoration: "none",
-            }}
-          >
-            <TrendingUp size={14} strokeWidth={1.7} /> View spend forecast
-          </Link>
+          {/* Compact action buttons grouped on the right, sized to all fit on a
+              single row of the 560px drawer; nowrap keeps each label intact. */}
+          <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "nowrap", justifyContent: "flex-end", minWidth: 0 }}>
+            <button
+              type="button"
+              onClick={() => onSimulate?.(a.id)}
+              className="ag-btn"
+              title="Simulate in sandbox"
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 5,
+                background: "var(--accent)",
+                color: "#fff",
+                border: "none",
+                borderRadius: 7,
+                padding: "6px 10px",
+                fontSize: 12,
+                fontWeight: 550,
+                fontFamily: "inherit",
+                cursor: "pointer",
+                whiteSpace: "nowrap",
+                flexShrink: 0,
+              }}
+            >
+              <FlaskConical size={13} strokeWidth={1.7} /> Simulate
+            </button>
+            <Link
+              to={`/agent/${a.id}`}
+              className="ag-btn"
+              title="Open agent page"
+              style={{
+                display: "inline-flex", alignItems: "center", gap: 5,
+                background: "var(--card)", color: "var(--ink-800)",
+                border: "1px solid var(--line)", borderRadius: 7,
+                padding: "6px 10px", fontSize: 12, fontWeight: 550,
+                fontFamily: "inherit", cursor: "pointer", textDecoration: "none",
+                whiteSpace: "nowrap", flexShrink: 0,
+              }}
+            >
+              <Bot size={13} strokeWidth={1.7} /> Agent page
+            </Link>
+            <Link
+              to={`/agent/${a.id}/spend`}
+              className="ag-btn"
+              title="View spend forecast"
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 5,
+                background: "var(--card)",
+                color: "var(--ink-800)",
+                border: "1px solid var(--line)",
+                borderRadius: 7,
+                padding: "6px 10px",
+                fontSize: 12,
+                fontWeight: 550,
+                fontFamily: "inherit",
+                cursor: "pointer",
+                textDecoration: "none",
+                whiteSpace: "nowrap",
+                flexShrink: 0,
+              }}
+            >
+              <TrendingUp size={13} strokeWidth={1.7} /> Spend forecast
+            </Link>
+          </div>
         </div>
 
         <div style={{ overflowY: "auto", padding: "24px 24px 40px" }}>
