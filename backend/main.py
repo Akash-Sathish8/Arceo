@@ -66,6 +66,39 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Arceo", version="0.4.0", lifespan=lifespan)
 
+
+@app.middleware("http")
+async def _tenant_context(request: Request, call_next):
+    """Best-effort: resolve the caller's org from JWT/API key into db.current_org
+    so RLS scopes this request's DB transactions to that tenant. Failures leave
+    it at 'system' (full access) — auth itself is still enforced per-endpoint, so
+    this only ADDS the RLS backstop; it never grants access.
+    """
+    import db as _db
+
+    org = "system"
+    try:
+        key = request.headers.get("X-API-Key", "")
+        if key:
+            row = verify_api_key(request)
+            if row:
+                org = row.get("org_id") or "system"
+        else:
+            auth = request.headers.get("Authorization", "")
+            if auth.lower().startswith("bearer "):
+                from auth import verify_token
+                payload = verify_token(auth[7:])
+                org = payload.get("org_id") or "system"
+    except Exception:
+        org = "system"
+
+    token = _db.current_org.set(org)
+    try:
+        return await call_next(request)
+    finally:
+        _db.current_org.reset(token)
+
+
 # Rate limiter (Redis-backed via shared_state; see check_rate_limit).
 RATE_LIMIT_MAX = int(os.getenv("RATE_LIMIT_MAX", "100"))  # requests per window
 RATE_LIMIT_WINDOW = int(os.getenv("RATE_LIMIT_WINDOW", "60"))  # seconds
