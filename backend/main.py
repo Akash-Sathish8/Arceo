@@ -40,6 +40,7 @@ from collections import defaultdict
 from contextlib import asynccontextmanager
 from llm_models import FAST_MODEL, DEEP_MODEL, verify_models_at_startup
 import shared_state
+import approvals
 
 
 @asynccontextmanager
@@ -504,7 +505,25 @@ async def proxy_request(service: str, path: str, request: Request):
         return {"blocked": True, "reason": result["message"], "action": result["action"], "agent_id": agent_id}
 
     if effect == "REQUIRE_APPROVAL":
-        return {"pending_approval": True, "reason": result["message"], "action": result["action"], "agent_id": agent_id}
+        # Park the FULL request so it can be replayed verbatim once approved.
+        # The org is the agent's (from enforce_check's log row), and the
+        # inbound credentials are redacted before store — the vault injects the
+        # real secret at replay time.
+        exec_id = result.get("execution_id")
+        pending_id = None
+        if exec_id is not None:
+            with get_db() as conn:
+                arow = conn.execute("SELECT org_id FROM agents WHERE id = %s", (agent_id,)).fetchone()
+                pending_id = approvals.create_pending_proxy(
+                    conn, execution_id=exec_id,
+                    org_id=(arow["org_id"] if arow else DEFAULT_ORG_ID), agent_id=agent_id,
+                    service=service, method=request.method, path=path,
+                    query=dict(request.query_params),
+                    headers={k: v for k, v in request.headers.items()},
+                    body=body, action=action, params=params or None,
+                )
+        return {"pending_approval": True, "reason": result["message"], "action": result["action"],
+                "agent_id": agent_id, "pending_id": pending_id, "execution_id": exec_id}
 
     # Forward to upstream
     upstream_url = f"{base_url}/{path}"
@@ -1045,6 +1064,7 @@ def signup(req: SignupRequest, request: Request):
 
 
 DEMO_WIPE_TABLES = (
+    "pending_requests",  # FK → execution_log, so wipe it first
     "agents", "agent_tools", "tool_actions",
     "execution_log", "audit_log",
     "simulations", "sweeps",
@@ -2933,7 +2953,19 @@ def enforce_action(req: EnforceRequest, request: Request):
         if agent and caller_org and agent["org_id"] != caller_org:
             raise HTTPException(status_code=403, detail="Not authorized for this agent")
     check_rate_limit(f"enforce:{req.agent_id}")
-    return safe_enforce_check(req.agent_id, req.tool, req.action, req.params or None, req.session_context or None)
+    result = safe_enforce_check(req.agent_id, req.tool, req.action, req.params or None, req.session_context or None)
+    # Park a decision-gate so a waiting agent (enforce_and_wait) can be told to
+    # proceed on approval. No request is stored — the agent performs the action
+    # itself once told ALLOW.
+    if result.get("decision") == "REQUIRE_APPROVAL" and result.get("execution_id") is not None:
+        with get_db() as conn:
+            arow = conn.execute("SELECT org_id FROM agents WHERE id = %s", (req.agent_id,)).fetchone()
+            approvals.create_pending_enforce(
+                conn, execution_id=result["execution_id"],
+                org_id=(arow["org_id"] if arow else DEFAULT_ORG_ID), agent_id=req.agent_id,
+                tool=req.tool, action=req.action, params=req.params or None,
+            )
+    return result
 
 
 # ── Notification Settings ───────────────────────────────────────────────────

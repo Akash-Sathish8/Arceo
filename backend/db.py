@@ -212,14 +212,19 @@ def log_audit(conn, user_id: str | None, user_email: str | None, action: str, re
     )
 
 
-def log_execution(conn, agent_id: str, tool: str, action: str, status: str, policy_id: int = None, detail: str = None, org_id: str = DEFAULT_ORG_ID, params: dict = None, source: str = None):
-    """Write an execution log entry. `params` (the action's arguments) are
-    stored as JSON so the approvals queue can show reviewers WHAT they are
-    approving, not just which action. `source` records where the call came
-    from (runtime | sandbox | boundary_test | replay | report | test) so a
-    reviewer can tell live agent traffic from simulations and seeded data."""
-    conn.execute(
-        "INSERT INTO execution_log (agent_id, tool, action, status, policy_id, detail, params, source, org_id, timestamp) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+def log_execution(conn, agent_id: str, tool: str, action: str, status: str, policy_id: int = None, detail: str = None, org_id: str = DEFAULT_ORG_ID, params: dict = None, source: str = None) -> int:
+    """Write an execution log entry; returns the new row id.
+
+    `params` (the action's arguments) are stored as JSON so the approvals queue
+    can show reviewers WHAT they are approving, not just which action. `source`
+    records where the call came from (runtime | sandbox | boundary_test |
+    replay | report | test) so a reviewer can tell live agent traffic from
+    simulations and seeded data. The returned id lets a caller link a durable
+    pending_requests row to the PENDING_APPROVAL execution row (Phase 4)."""
+    row = conn.execute(
+        "INSERT INTO execution_log (agent_id, tool, action, status, policy_id, detail, params, source, org_id, timestamp) "
+        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
         (agent_id, tool, action, status, policy_id, detail,
          json.dumps(params) if params else None, source, org_id, datetime.utcnow().isoformat()),
-    )
+    ).fetchone()
+    return row["id"]

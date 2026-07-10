@@ -407,7 +407,7 @@ def enforce_check(agent_id: str, tool: str, action: str, params: dict = None, se
         else:
             detail = "No matching policy"
 
-        log_execution(conn, agent_id, tool, action, status,
+        execution_id = log_execution(conn, agent_id, tool, action, status,
                       policy_id=matched_policy["id"] if matched_policy else None,
                       detail=detail,
                       org_id=agent_org, params=params, source=source)
@@ -428,4 +428,8 @@ def enforce_check(agent_id: str, tool: str, action: str, params: dict = None, se
             "agent_id": agent_id,
             "policy": dict(matched_policy) if matched_policy else None,
             "message": message,
+            # The PENDING_APPROVAL row id, so a caller can park a durable
+            # replayable request against it (Phase 4). None for non-approval
+            # decisions is fine; callers only use it on REQUIRE_APPROVAL.
+            "execution_id": execution_id,
         }
