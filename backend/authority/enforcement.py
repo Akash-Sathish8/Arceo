@@ -293,6 +293,49 @@ def fire_block_notification(agent_id: str, tool: str, action: str, reason: str):
 
 # ── Enforcement Decision ──────────────────────────────────────────────────────
 
+def safe_enforce_check(agent_id: str, tool: str, action: str, params: dict = None,
+                       session_context: list = None, source: str = "runtime") -> dict:
+    """enforce_check that NEVER raises — the fail-closed wrapper for hot paths.
+
+    An exception mid-decision (DB hiccup, malformed row, anything) must not
+    become an uncontrolled 500 that skips both the decision AND the audit row.
+    The fallback decision is BLOCK unless ARCEO_FAIL_MODE=allow — the
+    documented break-glass for "an Arceo outage must not halt customer
+    agents". Matches the sandbox executor's convention (PR #25): enforcement
+    failure is an explicit, labeled outcome, never a silent pass.
+    """
+    import os
+
+    try:
+        return enforce_check(agent_id, tool, action, params=params,
+                             session_context=session_context, source=source)
+    except Exception as exc:
+        fail_mode = os.environ.get("ARCEO_FAIL_MODE", "block").strip().lower()
+        decision = "ALLOW" if fail_mode == "allow" else "BLOCK"
+        detail = f"enforcement_error ({type(exc).__name__}) — fail-{'open (ARCEO_FAIL_MODE=allow)' if decision == 'ALLOW' else 'closed'}"
+        # Best-effort audit: the primary decision path just failed, so this may
+        # fail too — swallow it, the decision must still return.
+        try:
+            from db import get_db, log_execution, DEFAULT_ORG_ID
+            with get_db() as conn:
+                agent_row = conn.execute("SELECT org_id FROM agents WHERE id = ?", (agent_id,)).fetchone()
+                log_execution(conn, agent_id, tool, action,
+                              "BLOCKED" if decision == "BLOCK" else "EXECUTED",
+                              policy_id=None, detail=detail,
+                              org_id=agent_row["org_id"] if agent_row else DEFAULT_ORG_ID,
+                              params=params, source=source)
+        except Exception:
+            pass
+        return {
+            "decision": decision,
+            "action": f"{tool}.{action}",
+            "agent_id": agent_id,
+            "policy": None,
+            "reason": "enforcement_error",
+            "message": f"Enforcement could not be evaluated ({type(exc).__name__}); failing {'open — ARCEO_FAIL_MODE=allow' if decision == 'ALLOW' else 'closed'}.",
+        }
+
+
 def enforce_check(agent_id: str, tool: str, action: str, params: dict = None, session_context: list = None, source: str = "runtime") -> dict:
     """Shared enforce logic — used by the API endpoint, proxy, and sandbox executor.
 

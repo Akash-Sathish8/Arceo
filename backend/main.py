@@ -27,7 +27,7 @@ from db import (
     log_audit, log_execution, DEFAULT_ORG_ID,
 )
 from authority.chain_detector import detect_chains as _detect_chains
-from authority.enforcement import enforce_check, match_policy as _match_policy
+from authority.enforcement import enforce_check, safe_enforce_check, match_policy as _match_policy
 from authority.graph import build_agent_graph, calculate_blast_radius, graph_to_dict
 from authority.parser import AgentConfig, ToolDef
 from authority.risk_classifier import classify_with_fallback
@@ -366,7 +366,7 @@ async def proxy_llm_request(provider: str, path: str, request: Request):
     return StreamingResponse(
         iter([response_body]),
         status_code=resp.status_code,
-        headers={k: v for k, v in resp.headers.items() if k.lower() not in ("content-encoding", "transfer-encoding")},
+        headers={k: v for k, v in resp.headers.items() if k.lower() not in ("content-encoding", "content-length", "transfer-encoding")},
     )
 
 
@@ -381,11 +381,11 @@ async def proxy_request(service: str, path: str, request: Request):
     """
     import httpx as _httpx
 
-    # Require API key if any keys exist in the system
+    # X-API-Key is mandatory on the enforcing proxy — full stop. The old
+    # "required only if any keys exist" conditional meant a fresh install ran
+    # a wide-open egress proxy until someone happened to mint a key.
     key_info = verify_api_key(request)
-    with get_db() as conn:
-        key_count = conn.execute("SELECT COUNT(*) FROM api_keys WHERE active = 1").fetchone()[0]
-    if key_count > 0 and not key_info:
+    if not key_info:
         raise HTTPException(status_code=401, detail="X-API-Key header required. Generate a key at /api/keys")
 
     agent_id = request.headers.get("X-Agent-ID", "")
@@ -413,8 +413,10 @@ async def proxy_request(service: str, path: str, request: Request):
         except (json.JSONDecodeError, UnicodeDecodeError):
             pass
 
-    # Enforce policy using shared logic
-    result = enforce_check(agent_id, service, action, params=params or None)
+    # Enforce policy using shared logic. safe_enforce_check never raises: an
+    # exception mid-decision becomes a structured BLOCK (or ALLOW under the
+    # ARCEO_FAIL_MODE=allow break-glass), so no error path executes an action.
+    result = safe_enforce_check(agent_id, service, action, params=params or None)
     effect = result["decision"]
 
     if effect == "BLOCK":
@@ -441,7 +443,7 @@ async def proxy_request(service: str, path: str, request: Request):
         return StreamingResponse(
             iter([resp.content]),
             status_code=resp.status_code,
-            headers={k: v for k, v in resp.headers.items() if k.lower() not in ("content-encoding", "transfer-encoding")},
+            headers={k: v for k, v in resp.headers.items() if k.lower() not in ("content-encoding", "content-length", "transfer-encoding")},
         )
     except _httpx.TimeoutException:
         raise HTTPException(status_code=504, detail=f"Upstream {service} timed out")
@@ -2780,7 +2782,7 @@ def enforce_action(req: EnforceRequest, request: Request):
         if agent and caller_org and agent["org_id"] != caller_org:
             raise HTTPException(status_code=403, detail="Not authorized for this agent")
     check_rate_limit(f"enforce:{req.agent_id}")
-    return enforce_check(req.agent_id, req.tool, req.action, req.params or None, req.session_context or None)
+    return safe_enforce_check(req.agent_id, req.tool, req.action, req.params or None, req.session_context or None)
 
 
 # ── Notification Settings ───────────────────────────────────────────────────
