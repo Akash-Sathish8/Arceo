@@ -42,6 +42,9 @@ class SimulationTrace:
     completed_at: str = ""
     status: str = "running"  # running, completed, error
     error: str | None = None
+    # dry = static analysis against mocks (never evidence); live = real LLM run.
+    # Carried on the trace so provenance flows without string-parsing the prompt.
+    run_mode: str = "live"
 
     def __post_init__(self):
         if not self.started_at:

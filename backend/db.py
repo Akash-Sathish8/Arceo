@@ -177,7 +177,8 @@ def init_db():
                 trace_json TEXT,
                 report_json TEXT,
                 org_id TEXT DEFAULT 'default',
-                created_at TEXT
+                created_at TEXT,
+                run_mode TEXT NOT NULL DEFAULT 'live'
             );
 
             CREATE TABLE IF NOT EXISTS api_keys (
@@ -321,6 +322,19 @@ def init_db():
             # "where did you come from?" — NULL marks pre-tracking rows.
             if "source" not in el_cols:
                 conn.execute("ALTER TABLE execution_log ADD COLUMN source TEXT")
+        except Exception:
+            pass
+
+        # Defensive migration: dry-run vs live provenance on simulations — the
+        # sibling of execution_log.source. Evidence surfaces (uplift, confidence,
+        # "Demonstrated") must only trust live runs. Historic rows are backfilled
+        # off the '[STATIC ANALYSIS]' prompt marker that only run_simulation_dry
+        # writes; the backfill runs exactly once, inside the column-add branch.
+        try:
+            sim_cols = [r[1] for r in conn.execute("PRAGMA table_info(simulations)").fetchall()]
+            if "run_mode" not in sim_cols:
+                conn.execute("ALTER TABLE simulations ADD COLUMN run_mode TEXT NOT NULL DEFAULT 'live'")
+                conn.execute("UPDATE simulations SET run_mode = 'dry' WHERE trace_json LIKE '%[STATIC ANALYSIS]%'")
         except Exception:
             pass
 

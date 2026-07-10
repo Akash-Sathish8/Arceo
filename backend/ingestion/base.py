@@ -77,11 +77,14 @@ def ingest_trace(
     # Store
     with get_db() as conn:
         conn.execute(
-            "INSERT INTO simulations (id, agent_id, scenario_id, status, trace_json, report_json, org_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO simulations (id, agent_id, scenario_id, status, trace_json, report_json, org_id, created_at, run_mode) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            # Imported real traces are LIVE evidence — actual agent behavior,
+            # the strongest class. (A distinct 'captured' value is a Phase-6
+            # refinement once trace-replay is first-class.)
             (trace.simulation_id, agent_id, f"ingest-{source}", "completed",
              json.dumps(asdict(trace), default=str),
              json.dumps(asdict(report), default=str),
-             org_id, datetime.utcnow().isoformat()),
+             org_id, datetime.utcnow().isoformat(), "live"),
         )
 
         if user_id:

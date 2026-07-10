@@ -91,7 +91,7 @@ interface BlastRadius {
   magnitude_usd?: number        // worst-case per-incident $ across actions
   chain_risk?: number
   confidence?: 'low' | 'medium' | 'high'
-  evidence?: { hasSim?: boolean; simRiskScore?: number; confirmed?: boolean }
+  evidence?: { hasSim?: boolean; simRiskScore?: number; confirmed?: boolean; dryRunOnly?: boolean }
   exposure_context?: {
     environment?: string | null
     trigger_source?: string | null
@@ -681,7 +681,9 @@ function WorstCasePanel({
                 }}
                 title="How the score is graded: static estimate vs simulated vs confirmed by a simulation"
               >
-                {CONF_STYLE[br.confidence].label}
+                {br.evidence?.dryRunOnly
+                  ? 'Static analysis only — run a live simulation to confirm'
+                  : CONF_STYLE[br.confidence].label}
               </span>
             )}
           </div>
