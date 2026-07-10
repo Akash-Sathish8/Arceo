@@ -1,13 +1,14 @@
-# Local Postgres for development and tests (Phase 2).
+# Local Postgres + Redis for development and tests (Phase 2 + Phase 3).
 #
 # Contributor flow, two commands:
-#   docker compose up -d postgres
+#   docker compose up -d
 #   cd backend && ./venv/bin/python -m pytest tests/ -q
 #
-# Credentials match what CI's service container and the test suite default to
-# (postgres/postgres on localhost:5432). The `arceo` database is the dev
-# default; the test suite creates and manages its own scratch database on the
-# same server, so tests never touch dev data.
+# Credentials match what CI's service containers and the test suite default to
+# (postgres/postgres on localhost:5432, redis on localhost:6379). The `arceo`
+# database is the dev default; the test suite creates and manages its own
+# scratch database on the same server, so tests never touch dev data. Tests use
+# Redis DB 15 (flushed between tests) so they never disturb dev keys.
 services:
   postgres:
     image: postgres:16-alpine
@@ -21,6 +22,16 @@ services:
       - arceo-pgdata:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d arceo"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
       interval: 2s
       timeout: 3s
       retries: 15
