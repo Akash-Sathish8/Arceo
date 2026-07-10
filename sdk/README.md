@@ -76,8 +76,11 @@ else:  # BLOCK
     raise PermissionError(decision.get("reason"))
 ```
 
-`enforce` fails **open** by default (an Arceo outage won't halt your agent); pass
-`on_error="block"` to fail closed.
+> **Breaking change in 0.2.0:** `enforce` now fails **closed** by default — if
+> Arceo is unreachable, the decision is `BLOCK` and the action must not run.
+> Opt out per call with `on_error="allow"`, or process-wide with
+> `ARCEO_FAIL_MODE=allow` (the break-glass so an Arceo outage doesn't halt
+> your agents). An explicit `on_error=` argument always wins over the env var.
 
 ## Configuration
 
