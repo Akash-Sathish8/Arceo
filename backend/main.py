@@ -1009,6 +1009,7 @@ def list_agents(user: dict = Depends(get_current_user)):
                 "policies_by_effect": policies_by_effect,
                 "pending_count": pending_count,
                 "last_execution_at": last_exec["timestamp"] if last_exec else None,
+                "default_effect": agent.get("default_effect", "ALLOW"),
                 **summary,
             })
 
@@ -1095,6 +1096,7 @@ def get_agent_detail(agent_id: str, user: dict = Depends(get_current_user)):
         "agent": {
             "id": agent["id"], "name": agent["name"], "description": agent["description"],
             "created_at": agent["created_at"],
+            "default_effect": agent.get("default_effect", "ALLOW"),
             "tools": enriched_tools,
         },
         "graph": graph_to_dict(graph),
@@ -1253,6 +1255,10 @@ class AgentInput(BaseModel):
     environment: Optional[str] = None        # prod | staging | dev
     trigger_source: Optional[str] = None     # untrusted | internal | scheduled
     human_in_loop: Optional[bool] = None
+    # Opt-in fail-closed posture: DENY blocks any action no policy matches.
+    # Optional so an omitted field never resets a stored value (same contract
+    # as tools above).
+    default_effect: Optional[str] = None     # ALLOW | DENY
 
 
 @app.post("/api/authority/agents")
@@ -1349,6 +1355,9 @@ def set_agent_forecast_inputs(agent_id: str, req: ForecastInputsInput, user: dic
 def update_agent(agent_id: str, req: AgentInput, user: dict = Depends(get_current_user)):
     now = datetime.utcnow().isoformat()
 
+    if req.default_effect is not None and req.default_effect not in ("ALLOW", "DENY"):
+        raise HTTPException(status_code=400, detail="default_effect must be ALLOW or DENY")
+
     with get_db() as conn:
         existing = conn.execute("SELECT id FROM agents WHERE id = ? AND org_id = ?", (agent_id, _org(user))).fetchone()
         if not existing:
@@ -1366,13 +1375,19 @@ def update_agent(agent_id: str, req: AgentInput, user: dict = Depends(get_curren
             "environment = COALESCE(?, environment), "
             "trigger_source = COALESCE(?, trigger_source), "
             "human_in_loop = COALESCE(?, human_in_loop), "
+            "default_effect = COALESCE(?, default_effect), "
             "updated_at = ? WHERE id = ?",
             (req.name, req.description, req.simulation_model, req.expected_calls_per_day,
              req.expected_turns_per_run, req.avg_context_tokens, req.system_prompt,
              req.environment, req.trigger_source,
              (1 if req.human_in_loop else 0) if req.human_in_loop is not None else None,
+             req.default_effect,
              now, agent_id),
         )
+
+        if req.default_effect is not None:
+            log_audit(conn, user["sub"], user["email"], "SET_DEFAULT_EFFECT", resource=agent_id,
+                      detail=f"Default for unmatched actions set to {req.default_effect}")
 
         # Rewrite the tool set only when the caller sent one — a metadata-only
         # edit (rename/description) must not touch tools.
