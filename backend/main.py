@@ -2938,10 +2938,16 @@ def get_execution_log(user: dict = Depends(get_current_user)):
 
 @app.get("/api/executions/{agent_id}")
 def get_agent_executions(agent_id: str, user: dict = Depends(get_current_user)):
+    org_id = _org(user)
     with get_db() as conn:
+        # Ownership gate first: a cross-org agent id is a 404, not an empty 200
+        # (existence itself is tenant data, and it keeps this consistent with
+        # every other agent-scoped endpoint).
+        if not get_agent_from_db(conn, agent_id, org_id=org_id):
+            raise HTTPException(status_code=404, detail=f"Agent '{agent_id}' not found")
         rows = conn.execute(
             "SELECT * FROM execution_log WHERE agent_id = %s AND org_id = %s ORDER BY timestamp DESC LIMIT 50",
-            (agent_id, _org(user)),
+            (agent_id, org_id),
         ).fetchall()
     return {"entries": [dict(r) for r in rows]}
 
@@ -4467,6 +4473,10 @@ def set_agent_budget(agent_id: str, req: AgentBudgetInput, user: dict = Depends(
 def delete_agent_budget(agent_id: str, user: dict = Depends(get_current_user)):
     org_id = _org(user)
     with get_db() as conn:
+        # Ownership gate (matches GET/PUT budget) — a cross-org id is a 404, not
+        # a misleading {"ok": true} that deleted nothing.
+        if not get_agent_from_db(conn, agent_id, org_id=org_id):
+            raise HTTPException(status_code=404, detail=f"Agent '{agent_id}' not found")
         conn.execute("DELETE FROM agent_budgets WHERE agent_id = %s AND org_id = %s", (agent_id, org_id))
     return {"ok": True}
 
