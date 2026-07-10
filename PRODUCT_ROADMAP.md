@@ -105,7 +105,7 @@ envelope-encryption + key-management design before merge.**
 
 **Goal:** zero cross-tenant leaks; no unauthenticated writes; multi-worker-safe.
 
-> **Delegation package (2026-07-09):** [[Phase 3 — delegation package]] — operator instructions + verbatim agent prompt, verified against `dev`. Four PRs (`auth-hardening`, `close-tenant-leaks`, `redis-shared-state` all engine-agnostic + startable now; `postgres-rls` hard-gated on Phase-2's postgres-cutover merging first). Owner-reviewed, agent never merges.
+> **DONE (2026-07-10):** Phase 3 executed directly — PRs #48 (auth-hardening), #49 (close-tenant-leaks + adversarial matrix gate), #51 (redis-shared-state), #52 (postgres-rls), all merged to `dev`, 178 tests green on Postgres+Redis. The [[Phase 3 — delegation package]] is retained for reference but was not used (built when a separate dev was expected).
 
 | Task | Owner | ew | Files |
 |---|---|---|---|
