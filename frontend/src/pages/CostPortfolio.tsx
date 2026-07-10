@@ -9,7 +9,7 @@
 import { useParams, Link } from "react-router-dom"
 import { useEffect, useRef, useState } from "react"
 import {
-  Banknote, Sliders, PieChart, BarChart3, Target,
+  Banknote, Sliders, PieChart, Target,
   TrendingUp, Shield, Search, FileText, Plus, HelpCircle, X,
   AlertTriangle, Check, ArrowRight,
 } from "lucide-react"
@@ -251,10 +251,6 @@ function downloadForecastCsv(
   if (m.topTools?.length) {
     rows.push([], ["Top tool calls", "Calls per month", "Cost per call (USD)", "Monthly (USD)"])
     for (const t of m.topTools) rows.push([t.tool, t.callsPerMonth, t.costPer, t.monthly])
-  }
-  if (m.unitEcon?.length) {
-    rows.push([], ["Unit economics", "Value"])
-    for (const u of m.unitEcon) rows.push([u.label, u.value ?? "not measured"])
   }
   if (costReport) {
     rows.push(
@@ -1071,23 +1067,6 @@ function CostPortfolioContent({
               ))}
             </tbody>
           </table>
-        </PanelCard>
-
-        <PanelCard title="Unit economics" icon={<BarChart3 size={14} />}>
-          <p className="mb-4 text-sm text-gray-600 leading-relaxed">Cost per business outcome. These are the lines that hold up in a budget review.</p>
-          {m.unitEcon.map((u, i) => (
-            <div key={u.label} className={`grid grid-cols-[1fr_auto] py-2 text-sm ${i < m.unitEcon.length - 1 ? "border-b border-dashed border-gray-100" : ""}`}>
-              <span className="text-gray-600">{u.label}</span>
-              <span className="font-semibold mono" style={u.value == null ? { color: "var(--text-muted)" } : undefined}>
-                {u.value ?? "—"}
-              </span>
-            </div>
-          ))}
-          <div className="mt-3 text-[11px] text-gray-400">
-            {m.unitEcon.every((u) => u.value == null)
-              ? "Not measured yet. Run a sandbox sweep so we can compute cost per outcome from this agent's own action mix — we won't show a fabricated figure."
-              : "Computed from this agent's observed action mix. Calibrates further once live traces stream in."}
-          </div>
         </PanelCard>
 
         <PanelCard title="Sensitivity — what affects cost most" icon={<Target size={14} />} help={(() => {
