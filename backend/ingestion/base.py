@@ -41,13 +41,13 @@ def ingest_trace(
             "actions": [{"name": a, "description": a} for a in sorted(actions)],
         })
 
-    # Upsert agent
+    # Upsert agent directly in the caller's org — passing org_id in means the
+    # existence check is org-scoped from the start. The old code upserted under
+    # DEFAULT_ORG_ID then UPDATE'd org_id after, which briefly filed the agent in
+    # the wrong tenant and could stomp a same-named agent in the default org.
     with get_db() as conn:
         from main import _upsert_agent
-        _upsert_agent(conn, agent_id, agent_name, agent_name, reg_tools, f"ingest-{source}")
-
-        # Set org_id on the agent
-        conn.execute("UPDATE agents SET org_id = %s WHERE id = %s", (org_id, agent_id))
+        _upsert_agent(conn, agent_id, agent_name, agent_name, reg_tools, f"ingest-{source}", org_id=org_id)
 
     # Build simulation trace
     trace = SimulationTrace(

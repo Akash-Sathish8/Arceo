@@ -76,14 +76,45 @@ def _org(user: dict) -> str:
     return user.get("org_id", DEFAULT_ORG_ID)
 
 
-def check_rate_limit(key: str):
-    """Check rate limit for a key. Raises 429 if exceeded."""
+def _caller_org(request: Request) -> str:
+    """Resolve the caller's org from either an X-API-Key or a bearer JWT.
+
+    Raises 401 if neither is present/valid. This is the shared gate for
+    endpoints that agents (keys) OR humans (JWT) call — register, live-trace
+    ingest, mock. Mirrors the /api/enforce pattern so the two never diverge.
+    """
+    key_row = verify_api_key(request)
+    if key_row:
+        return key_row.get("org_id") or DEFAULT_ORG_ID
+    return _org(get_current_user(request))  # raises 401 if no valid bearer token
+
+
+def check_rate_limit(key: str, max_requests: int = RATE_LIMIT_MAX, window: int = RATE_LIMIT_WINDOW):
+    """Check rate limit for a key. Raises 429 if exceeded.
+
+    max_requests/window default to the general limit; auth endpoints pass the
+    tighter auth limit to blunt credential brute-force.
+    """
     now = time.time()
-    window_start = now - RATE_LIMIT_WINDOW
+    window_start = now - window
     _rate_limits[key] = [t for t in _rate_limits[key] if t > window_start]
-    if len(_rate_limits[key]) >= RATE_LIMIT_MAX:
-        raise HTTPException(status_code=429, detail="Rate limit exceeded. Try again later.")
+    if len(_rate_limits[key]) >= max_requests:
+        raise HTTPException(status_code=429, detail="Too many attempts. Try again later.")
     _rate_limits[key].append(now)
+
+
+# Auth endpoints get a tighter budget than the general API — brute-forcing a
+# password or enumerating accounts should hit this long before it succeeds.
+RATE_LIMIT_AUTH_MAX = int(os.getenv("RATE_LIMIT_AUTH_MAX", "10"))
+RATE_LIMIT_AUTH_WINDOW = int(os.getenv("RATE_LIMIT_AUTH_WINDOW", "900"))  # 15 min
+
+
+def check_auth_rate_limit(request: Request, email: str):
+    """Rate-limit auth attempts by client IP and by email (both must stay under)."""
+    ip = request.client.host if request.client else "unknown"
+    check_rate_limit(f"auth-ip:{ip}", RATE_LIMIT_AUTH_MAX, RATE_LIMIT_AUTH_WINDOW)
+    if email:
+        check_rate_limit(f"auth-email:{email.lower()}", RATE_LIMIT_AUTH_MAX, RATE_LIMIT_AUTH_WINDOW)
 
 
 def validate_external_url(url: str) -> None:
@@ -878,10 +909,12 @@ class SignupRequest(BaseModel):
 
 
 @app.post("/api/auth/signup")
-def signup(req: SignupRequest):
+def signup(req: SignupRequest, request: Request):
     """Create a new account."""
     from auth import hash_password, create_token
     import re as _re
+
+    check_auth_rate_limit(request, req.email)
 
     # RFC-lite: something@something.tld. The browser input usually catches this,
     # but the API is the contract — `not-an-email` used to create a working account.
@@ -938,7 +971,8 @@ def _wipe_demo_data() -> None:
 
 
 @app.post("/api/auth/login")
-def login(req: LoginRequest):
+def login(req: LoginRequest, request: Request):
+    check_auth_rate_limit(request, req.email)
     # The `demo` magic email resets the demo instance — but ONLY when DEMO_MODE
     # is set. Without this gate the reset was reachable unauthenticated on ANY
     # deployment: an anonymous POST {"email":"demo"} ran a DELETE across every
@@ -1569,6 +1603,14 @@ def _upsert_agent(
     now = datetime.utcnow().isoformat()
     existing = conn.execute("SELECT id FROM agents WHERE id = %s AND org_id = %s", (agent_id, org_id)).fetchone()
 
+    if not existing:
+        # agents.id is a global PK, so an id owned by ANOTHER org would 500 on
+        # INSERT. Detect that up-front and return a clean 409 instead of leaking
+        # a raw integrity error (and without aborting the transaction).
+        other = conn.execute("SELECT 1 FROM agents WHERE id = %s", (agent_id,)).fetchone()
+        if other:
+            raise HTTPException(status_code=409, detail=f"An agent named '{agent_id}' already exists in another workspace. Pick a different name.")
+
     if existing:
         conn.execute(
             "UPDATE agents SET name = %s, description = %s, "
@@ -1626,14 +1668,15 @@ def _upsert_agent(
 
 
 @app.post("/api/authority/agents/register")
-def register_agent(req: RegisterAgentInput):
-    """Unauthenticated — agents call this at startup to self-register.
+def register_agent(req: RegisterAgentInput, request: Request):
+    """Register (or idempotently re-register) an agent. Requires auth.
 
-    Note: agent_id is derived from the name (idempotent self-register: a re-register
-    updates the same agent). Distinct agents that pick the same name will share an
-    id in the default org — an inherent limit of unauthenticated name-based
-    registration; authenticated import paths namespace per org.
+    Auth is a bearer JWT or an X-API-Key; the agent is filed under the CALLER's
+    org, not a shared default. This closes the old unauthenticated path (which
+    filed every registration under DEFAULT_ORG_ID, colliding distinct tenants'
+    same-named agents) — the SDK and import paths already carry credentials.
     """
+    org_id = _caller_org(request)
     agent_id = (req.name or "").strip().lower().replace(" ", "-").replace("_", "-")
     if not agent_id:
         raise HTTPException(status_code=400, detail="Agent name is required")
@@ -1650,6 +1693,7 @@ def register_agent(req: RegisterAgentInput):
     with get_db() as conn:
         status = _upsert_agent(
             conn, agent_id, req.name, req.description, tools, "agent-self-register",
+            org_id=org_id,
             simulation_model=req.simulation_model,
             expected_calls_per_day=req.expected_calls_per_day,
             expected_turns_per_run=req.expected_turns_per_run,
@@ -1659,7 +1703,7 @@ def register_agent(req: RegisterAgentInput):
             trigger_source=req.trigger_source,
             human_in_loop=req.human_in_loop,
         )
-        agent = get_agent_from_db(conn, agent_id)
+        agent = get_agent_from_db(conn, agent_id, org_id=org_id)
 
     summary = _compute_agent_summary(agent)
 
@@ -3957,8 +4001,18 @@ class LiveTraceEvent(BaseModel):
 
 
 @app.post("/api/traces/live")
-async def push_live_trace(event: LiveTraceEvent):
-    """SDK pushes individual tool call events as they happen."""
+async def push_live_trace(event: LiveTraceEvent, request: Request):
+    """SDK pushes individual tool call events as they happen. Requires auth.
+
+    The event's agent_id must belong to the caller's org — otherwise anyone
+    could forge live events for another tenant's agent and fan them out to that
+    tenant's authenticated WebSocket subscribers.
+    """
+    caller_org = _caller_org(request)
+    with get_db() as conn:
+        agent = conn.execute("SELECT org_id FROM agents WHERE id = %s", (event.agent_id,)).fetchone()
+    if not agent or agent["org_id"] != caller_org:
+        raise HTTPException(status_code=403, detail="Not authorized for this agent")
     check_rate_limit(f"livetrace:{event.agent_id}")  # ID6: per-agent rate limit (own namespace)
     entry = {
         "agent_id": event.agent_id,
@@ -5249,8 +5303,8 @@ class MockSessionRequest(BaseModel):
 
 
 @app.post("/mock/session")
-def create_mock_session(req: MockSessionRequest):
-    """Create a sandbox session. Real agents call this before testing.
+def create_mock_session(req: MockSessionRequest, request: Request):
+    """Create a sandbox session. Real agents call this before testing. Requires auth.
 
     Body: {"agent_id": "my-agent"}
     Returns: {"session_id": "...", "base_url": "http://localhost:8000/mock"}
@@ -5258,6 +5312,7 @@ def create_mock_session(req: MockSessionRequest):
     import sandbox.mocks  # noqa — registers all mocks
     from sandbox.mocks.registry import MockState
 
+    org_id = _caller_org(request)
     agent_id = req.agent_id
     session_id = uuid.uuid4().hex[:12]
 
@@ -5267,6 +5322,7 @@ def create_mock_session(req: MockSessionRequest):
     _mock_sessions[session_id] = {
         "state": MockState(custom_data=custom_data),
         "agent_id": agent_id,
+        "org_id": org_id,
         "steps": [],
         "created_at": datetime.utcnow().isoformat(),
     }
@@ -5291,13 +5347,18 @@ async def call_mock_endpoint(tool: str, action: str, request: Request):
     import sandbox.mocks  # noqa
     from sandbox.mocks.registry import call_mock
 
+    # Requires auth — this writes execution_log rows (an unauthenticated caller
+    # could inject fake PENDING_APPROVAL items into a tenant's approvals queue).
+    caller_org = _caller_org(request)
     session_id = request.headers.get("x-session-id", "")
     agent_id = request.headers.get("x-agent-id", "")
     check_rate_limit(f"mock:{agent_id or session_id or 'anon'}")
 
-    # Get or create session
+    # Get or create session (same-org only — a cross-org session id is a 404)
     if session_id and session_id in _mock_sessions:
         session = _mock_sessions[session_id]
+        if session.get("org_id") != caller_org:
+            raise HTTPException(status_code=404, detail=f"Session '{session_id}' not found")
     else:
         # Auto-create session for convenience
         from sandbox.mocks.registry import MockState
@@ -5306,6 +5367,7 @@ async def call_mock_endpoint(tool: str, action: str, request: Request):
         session = {
             "state": MockState(custom_data=auto_custom_data),
             "agent_id": agent_id or "unknown",
+            "org_id": caller_org,
             "steps": [],
             "created_at": datetime.utcnow().isoformat(),
         }
@@ -5361,10 +5423,12 @@ async def call_mock_endpoint(tool: str, action: str, request: Request):
 
 
 @app.get("/mock/session/{session_id}/trace")
-def get_mock_session_trace(session_id: str):
-    """Get the full trace of a mock session — what the agent did."""
+def get_mock_session_trace(session_id: str, request: Request):
+    """Get the full trace of a mock session — what the agent did. Requires auth."""
+    caller_org = _caller_org(request)
     session = _mock_sessions.get(session_id)
-    if not session:
+    # Same-org sessions only; a cross-org id is a 404 (existence is tenant data).
+    if not session or session.get("org_id") != caller_org:
         raise HTTPException(status_code=404, detail=f"Session '{session_id}' not found")
 
     return {
@@ -5377,10 +5441,13 @@ def get_mock_session_trace(session_id: str):
 
 
 @app.get("/mock/sessions")
-def list_mock_sessions():
-    """List all active mock sessions with step counts."""
+def list_mock_sessions(request: Request):
+    """List this org's active mock sessions with step counts. Requires auth."""
+    caller_org = _caller_org(request)
     sessions = []
     for sid, session in _mock_sessions.items():
+        if session.get("org_id") != caller_org:
+            continue
         sessions.append({
             "session_id": sid,
             "agent_id": session["agent_id"],
