@@ -82,6 +82,28 @@ else:  # BLOCK
 > `ARCEO_FAIL_MODE=allow` (the break-glass so an Arceo outage doesn't halt
 > your agents). An explicit `on_error=` argument always wins over the env var.
 
+### Wait for a human (0.3.0)
+
+When an action needs a person's sign-off, `enforce_and_wait` blocks right there
+until they decide — no polling loop to write yourself:
+
+```python
+from arceo import enforce_and_wait
+
+decision = enforce_and_wait("your-agent-id", "stripe", "create_refund",
+                            {"amount": 5000}, token="<your-arceo-jwt>")
+
+if decision["decision"] == "ALLOW":      # a human approved
+    stripe.refunds.create(...)
+else:                                     # BLOCK = rejected (or PENDING if max_wait hit)
+    log.info("refund not approved")
+```
+
+`ALLOW`/`BLOCK` return immediately; `REQUIRE_APPROVAL` polls the held action
+until a teammate approves or rejects it in the Arceo dashboard. It waits
+indefinitely by default (Arceo never expires a pending action); pass
+`max_wait=<seconds>` to give up and get back `{"decision": "PENDING"}`.
+
 ## Configuration
 
 Set these in the environment to avoid passing them every call:

@@ -24,7 +24,7 @@ passing them on every call.
 """
 
 from ._capture import wrap_llm, report_llm_call
-from ._enforce import enforce, ArceoClient
+from ._enforce import enforce, enforce_and_wait, ArceoClient
 
-__all__ = ["wrap_llm", "report_llm_call", "enforce", "ArceoClient"]
-__version__ = "0.2.0"
+__all__ = ["wrap_llm", "report_llm_call", "enforce", "enforce_and_wait", "ArceoClient"]
+__version__ = "0.3.0"

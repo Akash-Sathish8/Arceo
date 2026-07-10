@@ -71,6 +71,70 @@ def enforce(
         return {"decision": fallback, "error": str(e)}
 
 
+def _auth_headers(token: Optional[str]) -> dict:
+    headers = {"Content-Type": "application/json"}
+    token = token or os.getenv("ARCEO_TOKEN")
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    api_key = os.getenv("ARCEO_API_KEY")
+    if api_key:
+        headers["X-API-Key"] = api_key
+    return headers
+
+
+def _poll_decision(execution_id: int, *, token: Optional[str], base_url: str, timeout: float) -> str:
+    """One status poll → 'PENDING' | 'ALLOW' | 'BLOCK'."""
+    url = base_url.rstrip("/") + f"/api/enforce/status/{execution_id}"
+    req = urllib.request.Request(url, headers=_auth_headers(token), method="GET")
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        return json.loads(r.read().decode("utf-8")).get("decision", "PENDING")
+
+
+def enforce_and_wait(
+    agent_id: str,
+    tool: str,
+    action: str,
+    params: Optional[dict] = None,
+    *,
+    token: Optional[str] = None,
+    base_url: str = DEFAULT_BASE_URL,
+    poll_interval: float = 2.0,
+    max_wait: Optional[float] = None,
+    on_error: Optional[str] = None,
+) -> dict:
+    """Enforce, and if a human's approval is required, BLOCK until they decide.
+
+    One line for the common human-in-the-loop flow: the agent's code just waits
+    here. ALLOW/BLOCK come straight back; REQUIRE_APPROVAL polls the held
+    action's status every poll_interval seconds until it becomes ALLOW
+    (approved) or BLOCK (rejected). max_wait=None waits indefinitely (Arceo
+    never expires a pending action); set it to give up after N seconds and get
+    back {"decision": "PENDING"} to handle yourself.
+    """
+    import time
+
+    result = enforce(agent_id, tool, action, params, token=token, base_url=base_url, on_error=on_error)
+    if result.get("decision") != "REQUIRE_APPROVAL":
+        return result
+    execution_id = result.get("execution_id")
+    if execution_id is None:
+        return result  # nothing to poll (older backend) — surface as-is
+
+    waited = 0.0
+    while max_wait is None or waited < max_wait:
+        time.sleep(poll_interval)
+        waited += poll_interval
+        try:
+            decision = _poll_decision(execution_id, token=token, base_url=base_url, timeout=8.0)
+        except Exception:
+            continue  # transient — keep waiting (a restart doesn't lose the pending row)
+        if decision in ("ALLOW", "BLOCK"):
+            return {"decision": decision, "action": f"{tool}.{action}",
+                    "agent_id": agent_id, "execution_id": execution_id}
+    return {"decision": "PENDING", "action": f"{tool}.{action}",
+            "agent_id": agent_id, "execution_id": execution_id}
+
+
 class ArceoClient:
     """Convenience holder for base_url + token so you don't repeat them."""
 
@@ -82,3 +146,10 @@ class ArceoClient:
                 *, on_error: Optional[str] = None) -> dict:
         return enforce(agent_id, tool, action, params,
                        token=self.token, base_url=self.base_url, on_error=on_error)
+
+    def enforce_and_wait(self, agent_id: str, tool: str, action: str, params: Optional[dict] = None,
+                         *, poll_interval: float = 2.0, max_wait: Optional[float] = None,
+                         on_error: Optional[str] = None) -> dict:
+        return enforce_and_wait(agent_id, tool, action, params, token=self.token,
+                                base_url=self.base_url, poll_interval=poll_interval,
+                                max_wait=max_wait, on_error=on_error)
