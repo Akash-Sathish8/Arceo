@@ -558,11 +558,11 @@ def analyze_sdk_trace(req: SDKTraceInput, request: Request = None):
     # Store as simulation
     with get_db() as conn:
         conn.execute(
-            "INSERT INTO simulations (id, agent_id, scenario_id, status, trace_json, report_json, org_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO simulations (id, agent_id, scenario_id, status, trace_json, report_json, org_id, created_at, run_mode) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (trace.simulation_id, agent_id, "sdk-trace", "completed",
              json.dumps(asdict(trace), default=str),
              json.dumps(asdict(report), default=str),
-             org_id, datetime.utcnow().isoformat()),
+             org_id, datetime.utcnow().isoformat(), "live"),
         )
 
     return {
@@ -626,11 +626,11 @@ def submit_post_hoc_report(req: PostHocReport, request: Request = None):
             return obj
 
         conn.execute(
-            "INSERT INTO simulations (id, agent_id, scenario_id, status, trace_json, report_json, org_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO simulations (id, agent_id, scenario_id, status, trace_json, report_json, org_id, created_at, run_mode) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (trace.simulation_id, req.agent_id, "post-hoc", "completed",
              json.dumps(asdict(trace), default=str),
              json.dumps(asdict(report), default=str),
-             org_id, datetime.utcnow().isoformat()),
+             org_id, datetime.utcnow().isoformat(), "live"),
         )
         log_audit(conn, None, req.agent_id, "POST_HOC_REPORT",
                   resource=req.agent_id,
@@ -700,15 +700,26 @@ def _latest_sim_evidence(conn, agent_id: str, org_id: str = None) -> dict | None
     """Behavioral evidence from the agent's most recent completed simulation,
     for grading blast-radius confidence. Parses defensively → None on any issue."""
     try:
+        # Only LIVE runs are behavioral evidence. A dry run is a static
+        # prediction against mocked tools — its risk score and data_linked
+        # flags must never upgrade confidence or mint "Demonstrated" badges.
         if org_id:
             row = conn.execute(
                 "SELECT report_json FROM simulations WHERE agent_id = ? AND status = 'completed' "
-                "AND org_id = ? ORDER BY created_at DESC LIMIT 1", (agent_id, org_id)).fetchone()
+                "AND run_mode = 'live' AND org_id = ? ORDER BY created_at DESC LIMIT 1",
+                (agent_id, org_id)).fetchone()
         else:
             row = conn.execute(
                 "SELECT report_json FROM simulations WHERE agent_id = ? AND status = 'completed' "
-                "ORDER BY created_at DESC LIMIT 1", (agent_id,)).fetchone()
+                "AND run_mode = 'live' ORDER BY created_at DESC LIMIT 1", (agent_id,)).fetchone()
         if not row or not row["report_json"]:
+            # Distinguish "never simulated" from "only statically analyzed" so
+            # the UI can say so instead of rendering an empty state.
+            dry = conn.execute(
+                "SELECT 1 FROM simulations WHERE agent_id = ? AND status = 'completed' "
+                "AND run_mode = 'dry' LIMIT 1", (agent_id,)).fetchone()
+            if dry:
+                return {"ran": False, "dry_run_only": True}
             return None
         rep = json.loads(row["report_json"])
         chains = rep.get("chains_triggered") or []
@@ -3253,12 +3264,13 @@ def run_sandbox_simulation(req: SimulateRequest, user: dict = Depends(get_curren
     # Store simulation in DB
     with get_db() as conn:
         conn.execute("""
-            INSERT INTO simulations (id, agent_id, scenario_id, status, trace_json, report_json, org_id, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO simulations (id, agent_id, scenario_id, status, trace_json, report_json, org_id, created_at, run_mode)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             trace.simulation_id, trace.agent_id, trace.scenario_id,
             trace.status, json.dumps(_asdict(trace)), json.dumps(_asdict(report)),
             _org(user), trace.started_at,
+            "dry" if use_dry else "live",
         ))
 
     return {
@@ -3330,11 +3342,12 @@ def run_multi_agent_simulation(req: MultiSimulateRequest, user: dict = Depends(g
     # Store simulation
     with get_db() as conn:
         conn.execute(
-            "INSERT INTO simulations (id, agent_id, scenario_id, status, trace_json, report_json, org_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO simulations (id, agent_id, scenario_id, status, trace_json, report_json, org_id, created_at, run_mode) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (multi_trace.simulation_id, req.coordinator_id, scenario.id, multi_trace.status,
              json.dumps(_asdict(multi_trace), default=str),
              json.dumps(_asdict(report), default=str),
-             _org(user), datetime.utcnow().isoformat()),
+             _org(user), datetime.utcnow().isoformat(),
+             "dry" if req.dry_run else "live"),
         )
         log_audit(conn, user["sub"], user["email"], "MULTI_SIMULATE", resource=req.coordinator_id,
                   detail=f"Multi-agent sim with {len(req.agent_ids)} agents, dry_run={req.dry_run}")
@@ -5080,10 +5093,10 @@ def run_sweep(req: SweepRequest, user: dict = Depends(get_current_user)):
             if req.dry_run or getattr(trace, "status", None) == "error":
                 continue
             conn.execute(
-                "INSERT INTO simulations (id, agent_id, scenario_id, status, trace_json, report_json, org_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO simulations (id, agent_id, scenario_id, status, trace_json, report_json, org_id, created_at, run_mode) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (uuid.uuid4().hex[:12], req.agent_id, scenario.id, "completed",
                  json.dumps(_asdict(trace), default=str), json.dumps(_asdict(report), default=str),
-                 _org(user), now_iso),
+                 _org(user), now_iso, "live"),
             )
         log_audit(conn, user["sub"], user["email"], "SWEEP", resource=req.agent_id,
                   detail=f"Sweep: {sweep_report.total_scenarios} scenarios, risk={sweep_report.overall_risk_score}")

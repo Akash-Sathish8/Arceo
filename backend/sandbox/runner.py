@@ -529,6 +529,7 @@ def run_simulation_dry(
         scenario_id=scenario.id,
         scenario_name=scenario.name,
         prompt=f"[STATIC ANALYSIS] {scenario.prompt}",
+        run_mode="dry",
     )
 
     state = MockState(custom_data=custom_data, seed=seed)
