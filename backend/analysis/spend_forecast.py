@@ -285,14 +285,23 @@ LIVE_TRACE_MIN_CALLS_FORECAST = 5
 FORECAST_FORMULA_VERSION = 2
 
 
-def _detect_tier(sandbox_traces: Optional[list], live_trace_count_7d: int = 0) -> str:
+def _detect_tier(sandbox_traces: Optional[list], live_trace_count_7d: int = 0,
+                 model_recognized: bool = True) -> str:
     """Determine confidence tier from input availability.
 
     High tier (the tight ±15% band) requires enough live calls that the rolling
     averages are actually applied — claiming high confidence on a handful of
     calls while still using default inputs would be dishonest. Below that, a
     few live calls don't beat sandbox traces, so fall through to medium/low.
+
+    An unrecognized model caps the tier at LOW no matter how much trace data
+    exists: the dominant cost driver (the per-token price) is a guess, and no
+    volume of traffic makes a guessed price trustworthy. The check lives HERE,
+    not at call sites, so no caller can accidentally claim confidence on an
+    unpriced model.
     """
+    if not model_recognized:
+        return "low"
     if live_trace_count_7d >= LIVE_TRACE_MIN_CALLS:
         return "high"
     if sandbox_traces and len(sandbox_traces) > 0:
@@ -1278,10 +1287,8 @@ def forecast_spend(
     declared_model = (agent_config.get("simulation_model") or "").strip()
     model_recognized = (not declared_model) or _model_recognized(declared_model, defaults)
 
-    # ── Tier (capped to low when the dominant cost driver is unknown) ──
-    tier = _detect_tier(sandbox_traces, live_trace_count_7d)
-    if not model_recognized:
-        tier = "low"
+    # ── Tier (the unrecognized-model cap now lives inside _detect_tier) ──
+    tier = _detect_tier(sandbox_traces, live_trace_count_7d, model_recognized=model_recognized)
     band = defaults["confidence_bands"][tier]
 
     # ── Resolve inputs (overrides > agent's declared model > YAML default) ──
