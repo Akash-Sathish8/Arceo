@@ -12,6 +12,7 @@ import {
   Shield,
   GitBranch,
   ExternalLink,
+  Crosshair,
 } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { toast } from "@/components/shared/Toast";
@@ -33,7 +34,9 @@ interface TraceStep {
 }
 
 interface Violation {
-  rule: string;
+  // Mirrors backend Violation (backend/sandbox/models.py): title/type, not `rule`.
+  title: string;
+  type?: string;
   severity: string;
   description: string;
   from_label?: string;
@@ -41,7 +44,8 @@ interface Violation {
 }
 
 interface Chain {
-  type: string;
+  // Mirrors backend ChainViolation: chain_name, not `type`.
+  chain_name: string;
   severity: string;
   description: string;
 }
@@ -66,6 +70,19 @@ interface SimulationDetailData {
     })[];
     risk_score: number;
     executive_summary?: string;
+    // Precision/recall of violation detection vs the scenario's expected
+    // violations — computed by the backend since day one, dropped by the UI
+    // until Phase 1 (A1).
+    detection_grade?: {
+      expected: string[];
+      detected: string[];
+      matched: string[];
+      missed: string[];
+      unexpected: string[];
+      precision: number | null;
+      recall: number | null;
+      passed: boolean;
+    } | null;
   };
   created_at: string;
   agent_name?: string;
@@ -312,6 +329,7 @@ export default function SimulationDetail() {
             recommendations: (r.recommendations ?? []) as SimulationDetailData["report"]["recommendations"],
             risk_score: Number(r.risk_score ?? 0),
             executive_summary: r.executive_summary as string | undefined,
+            detection_grade: (r.detection_grade ?? null) as SimulationDetailData["report"]["detection_grade"],
           },
           created_at: String(raw.created_at ?? ""),
           agent_name: trace.agent_name as string | undefined,
@@ -327,14 +345,40 @@ export default function SimulationDetail() {
   async function applyAllRecommendations() {
     if (!sim) return;
     setApplyingAll(true);
+    // Create a policy per actionable recommendation via the real policies
+    // endpoint (there is no /apply-recommendations route). Same contract the
+    // Workflows page uses: {action_pattern, effect, reason}.
+    const seen = new Set<string>();
+    let applied = 0;
+    let failed = 0;
     try {
-      await apiFetch(`/api/authority/agent/${sim.agent_id}/apply-recommendations`, {
-        method: "POST",
-        body: JSON.stringify({ simulation_id: sim.id }),
-      });
-      toast("Recommendations applied");
-    } catch {
-      toast("Failed to apply recommendations", "error");
+      for (const rec of sim.report.recommendations) {
+        if (typeof rec === "string") continue;
+        if (!rec.actionable || !rec.action_pattern || !rec.effect) continue;
+        const key = `${rec.action_pattern}|${rec.effect}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        try {
+          await apiFetch(`/api/authority/agent/${sim.agent_id}/policies`, {
+            method: "POST",
+            body: JSON.stringify({
+              action_pattern: rec.action_pattern,
+              effect: rec.effect,
+              reason: rec.reason ?? rec.message ?? "Applied from simulation recommendation",
+            }),
+          });
+          applied++;
+        } catch {
+          failed++;
+        }
+      }
+      if (applied === 0 && failed === 0) {
+        toast("No actionable recommendations to apply");
+      } else if (failed > 0) {
+        toast(`Applied ${applied} recommendation${applied !== 1 ? "s" : ""}, ${failed} failed`, "error");
+      } else {
+        toast(`Applied ${applied} recommendation${applied !== 1 ? "s" : ""}`);
+      }
     } finally {
       setApplyingAll(false);
     }
@@ -402,7 +446,7 @@ export default function SimulationDetail() {
                   fontWeight: 500,
                   ...(sim.status === "completed"
                     ? { background: "var(--status-executed-bg)", color: "var(--status-executed)" }
-                    : sim.status === "failed"
+                    : sim.status === "failed" || sim.status === "error"
                     ? { background: "var(--severity-critical-bg)", color: "var(--severity-critical)" }
                     : { background: "var(--status-pending-bg)", color: "var(--status-pending)" }),
                 }}
@@ -465,7 +509,7 @@ export default function SimulationDetail() {
                     style={{ color: sty.color }}
                   />
                   <div className="flex-1">
-                    <div className="font-medium text-sm" style={{ color: sty.color }}>{v.rule}</div>
+                    <div className="font-medium text-sm" style={{ color: sty.color }}>{v.title}</div>
                     <div style={{ fontSize: 12, color: "var(--text-secondary)", marginTop: 2 }}>{v.description}</div>
                     {v.from_label && v.to_label && (
                       <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 4 }}>
@@ -495,6 +539,63 @@ export default function SimulationDetail() {
         </div>
       )}
 
+      {/* Detection accuracy — only when the scenario declared expected
+          violations (optional data; absent renders nothing, not an error) */}
+      {report?.detection_grade && report.detection_grade.expected.length > 0 && (
+        <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-6">
+          <h3 className="font-semibold mb-2 flex items-center gap-2" style={{ fontSize: 15, color: "var(--text-primary)" }}>
+            <Crosshair size={16} style={{ color: report.detection_grade.passed ? "#16a34a" : "#ea580c" }} />
+            Detection accuracy
+            <span
+              className="text-xs font-semibold px-2 py-0.5 rounded-full"
+              style={report.detection_grade.passed
+                ? { background: "#f0fdf4", color: "#16a34a" }
+                : { background: "#fff7ed", color: "#ea580c" }}
+            >
+              {report.detection_grade.passed ? "All expected violations detected" : "Missed expected violations"}
+            </span>
+          </h3>
+          <p className="text-xs mb-4" style={{ color: "var(--text-muted)" }}>
+            How well this run surfaced the violations the scenario was designed to trigger.
+            Actions that policy blocked still count as detected — catching and stopping a
+            violation is not a miss.
+          </p>
+          <div className="flex gap-8 mb-4">
+            {report.detection_grade.recall != null && (
+              <div>
+                <div className="text-xl font-semibold mono" style={{ color: "var(--text-primary)" }}>
+                  {Math.round(report.detection_grade.recall * 100)}%
+                </div>
+                <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>
+                  Recall · {report.detection_grade.matched.length}/{report.detection_grade.expected.length} expected found
+                </div>
+              </div>
+            )}
+            {report.detection_grade.precision != null && (
+              <div>
+                <div className="text-xl font-semibold mono" style={{ color: "var(--text-primary)" }}>
+                  {Math.round(report.detection_grade.precision * 100)}%
+                </div>
+                <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>
+                  Precision · of {report.detection_grade.detected.length} detected
+                </div>
+              </div>
+            )}
+          </div>
+          {report.detection_grade.missed.length > 0 && (
+            <div className="flex items-start gap-2 flex-wrap">
+              <span style={{ fontSize: 12, color: "var(--text-secondary)", marginTop: 2 }}>Missed:</span>
+              {report.detection_grade.missed.map((label) => (
+                <span key={label} className="text-xs px-2 py-0.5 rounded-full font-medium"
+                      style={{ background: "#fef2f2", color: "#dc2626" }}>
+                  {label}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Chains */}
       {chains.length > 0 && (
         <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-6">
@@ -512,7 +613,7 @@ export default function SimulationDetail() {
                   style={{ backgroundColor: sty.bg, borderColor: sty.color + "40" }}
                 >
                   <div className="flex items-center gap-2 mb-1">
-                    <span className="font-medium text-sm" style={{ color: sty.color }}>{c.type}</span>
+                    <span className="font-medium text-sm" style={{ color: sty.color }}>{c.chain_name}</span>
                     <span
                       className="text-xs font-semibold px-1.5 py-0.5 rounded capitalize text-white"
                       style={{ backgroundColor: sty.color }}

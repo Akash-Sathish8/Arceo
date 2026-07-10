@@ -1,0 +1,19 @@
+# Never bake local state or secrets into the image.
+**/.env
+**/*.db
+**/*.db.*
+**/__pycache__
+**/*.pyc
+**/.pytest_cache
+**/node_modules
+.git
+.github
+
+# Built in-stage; a stale local build must not leak in.
+frontend/dist
+backend/static
+
+# Not part of the product container.
+website
+test-agents
+sdk

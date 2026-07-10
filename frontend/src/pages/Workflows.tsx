@@ -67,6 +67,9 @@ interface ApprovalGate {
   chain_name: string;
   severity?: string;
   to_agent?: string;
+  // The from-agent's tool.action patterns that begin this chain — used to
+  // create a scoped REQUIRE_APPROVAL policy the enforcer actually matches.
+  action_patterns?: string[];
 }
 
 interface AgentOptimization {
@@ -1069,8 +1072,12 @@ export default function Workflows() {
       for (const item of analysis.overprivileged || []) {
         await createPolicy(agentId, item.action, "BLOCK", `Auto-generated: ${item.reason}`);
       }
-      for (const chain of analysis.approval_gates_needed || []) {
-        await createPolicy(agentId, "*", "REQUIRE_APPROVAL", `Auto-generated: Cross-agent chain gate — ${chain.chain_name}`);
+      for (const gate of analysis.approval_gates_needed || []) {
+        // Scope the gate to the specific actions that begin the chain — a bare
+        // "*" pattern is never matched by the enforcer, so the old gate was inert.
+        for (const pattern of gate.action_patterns || []) {
+          await createPolicy(agentId, pattern, "REQUIRE_APPROVAL", `Auto-generated: Cross-agent chain gate — ${gate.chain_name}`);
+        }
       }
     }
     setAppliedCount(count);
@@ -1440,24 +1447,19 @@ export default function Workflows() {
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
-                  gap: 8,
                   background: "var(--color-cta)",
                   color: "var(--text-inverse)",
-                  padding: "8px 20px",
-                  borderRadius: "var(--radius-full)",
+                  padding: "10px 20px",
+                  borderRadius: "var(--radius-lg)",
                   fontSize: 13,
                   fontWeight: 600,
                   border: "none",
+                  whiteSpace: "nowrap",
                   cursor: optimizing || !workflowDesc.trim() ? "not-allowed" : "pointer",
                   opacity: optimizing || !workflowDesc.trim() ? 0.5 : 1,
                 }}
               >
-                <span>{optimizing ? "Checking permissions…" : "Check the permissions"}</span>
-                {!optimizing && (
-                  <span style={{ fontSize: 10, color: "#9ca3af", fontWeight: 400 }}>
-                    nothing changes until you apply
-                  </span>
-                )}
+                {optimizing ? "Checking permissions…" : "Check the permissions"}
               </button>
             </div>
           )}

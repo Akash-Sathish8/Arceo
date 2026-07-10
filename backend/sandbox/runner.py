@@ -529,6 +529,7 @@ def run_simulation_dry(
         scenario_id=scenario.id,
         scenario_name=scenario.name,
         prompt=f"[STATIC ANALYSIS] {scenario.prompt}",
+        run_mode="dry",
     )
 
     state = MockState(custom_data=custom_data, seed=seed)
@@ -575,7 +576,7 @@ def run_simulation_dry(
 
         # Check enforcement using shared logic (no HTTP call)
         from authority.enforcement import enforce_check
-        result = enforce_check(agent_id, tool_name, action_name, session_context=session_context)
+        result = enforce_check(agent_id, tool_name, action_name, session_context=session_context, source="sandbox")
         enforce_decision = result["decision"]
         enforce_policy = result.get("policy")
 

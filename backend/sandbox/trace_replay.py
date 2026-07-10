@@ -256,6 +256,7 @@ def replay_traces(
                 agent_id, tool, action,
                 params=params or None,
                 session_context=session_context or None,
+                source="replay",
             )
             decision = result.get("decision", "ERROR")
             matched = result.get("policy")

@@ -3,41 +3,40 @@ import { useParams, Link } from "react-router-dom";
 import { ArrowLeft, Shield, CheckCircle, XCircle, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { apiFetch } from "@/lib/api";
-import { timeAgo } from "@/lib/utils";
+import { timeAgo, scoreBand } from "@/lib/utils";
 import ErrorState from "@/components/shared/ErrorState";
 
+// Shapes below mirror the backend SweepReport (backend/sandbox/models.py) exactly
+// — the endpoint returns that dataclass flat (no `{sweep: ...}` wrapper).
 interface ScenarioResult {
   scenario_id: string;
   scenario_name?: string;
   category?: string;
   status: string;
   risk_score: number;
-  violations: number;
-  chains: number;
+  violations_count: number;
+  chains_count: number;
 }
 
 interface SweepViolation {
-  rule: string;
+  type?: string;
+  title: string;
   severity: string;
   description: string;
-  scenario_id?: string;
 }
 
-interface SweepDetailData {
-  id: string;
+interface SweepReportData {
+  sweep_id: string;
   agent_id: string;
   agent_name?: string;
-  status: string;
-  created_at: string;
-  scenarios: ScenarioResult[];
-  aggregate: {
-    risk_score: number;
-    total_violations: number;
-    total_chains: number;
-    scenarios_run: number;
-    scenarios_failed: number;
-  };
-  // Backend may return recommendation OBJECTS ({message, effect, action_pattern,
+  total_scenarios: number;
+  completed: number;
+  failed: number;
+  overall_risk_score: number;
+  all_violations: SweepViolation[];
+  all_chains: unknown[];
+  scenario_results: ScenarioResult[];
+  // Backend returns recommendation OBJECTS ({message, effect, action_pattern,
   // reason, actionable}) or plain strings — support both to avoid a render crash.
   recommendations: (string | {
     message?: string;
@@ -46,7 +45,8 @@ interface SweepDetailData {
     action_pattern?: string;
     actionable?: boolean;
   })[];
-  violations: SweepViolation[];
+  started_at?: string;
+  completed_at?: string;
 }
 
 const SEVERITY_STYLES: Record<string, { bg: string; color: string }> = {
@@ -58,13 +58,9 @@ const SEVERITY_STYLES: Record<string, { bg: string; color: string }> = {
 
 const FALLBACK_STYLE = { bg: "var(--bg-sunken)", color: "var(--text-secondary)" };
 
-function scoreColor(score: number): string {
-  return score >= 70 ? "var(--severity-critical)" : score >= 40 ? "var(--severity-high)" : "var(--severity-safe)";
-}
-
 function statusStyle(status: string): { background: string; color: string } {
   if (status === "completed") return { background: "var(--status-executed-bg)", color: "var(--status-executed)" };
-  if (status === "failed")    return { background: "var(--severity-critical-bg)", color: "var(--severity-critical)" };
+  if (status === "failed" || status === "error") return { background: "var(--severity-critical-bg)", color: "var(--severity-critical)" };
   return { background: "var(--status-pending-bg)", color: "var(--status-pending)" };
 }
 
@@ -72,8 +68,10 @@ function ScoreRing({ score }: { score: number }) {
   const radius = 44;
   const circ = 2 * Math.PI * radius;
   const dash = (score / 100) * circ;
-  const color = scoreColor(score);
-  const label = score >= 70 ? "Critical" : score >= 40 ? "High" : "Safe";
+  // Use the single authoritative band scale (80/60/40) instead of ad-hoc 70/40.
+  const band = scoreBand(score);
+  const color = band.color;
+  const label = band.label;
 
   return (
     <div style={{ flexShrink: 0 }}>
@@ -111,7 +109,7 @@ function ScoreRing({ score }: { score: number }) {
 
 export default function SweepDetail() {
   const { sweepId } = useParams<{ sweepId: string }>();
-  const [sweep, setSweep] = useState<SweepDetailData | null>(null);
+  const [sweep, setSweep] = useState<SweepReportData | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -119,8 +117,9 @@ export default function SweepDetail() {
     if (!sweepId) return;
     setLoading(true);
     setLoadError(null);
-    apiFetch<{ sweep: SweepDetailData }>(`/api/sandbox/sweep/${sweepId}`)
-      .then((data) => setSweep(data.sweep))
+    // The endpoint returns the SweepReport flat (no wrapper) — consume it directly.
+    apiFetch<SweepReportData>(`/api/sandbox/sweep/${sweepId}`)
+      .then((data) => setSweep(data))
       // Distinguish a network/server error from a genuinely-missing sweep.
       .catch((e: Error) => setLoadError(e.message))
       .finally(() => setLoading(false));
@@ -153,10 +152,17 @@ export default function SweepDetail() {
     );
   }
 
-  const agg = sweep.aggregate;
-  const scenarios = sweep.scenarios ?? [];
-  const violations = sweep.violations ?? [];
+  // Derive the display values from the flat backend report.
+  const scenarios = sweep.scenario_results ?? [];
+  const violations = sweep.all_violations ?? [];
   const recommendations = sweep.recommendations ?? [];
+  const riskScore = Math.round(sweep.overall_risk_score ?? 0);
+  const totalViolations = violations.length;
+  const totalChains = (sweep.all_chains ?? []).length;
+  const scenariosRun = sweep.total_scenarios ?? scenarios.length;
+  const scenariosFailed = sweep.failed ?? 0;
+  const sweepStatus = scenariosFailed > 0 ? "partial" : "completed";
+  const createdAt = sweep.completed_at ?? sweep.started_at ?? "";
 
   return (
     <div style={{ padding: 40, display: "flex", flexDirection: "column", gap: 32, maxWidth: 800 }}>
@@ -176,7 +182,7 @@ export default function SweepDetail() {
       {/* Overview */}
       <div style={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: "var(--radius-lg)", padding: 24 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 24 }}>
-          <ScoreRing score={agg.risk_score} />
+          <ScoreRing score={riskScore} />
           <div style={{ flex: 1 }}>
             <h2 style={{ fontSize: 17, fontWeight: 600, color: "var(--text-primary)", marginBottom: 4, marginTop: 0 }}>
               {sweep.agent_name ?? sweep.agent_id}
@@ -188,28 +194,28 @@ export default function SweepDetail() {
                   padding: "2px 8px",
                   borderRadius: "var(--radius-full)",
                   fontWeight: 500,
-                  ...statusStyle(sweep.status),
+                  ...statusStyle(sweepStatus),
                 }}
               >
-                {sweep.status}
+                {sweepStatus}
               </span>
-              <span style={{ fontSize: 13, color: "var(--text-muted)" }}>{timeAgo(sweep.created_at)}</span>
+              <span style={{ fontSize: 13, color: "var(--text-muted)" }}>{timeAgo(createdAt)}</span>
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16, textAlign: "center" }}>
               <div>
-                <div style={{ fontSize: 20, fontWeight: 700, color: "var(--text-primary)" }}>{agg.scenarios_run}</div>
+                <div style={{ fontSize: 20, fontWeight: 700, color: "var(--text-primary)" }}>{scenariosRun}</div>
                 <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>Scenarios</div>
               </div>
               <div>
-                <div style={{ fontSize: 20, fontWeight: 700, color: "var(--severity-critical)" }}>{agg.total_violations}</div>
+                <div style={{ fontSize: 20, fontWeight: 700, color: "var(--severity-critical)" }}>{totalViolations}</div>
                 <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>Violations</div>
               </div>
               <div>
-                <div style={{ fontSize: 20, fontWeight: 700, color: "var(--severity-high)" }}>{agg.total_chains}</div>
+                <div style={{ fontSize: 20, fontWeight: 700, color: "var(--severity-high)" }}>{totalChains}</div>
                 <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>Chains</div>
               </div>
               <div>
-                <div style={{ fontSize: 20, fontWeight: 700, color: "var(--severity-critical)" }}>{agg.scenarios_failed}</div>
+                <div style={{ fontSize: 20, fontWeight: 700, color: "var(--severity-critical)" }}>{scenariosFailed}</div>
                 <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>Failed</div>
               </div>
             </div>
@@ -253,7 +259,7 @@ export default function SweepDetail() {
                 </tr>
               ) : (
                 scenarios.map((sc, i) => {
-                  const sc_color = scoreColor(sc.risk_score);
+                  const sc_color = scoreBand(sc.risk_score).color;
                   return (
                     <tr key={i} style={{ borderBottom: "1px solid var(--border-subtle)" }}>
                       <td style={{ padding: "12px 16px", fontWeight: 500, color: "var(--text-primary)" }}>
@@ -263,10 +269,10 @@ export default function SweepDetail() {
                         {sc.risk_score}
                       </td>
                       <td style={{ padding: "12px 16px", textAlign: "center", color: "var(--text-primary)" }}>
-                        {sc.violations}
+                        {sc.violations_count}
                       </td>
                       <td style={{ padding: "12px 16px", textAlign: "center", color: "var(--text-primary)" }}>
-                        {sc.chains}
+                        {sc.chains_count}
                       </td>
                       <td style={{ padding: "12px 16px", textAlign: "center" }}>
                         <span
@@ -325,13 +331,8 @@ export default function SweepDetail() {
                 >
                   <AlertTriangle size={14} style={{ flexShrink: 0, marginTop: 2, color: sty.color }} />
                   <div style={{ flex: 1 }}>
-                    <div style={{ fontWeight: 500, fontSize: 13, color: sty.color }}>{v.rule}</div>
+                    <div style={{ fontWeight: 500, fontSize: 13, color: sty.color }}>{v.title}</div>
                     <div style={{ fontSize: 12, color: "var(--text-secondary)", marginTop: 2 }}>{v.description}</div>
-                    {v.scenario_id && (
-                      <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 2 }}>
-                        Scenario: {v.scenario_id}
-                      </div>
-                    )}
                   </div>
                   <span
                     style={{

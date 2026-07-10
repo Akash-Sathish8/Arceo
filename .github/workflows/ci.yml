@@ -1,0 +1,53 @@
+name: CI
+
+# Roadmap Phase 1 (A2a): the test suites become required checks — this workflow
+# is the gate. Branch protection (making these jobs *required*) is a repo
+# setting flipped by the owner; the jobs themselves need no secrets: conftest
+# isolates the DB in a tempdir and blanks ANTHROPIC_API_KEY.
+
+on:
+  push:
+    branches: [dev, Prod]
+  pull_request:
+    branches: [dev, Prod]
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: backend/requirements*.txt
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+      - name: Run tests
+        run: python -m pytest tests/ -q
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+      - name: Typecheck
+        run: npx tsc --noEmit
+      - name: Build
+        run: npm run build

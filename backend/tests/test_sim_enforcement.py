@@ -66,6 +66,21 @@ def test_conditional_param_policy_fires_in_sims():
     assert under.enforce_decision == "ALLOW"
 
 
+def test_sim_execution_rows_are_labeled_sandbox():
+    """Simulation-originated executions must be distinguishable from live
+    traffic — reviewers should never mistake a sandbox run for agent behavior."""
+    _seed_policy("sim-enf-src", "stripe.*", "REQUIRE_APPROVAL", 50)
+    execute_tool_call(
+        agent_id="sim-enf-src", tool="stripe", action="create_refund",
+        params={"amount": 10}, state=MockState(), step_index=0,
+    )
+    with db.get_db() as conn:
+        row = conn.execute(
+            "SELECT source FROM execution_log WHERE agent_id = 'sim-enf-src' ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+    assert row["source"] == "sandbox"
+
+
 def test_enforcement_failure_fails_closed(monkeypatch):
     def boom(*a, **kw):
         raise RuntimeError("enforcement unavailable")

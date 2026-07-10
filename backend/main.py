@@ -27,7 +27,7 @@ from db import (
     log_audit, log_execution, DEFAULT_ORG_ID,
 )
 from authority.chain_detector import detect_chains as _detect_chains
-from authority.enforcement import enforce_check, match_policy as _match_policy
+from authority.enforcement import enforce_check, safe_enforce_check, match_policy as _match_policy
 from authority.graph import build_agent_graph, calculate_blast_radius, graph_to_dict
 from authority.parser import AgentConfig, ToolDef
 from authority.risk_classifier import classify_with_fallback
@@ -366,7 +366,7 @@ async def proxy_llm_request(provider: str, path: str, request: Request):
     return StreamingResponse(
         iter([response_body]),
         status_code=resp.status_code,
-        headers={k: v for k, v in resp.headers.items() if k.lower() not in ("content-encoding", "transfer-encoding")},
+        headers={k: v for k, v in resp.headers.items() if k.lower() not in ("content-encoding", "content-length", "transfer-encoding")},
     )
 
 
@@ -381,11 +381,11 @@ async def proxy_request(service: str, path: str, request: Request):
     """
     import httpx as _httpx
 
-    # Require API key if any keys exist in the system
+    # X-API-Key is mandatory on the enforcing proxy — full stop. The old
+    # "required only if any keys exist" conditional meant a fresh install ran
+    # a wide-open egress proxy until someone happened to mint a key.
     key_info = verify_api_key(request)
-    with get_db() as conn:
-        key_count = conn.execute("SELECT COUNT(*) FROM api_keys WHERE active = 1").fetchone()[0]
-    if key_count > 0 and not key_info:
+    if not key_info:
         raise HTTPException(status_code=401, detail="X-API-Key header required. Generate a key at /api/keys")
 
     agent_id = request.headers.get("X-Agent-ID", "")
@@ -413,8 +413,10 @@ async def proxy_request(service: str, path: str, request: Request):
         except (json.JSONDecodeError, UnicodeDecodeError):
             pass
 
-    # Enforce policy using shared logic
-    result = enforce_check(agent_id, service, action, params=params or None)
+    # Enforce policy using shared logic. safe_enforce_check never raises: an
+    # exception mid-decision becomes a structured BLOCK (or ALLOW under the
+    # ARCEO_FAIL_MODE=allow break-glass), so no error path executes an action.
+    result = safe_enforce_check(agent_id, service, action, params=params or None)
     effect = result["decision"]
 
     if effect == "BLOCK":
@@ -441,7 +443,7 @@ async def proxy_request(service: str, path: str, request: Request):
         return StreamingResponse(
             iter([resp.content]),
             status_code=resp.status_code,
-            headers={k: v for k, v in resp.headers.items() if k.lower() not in ("content-encoding", "transfer-encoding")},
+            headers={k: v for k, v in resp.headers.items() if k.lower() not in ("content-encoding", "content-length", "transfer-encoding")},
         )
     except _httpx.TimeoutException:
         raise HTTPException(status_code=504, detail=f"Upstream {service} timed out")
@@ -556,11 +558,11 @@ def analyze_sdk_trace(req: SDKTraceInput, request: Request = None):
     # Store as simulation
     with get_db() as conn:
         conn.execute(
-            "INSERT INTO simulations (id, agent_id, scenario_id, status, trace_json, report_json, org_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO simulations (id, agent_id, scenario_id, status, trace_json, report_json, org_id, created_at, run_mode) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (trace.simulation_id, agent_id, "sdk-trace", "completed",
              json.dumps(asdict(trace), default=str),
              json.dumps(asdict(report), default=str),
-             org_id, datetime.utcnow().isoformat()),
+             org_id, datetime.utcnow().isoformat(), "live"),
         )
 
     return {
@@ -614,7 +616,7 @@ def submit_post_hoc_report(req: PostHocReport, request: Request = None):
     # Log each action
     with get_db() as conn:
         for action in req.actions:
-            log_execution(conn, req.agent_id, action.tool, action.action, "REPORTED",
+            log_execution(conn, req.agent_id, action.tool, action.action, "REPORTED", source="report",
                           detail="post-hoc report", org_id=org_id)
 
         # Store as a simulation for dashboard visibility
@@ -624,11 +626,11 @@ def submit_post_hoc_report(req: PostHocReport, request: Request = None):
             return obj
 
         conn.execute(
-            "INSERT INTO simulations (id, agent_id, scenario_id, status, trace_json, report_json, org_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO simulations (id, agent_id, scenario_id, status, trace_json, report_json, org_id, created_at, run_mode) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (trace.simulation_id, req.agent_id, "post-hoc", "completed",
              json.dumps(asdict(trace), default=str),
              json.dumps(asdict(report), default=str),
-             org_id, datetime.utcnow().isoformat()),
+             org_id, datetime.utcnow().isoformat(), "live"),
         )
         log_audit(conn, None, req.agent_id, "POST_HOC_REPORT",
                   resource=req.agent_id,
@@ -698,15 +700,26 @@ def _latest_sim_evidence(conn, agent_id: str, org_id: str = None) -> dict | None
     """Behavioral evidence from the agent's most recent completed simulation,
     for grading blast-radius confidence. Parses defensively → None on any issue."""
     try:
+        # Only LIVE runs are behavioral evidence. A dry run is a static
+        # prediction against mocked tools — its risk score and data_linked
+        # flags must never upgrade confidence or mint "Demonstrated" badges.
         if org_id:
             row = conn.execute(
                 "SELECT report_json FROM simulations WHERE agent_id = ? AND status = 'completed' "
-                "AND org_id = ? ORDER BY created_at DESC LIMIT 1", (agent_id, org_id)).fetchone()
+                "AND run_mode = 'live' AND org_id = ? ORDER BY created_at DESC LIMIT 1",
+                (agent_id, org_id)).fetchone()
         else:
             row = conn.execute(
                 "SELECT report_json FROM simulations WHERE agent_id = ? AND status = 'completed' "
-                "ORDER BY created_at DESC LIMIT 1", (agent_id,)).fetchone()
+                "AND run_mode = 'live' ORDER BY created_at DESC LIMIT 1", (agent_id,)).fetchone()
         if not row or not row["report_json"]:
+            # Distinguish "never simulated" from "only statically analyzed" so
+            # the UI can say so instead of rendering an empty state.
+            dry = conn.execute(
+                "SELECT 1 FROM simulations WHERE agent_id = ? AND status = 'completed' "
+                "AND run_mode = 'dry' LIMIT 1", (agent_id,)).fetchone()
+            if dry:
+                return {"ran": False, "dry_run_only": True}
             return None
         rep = json.loads(row["report_json"])
         chains = rep.get("chains_triggered") or []
@@ -1009,6 +1022,7 @@ def list_agents(user: dict = Depends(get_current_user)):
                 "policies_by_effect": policies_by_effect,
                 "pending_count": pending_count,
                 "last_execution_at": last_exec["timestamp"] if last_exec else None,
+                "default_effect": agent.get("default_effect", "ALLOW"),
                 **summary,
             })
 
@@ -1095,6 +1109,7 @@ def get_agent_detail(agent_id: str, user: dict = Depends(get_current_user)):
         "agent": {
             "id": agent["id"], "name": agent["name"], "description": agent["description"],
             "created_at": agent["created_at"],
+            "default_effect": agent.get("default_effect", "ALLOW"),
             "tools": enriched_tools,
         },
         "graph": graph_to_dict(graph),
@@ -1183,7 +1198,35 @@ def list_cross_agent_chains(user: dict = Depends(get_current_user)):
                     "from_label": t.from_label,
                     "to_label": t.to_label,
                 })
-    return {"chains": chains}
+
+    # Mirror detect_chains (authority/chain_detector.py) so this endpoint agrees
+    # with the /top-pairings preview, which runs detect_chains on the merged pair.
+    # (1) Collapse symmetric duplicates: both directions of a symmetric label pair
+    #     fire on the same unordered agent pair and double-count — keep the
+    #     highest-severity entry per (unordered agent pair, unordered label pair).
+    _sev_rank = {"critical": 3, "high": 2, "medium": 1}
+    deduped: list[dict] = []
+    pair_index: dict[tuple, int] = {}
+    for c in chains:
+        key = (
+            frozenset((c["from_agent_id"], c["to_agent_id"])),
+            frozenset((c["from_label"], c["to_label"])),
+        )
+        if key not in pair_index:
+            pair_index[key] = len(deduped)
+            deduped.append(c)
+        elif _sev_rank.get(c["severity"], 0) > _sev_rank.get(deduped[pair_index[key]]["severity"], 0):
+            deduped[pair_index[key]] = c
+
+    # (2) Downgrade the marquee pii-exfil chain critical→high unless the pair has a
+    #     bulk_export capability — a single-record read + send is not mass exfil.
+    for c in deduped:
+        if c["chain_id"] == "pii-exfil" and c["severity"] == "critical":
+            pair_labels = agent_labels.get(c["from_agent_id"], set()) | agent_labels.get(c["to_agent_id"], set())
+            if "bulk_export" not in pair_labels:
+                c["severity"] = "high"
+
+    return {"chains": deduped}
 
 
 # ── Agent CRUD ──────────────────────────────────────────────────────────────
@@ -1209,7 +1252,10 @@ class ToolInput(BaseModel):
 class AgentInput(BaseModel):
     name: str
     description: str = ""
-    tools: list[ToolInput] = []
+    # None (absent) must stay distinguishable from [] (explicitly no tools):
+    # update_agent rewrites the tool set only when the caller sent one. With a
+    # [] default, a rename-only PUT wiped every tool and action on the agent.
+    tools: Optional[list[ToolInput]] = None
     # Forecast inputs (optional). simulation_model prices the LLM at the right
     # rate; expected_calls_per_day is the #1 cost driver; avg_context_tokens
     # captures RAG/long-prompt agents the tool-count heuristic misses.
@@ -1222,6 +1268,10 @@ class AgentInput(BaseModel):
     environment: Optional[str] = None        # prod | staging | dev
     trigger_source: Optional[str] = None     # untrusted | internal | scheduled
     human_in_loop: Optional[bool] = None
+    # Opt-in fail-closed posture: DENY blocks any action no policy matches.
+    # Optional so an omitted field never resets a stored value (same contract
+    # as tools above).
+    default_effect: Optional[str] = None     # ALLOW | DENY
 
 
 @app.post("/api/authority/agents")
@@ -1257,7 +1307,7 @@ def create_agent(req: AgentInput, user: dict = Depends(get_current_user)):
             agent_id = f"{agent_id}-{uuid.uuid4().hex[:6]}"
             _insert_agent_row(agent_id)
 
-        for tool in req.tools:
+        for tool in req.tools or []:
             cur = conn.execute(
                 "INSERT INTO agent_tools (agent_id, name, service, description) VALUES (?, ?, ?, ?)",
                 (agent_id, tool.name, tool.service, tool.description),
@@ -1273,7 +1323,7 @@ def create_agent(req: AgentInput, user: dict = Depends(get_current_user)):
                 )
 
         log_audit(conn, user["sub"], user["email"], "CREATE_AGENT", resource=agent_id,
-                  detail=f"Created agent '{req.name}' with {len(req.tools)} tools")
+                  detail=f"Created agent '{req.name}' with {len(req.tools or [])} tools")
 
     return {"id": agent_id, "message": "Agent created"}
 
@@ -1318,6 +1368,9 @@ def set_agent_forecast_inputs(agent_id: str, req: ForecastInputsInput, user: dic
 def update_agent(agent_id: str, req: AgentInput, user: dict = Depends(get_current_user)):
     now = datetime.utcnow().isoformat()
 
+    if req.default_effect is not None and req.default_effect not in ("ALLOW", "DENY"):
+        raise HTTPException(status_code=400, detail="default_effect must be ALLOW or DENY")
+
     with get_db() as conn:
         existing = conn.execute("SELECT id FROM agents WHERE id = ? AND org_id = ?", (agent_id, _org(user))).fetchone()
         if not existing:
@@ -1335,31 +1388,39 @@ def update_agent(agent_id: str, req: AgentInput, user: dict = Depends(get_curren
             "environment = COALESCE(?, environment), "
             "trigger_source = COALESCE(?, trigger_source), "
             "human_in_loop = COALESCE(?, human_in_loop), "
+            "default_effect = COALESCE(?, default_effect), "
             "updated_at = ? WHERE id = ?",
             (req.name, req.description, req.simulation_model, req.expected_calls_per_day,
              req.expected_turns_per_run, req.avg_context_tokens, req.system_prompt,
              req.environment, req.trigger_source,
              (1 if req.human_in_loop else 0) if req.human_in_loop is not None else None,
+             req.default_effect,
              now, agent_id),
         )
 
-        # Delete old tools/actions and re-insert
-        conn.execute("DELETE FROM agent_tools WHERE agent_id = ?", (agent_id,))
+        if req.default_effect is not None:
+            log_audit(conn, user["sub"], user["email"], "SET_DEFAULT_EFFECT", resource=agent_id,
+                      detail=f"Default for unmatched actions set to {req.default_effect}")
 
-        for tool in req.tools:
-            cur = conn.execute(
-                "INSERT INTO agent_tools (agent_id, name, service, description) VALUES (?, ?, ?, ?)",
-                (agent_id, tool.name, tool.service, tool.description),
-            )
-            tool_id = cur.lastrowid
-            for a in tool.actions:
-                # BR2: classify server-side; never trust client-supplied risk_labels.
-                mapped = classify_with_fallback(tool.name, a.action, a.description,
-                                                input_schema=a.input_schema)
-                conn.execute(
-                    "INSERT INTO tool_actions (tool_id, action, description, risk_labels, reversible, classification_source) VALUES (?, ?, ?, ?, ?, ?)",
-                    (tool_id, a.action, a.description, json.dumps(mapped.risk_labels), mapped.reversible, mapped.classification_source),
+        # Rewrite the tool set only when the caller sent one — a metadata-only
+        # edit (rename/description) must not touch tools.
+        if req.tools is not None:
+            conn.execute("DELETE FROM agent_tools WHERE agent_id = ?", (agent_id,))
+
+            for tool in req.tools:
+                cur = conn.execute(
+                    "INSERT INTO agent_tools (agent_id, name, service, description) VALUES (?, ?, ?, ?)",
+                    (agent_id, tool.name, tool.service, tool.description),
                 )
+                tool_id = cur.lastrowid
+                for a in tool.actions:
+                    # BR2: classify server-side; never trust client-supplied risk_labels.
+                    mapped = classify_with_fallback(tool.name, a.action, a.description,
+                                                    input_schema=a.input_schema)
+                    conn.execute(
+                        "INSERT INTO tool_actions (tool_id, action, description, risk_labels, reversible, classification_source) VALUES (?, ?, ?, ?, ?, ?)",
+                        (tool_id, a.action, a.description, json.dumps(mapped.risk_labels), mapped.reversible, mapped.classification_source),
+                    )
 
         log_audit(conn, user["sub"], user["email"], "UPDATE_AGENT", resource=agent_id,
                   detail=f"Updated agent '{req.name}'")
@@ -2556,8 +2617,11 @@ from typing import Union
 
 
 class ConditionInput(BaseModel):
-    field: str       # param field name, e.g. "amount"
-    op: str          # gt, gte, lt, lte, eq, neq, in, not_in, contains
+    # Optional because requires_prior conditions carry no param field — a
+    # required `field` made Pydantic 422 every requires_prior policy before
+    # the handler (whose valid_ops includes it) ever ran.
+    field: str = ""  # param field name, e.g. "amount"
+    op: str          # gt, gte, lt, lte, eq, neq, in, not_in, contains, requires_prior
     value: Union[str, int, float, list] = ""
 
 
@@ -2729,7 +2793,7 @@ def enforce_action(req: EnforceRequest, request: Request):
         if agent and caller_org and agent["org_id"] != caller_org:
             raise HTTPException(status_code=403, detail="Not authorized for this agent")
     check_rate_limit(f"enforce:{req.agent_id}")
-    return enforce_check(req.agent_id, req.tool, req.action, req.params or None, req.session_context or None)
+    return safe_enforce_check(req.agent_id, req.tool, req.action, req.params or None, req.session_context or None)
 
 
 # ── Notification Settings ───────────────────────────────────────────────────
@@ -2836,15 +2900,47 @@ def get_agent_executions(agent_id: str, user: dict = Depends(get_current_user)):
 def get_pending_approvals(user: dict = Depends(get_current_user)):
     """Return all PENDING_APPROVAL executions across all agents."""
     with get_db() as conn:
+        # risk_labels + the firing policy joined per row so the queue can say
+        # WHY an action needed approval and WHICH rule put it here, without a
+        # second request. Provenance (e.source) says where the call came from.
         rows = conn.execute(
-            """SELECT e.*, a.name as agent_name
+            """SELECT e.*, a.name as agent_name, ta.risk_labels as risk_labels,
+                      p.action_pattern as policy_pattern, p.reason as policy_reason,
+                      p.created_by as policy_created_by, p.created_at as policy_created_at
                FROM execution_log e
                LEFT JOIN agents a ON e.agent_id = a.id
+               LEFT JOIN agent_tools t ON t.agent_id = e.agent_id AND t.name = e.tool
+               LEFT JOIN tool_actions ta ON ta.tool_id = t.id AND ta.action = e.action
+               LEFT JOIN policies p ON p.id = e.policy_id
                WHERE e.status = 'PENDING_APPROVAL' AND e.org_id = ?
+               GROUP BY e.id
                ORDER BY e.timestamp DESC""",
             (_org(user),),
         ).fetchall()
-    return {"approvals": [dict(r) for r in rows]}
+    approvals = []
+    for r in rows:
+        item = dict(r)
+        # Stored as JSON; the frontend renders a params object (or nothing on
+        # pre-migration rows / malformed data — never break the queue).
+        try:
+            item["params"] = json.loads(item["params"]) if item.get("params") else None
+        except (json.JSONDecodeError, TypeError):
+            item["params"] = None
+        try:
+            item["risk_labels"] = json.loads(item["risk_labels"]) if item.get("risk_labels") else []
+        except (json.JSONDecodeError, TypeError):
+            item["risk_labels"] = []
+        pattern = item.pop("policy_pattern", None)
+        reason = item.pop("policy_reason", None)
+        created_by = item.pop("policy_created_by", None)
+        created_at = item.pop("policy_created_at", None)
+        item["policy"] = (
+            {"action_pattern": pattern, "reason": reason,
+             "created_by": created_by, "created_at": created_at}
+            if pattern else None
+        )
+        approvals.append(item)
+    return {"approvals": approvals}
 
 
 class ApprovalDecision(BaseModel):
@@ -3168,12 +3264,13 @@ def run_sandbox_simulation(req: SimulateRequest, user: dict = Depends(get_curren
     # Store simulation in DB
     with get_db() as conn:
         conn.execute("""
-            INSERT INTO simulations (id, agent_id, scenario_id, status, trace_json, report_json, org_id, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO simulations (id, agent_id, scenario_id, status, trace_json, report_json, org_id, created_at, run_mode)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             trace.simulation_id, trace.agent_id, trace.scenario_id,
             trace.status, json.dumps(_asdict(trace)), json.dumps(_asdict(report)),
             _org(user), trace.started_at,
+            "dry" if use_dry else "live",
         ))
 
     return {
@@ -3245,11 +3342,12 @@ def run_multi_agent_simulation(req: MultiSimulateRequest, user: dict = Depends(g
     # Store simulation
     with get_db() as conn:
         conn.execute(
-            "INSERT INTO simulations (id, agent_id, scenario_id, status, trace_json, report_json, org_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO simulations (id, agent_id, scenario_id, status, trace_json, report_json, org_id, created_at, run_mode) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (multi_trace.simulation_id, req.coordinator_id, scenario.id, multi_trace.status,
              json.dumps(_asdict(multi_trace), default=str),
              json.dumps(_asdict(report), default=str),
-             _org(user), datetime.utcnow().isoformat()),
+             _org(user), datetime.utcnow().isoformat(),
+             "dry" if req.dry_run else "live"),
         )
         log_audit(conn, user["sub"], user["email"], "MULTI_SIMULATE", resource=req.coordinator_id,
                   detail=f"Multi-agent sim with {len(req.agent_ids)} agents, dry_run={req.dry_run}")
@@ -3449,6 +3547,20 @@ def optimize_workflow_permissions(req: WorkflowOptimizeRequest, user: dict = Dep
         # Approval gates: cross-agent chains involving this agent
         my_chains = [c for c in cross_chains if c["from_agent_id"] == aid or c["to_agent_id"] == aid]
 
+        # For gates where THIS agent produces the risky label, attach the real
+        # tool.action patterns that begin the chain so the UI can create a scoped
+        # REQUIRE_APPROVAL policy the enforcer actually matches (a bare "*" never
+        # matches — see authority/enforcement.match_policy).
+        approval_gates = []
+        for c in my_chains:
+            if c["from_agent_id"] != aid:
+                continue
+            patterns = sorted(
+                key for key, info in all_registered.items()
+                if c["from_label"] in info["risk_labels"]
+            )
+            approval_gates.append({**c, "action_patterns": patterns})
+
         # Optimization score: 0=perfectly tight, 100=extremely overprivileged
         total_risky = sum(1 for info in all_registered.values() if info["risk_labels"] or not info["reversible"])
         over_count = len(overprivileged)
@@ -3463,7 +3575,7 @@ def optimize_workflow_permissions(req: WorkflowOptimizeRequest, user: dict = Dep
             "optimization_score": opt_score,  # 0=tight, 100=very overprivileged
             "overprivileged": sorted(overprivileged, key=lambda x: (0 if x["severity"] == "high" else 1, x["action"])),
             "permission_gaps": permission_gaps,
-            "approval_gates_needed": [c for c in my_chains if c["from_agent_id"] == aid],
+            "approval_gates_needed": approval_gates,
             "summary": _build_agent_summary(agent["name"], over_count, len(permission_gaps), len(my_chains)),
         }
 
@@ -3599,94 +3711,14 @@ def workflow_top_pairings(user: dict = Depends(get_current_user)):
     return {"pairings": pairings[:3]}
 
 
-@app.get("/api/sandbox/simulate/stream")
-def run_sandbox_simulation_stream(agent_id: str, scenario_id: str, request: Request, user: dict = Depends(get_current_user)):
-    """SSE endpoint: stream real LLM simulation steps as they complete. Requires auth."""
-    from sandbox.prompts.scenarios import get_scenario
-    from sandbox.analyzer import analyze_trace
-    from sandbox.runner import run_simulation
-    import queue
-    import threading
-
-    # Validate inputs
-    with get_db() as conn:
-        agent = get_agent_from_db(conn, agent_id, org_id=_org(user))
-        if not agent:
-            raise HTTPException(status_code=404, detail=f"Agent '{agent_id}' not found")
-
-    scenario = get_scenario(scenario_id)
-    if not scenario:
-        raise HTTPException(status_code=404, detail=f"Scenario '{scenario_id}' not found")
-
-    def event_stream():
-        from dataclasses import asdict as _asdict
-
-        step_queue: queue.Queue = queue.Queue()
-        _DONE = object()  # sentinel
-
-        def on_step(step):
-            step_queue.put(step)
-
-        simulation_holder = {}
-
-        def run_in_thread():
-            try:
-                trace = run_simulation(
-                    agent_config=agent,
-                    scenario=scenario,
-                    on_step_callback=on_step,
-                )
-                simulation_holder["trace"] = trace
-            except Exception as e:
-                simulation_holder["error"] = str(e)
-            finally:
-                step_queue.put(_DONE)
-
-        thread = threading.Thread(target=run_in_thread, daemon=True)
-
-        # Send simulation start
-        yield f"data: {json.dumps({'type': 'start', 'agent_name': agent['name'], 'scenario_name': scenario.name})}\n\n"
-
-        thread.start()
-
-        # Stream steps as they arrive from the running simulation
-        while True:
-            item = step_queue.get()
-            if item is _DONE:
-                break
-            yield f"data: {json.dumps({'type': 'step', 'step': _asdict(item)})}\n\n"
-
-        thread.join()
-
-        if "error" in simulation_holder:
-            yield f"data: {json.dumps({'type': 'error', 'message': simulation_holder['error']})}\n\n"
-            return
-
-        trace = simulation_holder["trace"]
-        report = analyze_trace(trace, scenario=scenario)
-
-        # Store in DB
-        with get_db() as conn:
-            conn.execute("""
-                INSERT INTO simulations (id, agent_id, scenario_id, status, trace_json, report_json, org_id, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                trace.simulation_id, trace.agent_id, trace.scenario_id,
-                trace.status, json.dumps(_asdict(trace)), json.dumps(_asdict(report)),
-                _org(user), trace.started_at,
-            ))
-
-        yield f"data: {json.dumps({'type': 'complete', 'simulation_id': trace.simulation_id, 'report': _asdict(report)})}\n\n"
-
-    return StreamingResponse(event_stream(), media_type="text/event-stream")
-
-
 @app.get("/api/sandbox/simulations")
 def list_simulations(user: dict = Depends(get_current_user)):
     """List past simulation runs."""
     with get_db() as conn:
         rows = conn.execute(
-            "SELECT id, agent_id, scenario_id, status, created_at, report_json FROM simulations WHERE org_id = ? ORDER BY created_at DESC LIMIT 50",
+            "SELECT s.id, s.agent_id, s.scenario_id, s.status, s.created_at, s.report_json, a.name AS agent_name "
+            "FROM simulations s LEFT JOIN agents a ON a.id = s.agent_id AND a.org_id = s.org_id "
+            "WHERE s.org_id = ? ORDER BY s.created_at DESC LIMIT 50",
             (_org(user),)
         ).fetchall()
     simulations = []
@@ -5061,10 +5093,10 @@ def run_sweep(req: SweepRequest, user: dict = Depends(get_current_user)):
             if req.dry_run or getattr(trace, "status", None) == "error":
                 continue
             conn.execute(
-                "INSERT INTO simulations (id, agent_id, scenario_id, status, trace_json, report_json, org_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO simulations (id, agent_id, scenario_id, status, trace_json, report_json, org_id, created_at, run_mode) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (uuid.uuid4().hex[:12], req.agent_id, scenario.id, "completed",
                  json.dumps(_asdict(trace), default=str), json.dumps(_asdict(report), default=str),
-                 _org(user), now_iso),
+                 _org(user), now_iso, "live"),
             )
         log_audit(conn, user["sub"], user["email"], "SWEEP", resource=req.agent_id,
                   detail=f"Sweep: {sweep_report.total_scenarios} scenarios, risk={sweep_report.overall_risk_score}")
@@ -5292,7 +5324,7 @@ async def call_mock_endpoint(tool: str, action: str, request: Request):
                 enforce_reason = matched["reason"]
 
             status = "BLOCKED" if enforce_decision == "BLOCK" else "PENDING_APPROVAL" if enforce_decision == "REQUIRE_APPROVAL" else "EXECUTED"
-            log_execution(conn, agent_id, tool, action, status, detail=enforce_reason or "Mock endpoint")
+            log_execution(conn, agent_id, tool, action, status, detail=enforce_reason or "Mock endpoint", source="sandbox")
     except Exception as e:
         logger.warning("Mock endpoint enforcement/logging error for %s.%s: %s", tool, action, e)
 

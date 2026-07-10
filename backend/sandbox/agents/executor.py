@@ -36,7 +36,7 @@ def execute_tool_call(
     # action executed with policies silently ignored. It also never sent
     # params, so conditional (e.g. amount-based) policies never fired in sims.
     try:
-        data = enforce_check(agent_id, tool, action, params or None, session_context or [])
+        data = enforce_check(agent_id, tool, action, params or None, session_context or [], source="sandbox")
         enforce_decision = data.get("decision", "ALLOW")
         enforce_policy = data.get("policy")
     except Exception:

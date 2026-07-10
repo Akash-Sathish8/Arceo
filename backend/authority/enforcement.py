@@ -115,6 +115,31 @@ def _pattern_specificity(pattern: str) -> int:
     return 2
 
 
+# Restrictive effect wins a specificity tie regardless of the priority column —
+# priority only orders policies within the same effect.
+_EFFECT_RANK = {"BLOCK": 2, "REQUIRE_APPROVAL": 1, "ALLOW": 0}
+
+
+def _action_variants(action_key: str) -> list[str]:
+    """Naive singular/plural variants of the action part of `tool.action`.
+
+    The proxy infers action names from URL paths (`GET /v1/customers` →
+    `get_customers`) while policies are usually authored singular
+    (`get_customer`), so an exact-only match silently skips them. Variants are
+    consulted ONLY after a full pass with the exact key found nothing: an exact
+    policy always wins, and a variant hit can only convert a would-be default
+    into a match — which errs toward blocking (fail-safe). That ordering also
+    contains the hazard of catalogs where e.g. `get_charge` and `get_charges`
+    are both real actions.
+    """
+    tool, dot, act = action_key.partition(".")
+    if not dot or not act:
+        return []
+    if act.endswith("s"):
+        return [f"{tool}.{act[:-1]}"]
+    return [f"{tool}.{act}s"]
+
+
 def match_policy(action_key: str, policies: list, params: dict | None = None, session_context: list | None = None) -> dict | None:
     """Match an action key against policies, evaluating conditions if present.
 
@@ -124,10 +149,18 @@ def match_policy(action_key: str, policies: list, params: dict | None = None, se
     If no params provided, conditions are ignored (backward compatible).
     session_context is a list of prior action strings (e.g. ["pagerduty.get_incident", "aws.list_instances"]).
 
-    Precedence: most SPECIFIC matching pattern first, then effect priority
-    (BLOCK 100 > REQUIRE_APPROVAL 50 > ALLOW 10) as the tie-break within the same
-    specificity — so a narrow exception beats a broad rule, but two rules at the
-    same breadth resolve by effect (a BLOCK wins over an ALLOW).
+    Precedence: most SPECIFIC matching pattern first, then effect
+    (BLOCK > REQUIRE_APPROVAL > ALLOW), then the priority column — so a narrow
+    exception beats a broad rule, and two rules at the same breadth resolve by
+    effect structurally (an ALLOW can never out-prioritize a same-breadth BLOCK).
+
+    A pattern-matched policy whose conditions cannot be parsed or evaluated is
+    UNEVALUABLE: the returned dict carries effect="BLOCK" and unevaluable=True.
+    Silently widening (a conditional ALLOW becoming unconditional) or narrowing
+    it would both be lies — failing closed is the only honest option.
+
+    If a full pass finds nothing, one retry runs with naive singular/plural
+    variants of the action (see _action_variants).
     """
     def _get(p, key, default):
         # Policies arrive as either dicts or sqlite3.Row (no .get()); Row raises
@@ -140,64 +173,89 @@ def match_policy(action_key: str, policies: list, params: dict | None = None, se
 
     policies = sorted(
         policies,
-        key=lambda p: (_pattern_specificity(_get(p, "action_pattern", "")), _get(p, "priority", 0)),
+        key=lambda p: (
+            _pattern_specificity(_get(p, "action_pattern", "")),
+            _EFFECT_RANK.get(_get(p, "effect", ""), 0),
+            _get(p, "priority", 0),
+        ),
         reverse=True,
     )
-    for p in policies:
-        pattern = p["action_pattern"]
-        pattern_match = False
 
-        if pattern == action_key:
-            pattern_match = True
-        elif pattern.endswith(".*") and action_key.startswith(pattern[:-1]):
-            pattern_match = True
-        elif "*" in pattern:
-            parts = pattern.split(".")
-            key_parts = action_key.split(".")
-            if len(parts) == 2 and len(key_parts) == 2:
-                tool_match = parts[0] == "*" or parts[0] == key_parts[0]
-                action_match = parts[1] == "*" or (parts[1].endswith("*") and key_parts[1].startswith(parts[1][:-1]))
-                if tool_match and action_match:
-                    pattern_match = True
+    def _match_pass(key: str) -> dict | None:
+        key_parts = key.split(".")
+        for p in policies:
+            pattern = p["action_pattern"]
+            pattern_match = False
 
-        if not pattern_match:
-            continue
+            if pattern == key:
+                pattern_match = True
+            elif pattern == "*":
+                # A bare `*` is a full wildcard. It used to split to one part
+                # where the branch below requires two, so `*` policies (e.g.
+                # Workflows "Apply All" REQUIRE_APPROVAL gates) never fired.
+                pattern_match = True
+            elif pattern.endswith(".*") and key.startswith(pattern[:-1]):
+                pattern_match = True
+            elif "*" in pattern:
+                parts = pattern.split(".")
+                if len(parts) == 2 and len(key_parts) == 2:
+                    tool_match = parts[0] == "*" or parts[0] == key_parts[0]
+                    # The `parts[1] == key_parts[1]` arm makes tool-wildcard,
+                    # action-exact patterns (`*.create_refund`) match — graph.py
+                    # already scores them as mitigating; enforcement must agree.
+                    action_match = (
+                        parts[1] == "*"
+                        or parts[1] == key_parts[1]
+                        or (parts[1].endswith("*") and key_parts[1].startswith(parts[1][:-1]))
+                    )
+                    if tool_match and action_match:
+                        pattern_match = True
 
-        # Check conditions if present
-        try:
-            raw_conditions = p["conditions"]
-        except (KeyError, IndexError):
-            raw_conditions = None
-        # Guard the parse: a malformed conditions row must not 500 the enforcement
-        # hot path (the read endpoints already tolerate it). Treat unparseable as
-        # "no conditions" so pattern match alone decides — for a BLOCK that means
-        # it still fires (fail-safe).
-        try:
-            conditions = json.loads(raw_conditions) if raw_conditions else []
-        except (ValueError, TypeError):
-            conditions = []
-        if conditions:
-            # Split into param conditions and session conditions
-            param_conds = [c for c in conditions if c.get("op") != "requires_prior"]
-            session_conds = [c for c in conditions if c.get("op") == "requires_prior"]
+            if not pattern_match:
+                continue
 
-            param_ok = True
-            if param_conds:
-                if params:
-                    param_ok = _evaluate_conditions(param_conds, params)
+            # Evaluate conditions. A policy we cannot evaluate must not be
+            # silently widened OR narrowed — fail closed instead.
+            try:
+                try:
+                    raw_conditions = p["conditions"]
+                except (KeyError, IndexError):
+                    raw_conditions = None
+                conditions = json.loads(raw_conditions) if raw_conditions else []
+                if conditions and not isinstance(conditions, list):
+                    raise ValueError("conditions must be a JSON list")
+
+                if conditions:
+                    param_conds = [c for c in conditions if c.get("op") != "requires_prior"]
+                    session_conds = [c for c in conditions if c.get("op") == "requires_prior"]
+
+                    param_ok = True
+                    if param_conds:
+                        if params:
+                            param_ok = _evaluate_conditions(param_conds, params)
+                        else:
+                            param_ok = False  # has param conditions but no params
+
+                    session_ok = True
+                    if session_conds:
+                        session_ok = _evaluate_session_conditions(session_conds, session_context)
+
+                    if param_ok and session_ok:
+                        return p
                 else:
-                    param_ok = False  # has param conditions but no params
+                    # No conditions — pattern match is enough
+                    return p
+            except Exception:
+                return {**{k: p[k] for k in p.keys()}, "effect": "BLOCK", "unevaluable": True}
+        return None
 
-            session_ok = True
-            if session_conds:
-                session_ok = _evaluate_session_conditions(session_conds, session_context)
-
-            if param_ok and session_ok:
-                return p
-        else:
-            # No conditions — pattern match is enough
-            return p
-
+    matched = _match_pass(action_key)
+    if matched is not None:
+        return matched
+    for variant in _action_variants(action_key):
+        matched = _match_pass(variant)
+        if matched is not None:
+            return matched
     return None
 
 
@@ -235,8 +293,56 @@ def fire_block_notification(agent_id: str, tool: str, action: str, reason: str):
 
 # ── Enforcement Decision ──────────────────────────────────────────────────────
 
-def enforce_check(agent_id: str, tool: str, action: str, params: dict = None, session_context: list = None) -> dict:
+def safe_enforce_check(agent_id: str, tool: str, action: str, params: dict = None,
+                       session_context: list = None, source: str = "runtime") -> dict:
+    """enforce_check that NEVER raises — the fail-closed wrapper for hot paths.
+
+    An exception mid-decision (DB hiccup, malformed row, anything) must not
+    become an uncontrolled 500 that skips both the decision AND the audit row.
+    The fallback decision is BLOCK unless ARCEO_FAIL_MODE=allow — the
+    documented break-glass for "an Arceo outage must not halt customer
+    agents". Matches the sandbox executor's convention (PR #25): enforcement
+    failure is an explicit, labeled outcome, never a silent pass.
+    """
+    import os
+
+    try:
+        return enforce_check(agent_id, tool, action, params=params,
+                             session_context=session_context, source=source)
+    except Exception as exc:
+        fail_mode = os.environ.get("ARCEO_FAIL_MODE", "block").strip().lower()
+        decision = "ALLOW" if fail_mode == "allow" else "BLOCK"
+        detail = f"enforcement_error ({type(exc).__name__}) — fail-{'open (ARCEO_FAIL_MODE=allow)' if decision == 'ALLOW' else 'closed'}"
+        # Best-effort audit: the primary decision path just failed, so this may
+        # fail too — swallow it, the decision must still return.
+        try:
+            from db import get_db, log_execution, DEFAULT_ORG_ID
+            with get_db() as conn:
+                agent_row = conn.execute("SELECT org_id FROM agents WHERE id = ?", (agent_id,)).fetchone()
+                log_execution(conn, agent_id, tool, action,
+                              "BLOCKED" if decision == "BLOCK" else "EXECUTED",
+                              policy_id=None, detail=detail,
+                              org_id=agent_row["org_id"] if agent_row else DEFAULT_ORG_ID,
+                              params=params, source=source)
+        except Exception:
+            pass
+        return {
+            "decision": decision,
+            "action": f"{tool}.{action}",
+            "agent_id": agent_id,
+            "policy": None,
+            "reason": "enforcement_error",
+            "message": f"Enforcement could not be evaluated ({type(exc).__name__}); failing {'open — ARCEO_FAIL_MODE=allow' if decision == 'ALLOW' else 'closed'}.",
+        }
+
+
+def enforce_check(agent_id: str, tool: str, action: str, params: dict = None, session_context: list = None, source: str = "runtime") -> dict:
     """Shared enforce logic — used by the API endpoint, proxy, and sandbox executor.
+
+    `source` labels the execution row's provenance (runtime | sandbox |
+    boundary_test | replay | test) so reviewers can tell live agent traffic
+    from simulations. Defaults to "runtime" — the API endpoint and service
+    proxy are real traffic; every sandbox-side caller must override it.
 
     Returns a dict with:
         decision: "ALLOW" | "BLOCK" | "REQUIRE_APPROVAL"
@@ -252,8 +358,13 @@ def enforce_check(agent_id: str, tool: str, action: str, params: dict = None, se
     with get_db() as conn:
         # Resolve the agent's org so the execution row (and the approvals queue it
         # feeds) lands in the right tenant rather than defaulting to 'default'.
-        agent_row = conn.execute("SELECT org_id FROM agents WHERE id = ?", (agent_id,)).fetchone()
+        agent_row = conn.execute("SELECT * FROM agents WHERE id = ?", (agent_id,)).fetchone()
         agent_org = agent_row["org_id"] if agent_row else DEFAULT_ORG_ID
+        # Opt-in per-agent fail-closed posture. Unknown agents keep the historic
+        # implicit-ALLOW (zero-config onboarding must not go dark).
+        default_effect = "ALLOW"
+        if agent_row is not None and "default_effect" in agent_row.keys():
+            default_effect = agent_row["default_effect"] or "ALLOW"
 
         policies = conn.execute(
             "SELECT * FROM policies WHERE agent_id = ? ORDER BY priority DESC, id", (agent_id,)
@@ -261,25 +372,50 @@ def enforce_check(agent_id: str, tool: str, action: str, params: dict = None, se
 
         matched_policy = match_policy(action_key, policies, params=params or None, session_context=session_context or None)
 
+        # match_policy returns a plain dict (never a Row) exactly when it flags
+        # an unevaluable policy.
+        unevaluable = isinstance(matched_policy, dict) and bool(matched_policy.get("unevaluable"))
+        deny_by_default = False
+
         if matched_policy:
             effect = matched_policy["effect"]
             status = "BLOCKED" if effect == "BLOCK" else "PENDING_APPROVAL" if effect == "REQUIRE_APPROVAL" else "EXECUTED"
+        elif default_effect == "DENY":
+            deny_by_default = True
+            effect = "BLOCK"
+            status = "BLOCKED"
         else:
             effect = "ALLOW"
             status = "EXECUTED"
 
+        if unevaluable:
+            detail = f"unevaluable policy {matched_policy.get('id')} — conditions could not be evaluated; failing closed"
+        elif matched_policy:
+            detail = matched_policy["reason"]
+        elif deny_by_default:
+            detail = "no policy matched; agent is deny-by-default"
+        else:
+            detail = "No matching policy"
+
         log_execution(conn, agent_id, tool, action, status,
                       policy_id=matched_policy["id"] if matched_policy else None,
-                      detail=matched_policy["reason"] if matched_policy else "No matching policy",
-                      org_id=agent_org)
+                      detail=detail,
+                      org_id=agent_org, params=params, source=source)
 
         if status == "BLOCKED":
-            fire_block_notification(agent_id, tool, action, matched_policy["reason"] if matched_policy else "")
+            fire_block_notification(agent_id, tool, action, detail)
+
+        if matched_policy:
+            message = detail if unevaluable else matched_policy["reason"]
+        elif deny_by_default:
+            message = "Blocked — no policy matched and this agent is deny-by-default"
+        else:
+            message = "Action allowed — no matching policy"
 
         return {
             "decision": effect,
             "action": action_key,
             "agent_id": agent_id,
             "policy": dict(matched_policy) if matched_policy else None,
-            "message": matched_policy["reason"] if matched_policy else "Action allowed — no matching policy",
+            "message": message,
         }

@@ -9,7 +9,7 @@
 import { useParams, Link } from "react-router-dom"
 import { useEffect, useRef, useState } from "react"
 import {
-  Banknote, Sliders, PieChart, BarChart3, Target,
+  Banknote, Sliders, PieChart, Target,
   TrendingUp, Shield, Search, FileText, Plus, HelpCircle, X,
   AlertTriangle, Check, ArrowRight,
 } from "lucide-react"
@@ -251,10 +251,6 @@ function downloadForecastCsv(
   if (m.topTools?.length) {
     rows.push([], ["Top tool calls", "Calls per month", "Cost per call (USD)", "Monthly (USD)"])
     for (const t of m.topTools) rows.push([t.tool, t.callsPerMonth, t.costPer, t.monthly])
-  }
-  if (m.unitEcon?.length) {
-    rows.push([], ["Unit economics", "Value"])
-    for (const u of m.unitEcon) rows.push([u.label, u.value ?? "not measured"])
   }
   if (costReport) {
     rows.push(
@@ -647,7 +643,9 @@ function CostPortfolioContent({
   const [applyingGate, setApplyingGate] = useState(false)
   const [showMethodology, setShowMethodology] = useState(false)
 
-  // Restore a previously-saved budget so the panel reflects the real cap.
+  // Restore a previously-saved budget so the panel reflects the saved alert
+  // threshold. It IS only an alert — nothing enforces spend, so the UI must
+  // never call it a cap.
   const loadSavedBudget = useRef<() => void>(() => {})
   loadSavedBudget.current = () => {
     if (!agentId) return
@@ -672,8 +670,10 @@ function CostPortfolioContent({
 
   const onSaveBudgetAlert = async () => {
     if (!agentId || budget <= 0) return
-    const ok = await saveBudget(agentId, budget)
-    toast(ok ? `Alert set — we'll ping Slack at 80% of $${budget.toLocaleString()}/mo` : "Couldn't save the alert", ok ? undefined : "error")
+    // Preserve an existing saved threshold instead of silently resetting to 80.
+    const threshold = savedBudget?.alertThresholdPct ?? 80
+    const ok = await saveBudget(agentId, budget, threshold)
+    toast(ok ? `Alert set — we'll ping Slack at ${threshold}% of $${budget.toLocaleString()}/mo` : "Couldn't save the alert", ok ? undefined : "error")
     if (ok) loadSavedBudget.current()
   }
 
@@ -1073,23 +1073,6 @@ function CostPortfolioContent({
           </table>
         </PanelCard>
 
-        <PanelCard title="Unit economics" icon={<BarChart3 size={14} />}>
-          <p className="mb-4 text-sm text-gray-600 leading-relaxed">Cost per business outcome. These are the lines that hold up in a budget review.</p>
-          {m.unitEcon.map((u, i) => (
-            <div key={u.label} className={`grid grid-cols-[1fr_auto] py-2 text-sm ${i < m.unitEcon.length - 1 ? "border-b border-dashed border-gray-100" : ""}`}>
-              <span className="text-gray-600">{u.label}</span>
-              <span className="font-semibold mono" style={u.value == null ? { color: "var(--text-muted)" } : undefined}>
-                {u.value ?? "—"}
-              </span>
-            </div>
-          ))}
-          <div className="mt-3 text-[11px] text-gray-400">
-            {m.unitEcon.every((u) => u.value == null)
-              ? "Not measured yet. Run a sandbox sweep so we can compute cost per outcome from this agent's own action mix — we won't show a fabricated figure."
-              : "Computed from this agent's observed action mix. Calibrates further once live traces stream in."}
-          </div>
-        </PanelCard>
-
         <PanelCard title="Sensitivity — what affects cost most" icon={<Target size={14} />} help={(() => {
           const top = m.sensitivity[0]
           if (!top || top.pct <= 0) return "Each bar shows how much that input changes your forecast. Improving the top driver has the biggest accuracy payoff."
@@ -1156,15 +1139,15 @@ function CostPortfolioContent({
               className="text-xs px-3 py-2 rounded-md font-medium cursor-pointer whitespace-nowrap text-white"
               style={{ background: "var(--text-primary, #0f172a)" }}
             >
-              {savedBudget?.budget === budget ? "Alert set ✓" : "Set a cap alert"}
+              {savedBudget?.budget === budget ? "Alert set ✓" : "Set a spend alert"}
             </button>
           </div>
 
-          {/* Month-to-date actual spend vs the saved cap. */}
+          {/* Month-to-date actual spend vs the saved alert budget. */}
           {savedBudget?.budget != null && (
             <div className="text-xs text-gray-600 mb-3">
               Spent <span className="mono font-semibold text-gray-900">${savedBudget.monthToDateUsd.toLocaleString()}</span> of
-              your <span className="mono">${savedBudget.budget.toLocaleString()}</span> cap this month
+              your <span className="mono">${savedBudget.budget.toLocaleString()}</span> alert budget this month
               {savedBudget.pctUsed != null && <> (<strong className={savedBudget.pctUsed >= (savedBudget.alertThresholdPct ?? 80) ? "" : "text-gray-900"} style={savedBudget.pctUsed >= (savedBudget.alertThresholdPct ?? 80) ? { color: "var(--severity-critical, #dc2626)" } : undefined}>{savedBudget.pctUsed}%</strong>)</>}.
               {savedBudget.alertThresholdPct != null && <span className="text-gray-400"> Slack alert at {savedBudget.alertThresholdPct}%.</span>}
             </div>

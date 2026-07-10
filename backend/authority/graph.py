@@ -304,7 +304,10 @@ def _chain_broken(fc, policies: list | None) -> bool:
 def _evidence_grade(sim_evidence: dict | None) -> tuple[str, float, dict]:
     """Map the latest sim's findings to (confidence, residual_uplift, evidence)."""
     if not sim_evidence or not sim_evidence.get("ran"):
-        return "low", 0.0, {"hasSim": False}
+        ev = {"hasSim": False}
+        if sim_evidence and sim_evidence.get("dry_run_only"):
+            ev["dryRunOnly"] = True  # static analysis exists, live evidence doesn't
+        return "low", 0.0, ev
     risk = float(sim_evidence.get("risk_score") or 0)
     confirmed = bool(sim_evidence.get("confirmed_chain") or sim_evidence.get("has_violation") or risk >= 70)
     if confirmed:

@@ -27,4 +27,4 @@ from ._capture import wrap_llm, report_llm_call
 from ._enforce import enforce, ArceoClient
 
 __all__ = ["wrap_llm", "report_llm_call", "enforce", "ArceoClient"]
-__version__ = "0.1.0"
+__version__ = "0.2.0"

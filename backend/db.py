@@ -100,6 +100,7 @@ def init_db():
                 environment TEXT,
                 trigger_source TEXT,
                 human_in_loop INTEGER,
+                default_effect TEXT NOT NULL DEFAULT 'ALLOW',
                 created_at TEXT,
                 updated_at TEXT
             );
@@ -154,6 +155,8 @@ def init_db():
                 status TEXT,
                 policy_id INTEGER,
                 detail TEXT,
+                params TEXT,
+                source TEXT,
                 org_id TEXT DEFAULT 'default',
                 timestamp TEXT
             );
@@ -174,7 +177,8 @@ def init_db():
                 trace_json TEXT,
                 report_json TEXT,
                 org_id TEXT DEFAULT 'default',
-                created_at TEXT
+                created_at TEXT,
+                run_mode TEXT NOT NULL DEFAULT 'live'
             );
 
             CREATE TABLE IF NOT EXISTS api_keys (
@@ -287,6 +291,9 @@ def init_db():
                 ("environment", "TEXT"),          # prod | staging | dev — exposure context
                 ("trigger_source", "TEXT"),       # untrusted | internal | scheduled
                 ("human_in_loop", "INTEGER"),     # 1 if a human approves actions
+                # Opt-in fail-closed posture: with DENY, an action no policy
+                # matches is BLOCKED instead of implicitly allowed (Phase 1, B1).
+                ("default_effect", "TEXT NOT NULL DEFAULT 'ALLOW'"),
             ):
                 if col not in agent_cols:
                     conn.execute(f"ALTER TABLE agents ADD COLUMN {col} {decl}")
@@ -300,6 +307,34 @@ def init_db():
             ta_cols = [r[1] for r in conn.execute("PRAGMA table_info(tool_actions)").fetchall()]
             if "classification_source" not in ta_cols:
                 conn.execute("ALTER TABLE tool_actions ADD COLUMN classification_source TEXT DEFAULT 'unknown'")
+        except Exception:
+            pass
+
+        # Defensive migration: action params on execution rows (JSON). Without
+        # this, the approvals queue showed reviewers nothing about what they
+        # were approving — no amount, no recipient. NULL on pre-migration rows.
+        try:
+            el_cols = [r[1] for r in conn.execute("PRAGMA table_info(execution_log)").fetchall()]
+            if "params" not in el_cols:
+                conn.execute("ALTER TABLE execution_log ADD COLUMN params TEXT")
+            # Provenance: runtime | sandbox | boundary_test | replay | report |
+            # test. Every number on a reviewer-facing surface must answer
+            # "where did you come from?" — NULL marks pre-tracking rows.
+            if "source" not in el_cols:
+                conn.execute("ALTER TABLE execution_log ADD COLUMN source TEXT")
+        except Exception:
+            pass
+
+        # Defensive migration: dry-run vs live provenance on simulations — the
+        # sibling of execution_log.source. Evidence surfaces (uplift, confidence,
+        # "Demonstrated") must only trust live runs. Historic rows are backfilled
+        # off the '[STATIC ANALYSIS]' prompt marker that only run_simulation_dry
+        # writes; the backfill runs exactly once, inside the column-add branch.
+        try:
+            sim_cols = [r[1] for r in conn.execute("PRAGMA table_info(simulations)").fetchall()]
+            if "run_mode" not in sim_cols:
+                conn.execute("ALTER TABLE simulations ADD COLUMN run_mode TEXT NOT NULL DEFAULT 'live'")
+                conn.execute("UPDATE simulations SET run_mode = 'dry' WHERE trace_json LIKE '%[STATIC ANALYSIS]%'")
         except Exception:
             pass
 
@@ -369,6 +404,7 @@ def get_agent_from_db(conn, agent_id: str, org_id: str = None) -> dict | None:
         "environment": row["environment"] if "environment" in row.keys() else None,
         "trigger_source": row["trigger_source"] if "trigger_source" in row.keys() else None,
         "human_in_loop": row["human_in_loop"] if "human_in_loop" in row.keys() else None,
+        "default_effect": (row["default_effect"] if "default_effect" in row.keys() else None) or "ALLOW",
         "created_at": row["created_at"],
         "updated_at": row["updated_at"],
         "tools": [],
@@ -425,9 +461,14 @@ def log_audit(conn, user_id: str | None, user_email: str | None, action: str, re
         pass
 
 
-def log_execution(conn, agent_id: str, tool: str, action: str, status: str, policy_id: int = None, detail: str = None, org_id: str = DEFAULT_ORG_ID):
-    """Write an execution log entry."""
+def log_execution(conn, agent_id: str, tool: str, action: str, status: str, policy_id: int = None, detail: str = None, org_id: str = DEFAULT_ORG_ID, params: dict = None, source: str = None):
+    """Write an execution log entry. `params` (the action's arguments) are
+    stored as JSON so the approvals queue can show reviewers WHAT they are
+    approving, not just which action. `source` records where the call came
+    from (runtime | sandbox | boundary_test | replay | report | test) so a
+    reviewer can tell live agent traffic from simulations and seeded data."""
     conn.execute(
-        "INSERT INTO execution_log (agent_id, tool, action, status, policy_id, detail, org_id, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-        (agent_id, tool, action, status, policy_id, detail, org_id, datetime.utcnow().isoformat()),
+        "INSERT INTO execution_log (agent_id, tool, action, status, policy_id, detail, params, source, org_id, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (agent_id, tool, action, status, policy_id, detail,
+         json.dumps(params) if params else None, source, org_id, datetime.utcnow().isoformat()),
     )

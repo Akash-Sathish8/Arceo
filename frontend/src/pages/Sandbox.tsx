@@ -18,15 +18,12 @@ interface BlastRadius {
   score: number
 }
 
-interface AgentTool {
-  service?: string
-  name?: string
-}
-
+// /api/authority/agents returns tools as plain service-name strings
+// ("tools": [t["service"] for t in agent["tools"]]), not objects.
 interface AgentListItem {
   id: string
   name: string
-  tools: AgentTool[]
+  tools: string[]
   blast_radius: BlastRadius
 }
 
@@ -165,6 +162,32 @@ const formatDesc = (desc: string): string => {
   )
 }
 
+// ─── Session persistence ──────────────────────────────────────────────────────
+// React unmounts this page on navigation, wiping the in-progress setup (agent,
+// scenario picks, queued prompts, active tab). Persist it for the browser
+// session so tab-hopping doesn't read as "my work disappeared". Results
+// themselves live server-side at /sandbox/:id — this only preserves setup.
+
+const SANDBOX_STATE_KEY = 'arceo:sandbox-setup'
+
+interface SavedSandboxState {
+  agent?: string
+  scenarioIds?: string[]
+  categoryFilter?: string
+  customPrompt?: string
+  queuedCustomPrompts?: string[]
+  tab?: 'run' | 'past'
+  runMode?: 'dry' | 'llm'
+}
+
+function loadSavedSandboxState(): SavedSandboxState {
+  try {
+    return JSON.parse(sessionStorage.getItem(SANDBOX_STATE_KEY) ?? '{}') as SavedSandboxState
+  } catch {
+    return {}
+  }
+}
+
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export default function Sandbox() {
@@ -172,6 +195,7 @@ export default function Sandbox() {
   const preselectedAgent = searchParams.get('agent')
   const worstCase = searchParams.get('worst_case') === '1'
   const navigate = useNavigate()
+  const [saved] = useState(loadSavedSandboxState)
 
   const [scenarios, setScenarios] = useState<Scenario[]>([])
   const [agents, setAgents] = useState<AgentListItem[]>([])
@@ -181,12 +205,14 @@ export default function Sandbox() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  // Selection state
+  // Selection state (scalars rehydrate from the saved session; agent/scenarios
+  // restore async once their lists load, validated against what still exists)
   const [selectedScenarios, setSelectedScenarios] = useState<Scenario[]>([])
   const [selectedAgent, setSelectedAgent] = useState('')
-  const [categoryFilter, setCategoryFilter] = useState('all')
-  const [customPrompt, setCustomPrompt] = useState('')
-  const [queuedCustomPrompts, setQueuedCustomPrompts] = useState<string[]>([])
+  const [categoryFilter, setCategoryFilter] = useState(saved.categoryFilter ?? 'all')
+  const [customPrompt, setCustomPrompt] = useState(saved.customPrompt ?? '')
+  const [queuedCustomPrompts, setQueuedCustomPrompts] = useState<string[]>(saved.queuedCustomPrompts ?? [])
+  const pendingScenarioIdsRef = useRef<string[] | null>(saved.scenarioIds?.length ? saved.scenarioIds : null)
 
   const [agentOpen, setAgentOpen] = useState(false)
   const agentSelectorRef = useRef<HTMLDivElement>(null)
@@ -206,8 +232,8 @@ export default function Sandbox() {
   const [runError, setRunError] = useState<string | null>(null)
   const [lastRunMode, setLastRunMode] = useState('')
   const [sweeping, setSweeping] = useState(false)
-  const [sandboxTab, setSandboxTab] = useState<'run' | 'past'>('run')
-  const [runMode, setRunMode] = useState<'dry' | 'llm'>('dry')
+  const [sandboxTab, setSandboxTab] = useState<'run' | 'past'>(saved.tab ?? 'run')
+  const [runMode, setRunMode] = useState<'dry' | 'llm'>(saved.runMode ?? 'dry')
   const [showAddAllConfirm, setShowAddAllConfirm] = useState(false)
 
   useEffect(() => {
@@ -218,10 +244,13 @@ export default function Sandbox() {
       .then(([agentData, simData]) => {
         setAgents(agentData.agents)
         setSimulations(simData.simulations)
+        // URL intent beats the saved session beats the first agent.
         const defaultAgent =
           preselectedAgent && agentData.agents.find((a) => a.id === preselectedAgent)
             ? preselectedAgent
-            : agentData.agents[0]?.id || ''
+            : saved.agent && agentData.agents.find((a) => a.id === saved.agent)
+              ? saved.agent
+              : agentData.agents[0]?.id || ''
         setSelectedAgent(defaultAgent)
         setLoading(false)
       })
@@ -264,7 +293,17 @@ export default function Sandbox() {
     apiFetch<{ scenarios: Scenario[] }>(`/api/sandbox/agent/${selectedAgent}/scenarios`)
       .then((d) => {
         setScenarios(d.scenarios)
-        if (worstCase && d.scenarios?.length > 0) {
+        // One-shot restore of the saved selection — only ids that still exist
+        // for this agent survive (auto-scenario ids are agent-prefixed, so a
+        // stale save for another agent simply matches nothing).
+        const pendingIds = pendingScenarioIdsRef.current
+        pendingScenarioIdsRef.current = null
+        const restored = !worstCase && pendingIds
+          ? d.scenarios.filter((s) => pendingIds.includes(s.id))
+          : []
+        if (restored.length > 0) {
+          setSelectedScenarios(restored)
+        } else if (worstCase && d.scenarios?.length > 0) {
           const adversarial = d.scenarios.filter(
             (s) => s.category === 'adversarial' || s.category === 'chain_exploit',
           )
@@ -288,6 +327,24 @@ export default function Sandbox() {
         setLoadingScenarios(false)
       })
   }, [selectedAgent])
+
+  // Persist the working setup for this browser session (best-effort).
+  useEffect(() => {
+    if (loading) return
+    try {
+      sessionStorage.setItem(SANDBOX_STATE_KEY, JSON.stringify({
+        agent: selectedAgent,
+        scenarioIds: selectedScenarios.map((s) => s.id),
+        categoryFilter,
+        customPrompt,
+        queuedCustomPrompts,
+        tab: sandboxTab,
+        runMode,
+      } satisfies SavedSandboxState))
+    } catch {
+      // Storage unavailable/full — persistence is a convenience, never an error.
+    }
+  }, [loading, selectedAgent, selectedScenarios, categoryFilter, customPrompt, queuedCustomPrompts, sandboxTab, runMode])
 
   const filteredScenarios = useMemo(() => {
     let result = [...scenarios]
@@ -455,6 +512,26 @@ export default function Sandbox() {
       </div>
 
       {sandboxTab === 'run' && (<>
+      {simulations.length > 0 && (
+        <button
+          onClick={() => navigate(`/sandbox/${simulations[0].id}`)}
+          className="w-full flex items-center justify-between gap-3 bg-white border border-gray-200 rounded-xl shadow-sm px-4 py-3 text-left transition-colors hover:bg-gray-50 cursor-pointer"
+        >
+          <div className="flex items-center gap-2 min-w-0 flex-wrap">
+            <RotateCcw size={14} style={{ color: 'var(--text-secondary)' }} className="flex-shrink-0" />
+            <span className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>Latest run</span>
+            <span className="text-sm font-medium truncate" style={{ color: 'var(--text-primary)' }}>
+              {formatDesc(simulations[0].scenario_id)}
+            </span>
+            <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+              {agents.find((a) => a.id === simulations[0].agent_id)?.name ?? simulations[0].agent_id} · {timeAgo(simulations[0].created_at)}
+            </span>
+          </div>
+          <span className="flex items-center gap-1 text-xs font-medium flex-shrink-0" style={{ color: 'var(--text-primary)' }}>
+            View results <ArrowRight size={12} />
+          </span>
+        </button>
+      )}
       <section className="bg-white border border-gray-200 rounded-xl shadow-sm p-6 space-y-6" id="run-section">
         {/* Agent selector + mode explainer row */}
         <div className="flex flex-wrap gap-4 items-start">
@@ -480,12 +557,9 @@ export default function Sandbox() {
                     <>
                       <div className="text-left min-w-0">
                         <div className="font-semibold text-gray-900 truncate">{sel.name}</div>
-                        {sel.tools?.filter((t) => t.service).length > 0 && (
+                        {(sel.tools?.length ?? 0) > 0 && (
                           <div className="text-[11px] text-gray-400 truncate">
-                            {sel.tools
-                              .filter((t) => t.service)
-                              .map((t) => t.service)
-                              .join(' · ')}
+                            {sel.tools.filter(Boolean).join(' · ')}
                           </div>
                         )}
                       </div>
@@ -516,9 +590,9 @@ export default function Sandbox() {
                         >
                           <div className="min-w-0">
                             <div className="font-semibold text-gray-900 truncate">{a.name}</div>
-                            {a.tools?.filter((t) => t.service).length > 0 && (
+                            {(a.tools?.length ?? 0) > 0 && (
                               <div className="text-[11px] text-gray-400 truncate">
-                                {a.tools.filter((t) => t.service).map((t) => t.service).join(' · ')}
+                                {a.tools.filter(Boolean).join(' · ')}
                               </div>
                             )}
                           </div>
