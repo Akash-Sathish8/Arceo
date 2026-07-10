@@ -46,6 +46,16 @@ _POOL = ConnectionPool(
     open=False,
 )
 
+# Per-request tenant context for row-level security. Request middleware sets
+# this to the caller's org; everything else (seeding, scheduler, migrations,
+# unauthenticated endpoints) leaves it at 'system', which the RLS policy treats
+# as full access. get_db() applies it as a transaction-local GUC so an org's
+# connection can only see that org's rows — a structural backstop under the
+# app-level org_id filters.
+import contextvars
+
+current_org: contextvars.ContextVar[str] = contextvars.ContextVar("current_org", default="system")
+
 
 @contextmanager
 def get_db():
@@ -54,10 +64,16 @@ def get_db():
     Same call shape as the SQLite era (`with get_db() as conn:`) — ~150 call
     sites depend on it. Rows come back as dicts (row_factory=dict_row), so
     row["col"] and `"col" in row.keys()` behave as they did in the SQLite era.
+
+    Sets app.current_org (transaction-local) from the request context so RLS
+    scopes every statement in this transaction to the caller's tenant.
     """
     _POOL.open()  # no-op when already open
     conn = _POOL.getconn()
     try:
+        # set_config(..., is_local=true) == SET LOCAL: resets on commit/rollback,
+        # so a pooled connection never leaks one request's org into the next.
+        conn.execute("SELECT set_config('app.current_org', %s, true)", (current_org.get(),))
         yield conn
         conn.commit()
     except BaseException:

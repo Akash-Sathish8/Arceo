@@ -59,4 +59,29 @@ export them first if they matter.
 
 Just set `DATABASE_URL` and boot: startup runs `alembic upgrade head` and
 seeds the default org + admin on an empty database. For local dev:
-`docker compose up -d postgres` gives you a server matching every default.
+`docker compose up -d` gives you Postgres + Redis matching every default.
+
+## Activating row-level security in production (Phase 3)
+
+Migration `0002` enables **FORCE ROW LEVEL SECURITY** on every org-scoped table
+as a structural tenant backstop under the app-level `org_id` filters. The app
+sets `app.current_org` per request transaction, so the policy scopes each
+request to its caller's org.
+
+**One catch: a Postgres SUPERUSER bypasses RLS even when it is FORCED.** If the
+app connects as a superuser (or the table owner), RLS is a silent no-op. To make
+it bite, run the app as a dedicated **non-superuser** role:
+
+```sql
+-- as an admin/superuser, AFTER `alembic upgrade head` has created the schema:
+CREATE ROLE arceo_app LOGIN PASSWORD '<strong-password>';
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO arceo_app;
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO arceo_app;
+```
+
+Then point the running app's `DATABASE_URL` at `arceo_app` while running
+migrations under an admin URL (migrations create tables; `arceo_app` only does
+DML). `backend/tests/test_rls_enforcement.py` proves the policies genuinely
+isolate tenants under exactly this restricted role. Until this role is in place,
+tenant isolation rests on the app-level filters (which `test_cross_org_matrix.py`
+guards) — RLS is dormant, not broken.
