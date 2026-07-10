@@ -105,6 +105,8 @@ envelope-encryption + key-management design before merge.**
 
 **Goal:** zero cross-tenant leaks; no unauthenticated writes; multi-worker-safe.
 
+> **Delegation package (2026-07-09):** [[Phase 3 — delegation package]] — operator instructions + verbatim agent prompt, verified against `dev`. Four PRs (`auth-hardening`, `close-tenant-leaks`, `redis-shared-state` all engine-agnostic + startable now; `postgres-rls` hard-gated on Phase-2's postgres-cutover merging first). Owner-reviewed, agent never merges.
+
 | Task | Owner | ew | Files |
 |---|---|---|---|
 | Finish PG migration tail | A | 1.5 | — |
