@@ -18,19 +18,31 @@ ALGORITHM = "HS256"
 TOKEN_EXPIRY_HOURS = 24
 
 _logger = _logging.getLogger("actiongate.auth")
+
+# A host is "dev-like" ONLY if it says so explicitly. The old guard whitelisted
+# four PaaS env vars and let everything else (bare VMs, Docker, a tunneled
+# laptop) boot on the public demo secret — an open door to token forgery. We
+# invert it: the default secret is refused everywhere UNLESS ARCEO_ENV opts in.
+_DEV_ENVS = {"dev", "local", "test", "ci"}
+ARCEO_ENV = os.getenv("ARCEO_ENV", "").lower()
+
 if SECRET_KEY == "actiongate-demo-secret-key-change-in-prod":
-    if os.getenv("RAILWAY_ENVIRONMENT") or os.getenv("FLY_APP_NAME") or os.getenv("RENDER") or os.getenv("PRODUCTION"):
-        raise RuntimeError("JWT_SECRET must be set in production. Cannot use default demo value.")
-    _logger.warning(
-        "JWT_SECRET is using the default demo value. Set JWT_SECRET env var in production. "
-        "This is insecure and will allow anyone to forge authentication tokens."
-    )
+    if ARCEO_ENV not in _DEV_ENVS:
+        raise RuntimeError(
+            "JWT_SECRET is unset and defaulting to the public demo value, which lets "
+            "anyone forge admin tokens. Set JWT_SECRET, or set ARCEO_ENV=dev for local work."
+        )
+    _logger.warning("JWT_SECRET is the default demo value — allowed only because ARCEO_ENV=%s.", ARCEO_ENV)
 
 # DEMO_MODE bypasses JWT entirely (get_current_user returns the admin user). It
-# must never run on a real deploy, where it would collapse the tenant boundary.
+# must never run on a real deploy, where it would collapse the tenant boundary —
+# so it too is gated on an explicit dev environment, not a platform whitelist.
 if os.getenv("DEMO_MODE", "").lower() == "true":
-    if os.getenv("RAILWAY_ENVIRONMENT") or os.getenv("FLY_APP_NAME") or os.getenv("RENDER") or os.getenv("PRODUCTION"):
-        raise RuntimeError("DEMO_MODE=true is an authentication bypass and must not run in production.")
+    if ARCEO_ENV not in _DEV_ENVS:
+        raise RuntimeError(
+            "DEMO_MODE=true is an authentication bypass and must not run outside a dev "
+            "environment. Set ARCEO_ENV=dev to acknowledge this is local-only."
+        )
     _logger.warning("DEMO_MODE is ON — JWT auth is bypassed and any login wipes demo data. Never set this in production.")
 
 

@@ -24,6 +24,7 @@ _TEST_DIR = tempfile.mkdtemp(prefix="arceo-test-")
 # so tests never write beside the repo.
 os.environ["ARCEO_LLM_CACHE_PATH"] = os.path.join(_TEST_DIR, "llm_cache.db")
 os.environ.setdefault("JWT_SECRET", "test-secret-not-for-prod")
+os.environ.setdefault("ARCEO_ENV", "test")  # lets DEMO_MODE tests run without a prod-guard trip
 os.environ["ANTHROPIC_API_KEY"] = ""
 
 # Fresh Postgres database per session (dropped and recreated so every run
@@ -101,6 +102,20 @@ def stub_llm_classifier(monkeypatch):
     yield
     rc._llm_cache.clear()
     rc._pending_cache_rows.clear()
+
+
+@pytest.fixture(autouse=True)
+def _reset_rate_limits():
+    """The rate limiter is global mutable state; give each test a clean window.
+
+    Without this, every test's signup/login shares one TestClient IP and the
+    session-scoped counter trips the auth limit partway through the suite. The
+    dedicated rate-limit test does its own burst against this clean slate.
+    """
+    import main
+    main._rate_limits.clear()
+    yield
+    main._rate_limits.clear()
 
 
 # ── Shared HTTP fixtures ──────────────────────────────────────────────────────
