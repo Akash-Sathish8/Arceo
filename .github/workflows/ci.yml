@@ -17,9 +17,9 @@ jobs:
     defaults:
       run:
         working-directory: backend
-    # Phase 2 (PR-1): the postgres service proves container wiring before the
-    # cutover PR depends on it. Tests still run on SQLite in this phase, so
-    # DATABASE_URL is exported but unused until the cutover lands.
+    # Phase 2: the suite runs on Postgres. conftest drops/recreates the test
+    # database named in ARCEO_TEST_DATABASE_URL on this service container and
+    # migrates it via Alembic before any app import.
     services:
       postgres:
         image: postgres:16
@@ -35,7 +35,7 @@ jobs:
           --health-timeout 3s
           --health-retries 15
     env:
-      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/arceo
+      ARCEO_TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/arceo_test
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -49,6 +49,13 @@ jobs:
         run: pip install -r requirements-dev.txt
       - name: Run tests
         run: python -m pytest tests/ -q
+      # Rehearse the SQLite→Postgres data-copy path the prod cutover will use:
+      # seed a small legacy SQLite file, copy it into a fresh Postgres database,
+      # and verify per-table row counts. Guards the runbook, not the app.
+      - name: Rehearse SQLite→Postgres migration script
+        run: python ../scripts/migrate_sqlite_to_pg.py --rehearse
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/arceo_migration_rehearsal
 
   frontend:
     runs-on: ubuntu-latest

@@ -77,7 +77,7 @@ def main() -> int:
                 print(f"    source: {old_src} -> {mapped.classification_source}")
             if args.apply:
                 conn.execute(
-                    "UPDATE tool_actions SET risk_labels = ?, reversible = ?, classification_source = ? WHERE id = ?",
+                    "UPDATE tool_actions SET risk_labels = %s, reversible = %s, classification_source = %s WHERE id = %s",
                     (json.dumps(mapped.risk_labels), mapped.reversible, mapped.classification_source, r["id"]),
                 )
 

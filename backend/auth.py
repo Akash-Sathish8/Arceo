@@ -93,13 +93,13 @@ def get_current_user(request: Request) -> dict:
 def login_user(email: str, password: str) -> dict:
     """Authenticate user and return token + user info including org_id."""
     with get_db() as conn:
-        row = conn.execute("SELECT * FROM users WHERE email = ?", (email,)).fetchone()
+        row = conn.execute("SELECT * FROM users WHERE email = %s", (email,)).fetchone()
         if not row or not verify_password(password, row["password_hash"]):
             raise HTTPException(status_code=401, detail="Invalid email or password")
 
         if not row["password_hash"].startswith("$2b$"):
             new_hash = hash_password(password)
-            conn.execute("UPDATE users SET password_hash = ? WHERE id = ?", (new_hash, row["id"]))
+            conn.execute("UPDATE users SET password_hash = %s WHERE id = %s", (new_hash, row["id"]))
 
         org_id = row["org_id"] if "org_id" in row.keys() else DEFAULT_ORG_ID
         token = create_token(row["id"], row["email"], row["role"], org_id)
