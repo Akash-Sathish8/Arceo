@@ -123,7 +123,12 @@ async def _rbac(request: Request, call_next):
     if (request.method in _MUTATING_METHODS and path.startswith("/api/")
             and not path.startswith(_RBAC_EXEMPT_PREFIXES)):
         auth = request.headers.get("Authorization", "")
-        if auth.lower().startswith("bearer "):  # a human session — role applies
+        # Agent auth takes precedence, exactly as every endpoint does
+        # (verify_api_key FIRST, then bearer). A valid X-API-Key means this is a
+        # machine call — not role-gated — even if a bearer is also present (the
+        # SDK sends both when ARCEO_TOKEN + ARCEO_API_KEY are set). Without this,
+        # an agent with a viewer JWT + a key would be 403'd on /api/enforce.
+        if verify_api_key(request) is None and auth.lower().startswith("bearer "):
             try:
                 from auth import verify_token
                 sub = verify_token(auth[7:]).get("sub")
@@ -578,21 +583,33 @@ async def _stream_upstream(method: str, url: str, headers: dict, content: bytes,
     resp_headers = {k: v for k, v in resp.headers.items()
                     if k.lower() not in ("content-encoding", "content-length", "transfer-encoding")}
 
+    # Cap capture accumulation so a huge streamed response can't OOM the worker
+    # (capture is best-effort telemetry; the client still gets every byte).
+    _CAPTURE_CAP = 8 * 1024 * 1024
+
     async def body_gen():
         chunks: list[bytes] = []
+        captured = 0
+        overflow = False
         try:
             async for chunk in resp.aiter_bytes():
-                if on_complete is not None:
-                    chunks.append(chunk)
+                if on_complete is not None and not overflow:
+                    captured += len(chunk)
+                    if captured <= _CAPTURE_CAP:
+                        chunks.append(chunk)
+                    else:
+                        overflow = True  # stop accumulating; keep streaming to the client
                 yield chunk
         finally:
             await resp.aclose()
             await client.aclose()
-            if on_complete is not None:
+            if on_complete is not None and not overflow:
                 try:
                     on_complete(b"".join(chunks), status, resp_headers)
+                except (ValueError, TypeError, KeyError):
+                    pass  # bad response shape for capture — never break the response
                 except Exception:
-                    pass  # capture/logging must never break the response
+                    logger.exception("LLM-capture on_complete failed")
 
     return StreamingResponse(body_gen(), status_code=status, headers=resp_headers)
 
@@ -3440,6 +3457,19 @@ async def decide_approval(execution_id: int, body: ApprovalDecision, user: dict 
     replay = None
     if body.decision == "approve" and pending and pending.get("kind") == "proxy":
         replay = await _replay_pending(pending)
+        # Keep the audit HONEST: an approved action whose replay FAILED did not
+        # actually happen — don't leave execution_log saying EXECUTED (the SDK
+        # status endpoint would report ALLOW to a waiting agent). Record the
+        # replay outcome on the row either way. 'skipped' (live replay off) stays
+        # EXECUTED — that means "approved/released", the agent may proceed.
+        if replay and replay.get("status") in ("replayed", "replay_failed"):
+            final_status = "EXECUTED" if replay["status"] == "replayed" else "BLOCKED"
+            with get_db() as conn:
+                conn.execute(
+                    "UPDATE execution_log SET status = %s, detail = detail || %s WHERE id = %s",
+                    (final_status, f" [Replay {replay['status']}: {replay.get('detail', '')}]", execution_id),
+                )
+            new_status = final_status
 
     return {"id": execution_id, "status": new_status, "replay": replay}
 
@@ -3469,7 +3499,6 @@ async def _replay_pending(pending: dict) -> dict:
     with get_db() as conn:
         approvals.mark_replayed(conn, pending["id"], ok, detail)
     return {"status": "replayed" if ok else "replay_failed", "detail": detail}
-    return {"id": execution_id, "status": new_status}
 
 
 # ── Sandbox Simulation ─────────────────────────────────────────────────────
@@ -4506,7 +4535,14 @@ async def ws_live_traces(websocket: WebSocket, agent_id: str):
     except WebSocketDisconnect:
         pass
     finally:
+        # Await the cancelled forward task BEFORE closing the pubsub/client, so
+        # its listen() coroutine finishes unwinding and can't race with (or
+        # use-after-close) the Redis objects we're about to tear down.
         forward_task.cancel()
+        try:
+            await forward_task
+        except (asyncio.CancelledError, Exception):
+            pass
         try:
             await pubsub.unsubscribe(shared_state.channel(agent_id))
             await pubsub.aclose()
