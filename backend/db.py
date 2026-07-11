@@ -201,14 +201,43 @@ def get_all_agents_from_db(conn, org_id: str = None) -> list[dict]:
     return [get_agent_from_db(conn, r["id"]) for r in rows]
 
 
+def audit_entry_hash(prev_hash: str, org_id: str, action: str, resource, detail,
+                     user_id, user_email, timestamp: str) -> str:
+    """The chain hash for one audit row. Shared by the writer (log_audit) and the
+    verifier (/api/audit/verify) so they can never disagree. Order + separator
+    are fixed; a tamper that reshuffles or edits any field changes the digest."""
+    import hashlib
+    content = "|".join([
+        prev_hash or "", org_id or "", action or "", resource or "", detail or "",
+        str(user_id or ""), user_email or "", timestamp or "",
+    ])
+    return hashlib.sha256(content.encode()).hexdigest()
+
+
 def log_audit(conn, user_id: str | None, user_email: str | None, action: str, resource: str = None, detail: str = None, org_id: str = DEFAULT_ORG_ID):
-    """Write an audit log entry. Failures raise: the SQLite-era drop-on-lock
-    swallow is gone — Postgres has no single-writer slot to lose a race on,
-    and silently dropping audit rows is worse than surfacing the error.
-    (Phase 4 adds the durable non-blocking audit queue.)"""
+    """Write an audit log entry — tamper-evident and append-only (Phase 6).
+
+    Each row is chained: entry_hash = sha256(prev_hash || this row's content),
+    per org. An advisory lock serialises same-org writers so the chain stays
+    linear. Failures raise (never silently drop an audit row); the DB trigger
+    blocks any later edit/delete.
+
+    Deliberately same-transaction with the action it records — NOT an async
+    queue. A queue would risk losing rows on crash, the opposite of audit-grade;
+    consistency here is the whole point."""
+    ts = datetime.utcnow().isoformat()
+    # Serialize concurrent same-org audit writes so two don't read the same
+    # prev_hash and fork the chain. Transaction-scoped; released on commit.
+    conn.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", (f"audit:{org_id}",))
+    prev = conn.execute(
+        "SELECT entry_hash FROM audit_log WHERE org_id = %s ORDER BY id DESC LIMIT 1", (org_id,)
+    ).fetchone()
+    prev_hash = (prev["entry_hash"] if prev and prev["entry_hash"] else "")
+    entry = audit_entry_hash(prev_hash, org_id, action, resource, detail, user_id, user_email, ts)
     conn.execute(
-        "INSERT INTO audit_log (user_id, user_email, action, resource, detail, org_id, timestamp) VALUES (%s, %s, %s, %s, %s, %s, %s)",
-        (user_id, user_email, action, resource, detail, org_id, datetime.utcnow().isoformat()),
+        "INSERT INTO audit_log (user_id, user_email, action, resource, detail, org_id, timestamp, prev_hash, entry_hash) "
+        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
+        (user_id, user_email, action, resource, detail, org_id, ts, prev_hash, entry),
     )
 
 
