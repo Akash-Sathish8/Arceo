@@ -97,3 +97,29 @@ that could carry key bytes; exceptions raised are cryptography's own
    at PUT until then.
 5. **Memory hygiene** — DEKs/plaintext live transiently in Python memory
    (no zeroization; not generally achievable in CPython). Flagged, not fixed.
+
+---
+
+## Encryption at rest (Phase 5)
+
+`vault.encrypt_value` / `decrypt_value` reuse the exact same envelope scheme as
+the credential vault (fresh 256-bit DEK per value, AES-256-GCM with a unique
+nonce, DEK wrapped by the master key via the `MasterKeyProvider` seam) — one
+reviewed cryptographic path for the whole product. A value is stored as a single
+self-contained `bytea`: `[2-byte wrapped-DEK length][wrapped DEK][nonce+ciphertext]`.
+
+**Rollout is flag-gated and reversible.** `ARCEO_ENCRYPT_AT_REST` (default OFF):
+when on, sensitive fields are written to a companion `*_enc` column and the
+plaintext column is left NULL; the read path prefers `*_enc` and falls back to
+plaintext, so old rows keep working and the flag is safe to flip both ways.
+
+**Applied first to the highest-value at-rest fields** — the held request body
+and action params in `pending_requests` (raw outbound payloads awaiting
+approval, i.e. actual customer data en route to a third party). The same helper
+extends to `agents.system_prompt` and `simulations.trace_json`/`report_json` as
+follow-ons; `trace_json` is already PII-redacted (Phase 5 PR-2) in the interim.
+
+**For the reviewer:** the scheme, the pack/unpack framing, the flag semantics,
+and the safe-both-ways read path are the review surface — the number of columns
+using it is an incremental rollout detail. Turning `ARCEO_ENCRYPT_AT_REST=on` in
+production waits on your sign-off.

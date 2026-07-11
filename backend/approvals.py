@@ -11,8 +11,26 @@ from __future__ import annotations
 
 import base64
 import json
+import os
 import uuid
 from datetime import datetime
+
+import vault
+
+
+def _encrypt_at_rest() -> bool:
+    """Whether sensitive held-request fields are envelope-encrypted at rest.
+    Default OFF — flipping it on is a deliberate, specialist-reviewed step; the
+    read path handles both plaintext (old rows / flag off) and encrypted rows."""
+    return os.getenv("ARCEO_ENCRYPT_AT_REST", "").lower() in ("1", "true", "yes", "on")
+
+
+def _sensitive_cols(plaintext: str | None) -> tuple[str | None, bytes | None]:
+    """Return (plaintext_col, encrypted_col) for a sensitive value: when the
+    flag is on and there's a value, encrypt it and null the plaintext."""
+    if plaintext is not None and _encrypt_at_rest():
+        return None, vault.encrypt_value(plaintext)
+    return plaintext, None
 
 # Inbound credentials are NEVER stored — the vault provides the real upstream
 # secret at replay time, so persisting the agent's own key would be both
@@ -33,15 +51,17 @@ def create_pending_proxy(conn, *, execution_id: int, org_id: str, agent_id: str,
                          headers: dict, body: bytes, action: str, params: dict | None) -> str:
     """Park a full proxy request for replay-on-approve. Returns the pending id."""
     pid = uuid.uuid4().hex
+    body_pt, body_enc = _sensitive_cols(base64.b64encode(body or b"").decode())
+    params_pt, params_enc = _sensitive_cols(json.dumps(params) if params else None)
     conn.execute(
         "INSERT INTO pending_requests (id, execution_id, org_id, agent_id, kind, status, "
-        "service, method, path, query_json, headers_json, body, tool, action, params_json, "
-        "idempotency_key, created_at) "
-        "VALUES (%s, %s, %s, %s, 'proxy', 'PENDING', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+        "service, method, path, query_json, headers_json, body, body_enc, tool, action, "
+        "params_json, params_json_enc, idempotency_key, created_at) "
+        "VALUES (%s, %s, %s, %s, 'proxy', 'PENDING', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
         (pid, execution_id, org_id, agent_id, service, method, path,
          json.dumps(query or {}), json.dumps(_redact_headers(headers or {})),
-         base64.b64encode(body or b"").decode(), service, action,
-         json.dumps(params) if params else None, make_idempotency_key(),
+         body_pt, body_enc, service, action,
+         params_pt, params_enc, make_idempotency_key(),
          datetime.utcnow().isoformat()),
     )
     return pid
@@ -52,12 +72,13 @@ def create_pending_enforce(conn, *, execution_id: int, org_id: str, agent_id: st
     """Park an enforce decision-gate (no request to replay — the agent proceeds
     itself on approval). Returns the pending id."""
     pid = uuid.uuid4().hex
+    params_pt, params_enc = _sensitive_cols(json.dumps(params) if params else None)
     conn.execute(
         "INSERT INTO pending_requests (id, execution_id, org_id, agent_id, kind, status, "
-        "tool, action, params_json, idempotency_key, created_at) "
-        "VALUES (%s, %s, %s, %s, 'enforce', 'PENDING', %s, %s, %s, %s, %s)",
+        "tool, action, params_json, params_json_enc, idempotency_key, created_at) "
+        "VALUES (%s, %s, %s, %s, 'enforce', 'PENDING', %s, %s, %s, %s, %s, %s)",
         (pid, execution_id, org_id, agent_id, tool, action,
-         json.dumps(params) if params else None, make_idempotency_key(),
+         params_pt, params_enc, make_idempotency_key(),
          datetime.utcnow().isoformat()),
     )
     return pid
@@ -94,4 +115,17 @@ def mark_replayed(conn, pending_id: str, ok: bool, detail: str) -> None:
 
 
 def decoded_body(row: dict) -> bytes:
+    """The held request body, decrypting the at-rest column if present. Handles
+    both encrypted rows and legacy/flag-off plaintext rows transparently."""
+    enc = row.get("body_enc")
+    if enc:
+        return base64.b64decode(vault.decrypt_value(enc))
     return base64.b64decode(row["body"]) if row.get("body") else b""
+
+
+def pending_params(row: dict) -> dict | None:
+    """The held action params, decrypting the at-rest column if present."""
+    enc = row.get("params_json_enc")
+    if enc:
+        return vault.decrypt_value(enc, as_json=True)
+    return json.loads(row["params_json"]) if row.get("params_json") else None
