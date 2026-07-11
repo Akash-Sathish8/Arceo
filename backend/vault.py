@@ -115,3 +115,38 @@ def decrypt_credential(wrapped_dek: bytes, encrypted_config: bytes,
     blob = bytes(encrypted_config)
     plaintext = AESGCM(dek).decrypt(blob[:_NONCE_LEN], blob[_NONCE_LEN:], None)
     return json.loads(plaintext)
+
+
+# ── Generic column encryption (Phase 5) ──────────────────────────────────────
+# The same envelope scheme, packaged for arbitrary column values so sensitive
+# data (held request bodies, action params, prompts, traces) is encrypted at
+# rest. Each value is self-contained: [2-byte wrapped-DEK length][wrapped DEK]
+# [nonce+ciphertext], so one bytea column holds everything needed to decrypt.
+
+import struct as _struct
+
+
+def encrypt_value(value, provider: MasterKeyProvider = _default_provider) -> bytes:
+    """Encrypt a string or JSON-serializable value into a self-contained blob.
+
+    Fresh DEK per value (so a leaked DEK exposes exactly one value), wrapped by
+    the master key. Reuses the exact AES-256-GCM scheme the credential vault
+    uses — one reviewed cryptographic path for the whole product."""
+    dek = os.urandom(32)
+    nonce = os.urandom(_NONCE_LEN)
+    plaintext = value.encode() if isinstance(value, str) else json.dumps(value).encode()
+    ciphertext = AESGCM(dek).encrypt(nonce, plaintext, None)
+    wrapped = provider.wrap(dek)
+    return _struct.pack(">H", len(wrapped)) + wrapped + nonce + ciphertext
+
+
+def decrypt_value(blob: bytes, as_json: bool = False,
+                  provider: MasterKeyProvider = _default_provider):
+    """Decrypt a blob from encrypt_value back to str (or dict if as_json)."""
+    blob = bytes(blob)
+    wlen = _struct.unpack(">H", blob[:2])[0]
+    wrapped = blob[2:2 + wlen]
+    rest = blob[2 + wlen:]
+    dek = provider.unwrap(wrapped)
+    plaintext = AESGCM(dek).decrypt(rest[:_NONCE_LEN], rest[_NONCE_LEN:], None)
+    return json.loads(plaintext) if as_json else plaintext.decode()
