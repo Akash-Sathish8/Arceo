@@ -149,6 +149,40 @@ async def _rbac(request: Request, call_next):
 RATE_LIMIT_MAX = int(os.getenv("RATE_LIMIT_MAX", "100"))  # requests per window
 RATE_LIMIT_WINDOW = int(os.getenv("RATE_LIMIT_WINDOW", "60"))  # seconds
 
+# Broad per-caller ceiling across ALL /api/* endpoints (Phase 6). Before this,
+# only login/enforce/scan were limited — every other endpoint was an open abuse
+# surface (scrape, cost-amplification, brute enumeration). This is a generous
+# backstop LAYERED UNDER the tighter per-endpoint limits: both apply, so auth
+# still caps at 10/15min while a caller can't fire thousands of requests/min at
+# anything else. Tune via env for your traffic. Keyed by API-key (agents) else IP.
+RATE_LIMIT_GLOBAL_MAX = int(os.getenv("RATE_LIMIT_GLOBAL_MAX", "1000"))
+RATE_LIMIT_GLOBAL_WINDOW = int(os.getenv("RATE_LIMIT_GLOBAL_WINDOW", "60"))
+# Liveness/config probes must never be throttled (dashboards + load balancers
+# poll them); everything else under /api is covered.
+_RATE_LIMIT_EXEMPT_PATHS = {"/api/health", "/api/demo-mode"}
+
+
+@app.middleware("http")
+async def _global_rate_limit(request: Request, call_next):
+    """A broad per-caller rate limit on every /api/* route. Rejects early (before
+    auth/DB work) with 429 when a caller exceeds the generous global budget.
+    Keyed by X-API-Key (hashed, so no secret lands in Redis) when present, else
+    the client IP — the same per-caller notion the tighter limits use. Health and
+    demo-mode probes are exempt."""
+    path = request.url.path
+    if path.startswith("/api/") and path not in _RATE_LIMIT_EXEMPT_PATHS:
+        key = request.headers.get("X-API-Key", "")
+        if key:
+            import hashlib as _h
+            caller = "k:" + _h.sha256(key.encode()).hexdigest()[:16]
+        else:
+            caller = "ip:" + (request.client.host if request.client else "unknown")
+        if not shared_state.rate_limit_ok(f"global:{caller}", RATE_LIMIT_GLOBAL_MAX, RATE_LIMIT_GLOBAL_WINDOW):
+            from fastapi.responses import JSONResponse
+            return JSONResponse(status_code=429,
+                                content={"detail": "Rate limit exceeded. Slow down and retry shortly."})
+    return await call_next(request)
+
 
 def _org(user: dict) -> str:
     """Extract org_id from authenticated user. Every query uses this."""
