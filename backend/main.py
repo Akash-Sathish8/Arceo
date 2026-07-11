@@ -2989,6 +2989,29 @@ def enforce_action(req: EnforceRequest, request: Request):
     return result
 
 
+# Map a held execution's status to a decision the waiting agent acts on.
+_STATUS_TO_DECISION = {"PENDING_APPROVAL": "PENDING", "EXECUTED": "ALLOW", "BLOCKED": "BLOCK"}
+
+
+@app.get("/api/enforce/status/{execution_id}")
+def enforce_status(execution_id: int, request: Request):
+    """Poll the outcome of a held (REQUIRE_APPROVAL) action. The SDK's
+    enforce_and_wait() loops on this until it turns ALLOW/BLOCK — that's the
+    'wait right there' UX. Auth is the same key-or-JWT gate as /api/enforce,
+    org-scoped so a caller only sees its own tenant's executions."""
+    key_row = verify_api_key(request)
+    caller_org = key_row.get("org_id") if key_row else _org(get_current_user(request))
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT status FROM execution_log WHERE id = %s AND org_id = %s",
+            (execution_id, caller_org),
+        ).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Execution not found")
+    return {"execution_id": execution_id,
+            "decision": _STATUS_TO_DECISION.get(row["status"], row["status"])}
+
+
 # ── Notification Settings ───────────────────────────────────────────────────
 
 class NotificationSettingsRequest(BaseModel):

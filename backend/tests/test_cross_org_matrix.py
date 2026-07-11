@@ -90,6 +90,7 @@ _MATRIX = [
     ("DELETE", "/api/authority/policy/{policy_id}"),
     ("GET", "/api/executions/{agent_id}"),
     ("POST", "/api/approvals/{execution_id}", {"decision": "approve"}),
+    ("GET", "/api/enforce/status/{execution_id}"),
     ("GET", "/api/agents/{agent_id}/budget"),
     ("PUT", "/api/agents/{agent_id}/budget", {"monthly_budget_usd": 5, "alert_threshold_pct": 50}),
     ("DELETE", "/api/agents/{agent_id}/budget"),
