@@ -11,7 +11,7 @@ import uuid
 
 import pytest
 
-from db import get_db
+from db import get_db, seal_new_audit_chain
 
 
 def _do_some_audited_actions(client, headers):
@@ -84,3 +84,68 @@ def test_demo_wipe_does_not_erase_audit(client, roles, monkeypatch):
     with get_db() as conn:
         after = conn.execute("SELECT count(*) AS n FROM audit_log").fetchone()["n"]
     assert after >= before  # audit_log untouched by the wipe
+
+
+def test_audit_rows_are_scoped_to_the_callers_org(client, two_orgs):
+    # Regression: log_audit used to default org_id to 'default', mis-filing every
+    # audited action (and, under RLS, failing the WITH CHECK for non-default
+    # tenants). The CREATE_AGENT row must now land in the caller's org.
+    a = two_orgs["org_a"]
+    aid = client.post("/api/authority/agents", headers=a["headers"],
+                      json={"name": "scope-" + uuid.uuid4().hex[:5], "tools": []}).json()["id"]
+    with get_db() as conn:
+        rows = conn.execute(
+            "SELECT org_id FROM audit_log WHERE action = 'CREATE_AGENT' AND resource = %s",
+            (aid,)).fetchall()
+    assert len(rows) == 1 and rows[0]["org_id"] == a["org_id"]
+
+
+# ── genesis / legacy segmentation (production cutover seal) ─────────────────────
+
+def _disable_trigger_update(conn, row_id, detail):
+    conn.execute("ALTER TABLE audit_log DISABLE TRIGGER trg_audit_append_only")
+    conn.execute("UPDATE audit_log SET detail = %s WHERE id = %s", (detail, row_id))
+    conn.execute("ALTER TABLE audit_log ENABLE TRIGGER trg_audit_append_only")
+
+
+def test_genesis_seals_fresh_chain_and_marks_legacy(client, roles):
+    admin = roles["admin"]
+    _do_some_audited_actions(client, admin["headers"])
+    with get_db() as conn:
+        before = conn.execute("SELECT count(*) AS n FROM audit_log WHERE org_id = %s",
+                            (admin["org_id"],)).fetchone()["n"]
+        seal_new_audit_chain(conn, admin["org_id"])
+    _do_some_audited_actions(client, admin["headers"])  # these chain from the genesis
+    r = client.get("/api/audit/verify", headers=admin["headers"]).json()
+    assert r["valid"] is True
+    assert r["legacy_unsealed"] == before      # everything before the genesis
+    assert r["sealed_from"] is not None
+    assert r["checked"] >= 1
+
+
+def test_legacy_tamper_does_not_break_the_sealed_chain(client, roles):
+    admin = roles["admin"]
+    _do_some_audited_actions(client, admin["headers"])
+    with get_db() as conn:
+        legacy_id = conn.execute("SELECT id FROM audit_log WHERE org_id = %s ORDER BY id LIMIT 1",
+                               (admin["org_id"],)).fetchone()["id"]
+        seal_new_audit_chain(conn, admin["org_id"])
+    _do_some_audited_actions(client, admin["headers"])
+    # Tampering a LEGACY row (above the genesis) is outside the seal → still valid.
+    with get_db() as conn:
+        _disable_trigger_update(conn, legacy_id, "LEGACY_TAMPER")
+    assert client.get("/api/audit/verify", headers=admin["headers"]).json()["valid"] is True
+
+
+def test_tamper_after_genesis_breaks_the_sealed_chain(client, roles):
+    admin = roles["admin"]
+    with get_db() as conn:
+        seal_new_audit_chain(conn, admin["org_id"])
+    _do_some_audited_actions(client, admin["headers"])  # sealed rows
+    with get_db() as conn:
+        sealed_id = conn.execute(
+            "SELECT id FROM audit_log WHERE org_id = %s AND action <> 'AUDIT_CHAIN_GENESIS' "
+            "ORDER BY id DESC LIMIT 1", (admin["org_id"],)).fetchone()["id"]
+        _disable_trigger_update(conn, sealed_id, "SEALED_TAMPER")
+    r = client.get("/api/audit/verify", headers=admin["headers"]).json()
+    assert r["valid"] is False and r["broken_at"] == sealed_id

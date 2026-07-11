@@ -3480,19 +3480,36 @@ def verify_audit_chain(user: dict = Depends(get_current_user)):
     Any edited or removed past row breaks the chain and is reported. Admin-only —
     it's a compliance/integrity surface."""
     require_role(user, "admin")
-    from db import audit_entry_hash
+    from db import audit_entry_hash, AUDIT_GENESIS_ACTION
     org_id = _org(user)
     with get_db() as conn:
         rows = conn.execute("SELECT * FROM audit_log WHERE org_id = %s ORDER BY id", (org_id,)).fetchall()
+
+    # A production cutover copies audit history into a fresh DB, where the old
+    # seal can't be proven across the copy. The migration writes a GENESIS row
+    # (prev_hash='') to START A FRESH SEALED CHAIN; rows before the LAST genesis
+    # are imported "legacy" history, honestly reported as unsealed rather than
+    # claimed verified. With no genesis (a never-migrated instance) the whole
+    # chain is verified from the start, exactly as before.
+    genesis_idx = None
+    for i, r in enumerate(rows):
+        if r["action"] == AUDIT_GENESIS_ACTION and not (r["prev_hash"] or ""):
+            genesis_idx = i
+    legacy_unsealed = genesis_idx or 0
+    sealed = rows[genesis_idx:] if genesis_idx is not None else rows
+    sealed_from = sealed[0]["id"] if (genesis_idx is not None and sealed) else None
+
     prev_hash = ""
-    for r in rows:
+    for r in sealed:
         expected = audit_entry_hash(prev_hash, r["org_id"], r["action"], r["resource"],
                                     r["detail"], r["user_id"], r["user_email"], r["timestamp"])
         if (r["prev_hash"] or "") != prev_hash or r["entry_hash"] != expected:
-            return {"valid": False, "broken_at": r["id"], "checked": len(rows),
+            return {"valid": False, "broken_at": r["id"], "checked": len(sealed),
+                    "legacy_unsealed": legacy_unsealed, "sealed_from": sealed_from,
                     "detail": "audit chain integrity check failed — a record was altered or removed"}
         prev_hash = r["entry_hash"]
-    return {"valid": True, "checked": len(rows)}
+    return {"valid": True, "checked": len(sealed),
+            "legacy_unsealed": legacy_unsealed, "sealed_from": sealed_from}
 
 
 # ── Execution Log ───────────────────────────────────────────────────────────
