@@ -59,15 +59,19 @@ def ingest_trace(
         prompt=f"Historical trace from {source}",
     )
 
+    from redaction import redact_value
+
     for i, step in enumerate(normalized_steps):
         trace.steps.append(TraceStep(
             step_index=i,
             tool=step["tool"],
             action=step["action"],
-            params=step.get("params", {}),
+            # Mask obvious PII (emails, cards, SSNs, phones) in the captured
+            # values before they're persisted, keeping the structure intact.
+            params=redact_value(step.get("params", {})),
             enforce_decision="ALLOW",  # historical — already happened
             enforce_policy=None,
-            result=step.get("result", {}),
+            result=redact_value(step.get("result", {})),
             timestamp=step.get("timestamp", ""),
         ))
 
