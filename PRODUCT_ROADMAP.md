@@ -189,6 +189,33 @@ append-only / hash-chained / non-droppable. Risky paths covered by tests gating 
 
 ---
 
+## Post-roadmap hardening (2026-07-11, after all 6 phases)
+
+Three follow-on PRs closed out the code-side of what were the "founder-only" and
+partial items — everything finishable in-repo now:
+
+- **PR #71 — SOC2 code-side controls:** security-headers middleware (HSTS gated
+  outside dev), a structured privileged-action access log, and `SECURITY_DESIGN.md`
+  expanded into a full controls-mapping (SOC2 CC → where + test).
+- **PR #72 — encryption-at-rest, complete + review-ready:** generalized the `_enc`
+  seam, encrypted `execution_log.params`, added a backfill script (existing rows)
+  and a master-key rotation script (`vault.rewrap_blob`/`rewrap_credential`).
+  **Default stays OFF** — the flip is a reviewed one-env-var change. Deliberate,
+  documented exclusions (audit detail / sim traces / system prompt).
+- **PR #73 — turnkey, RLS-live cutover:** audit seal is legacy-marker + fresh-start
+  at cutover (`/api/audit/verify` segments legacy vs sealed); `setup_prod_role.sql`
+  + `verify_rls_active.py` + `backup_restore_drill.sh` make the owner-run cutover
+  one-shot and verified. **Fixed a cutover-blocking bug:** 40/43 `log_audit` calls
+  mis-scoped rows to `'default'` — would 500 every audited action under RLS in
+  prod; `log_audit` now derives org from the request tenant context.
+
+**Still genuinely owner/founder-only:** run the cutover against a real prod
+Postgres (no hosted instance exists); the security-specialist sign-off to flip
+`ARCEO_ENCRYPT_AT_REST` on; engage a SOC2 auditor. Plus the two research-grade
+items below.
+
+---
+
 ## Beyond week 24 (honest — these genuinely don't fit)
 
 | Item | ew | Why it's out |
