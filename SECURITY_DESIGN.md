@@ -113,11 +113,26 @@ when on, sensitive fields are written to a companion `*_enc` column and the
 plaintext column is left NULL; the read path prefers `*_enc` and falls back to
 plaintext, so old rows keep working and the flag is safe to flip both ways.
 
-**Applied first to the highest-value at-rest fields** — the held request body
-and action params in `pending_requests` (raw outbound payloads awaiting
-approval, i.e. actual customer data en route to a third party). The same helper
-extends to `agents.system_prompt` and `simulations.trace_json`/`report_json` as
-follow-ons; `trace_json` is already PII-redacted (Phase 5 PR-2) in the interim.
+**The seam is generalized** (`backend/encryption.py`): `split()` on write and
+`read()`/`hydrate()` on read give one place for the flag + read-both-ways
+contract, so adding a column is a migration + one write site + the read sites.
+Covered today: `pending_requests.body`/`params_json` (raw outbound payloads
+awaiting approval) and `execution_log.params` (the action's arguments — actual
+customer data: amounts, ids, recipients). **Operational completeness:**
+`scripts/backfill_encryption.py` encrypts pre-existing plaintext rows in place
+(new writes only encrypt going forward), and `scripts/rotate_vault_master_key.py`
+rewraps every credential DEK **and** every `encrypt_value` column under a new
+master key without touching ciphertext (`vault.rewrap_blob`/`rewrap_credential`).
+
+**Deliberately NOT encrypted (reasons, not oversight):**
+- `audit_log.detail` — parsed by the cost forecaster at many hot read paths
+  (LLM_CALL token usage lives here) *and* is an input to the tamper-evident hash
+  chain; encrypting it would entangle both for low PII benefit.
+- `simulations.trace_json`/`report_json` — already PII-redacted (Phase 5 PR-2)
+  and written at five scattered sites; the seam can adopt them later.
+- `agents.system_prompt` — its write is a `COALESCE` partial-update across
+  several endpoints that conflicts with the plaintext-NULL pattern; deferred to
+  avoid breaking preserve-on-partial-update.
 
 **For the reviewer:** the scheme, the pack/unpack framing, the flag semantics,
 and the safe-both-ways read path are the review surface — the number of columns

@@ -11,26 +11,15 @@ from __future__ import annotations
 
 import base64
 import json
-import os
 import uuid
 from datetime import datetime
 
-import vault
+import encryption
 
-
-def _encrypt_at_rest() -> bool:
-    """Whether sensitive held-request fields are envelope-encrypted at rest.
-    Default OFF — flipping it on is a deliberate, specialist-reviewed step; the
-    read path handles both plaintext (old rows / flag off) and encrypted rows."""
-    return os.getenv("ARCEO_ENCRYPT_AT_REST", "").lower() in ("1", "true", "yes", "on")
-
-
-def _sensitive_cols(plaintext: str | None) -> tuple[str | None, bytes | None]:
-    """Return (plaintext_col, encrypted_col) for a sensitive value: when the
-    flag is on and there's a value, encrypt it and null the plaintext."""
-    if plaintext is not None and _encrypt_at_rest():
-        return None, vault.encrypt_value(plaintext)
-    return plaintext, None
+# Held-request sensitive fields use the shared encryption-at-rest seam
+# (encryption.split / encryption.read) so the whole product has one place that
+# decides the flag + the read-both-ways contract.
+_sensitive_cols = encryption.split
 
 # Inbound credentials are NEVER stored — the vault provides the real upstream
 # secret at replay time, so persisting the agent's own key would be both
@@ -117,15 +106,11 @@ def mark_replayed(conn, pending_id: str, ok: bool, detail: str) -> None:
 def decoded_body(row: dict) -> bytes:
     """The held request body, decrypting the at-rest column if present. Handles
     both encrypted rows and legacy/flag-off plaintext rows transparently."""
-    enc = row.get("body_enc")
-    if enc:
-        return base64.b64decode(vault.decrypt_value(enc))
-    return base64.b64decode(row["body"]) if row.get("body") else b""
+    b64 = encryption.read(row, "body")
+    return base64.b64decode(b64) if b64 else b""
 
 
 def pending_params(row: dict) -> dict | None:
     """The held action params, decrypting the at-rest column if present."""
-    enc = row.get("params_json_enc")
-    if enc:
-        return vault.decrypt_value(enc, as_json=True)
-    return json.loads(row["params_json"]) if row.get("params_json") else None
+    raw = encryption.read(row, "params_json")
+    return json.loads(raw) if raw else None

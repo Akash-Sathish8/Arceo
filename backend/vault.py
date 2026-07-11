@@ -150,3 +150,30 @@ def decrypt_value(blob: bytes, as_json: bool = False,
     dek = provider.unwrap(wrapped)
     plaintext = AESGCM(dek).decrypt(rest[:_NONCE_LEN], rest[_NONCE_LEN:], None)
     return json.loads(plaintext) if as_json else plaintext.decode()
+
+
+# ── Master-key rotation ───────────────────────────────────────────────────────
+# Rotating the master key rewraps each value's DEK under the new key WITHOUT
+# touching (or ever decrypting) the ciphertext — the envelope design makes this a
+# DEK-only operation, so plaintext never enters memory during a rotation.
+
+def rewrap_blob(blob: bytes, old_provider: MasterKeyProvider,
+                new_provider: MasterKeyProvider) -> bytes:
+    """Rewrap an encrypt_value blob's DEK from old_provider to new_provider.
+    Unwraps the DEK with the old master key and rewraps it with the new one; the
+    nonce+ciphertext are left byte-for-byte unchanged."""
+    blob = bytes(blob)
+    wlen = _struct.unpack(">H", blob[:2])[0]
+    wrapped = blob[2:2 + wlen]
+    rest = blob[2 + wlen:]
+    dek = old_provider.unwrap(wrapped)
+    new_wrapped = new_provider.wrap(dek)
+    return _struct.pack(">H", len(new_wrapped)) + new_wrapped + rest
+
+
+def rewrap_credential(wrapped_dek: bytes, old_provider: MasterKeyProvider,
+                      new_provider: MasterKeyProvider) -> bytes:
+    """Rewrap a credential's wrapped DEK (from encrypt_credential) under the new
+    master key. The encrypted_config bytes are unchanged and never decrypted."""
+    dek = old_provider.unwrap(bytes(wrapped_dek))
+    return new_provider.wrap(dek)

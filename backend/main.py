@@ -27,6 +27,7 @@ from db import (
     log_audit, log_execution, DEFAULT_ORG_ID,
 )
 import vault
+import encryption
 from authority.chain_detector import detect_chains as _detect_chains
 from authority.enforcement import enforce_check, safe_enforce_check, match_policy as _match_policy
 from authority.graph import build_agent_graph, calculate_blast_radius, graph_to_dict
@@ -1529,7 +1530,7 @@ def get_agent_detail(agent_id: str, user: dict = Depends(get_current_user)):
         "chains": flagged,
         "recommendations": recommendations,
         "policies": [_parse_policy(p) for p in policies],
-        "executions": [dict(e) for e in executions],
+        "executions": [encryption.hydrate(dict(e), "params") for e in executions],
     }
 
 
@@ -3503,7 +3504,7 @@ def get_execution_log(user: dict = Depends(get_current_user)):
             "SELECT * FROM execution_log WHERE org_id = %s ORDER BY timestamp DESC LIMIT 100",
             (_org(user),)
         ).fetchall()
-    return {"entries": [dict(r) for r in rows]}
+    return {"entries": [encryption.hydrate(dict(r), "params") for r in rows]}
 
 
 @app.get("/api/executions/{agent_id}")
@@ -3519,7 +3520,7 @@ def get_agent_executions(agent_id: str, user: dict = Depends(get_current_user)):
             "SELECT * FROM execution_log WHERE agent_id = %s AND org_id = %s ORDER BY timestamp DESC LIMIT 50",
             (agent_id, org_id),
         ).fetchall()
-    return {"entries": [dict(r) for r in rows]}
+    return {"entries": [encryption.hydrate(dict(r), "params") for r in rows]}
 
 
 @app.get("/api/approvals")
@@ -3551,7 +3552,7 @@ def get_pending_approvals(user: dict = Depends(get_current_user)):
         ).fetchall()
     approvals = []
     for r in rows:
-        item = dict(r)
+        item = encryption.hydrate(dict(r), "params")  # decrypt at-rest params, drop params_enc
         # Stored as JSON; the frontend renders a params object (or nothing on
         # pre-migration rows / malformed data — never break the queue).
         try:
