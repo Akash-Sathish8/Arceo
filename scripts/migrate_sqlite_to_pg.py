@@ -34,6 +34,8 @@ from urllib.parse import urlsplit
 import psycopg
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent / "backend"
+sys.path.insert(0, str(BACKEND_DIR))
+import db  # noqa: E402  — seal_new_audit_chain for the post-copy audit genesis
 
 # FK-safe copy order — parents before children (matches alembic 0001_baseline).
 TABLES = (
@@ -138,6 +140,21 @@ def copy_data(sqlite_path: str, url: str) -> list[tuple[str, int, int]]:
                 f"SELECT setval(pg_get_serial_sequence('{table}', 'id'), "
                 f'COALESCE((SELECT MAX(id) FROM "{table}"), 0) + 1, false)'
             )
+
+        # Seal a fresh audit chain per org that carried imported history. The old
+        # tamper-evident seal can't be proven across a copy, so we start a NEW
+        # sealed chain here (a genesis row, prev_hash='') and honestly treat the
+        # imported rows above it as legacy/unsealed — /api/audit/verify segments
+        # the two. Runs AFTER the sequence reset so the genesis id doesn't collide
+        # with copied rows. (See MIGRATION_RUNBOOK.md.)
+        sealed_orgs = [r[0] for r in dst.execute(
+            "SELECT DISTINCT org_id FROM audit_log WHERE org_id IS NOT NULL").fetchall()]
+        for oid in sealed_orgs:
+            db.seal_new_audit_chain(dst, oid)
+        if sealed_orgs:
+            print(f"Sealed a fresh audit chain for {len(sealed_orgs)} org(s); "
+                  f"imported audit history above the genesis is legacy/unsealed.")
+
         dst.commit()
     src.close()
     return results

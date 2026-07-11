@@ -201,6 +201,28 @@ def get_all_agents_from_db(conn, org_id: str = None) -> list[dict]:
     return [get_agent_from_db(conn, r["id"]) for r in rows]
 
 
+# The marker action that starts a fresh sealed audit chain (written at a prod
+# cutover). Rows before the last genesis are imported "legacy" history; the chain
+# is verified from the genesis onward. See /api/audit/verify + MIGRATION_RUNBOOK.
+AUDIT_GENESIS_ACTION = "AUDIT_CHAIN_GENESIS"
+
+
+def seal_new_audit_chain(conn, org_id: str = DEFAULT_ORG_ID) -> None:
+    """Start a fresh sealed audit chain for an org: insert a GENESIS row with
+    prev_hash='' so verification begins HERE, ignoring any imported/legacy rows
+    above it. Used once per org at a production cutover (the copied history can't
+    be proven across a copy, so we seal forward honestly rather than overclaim)."""
+    ts = datetime.utcnow().isoformat()
+    detail = ("Audit chain sealed at cutover; entries above this row are imported "
+              "legacy history and are not covered by this seal.")
+    entry = audit_entry_hash("", org_id, AUDIT_GENESIS_ACTION, None, detail, None, "system", ts)
+    conn.execute(
+        "INSERT INTO audit_log (user_id, user_email, action, resource, detail, org_id, timestamp, prev_hash, entry_hash) "
+        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
+        (None, "system", AUDIT_GENESIS_ACTION, None, detail, org_id, ts, "", entry),
+    )
+
+
 def audit_entry_hash(prev_hash: str, org_id: str, action: str, resource, detail,
                      user_id, user_email, timestamp: str) -> str:
     """The chain hash for one audit row. Shared by the writer (log_audit) and the
@@ -214,7 +236,7 @@ def audit_entry_hash(prev_hash: str, org_id: str, action: str, resource, detail,
     return hashlib.sha256(content.encode()).hexdigest()
 
 
-def log_audit(conn, user_id: str | None, user_email: str | None, action: str, resource: str = None, detail: str = None, org_id: str = DEFAULT_ORG_ID):
+def log_audit(conn, user_id: str | None, user_email: str | None, action: str, resource: str = None, detail: str = None, org_id: str = None):
     """Write an audit log entry — tamper-evident and append-only (Phase 6).
 
     Each row is chained: entry_hash = sha256(prev_hash || this row's content),
@@ -222,9 +244,20 @@ def log_audit(conn, user_id: str | None, user_email: str | None, action: str, re
     linear. Failures raise (never silently drop an audit row); the DB trigger
     blocks any later edit/delete.
 
+    org_id defaults to the REQUEST'S tenant (the app.current_org context), not a
+    hardcoded 'default'. Most call sites omit org_id; the old DEFAULT_ORG_ID
+    default silently filed every one of those rows under 'default' — mis-scoping
+    the per-org trail AND, under RLS, failing the WITH CHECK for any non-default
+    tenant (so an audited action would 500 in prod). Deriving from the same
+    context RLS uses keeps the two in lockstep. System context (seeding,
+    scheduler, unauthenticated endpoints) falls back to DEFAULT_ORG_ID.
+
     Deliberately same-transaction with the action it records — NOT an async
     queue. A queue would risk losing rows on crash, the opposite of audit-grade;
     consistency here is the whole point."""
+    if org_id is None:
+        ctx = current_org.get()
+        org_id = ctx if ctx and ctx != "system" else DEFAULT_ORG_ID
     ts = datetime.utcnow().isoformat()
     # Serialize concurrent same-org audit writes so two don't read the same
     # prev_hash and fork the chain. Transaction-scoped; released on commit.

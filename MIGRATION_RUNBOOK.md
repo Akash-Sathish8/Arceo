@@ -32,6 +32,13 @@ script` step), so the mechanics below are continuously verified.
    rows, copies all 17 tables in FK-safe order, converts SQLite's 0/1 booleans,
    resets the 8 auto-increment sequences, and prints a per-table verification
    table. Non-zero exit = do not proceed.
+
+   **Audit seal:** the copied audit history can't be cryptographically proven
+   across the copy, so the script writes a per-org **genesis row** that starts a
+   fresh sealed chain at cutover. From then on `GET /api/audit/verify` reports
+   the imported rows as `legacy_unsealed` (honest — they predate the seal) and
+   verifies everything from the genesis forward. Nothing to do here; just know
+   `verify` will show a non-zero `legacy_unsealed` on a migrated instance.
 4. **Point the app at Postgres:** set `DATABASE_URL` in the deploy environment
    (the Dockerfile no longer sets `ARCEO_DB_PATH`; the app refuses to boot on
    known prod platforms without `DATABASE_URL`).
@@ -70,18 +77,44 @@ request to its caller's org.
 
 **One catch: a Postgres SUPERUSER bypasses RLS even when it is FORCED.** If the
 app connects as a superuser (or the table owner), RLS is a silent no-op. To make
-it bite, run the app as a dedicated **non-superuser** role:
+it bite, run the app as a dedicated **non-superuser** role. Create it with the
+scripted, idempotent role setup (it also grants on FUTURE migration-created
+tables via `ALTER DEFAULT PRIVILEGES`, so a later `alembic upgrade` never locks
+the app out):
 
-```sql
--- as an admin/superuser, AFTER `alembic upgrade head` has created the schema:
-CREATE ROLE arceo_app LOGIN PASSWORD '<strong-password>';
-GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO arceo_app;
-GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO arceo_app;
+```bash
+# as the DB owner/admin, AFTER `alembic upgrade head` has created the schema:
+psql "$ADMIN_DATABASE_URL" -v app_password="'a-strong-password'" \
+    -f scripts/setup_prod_role.sql
 ```
 
-Then point the running app's `DATABASE_URL` at `arceo_app` while running
-migrations under an admin URL (migrations create tables; `arceo_app` only does
-DML). `backend/tests/test_rls_enforcement.py` proves the policies genuinely
-isolate tenants under exactly this restricted role. Until this role is in place,
-tenant isolation rests on the app-level filters (which `test_cross_org_matrix.py`
+Point the running app's `DATABASE_URL` at `arceo_app`; keep running migrations
+under the admin/owner URL (migrations create tables; `arceo_app` only does DML).
+
+**Then verify RLS is actually live** — the single most important post-cutover
+check:
+
+```bash
+APP_DATABASE_URL=postgresql://arceo_app:...@host:5432/arceo \
+    python scripts/verify_rls_active.py
+```
+
+It connects as the app role and asserts the role is neither superuser nor
+BYPASSRLS and that a bogus-org read sees zero rows; non-zero exit = do not cut
+over. `backend/tests/test_rls_enforcement.py` + `test_cutover.py` prove the
+policies isolate tenants under exactly this restricted role. Until the role is in
+place, isolation rests on the app-level filters (which `test_cross_org_matrix.py`
 guards) — RLS is dormant, not broken.
+
+## Backups: prove the restore, not just the dump
+
+A backup you have never restored is a hope. Before the cutover and on a schedule
+after, run the drill — it dumps the live DB, restores into a throwaway scratch
+database, and verifies per-table row counts match:
+
+```bash
+DATABASE_URL=postgresql://user:pass@host:5432/arceo scripts/backup_restore_drill.sh
+```
+
+Managed backup schedules are the platform's job; this proves a dump is actually
+restorable.
