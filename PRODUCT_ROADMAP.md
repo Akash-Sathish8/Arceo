@@ -128,6 +128,8 @@ window + SDK docs (breaks zero-config self-register).
 
 **Goal:** the flagship human-in-the-loop workflow becomes real instead of fictional.
 
+> **DONE (2026-07-11):** PRs #54 (pending_requests durable queue + capture), #55 (replay-on-approve exactly-once behind `ARCEO_REPLAY_ENABLED`), #56 (SDK 0.3.0 `enforce_and_wait` + status endpoint), #57 (Approvals outcome UI) — all merged to `dev`, 204 tests green on Postgres+Redis, live end-to-end verified. **Deferred to Phase 5:** streaming-correct proxy + non-blocking/batched audit queue (rationale in commits — Postgres doesn't drop audit rows, so batching is perf not correctness).
+
 | Task | Owner | ew | Files |
 |---|---|---|---|
 | Params + full-request schema (one schema for log **and** replay, avoid double-migration); surface real params in Approvals UI (dead code already renders them); redact before store | B | 1.0 | `db.py:149-159,428-433`; `Approvals.tsx:207-226` |
