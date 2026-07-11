@@ -86,7 +86,8 @@ def seed_trace(agent_org: str) -> int:
             rows.append((None, AGENT_ID, "LLM_CALL", f"anthropic:{MODEL}",
                          _usage_detail(in_base, out, cache_read), agent_org, ts.isoformat()))
     with get_db() as conn:
-        conn.execute("DELETE FROM audit_log WHERE action='LLM_CALL' AND user_email=%s", (AGENT_ID,))
+        # audit_log is append-only (Phase 6) — can't delete prior seed rows;
+        # re-running the seeder just appends more LLM_CALL history, which is fine.
         with conn.cursor() as cur:
             cur.executemany(
                 "INSERT INTO audit_log (user_id, user_email, action, resource, detail, org_id, timestamp) "

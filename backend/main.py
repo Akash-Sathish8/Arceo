@@ -1185,12 +1185,14 @@ def signup(req: SignupRequest, request: Request):
 DEMO_WIPE_TABLES = (
     "pending_requests",  # FK → execution_log, so wipe it first
     "agents", "agent_tools", "tool_actions",
-    "execution_log", "audit_log",
+    "execution_log",
     "simulations", "sweeps",
     "policies", "regression_baselines",
     "cost_overrides",
     "agent_budgets",
 )
+# audit_log is intentionally NOT wiped — it is append-only (Phase 6); even a
+# demo reset cannot erase the audit trail.
 
 
 def _wipe_demo_data() -> None:
@@ -3321,6 +3323,27 @@ def get_audit_log(user: dict = Depends(get_current_user)):
             (_org(user),)
         ).fetchall()
     return {"entries": [dict(r) for r in rows]}
+
+
+@app.get("/api/audit/verify")
+def verify_audit_chain(user: dict = Depends(get_current_user)):
+    """Walk this org's audit hash-chain and prove it hasn't been tampered with.
+    Any edited or removed past row breaks the chain and is reported. Admin-only —
+    it's a compliance/integrity surface."""
+    require_role(user, "admin")
+    from db import audit_entry_hash
+    org_id = _org(user)
+    with get_db() as conn:
+        rows = conn.execute("SELECT * FROM audit_log WHERE org_id = %s ORDER BY id", (org_id,)).fetchall()
+    prev_hash = ""
+    for r in rows:
+        expected = audit_entry_hash(prev_hash, r["org_id"], r["action"], r["resource"],
+                                    r["detail"], r["user_id"], r["user_email"], r["timestamp"])
+        if (r["prev_hash"] or "") != prev_hash or r["entry_hash"] != expected:
+            return {"valid": False, "broken_at": r["id"], "checked": len(rows),
+                    "detail": "audit chain integrity check failed — a record was altered or removed"}
+        prev_hash = r["entry_hash"]
+    return {"valid": True, "checked": len(rows)}
 
 
 # ── Execution Log ───────────────────────────────────────────────────────────
