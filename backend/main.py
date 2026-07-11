@@ -101,6 +101,45 @@ async def _tenant_context(request: Request, call_next):
         _db.current_org.reset(token)
 
 
+# Mutating human routes that only an admin may call (org-level security/billing).
+_RBAC_ADMIN_PREFIXES = (
+    "/api/credentials", "/api/keys", "/api/notifications/settings",
+    "/api/cost-overrides", "/api/cost/default-model", "/api/team",
+)
+# Mutating routes exempt from role enforcement: auth (login/signup/logout), and
+# change-password (any user manages their OWN password). Agent-authenticated
+# routes carry an X-API-Key, not a bearer JWT, so they're skipped automatically.
+_RBAC_EXEMPT_PREFIXES = ("/api/auth/",)
+_MUTATING_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+
+
+@app.middleware("http")
+async def _rbac(request: Request, call_next):
+    """Enforce roles centrally: a human (bearer JWT) making a mutating /api call
+    must be at least an editor; the admin-prefixed routes require admin. Agents
+    (X-API-Key) and unauthenticated auth routes are not role-gated. Central
+    enforcement means no per-route miss — 'one miss is a hole'."""
+    path = request.url.path
+    if (request.method in _MUTATING_METHODS and path.startswith("/api/")
+            and not path.startswith(_RBAC_EXEMPT_PREFIXES)):
+        auth = request.headers.get("Authorization", "")
+        if auth.lower().startswith("bearer "):  # a human session — role applies
+            try:
+                from auth import verify_token
+                sub = verify_token(auth[7:]).get("sub")
+                with get_db() as conn:
+                    row = conn.execute("SELECT role FROM users WHERE id = %s", (sub,)).fetchone()
+                role = (row["role"] if row else "viewer") or "viewer"
+            except Exception:
+                role = None  # let the endpoint's own auth dependency 401 it
+            if role is not None:
+                needed = "admin" if path.startswith(_RBAC_ADMIN_PREFIXES) else "editor"
+                if _ROLE_RANK.get(role, 0) < _ROLE_RANK[needed]:
+                    from fastapi.responses import JSONResponse
+                    return JSONResponse(status_code=403, content={"detail": f"{needed.capitalize()} role required"})
+    return await call_next(request)
+
+
 # Rate limiter (Redis-backed via shared_state; see check_rate_limit).
 RATE_LIMIT_MAX = int(os.getenv("RATE_LIMIT_MAX", "100"))  # requests per window
 RATE_LIMIT_WINDOW = int(os.getenv("RATE_LIMIT_WINDOW", "60"))  # seconds
@@ -111,14 +150,21 @@ def _org(user: dict) -> str:
     return user.get("org_id", DEFAULT_ORG_ID)
 
 
+# Real RBAC (Phase 5): viewer < editor < admin. viewer reads only; editor runs
+# the day-to-day (agents, policies, simulations, approvals); admin also manages
+# org-level security/billing (credentials, keys, notifications, cost, team).
+_ROLE_RANK = {"viewer": 0, "editor": 1, "admin": 2}
+
+
+def require_role(user: dict, min_role: str) -> None:
+    """403 unless the caller's role is at least min_role."""
+    if _ROLE_RANK.get(user.get("role") or "viewer", 0) < _ROLE_RANK[min_role]:
+        raise HTTPException(status_code=403, detail=f"{min_role.capitalize()} role required")
+
+
 def require_admin(user: dict) -> None:
-    """403 unless the caller's role is 'admin' — the first role-enforced
-    surface in the codebase (users.role existed but nothing gated on it).
-    Phase 5 generalizes this into real RBAC; until then only the credential
-    vault needs it, because a viewer who can write credentials can redirect
-    every proxied call."""
-    if (user.get("role") or "") != "admin":
-        raise HTTPException(status_code=403, detail="Admin role required")
+    """Back-compat alias — admin-only surfaces (credential vault, etc.)."""
+    require_role(user, "admin")
 
 
 def _caller_org(request: Request) -> str:
@@ -1175,9 +1221,48 @@ def change_password(req: ChangePasswordRequest, user: dict = Depends(get_current
         if not verify_password(req.current_password, row["password_hash"]):
             raise HTTPException(status_code=401, detail="Current password is incorrect")
         new_hash = hash_password(req.new_password)
-        conn.execute("UPDATE users SET password_hash = %s WHERE id = %s", (new_hash, user["sub"]))
+        # Bump token_version so every token issued before this change (a
+        # possibly-stolen session) stops verifying immediately.
+        conn.execute("UPDATE users SET password_hash = %s, token_version = token_version + 1 WHERE id = %s",
+                     (new_hash, user["sub"]))
         log_audit(conn, user["sub"], user["email"], "CHANGE_PASSWORD", detail="Password changed")
-    return {"message": "Password updated"}
+    return {"message": "Password updated", "note": "Other sessions have been signed out."}
+
+
+class TeamInviteRequest(BaseModel):
+    email: str
+    password: str
+    role: str = "viewer"
+    name: str = ""
+
+
+@app.post("/api/team/invite")
+def invite_teammate(req: TeamInviteRequest, user: dict = Depends(get_current_user)):
+    """Add a teammate to the caller's org with a role (admin-only). This is how
+    non-admin users are created — signup always makes the first user an admin."""
+    require_role(user, "admin")
+    if req.role not in _ROLE_RANK:
+        raise HTTPException(status_code=400, detail=f"role must be one of {sorted(_ROLE_RANK)}")
+    import re as _re
+    if not _re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", req.email or ""):
+        raise HTTPException(status_code=400, detail="Enter a valid email address")
+    if len(req.password) < 6:
+        raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
+    from auth import hash_password
+    org_id = _org(user)
+    with get_db() as conn:
+        if conn.execute("SELECT 1 FROM users WHERE email = %s", (req.email,)).fetchone():
+            raise HTTPException(status_code=409, detail="Email already registered")
+        uid = str(uuid.uuid4())
+        conn.execute(
+            "INSERT INTO users (id, email, password_hash, name, role, org_id, created_at) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s)",
+            (uid, req.email, hash_password(req.password), req.name or req.email.split("@")[0],
+             req.role, org_id, datetime.utcnow().isoformat()),
+        )
+        log_audit(conn, user["sub"], user["email"], "TEAM_INVITE", resource=uid,
+                  detail=f"Added {req.email} as {req.role}", org_id=org_id)
+    return {"id": uid, "email": req.email, "role": req.role, "org_id": org_id}
 
 
 # ── Authority Engine: READ endpoints ────────────────────────────────────────

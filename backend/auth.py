@@ -58,12 +58,14 @@ def verify_password(password: str, hashed: str) -> bool:
         return hashlib.sha256(password.encode()).hexdigest() == hashed
 
 
-def create_token(user_id: str, email: str, role: str, org_id: str = DEFAULT_ORG_ID) -> str:
+def create_token(user_id: str, email: str, role: str, org_id: str = DEFAULT_ORG_ID,
+                 token_version: int = 0) -> str:
     payload = {
         "sub": user_id,
         "email": email,
         "role": role,
         "org_id": org_id,
+        "tv": token_version,  # bumped on password change → old tokens stop verifying
         "exp": datetime.utcnow() + timedelta(hours=TOKEN_EXPIRY_HOURS),
     }
     return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
@@ -99,6 +101,15 @@ def get_current_user(request: Request) -> dict:
     # Ensure org_id is always present (backward compat with old tokens)
     if "org_id" not in payload:
         payload["org_id"] = DEFAULT_ORG_ID
+    # Instant revocation: a token whose version is behind the user's current
+    # token_version was issued before a password change — reject it.
+    with get_db() as conn:
+        row = conn.execute("SELECT token_version, role FROM users WHERE id = %s", (payload.get("sub"),)).fetchone()
+    if row is not None:
+        if int(payload.get("tv", 0)) != int(row["token_version"] or 0):
+            raise HTTPException(status_code=401, detail="Session expired — please log in again")
+        # Trust the DB role over the token's (a role change takes effect without re-login).
+        payload["role"] = row["role"]
     return payload
 
 
@@ -114,7 +125,8 @@ def login_user(email: str, password: str) -> dict:
             conn.execute("UPDATE users SET password_hash = %s WHERE id = %s", (new_hash, row["id"]))
 
         org_id = row["org_id"] if "org_id" in row.keys() else DEFAULT_ORG_ID
-        token = create_token(row["id"], row["email"], row["role"], org_id)
+        tv = int(row["token_version"]) if "token_version" in row.keys() and row["token_version"] is not None else 0
+        token = create_token(row["id"], row["email"], row["role"], org_id, token_version=tv)
         log_audit(conn, row["id"], row["email"], "LOGIN", detail="User logged in", org_id=org_id)
 
         return {

@@ -168,6 +168,33 @@ def two_orgs(client):
     }
 
 
+def _invite_teammate(client, admin, role: str) -> dict:
+    """Admin adds a teammate with a role; return their auth context."""
+    import uuid
+
+    email = f"{role}-{uuid.uuid4().hex[:8]}@example.com"
+    r = client.post("/api/team/invite", headers=admin["headers"],
+                    json={"email": email, "password": "pw12345678", "role": role})
+    assert r.status_code == 200, f"invite failed: {r.text}"
+    login = client.post("/api/auth/login", json={"email": email, "password": "pw12345678"})
+    token = login.json()["token"]
+    return {"token": token, "org_id": admin["org_id"], "email": email, "role": role,
+            "headers": {"Authorization": f"Bearer {token}"}}
+
+
+@pytest.fixture()
+def roles(client):
+    """One org with an admin (from signup) + an editor + a viewer teammate."""
+    import uuid
+
+    admin = _signup_org(client, f"admin-{uuid.uuid4().hex[:8]}@example.com")
+    return {
+        "admin": admin,
+        "editor": _invite_teammate(client, admin, "editor"),
+        "viewer": _invite_teammate(client, admin, "viewer"),
+    }
+
+
 def pytest_sessionfinish(session, exitstatus):
     if _MISSING_FIXTURE_KEYS:
         unique = sorted(set(_MISSING_FIXTURE_KEYS))
