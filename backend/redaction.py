@@ -16,14 +16,18 @@ from __future__ import annotations
 import os
 import re
 
-# Order matters: card/SSN before the looser digit-run patterns wouldn't help
-# here since we run each independently, but email before generic text is fine.
+# Best-effort, US-biased patterns. Known limitations (accepted by design — this
+# is a first-pass scrub, encryption-at-rest is the real protection): the phone
+# pattern assumes a 3-digit area code so some international formats slip through,
+# and the card pattern is deliberately permissive — the Luhn check in
+# redact_text is REQUIRED to keep it from masking non-card digit runs (order
+# ids, prices). Do not remove the Luhn filter.
 _EMAIL = re.compile(r"\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b")
-# 13–16 digit runs allowing spaces/dashes (card-shaped).
+# 13–16 digit runs allowing spaces/dashes (card-shaped). Luhn-gated below.
 _CARD = re.compile(r"\b(?:\d[ -]?){13,16}\b")
 # US SSN 123-45-6789.
 _SSN = re.compile(r"\b\d{3}-\d{2}-\d{4}\b")
-# Phone: +1 555-123-4567 / (555) 123-4567 / 555.123.4567 — 10+ digits with seps.
+# Phone: +1 555-123-4567 / (555) 123-4567 / 555.123.4567 — US-shaped, 3-digit area.
 _PHONE = re.compile(r"(?<!\d)(?:\+?\d{1,3}[ .\-]?)?(?:\(\d{3}\)|\d{3})[ .\-]?\d{3}[ .\-]?\d{4}(?!\d)")
 
 
