@@ -399,56 +399,36 @@ async def proxy_llm_request(provider: str, path: str, request: Request):
     forward_headers = {k: v for k, v in request.headers.items()
                        if k.lower() not in ("host", "x-agent-id", "content-length")}
 
-    t0 = _time.time()
-    try:
-        async with _httpx.AsyncClient(timeout=120.0) as client:
-            resp = await client.request(
-                method=request.method,
-                url=upstream_url,
-                headers=forward_headers,
-                content=body if body else None,
-                params=dict(request.query_params),
-            )
-    except _httpx.TimeoutException:
-        raise HTTPException(status_code=504, detail=f"Upstream {provider} timed out")
-    except _httpx.HTTPError as e:
-        raise HTTPException(status_code=502, detail=f"Upstream {provider} error: {str(e)}")
-
-    latency_ms = int((_time.time() - t0) * 1000)
-    response_body = resp.content
-    response_data: Any = {}
-    try:
-        response_data = json.loads(response_body)
-    except (json.JSONDecodeError, UnicodeDecodeError):
-        response_data = {"raw_excerpt": response_body[:1000].decode("utf-8", errors="replace")}
-
     system_field = captured.get("system")
     if isinstance(system_field, list):
         system_field = json.dumps(system_field)[:8000]
     elif isinstance(system_field, str):
         system_field = system_field[:8000]
 
-    with get_db() as conn:
-        detail = json.dumps({
-            "provider": provider,
-            "model": captured.get("model"),
-            "system": system_field,
-            "messages_count": len(captured.get("messages") or []),
-            "tools_count": len(captured.get("tools") or []),
-            "max_tokens": captured.get("max_tokens"),
-            "temperature": captured.get("temperature"),
-            "latency_ms": latency_ms,
-            "status_code": resp.status_code,
-            "response": response_data,
-        })[:32000]
-        log_audit(conn, None, agent_id, "LLM_CALL_PROXY",
-                  resource=f"{provider}:{captured.get('model') or 'unknown'}",
-                  detail=detail)
+    t0 = _time.time()
 
-    return StreamingResponse(
-        iter([response_body]),
-        status_code=resp.status_code,
-        headers={k: v for k, v in resp.headers.items() if k.lower() not in ("content-encoding", "content-length", "transfer-encoding")},
+    def _capture(response_body: bytes, status_code: int, _resp_headers: dict) -> None:
+        # Runs once the streamed response finishes — captures the full response
+        # for cost forecasting without buffering it before the client sees it.
+        latency_ms = int((_time.time() - t0) * 1000)
+        try:
+            response_data: Any = json.loads(response_body)
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            response_data = {"raw_excerpt": response_body[:1000].decode("utf-8", errors="replace")}
+        with get_db() as conn:
+            detail = json.dumps({
+                "provider": provider, "model": captured.get("model"), "system": system_field,
+                "messages_count": len(captured.get("messages") or []),
+                "tools_count": len(captured.get("tools") or []),
+                "max_tokens": captured.get("max_tokens"), "temperature": captured.get("temperature"),
+                "latency_ms": latency_ms, "status_code": status_code, "response": response_data,
+            })[:32000]
+            log_audit(conn, None, agent_id, "LLM_CALL_PROXY",
+                      resource=f"{provider}:{captured.get('model') or 'unknown'}", detail=detail)
+
+    return await _stream_upstream(
+        request.method, upstream_url, forward_headers, body,
+        dict(request.query_params), timeout=120.0, service=provider, on_complete=_capture,
     )
 
 
@@ -461,32 +441,26 @@ class _VaultForwardBlocked(Exception):
         super().__init__(reason)
 
 
-async def _vault_forward(service: str, method: str, path: str, query: dict,
-                         headers: dict, body: bytes, org_id: str,
-                         idempotency_key: str | None = None):
-    """Inject the vaulted credential and forward to the upstream service.
-
-    The single source of truth for egress: BOTH the live proxy and
-    replay-on-approve call this, so a replayed request injects the credential
-    exactly like the original — they cannot drift. Raises _VaultForwardBlocked
-    on unknown service / undecryptable / missing-required credential. Returns
-    the httpx.Response.
-    """
-    import httpx as _httpx
-
+def _vault_prepare(service: str, path: str, headers: dict, org_id: str,
+                   idempotency_key: str | None = None) -> tuple[str, dict]:
+    """Resolve the upstream URL + headers for an egress call: look up the vaulted
+    credential, strip the agent's own Authorization/X-API-Key, inject the vaulted
+    secret, and fill any {subdomain}/{instance} URL placeholder from the
+    credential config. Raises _VaultForwardBlocked on unknown service /
+    undecryptable / missing-required credential. Shared by the live proxy AND
+    replay, so credential injection can never drift between them."""
     base_url = SERVICE_BASE_URLS.get(service)
     if not base_url:
         raise _VaultForwardBlocked(f"unknown service '{service}'")
-    upstream_url = f"{base_url}/{path}"
     forward_headers = {k: v for k, v in (headers or {}).items()
                        if k.lower() not in ("host", "x-agent-id", "content-length")}
 
+    cred_config = None
     with get_db() as conn:
         cred_row = conn.execute(
             "SELECT encrypted_config, wrapped_dek FROM provider_credentials "
             "WHERE org_id = %s AND provider = %s", (org_id, service),
         ).fetchone()
-
     if cred_row:
         try:
             cred_config = vault.decrypt_credential(cred_row["wrapped_dek"], cred_row["encrypted_config"])
@@ -498,16 +472,83 @@ async def _vault_forward(service: str, method: str, path: str, query: dict,
     elif _vault_require_on() and service in VAULT_SUPPORTED_PROVIDERS:
         raise _VaultForwardBlocked(f"no vaulted credential for {service}")
 
+    # Per-tenant endpoints (Zendesk subdomain, Salesforce instance) come from the
+    # vaulted credential config — never from a caller header.
+    for placeholder in ("subdomain", "instance"):
+        token = "{" + placeholder + "}"
+        if token in base_url:
+            val = (cred_config or {}).get(placeholder, "")
+            if not val:
+                raise _VaultForwardBlocked(f"{service} needs '{placeholder}' set on its vaulted credential")
+            base_url = base_url.replace(token, val)
+
     # Exactly-once at the provider: Stripe (and others) dedup on this header, so
     # a network retry of a replay can't double-charge.
     if idempotency_key:
         forward_headers["Idempotency-Key"] = idempotency_key
+    return f"{base_url}/{path}", forward_headers
 
+
+async def _vault_forward(service: str, method: str, path: str, query: dict,
+                         headers: dict, body: bytes, org_id: str,
+                         idempotency_key: str | None = None):
+    """Buffered egress used by replay-on-approve (which needs the full status +
+    body to record the outcome, not a live stream). Returns the httpx.Response."""
+    import httpx as _httpx
+
+    upstream_url, forward_headers = _vault_prepare(service, path, headers, org_id, idempotency_key)
     async with _httpx.AsyncClient(timeout=30.0) as client:
         return await client.request(
             method=method, url=upstream_url, headers=forward_headers,
             content=body if body else None, params=query or None,
         )
+
+
+async def _stream_upstream(method: str, url: str, headers: dict, content: bytes,
+                           query: dict, timeout: float, service: str,
+                           on_complete=None) -> StreamingResponse:
+    """Forward and STREAM the response back chunk-by-chunk (restores
+    time-to-first-token for streaming agents) instead of buffering the whole
+    body first. With stream=True, headers/status arrive before the body, so the
+    client starts receiving immediately. If on_complete is given, chunks are
+    also accumulated and handed to it once the stream finishes (the LLM proxy
+    uses this to capture the response for cost forecasting while still
+    streaming)."""
+    import httpx as _httpx
+
+    client = _httpx.AsyncClient(timeout=timeout)
+    try:
+        req = client.build_request(method, url, headers=headers,
+                                   content=content if content else None, params=query or None)
+        resp = await client.send(req, stream=True)
+    except _httpx.TimeoutException:
+        await client.aclose()
+        raise HTTPException(status_code=504, detail=f"Upstream {service} timed out")
+    except _httpx.HTTPError as e:
+        await client.aclose()
+        raise HTTPException(status_code=502, detail=f"Upstream {service} error: {str(e)}")
+
+    status = resp.status_code
+    resp_headers = {k: v for k, v in resp.headers.items()
+                    if k.lower() not in ("content-encoding", "content-length", "transfer-encoding")}
+
+    async def body_gen():
+        chunks: list[bytes] = []
+        try:
+            async for chunk in resp.aiter_bytes():
+                if on_complete is not None:
+                    chunks.append(chunk)
+                yield chunk
+        finally:
+            await resp.aclose()
+            await client.aclose()
+            if on_complete is not None:
+                try:
+                    on_complete(b"".join(chunks), status, resp_headers)
+                except Exception:
+                    pass  # capture/logging must never break the response
+
+    return StreamingResponse(body_gen(), status_code=status, headers=resp_headers)
 
 
 @app.api_route("/proxy/{service}/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
@@ -583,17 +624,16 @@ async def proxy_request(service: str, path: str, request: Request):
         return {"pending_approval": True, "reason": result["message"], "action": result["action"],
                 "agent_id": agent_id, "pending_id": pending_id, "execution_id": exec_id}
 
-    # Forward to upstream via the shared vault-inject path (same code replay
-    # uses, so a held request replays identically). The org is the AGENT's from
-    # the DB, never a caller header.
+    # ALLOW → forward and STREAM the response back (held/replay never reach here;
+    # only a live-allowed call streams). Same vault-inject prepare replay uses,
+    # so injection can't drift. Org is the AGENT's from the DB, never a header.
     with get_db() as conn:
         agent_row = conn.execute("SELECT org_id FROM agents WHERE id = %s", (agent_id,)).fetchone()
     agent_org = agent_row["org_id"] if agent_row else DEFAULT_ORG_ID
 
     try:
-        resp = await _vault_forward(
-            service, request.method, path, dict(request.query_params),
-            {k: v for k, v in request.headers.items()}, body, agent_org,
+        upstream_url, forward_headers = _vault_prepare(
+            service, path, {k: v for k, v in request.headers.items()}, agent_org,
         )
     except _VaultForwardBlocked as blocked:
         with get_db() as conn:
@@ -601,15 +641,10 @@ async def proxy_request(service: str, path: str, request: Request):
                           detail=blocked.reason, org_id=agent_org, source="runtime")
         return {"blocked": True, "reason": blocked.reason,
                 "action": f"{service}.{action}", "agent_id": agent_id}
-    except _httpx.TimeoutException:
-        raise HTTPException(status_code=504, detail=f"Upstream {service} timed out")
-    except _httpx.HTTPError as e:
-        raise HTTPException(status_code=502, detail=f"Upstream {service} error: {str(e)}")
 
-    return StreamingResponse(
-        iter([resp.content]),
-        status_code=resp.status_code,
-        headers={k: v for k, v in resp.headers.items() if k.lower() not in ("content-encoding", "content-length", "transfer-encoding")},
+    return await _stream_upstream(
+        request.method, upstream_url, forward_headers, body,
+        dict(request.query_params), timeout=30.0, service=service,
     )
 
 
@@ -3087,7 +3122,9 @@ def send_test_digest(user: dict = Depends(get_current_user)):
 # placeholder substitution ({subdomain}/{instance}) before vaulting makes
 # sense for them; until then PUT refuses them rather than storing credentials
 # that would silently never be injected.
-VAULT_SUPPORTED_PROVIDERS = {"stripe", "github", "sendgrid"}
+# zendesk/salesforce are per-tenant: their vaulted credential carries the
+# subdomain/instance that fills the SERVICE_BASE_URLS placeholder at forward time.
+VAULT_SUPPORTED_PROVIDERS = {"stripe", "github", "sendgrid", "zendesk", "salesforce"}
 
 
 def _vault_require_on() -> bool:
