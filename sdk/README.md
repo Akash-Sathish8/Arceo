@@ -48,8 +48,24 @@ client.chat.completions.create(model="gpt-4o", messages=[...])
 
 **What's sent:** provider, model, token usage, and request *shape* (message/tool
 counts) — **never prompt or response content**. Pass `capture_prompts=True` to
-also include the system prompt. Streaming calls (`stream=True`) are skipped
-(usage isn't available until the stream is consumed).
+also include the system prompt.
+
+**Streaming (`stream=True`) is captured too (0.4.0).** The returned stream is
+wrapped in a transparent proxy that reports usage once you finish consuming it —
+your loop is unchanged:
+
+```python
+client = wrap_llm(Anthropic(), "your-agent-id")
+stream = client.messages.create(model="claude-...", messages=[...], max_tokens=1024, stream=True)
+for event in stream:
+    ...
+# ↑ usage reported after the stream is fully consumed
+```
+
+- **Anthropic** always works — usage rides in the stream events.
+- **OpenAI** reports usage only when you pass `stream_options={"include_usage": True}`;
+  without it the API never sends usage, so there is nothing honest to report and
+  the call is skipped (no crash, no guessed numbers).
 
 Already have the raw response and want to report it yourself?
 
