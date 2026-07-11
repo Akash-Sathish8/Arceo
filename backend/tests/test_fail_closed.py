@@ -86,16 +86,15 @@ def test_proxy_blocks_and_skips_upstream_on_enforcement_error(client, two_orgs, 
 
     upstream_called = {"n": 0}
 
-    class _NoNetClient:
-        def __init__(self, *a, **k): pass
-        async def __aenter__(self): return self
-        async def __aexit__(self, *a): return False
-        async def request(self, *a, **k):
-            upstream_called["n"] += 1
-            raise AssertionError("upstream must not be called on enforcement error")
-
     import httpx
-    monkeypatch.setattr(httpx, "AsyncClient", _NoNetClient)
+
+    def _handler(request):
+        upstream_called["n"] += 1
+        return httpx.Response(200, json={"ok": True})
+
+    real = httpx.AsyncClient
+    monkeypatch.setattr(httpx, "AsyncClient",
+                        lambda *a, **k: real(transport=httpx.MockTransport(_handler), timeout=k.get("timeout")))
 
     r = client.post("/proxy/stripe/v1/refunds",
                     headers={"X-API-Key": key, "X-Agent-ID": "some-agent"},
@@ -112,22 +111,17 @@ def test_proxy_strips_stale_content_headers(client, two_orgs, monkeypatch):
 
     decompressed = b'{"ok": true, "padding": "' + b"x" * 200 + b'"}'
 
-    class _FakeResp:
-        status_code = 200
-        content = decompressed
-        # Upstream's ORIGINAL (compressed) framing — stale after httpx
-        # auto-decompression. Forwarding these corrupts the response.
-        headers = {"content-length": "23", "content-encoding": "gzip",
-                   "content-type": "application/json"}
-
-    class _FakeClient:
-        def __init__(self, *a, **k): pass
-        async def __aenter__(self): return self
-        async def __aexit__(self, *a): return False
-        async def request(self, *a, **k): return _FakeResp()
-
     import httpx
-    monkeypatch.setattr(httpx, "AsyncClient", _FakeClient)
+
+    def _handler(request):
+        # Simulate an upstream sending a STALE content-length (23) that no longer
+        # matches the real body — forwarding it verbatim truncates the response.
+        return httpx.Response(200, content=decompressed,
+                              headers={"content-length": "23", "content-type": "application/json"})
+
+    real = httpx.AsyncClient
+    monkeypatch.setattr(httpx, "AsyncClient",
+                        lambda *a, **k: real(transport=httpx.MockTransport(_handler), timeout=k.get("timeout")))
 
     r = client.get("/proxy/stripe/v1/customers",
                    headers={"X-API-Key": key, "X-Agent-ID": "some-agent"})

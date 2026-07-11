@@ -46,38 +46,26 @@ def _make_agent(client, headers, name):
     return body["agent"]["id"] if "agent" in body else body["id"]
 
 
-class _CaptureClient:
-    """Fake httpx.AsyncClient recording every forwarded request's headers."""
+@pytest.fixture()
+def capture_upstream(monkeypatch):
+    """Route every egress through a real httpx MockTransport so BOTH the
+    streaming proxy (build_request + send) and the buffered replay (request)
+    paths work, and record each forwarded request's headers."""
+    import httpx
 
     calls: list[dict] = []
 
-    def __init__(self, *a, **k):
-        pass
+    def _handler(request: httpx.Request) -> httpx.Response:
+        calls.append({"method": request.method, "url": str(request.url),
+                      "headers": {k.lower(): v for k, v in request.headers.items()}})
+        return httpx.Response(200, json={"ok": True})
 
-    async def __aenter__(self):
-        return self
-
-    async def __aexit__(self, *a):
-        return False
-
-    async def request(self, method=None, url=None, headers=None, **k):
-        _CaptureClient.calls.append({"method": method, "url": url, "headers": dict(headers or {})})
-
-        class _Resp:
-            status_code = 200
-            content = b'{"ok": true}'
-            headers = {"content-type": "application/json"}
-
-        return _Resp()
-
-
-@pytest.fixture()
-def capture_upstream(monkeypatch):
-    import httpx
-
-    _CaptureClient.calls = []
-    monkeypatch.setattr(httpx, "AsyncClient", _CaptureClient)
-    return _CaptureClient.calls
+    real = httpx.AsyncClient
+    monkeypatch.setattr(
+        httpx, "AsyncClient",
+        lambda *a, **k: real(transport=httpx.MockTransport(_handler), timeout=k.get("timeout")),
+    )
+    return calls
 
 
 # ── vault.py unit ─────────────────────────────────────────────────────────────
@@ -140,8 +128,9 @@ def test_put_get_delete_lifecycle_and_no_secret_exposure(client, two_orgs):
 
 def test_unsupported_provider_rejected(client, two_orgs):
     a = two_orgs["org_a"]
-    r = client.put("/api/credentials/zendesk", headers=a["headers"], json={"secret": "s"})
-    assert r.status_code == 422  # placeholder-URL providers are passthrough-only for now
+    # slack isn't in VAULT_SUPPORTED_PROVIDERS (zendesk/salesforce now are).
+    r = client.put("/api/credentials/slack", headers=a["headers"], json={"secret": "s"})
+    assert r.status_code == 422
     r = client.put("/api/credentials/stripe", headers=a["headers"], json={"secret": "   "})
     assert r.status_code == 422
 
