@@ -169,6 +169,8 @@ suite green.
 
 ## Phase 6 · Weeks 21–24 — Honest risk gate + capture + test debt + audit-grade logging
 
+> **DONE (2026-07-11):** PRs #66 (audit-grade logging — per-org hash chain + append-only trigger + `/api/audit/verify`), #67 (honest CI gate — fail on distrust signals: critical chains / opaque >25% / `executes_code`, not raw blast radius; `fail_reasons` surfaced in the PR comment), #68 (broad per-caller rate limit across all `/api/*` + security test-debt: API-key scoping, per-caller limit, comprehensive unauth-reject sweep), #69 (streaming LLM capture, SDK 0.4.0) — all merged to `dev`, **272 tests green** on Postgres+Redis. Flags/behavior: audit append-only + hash-chained (always on); global rate limit `RATE_LIMIT_GLOBAL_MAX`/`_WINDOW` (default 1000/60s); streaming capture on by default. **Deliberately superseded, not built:** the deferred async audit *queue* — same-transaction + hash-chain + append-only is the correct audit-grade design; async-queuing would open a crash window that loses rows (noted in `db.py`). **→ All 6 phases complete; 10/10 engineering floor reached.**
+
 **Goal:** close the remaining honesty gaps; harden; reach audit-ready code posture.
 
 | Task | Owner | ew | Files |
@@ -221,14 +223,13 @@ append-only / hash-chained / non-droppable. Risky paths covered by tests gating 
 
 ## Milestone summary
 
-| Phase | Weeks | Milestone | 10/10 property locked |
-|---|---|---|---|
-| 1 | 1–4 | Honest + fail-closed | Correctness / Honesty |
-| 2 | 5–8 | Postgres + credential custody | Architecture (datastore + chokepoint) |
-| 3 | 9–12 | Per-query isolation + no open writes | Security (tenancy) |
-| 4 | 13–16 | Real approvals + durable queue | Reliability |
-| 5 | 17–20 | Streaming + encryption + RBAC | Security / Correctness |
-| 6 | 21–24 | Honest gate + tests + audit log | Testability / Maintainability |
+| Phase | Weeks | Milestone | 10/10 property locked | Status |
+|---|---|---|---|---|
+| 1 | 1–4 | Honest + fail-closed | Correctness / Honesty | ✅ done |
+| 2 | 5–8 | Postgres + credential custody | Architecture (datastore + chokepoint) | ✅ done |
+| 3 | 9–12 | Per-query isolation + no open writes | Security (tenancy) | ✅ done |
+| 4 | 13–16 | Real approvals + durable queue | Reliability | ✅ done |
+| 5 | 17–20 | Streaming + encryption + RBAC | Security / Correctness | ✅ done |
+| 6 | 21–24 | Honest gate + tests + audit log | Testability / Maintainability | ✅ done |
 
-**Net:** in 24 weeks, 2 engineers make Arceo a genuinely 10/10-*engineered* system. The two
-research-grade capabilities are the *only* things that push past 24 weeks.
+**Net:** in 24 weeks the full roadmap shipped — Arceo is a genuinely 10/10-*engineered* system. **All 6 phases complete (2026-07-11).** What remains is *not* engineering-floor work: the two research-grade capabilities that genuinely don't fit 24 weeks (real customer-code sandboxing; static chains as data-flow reachability), plus the three founder-only unblocks (security-specialist review to flip `ARCEO_ENCRYPT_AT_REST` on; SOC2 auditor engagement; the production Postgres cutover via the migration runbook).
