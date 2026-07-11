@@ -149,6 +149,8 @@ state survives a restart.
 
 **Goal:** proxy stops breaking real agents; data protected; roles actually enforced.
 
+> **DONE (2026-07-11):** PRs #59 (streaming proxy + subdomain/instance fill), #60 (PII redaction, default-on), #61 (encryption at rest, flag-gated on specialist review), #62 (RBAC viewer/editor/admin + token-version revocation + team invite), #63 (enforcement adversarial harness) — all merged to `dev`, 227 tests green. Flags: `ARCEO_PII_REDACTION` (on), `ARCEO_ENCRYPT_AT_REST` (off — flip-on needs the security review), streaming (always). Only remaining phase: 6 (honest risk gate + audit-grade logging).
+
 | Task | Owner | ew | Files |
 |---|---|---|---|
 | Finish streaming: `client.stream()` + `StreamingResponse(aiter_bytes())`; fill `SERVICE_BASE_URLS` `{subdomain}`/`{instance}` placeholders; clear held-vs-streamable rules | A | 1.5 | `main.py:214-215,316-370` |
