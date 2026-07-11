@@ -184,6 +184,79 @@ async def _global_rate_limit(request: Request, call_next):
     return await call_next(request)
 
 
+# ── Security headers + structured access log (SOC2 code-side) ──────────────────
+# A host is "dev-like" only if it says so explicitly (same convention as auth.py).
+# HSTS is withheld in dev/test/ci so local + HTTP-pilot instances aren't forced
+# onto https; it's sent everywhere else.
+_IS_DEV_ENV = os.getenv("ARCEO_ENV", "").lower() in {"dev", "local", "test", "ci"}
+
+_SECURITY_HEADERS = {
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Referrer-Policy": "no-referrer",
+    # The API returns JSON, not HTML; a strict default CSP costs nothing here and
+    # documents intent. The SPA is served from the same origin with its own assets.
+    "Content-Security-Policy": "default-src 'self'; frame-ancestors 'none'; base-uri 'self'",
+}
+
+
+@app.middleware("http")
+async def _security_headers(request: Request, call_next):
+    """Attach standard hardening headers to every response. HSTS only outside dev."""
+    response = await call_next(request)
+    for k, v in _SECURITY_HEADERS.items():
+        response.headers.setdefault(k, v)
+    if not _IS_DEV_ENV:
+        response.headers.setdefault(
+            "Strict-Transport-Security", "max-age=63072000; includeSubDomains")
+    return response
+
+
+# One structured (JSON) line per privileged/mutating API call — the SOC2
+# "structured privileged-action events" control. Metadata only: never bodies or
+# PII. Emitted to a named logger so it lands in any platform log pipeline.
+_access_logger = logging.getLogger("arceo.access")
+
+
+@app.middleware("http")
+async def _access_log(request: Request, call_next):
+    path = request.url.path
+    privileged = (
+        path.startswith("/api/")
+        and (request.method in _MUTATING_METHODS or path.startswith(_RBAC_ADMIN_PREFIXES))
+        and not path.startswith("/api/auth/")
+    )
+    t0 = time.time()
+    response = await call_next(request)
+    if privileged:
+        try:
+            import db as _db
+            key_row = verify_api_key(request)
+            if key_row:
+                actor = f"key:{key_row.get('id')}"
+            else:
+                auth = request.headers.get("Authorization", "")
+                actor = "anon"
+                if auth.lower().startswith("bearer "):
+                    try:
+                        actor = f"user:{verify_token(auth[7:]).get('sub')}"
+                    except Exception:
+                        actor = "bearer:invalid"
+            _access_logger.info(json.dumps({
+                "ts": datetime.utcnow().isoformat(),
+                "event": "privileged_api",
+                "method": request.method,
+                "path": path,
+                "status": response.status_code,
+                "org_id": _db.current_org.get(),
+                "actor": actor,
+                "latency_ms": int((time.time() - t0) * 1000),
+            }))
+        except Exception:
+            pass  # access logging must never break a request
+    return response
+
+
 def _org(user: dict) -> str:
     """Extract org_id from authenticated user. Every query uses this."""
     return user.get("org_id", DEFAULT_ORG_ID)

@@ -123,3 +123,79 @@ follow-ons; `trace_json` is already PII-redacted (Phase 5 PR-2) in the interim.
 and the safe-both-ways read path are the review surface — the number of columns
 using it is an incremental rollout detail. Turning `ARCEO_ENCRYPT_AT_REST=on` in
 production waits on your sign-off.
+
+---
+
+# SOC2 Type I — code-side controls
+
+This section maps the SOC2 Common Criteria that are satisfied *in code* to where
+they live and the test that proves each. It is the code-side readiness picture,
+not a full SOC2 package — Type I also needs operating policies and an auditor
+(business actions outside this repo). What is **not** yet code-satisfied is listed
+honestly at the end.
+
+## Tenant isolation (CC6.1, CC6.3)
+Every org-scoped table has Postgres **Row-Level Security** with `FORCE ROW LEVEL
+SECURITY` (migration `0002`); the app sets `app.current_org` transaction-locally
+in `get_db()` from a request contextvar (`main._tenant_context`). This is a
+structural backstop *under* the app-level `org_id` filters. **Caveat that gates
+prod:** a superuser bypasses even FORCED RLS, so the app must run as a
+non-superuser role for RLS to bite (see `MIGRATION_RUNBOOK.md`). Proven by
+`test_rls_enforcement.py` (naked cross-org SELECT as a restricted role returns
+zero rows) and `test_cross_org_matrix.py` (~25 id-addressed endpoints, all
+403/404 cross-org, never 200).
+
+## Access control (CC6.1, CC6.2, CC6.3)
+Three roles (viewer < editor < admin) enforced centrally in `main._rbac` — one
+middleware, no per-route miss. Admin-only prefixes cover org security/billing
+(credentials, keys, notifications, cost, team). Instant session revocation via
+`users.token_version` (migration `0006`), bumped on password change. Proven by
+`test_rbac.py`.
+
+## Audit trail integrity (CC7.2, CC7.3)
+Per-org **tamper-evident hash chain** + **append-only** DB trigger (migration
+`0007`); `GET /api/audit/verify` (admin) proves the chain. Writes are
+same-transaction with the action they record (never an async queue that could
+drop rows on crash). Proven by `test_audit_grade.py`.
+
+## Logging & monitoring (CC7.1, CC7.2)
+Structured **privileged-action access log** — one JSON line per mutating/privileged
+API call (`main._access_log`): method, path, status, org, actor, latency; **no
+bodies or PII**. Emitted to the `arceo.access` logger for the platform pipeline.
+The `execution_log` separately records every enforced agent action with a `source`
+tag (runtime/sandbox/replay/…). Proven by `test_security_headers.py`.
+
+## Transport & browser hardening (CC6.7)
+`main._security_headers` sets `X-Content-Type-Options`, `X-Frame-Options`,
+`Referrer-Policy`, a strict `Content-Security-Policy`, and **HSTS outside dev**
+(withheld under `ARCEO_ENV in {dev,local,test,ci}` so local/HTTP pilots work).
+
+## Confidentiality at rest (CC6.1)
+Credential vault + optional field encryption-at-rest (above), AES-256-GCM
+envelope, KMS-ready seam.
+
+## Availability / abuse resistance (CC6.6, A1.1)
+Per-caller rate limiting: tight limits on auth/enforce/scan, plus a broad global
+ceiling across all `/api/*` (`main._global_rate_limit`), env-tunable. Fail-closed
+enforcement semantics. Healthcheck at `GET /api/health`.
+
+## Controls-mapping table
+
+| SOC2 CC | Control | Where | Test |
+|---|---|---|---|
+| CC6.1/6.3 | Tenant isolation (RLS) | `0002`, `_tenant_context` | `test_rls_enforcement`, `test_cross_org_matrix` |
+| CC6.1/6.2 | RBAC + session revocation | `_rbac`, `0006` | `test_rbac` |
+| CC6.7 | Security headers / HSTS | `_security_headers` | `test_security_headers` |
+| CC6.6/A1.1 | Rate limiting | `_global_rate_limit`, `check_rate_limit` | `test_rate_limit_and_scoping` |
+| CC6.1 | Encryption at rest / vault | `vault.py`, `0005/0008` | `test_encrypt_at_rest` |
+| CC7.1/7.2 | Access + execution logging | `_access_log`, `execution_log` | `test_security_headers` |
+| CC7.2/7.3 | Audit trail integrity | `0007`, `/api/audit/verify` | `test_audit_grade` |
+
+## Honest gaps (not yet code-satisfied)
+- **Master-key custody** is an env var (`ARCEO_VAULT_MASTER_KEY`); the KMS/HSM
+  seam exists but is not wired to a provider.
+- **Encryption-at-rest is default OFF** and awaits this review to flip on.
+- **Backups/DR** are delegated to the deployment platform; the repo ships a
+  backup/restore *drill* script but no managed backup schedule.
+- **SOC2 Type II** needs 3–6 months of *operating* evidence — calendar-bound,
+  independent of code.
