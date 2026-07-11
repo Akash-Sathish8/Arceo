@@ -81,14 +81,23 @@ def main() -> int:
         chains = detect_chains(config, overrides)
         br = calculate_blast_radius(config, overrides, chains=chains.flagged_chains)
         crit = sum(1 for fc in chains.flagged_chains if fc.chain.severity == "critical")
+        # Mirror the /api/scan honest gate: it fails on distrust signals, not raw
+        # power. executes_code is one such signal (opaque >25% is another, but the
+        # reference fixtures are fully classified so it never trips here).
+        exec_code = any(
+            "executes_code" in getattr(mapped, "risk_labels", [])
+            for amap in overrides.values() for mapped in amap.values()
+        )
         rows.append((br.score, config.name, len(chains.flagged_chains), crit,
-                     getattr(br, "band", "-")))
+                     getattr(br, "band", "-"), exec_code))
 
     rows.sort(reverse=True)
     print(f"mode={args.mode}\n")
     print(f"{'score':>6}  {'band':10} {'chains':>6} {'crit':>4}  agent")
-    for score, name, chain_count, crit, band in rows:
-        verdict = "FAIL" if (crit > 0 or score > 60) else ("warn" if score >= 40 else "pass")
+    for score, name, chain_count, crit, band, exec_code in rows:
+        # FAIL only on distrust (critical chain or code execution); a high but
+        # fully-classified score WARNs, matching the shipped /api/scan verdict.
+        verdict = "FAIL" if (crit > 0 or exec_code) else ("warn" if score >= 40 else "pass")
         print(f"{score:>6.1f}  {band:10} {chain_count:>6} {crit:>4}  {name}  [scan@60: {verdict}]")
     return 0
 
