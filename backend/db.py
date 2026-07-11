@@ -250,10 +250,15 @@ def log_execution(conn, agent_id: str, tool: str, action: str, status: str, poli
     replay | report | test) so a reviewer can tell live agent traffic from
     simulations and seeded data. The returned id lets a caller link a durable
     pending_requests row to the PENDING_APPROVAL execution row (Phase 4)."""
+    # params are the action's arguments — actual customer data (amounts, ids,
+    # recipients). Encrypt at rest via the shared seam when the flag is on; the
+    # read path (encryption.hydrate at every execution-row endpoint) is symmetric.
+    import encryption
+    params_pt, params_enc = encryption.split(json.dumps(params) if params else None)
     row = conn.execute(
-        "INSERT INTO execution_log (agent_id, tool, action, status, policy_id, detail, params, source, org_id, timestamp) "
-        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
+        "INSERT INTO execution_log (agent_id, tool, action, status, policy_id, detail, params, params_enc, source, org_id, timestamp) "
+        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
         (agent_id, tool, action, status, policy_id, detail,
-         json.dumps(params) if params else None, source, org_id, datetime.utcnow().isoformat()),
+         params_pt, params_enc, source, org_id, datetime.utcnow().isoformat()),
     ).fetchone()
     return row["id"]
