@@ -187,6 +187,21 @@ def render_markdown(result: dict) -> str:
     )
     lines.append("")
 
+    # Why the build failed — the gate fails on distrust signals (critical chains,
+    # opaque/unclassifiable capability, arbitrary code execution), NOT on raw
+    # blast radius. A powerful-but-honest agent WARNs. Make the reason actionable.
+    fail_reasons = summary.get("fail_reasons", [])
+    if verdict == "fail" and fail_reasons:
+        lines.append("**Why this failed:**")
+        for r in fail_reasons:
+            lines.append(f"- {r}")
+        lines.append("")
+    elif verdict == "warn":
+        lines.append(
+            "_High blast radius, but everything is classified with no critical "
+            "chains or code execution — flagged for review, not blocked._")
+        lines.append("")
+
     if not agents:
         lines.append("_No agent code detected in the scanned files._")
         return "\n".join(lines)
@@ -294,13 +309,16 @@ def main() -> int:
     if COMMENT_MODE == "pr-comment":
         post_pr_comment(markdown)
 
-    verdict = result.get("summary", {}).get("verdict", "pass")
+    summary = result.get("summary", {})
+    verdict = summary.get("verdict", "pass")
     if verdict == "fail":
-        print(f"::error::Arceo verdict: FAIL (max blast radius {result['summary']['max_blast_radius']}, "
-              f"{result['summary']['critical_chains']} critical chain(s))", file=sys.stderr)
+        reasons = "; ".join(summary.get("fail_reasons", [])) or "distrust signal"
+        print(f"::error::Arceo verdict: FAIL — {reasons}", file=sys.stderr)
         return 1
     if verdict == "warn":
-        print(f"::warning::Arceo verdict: WARN (score within 20 of threshold {THRESHOLD})", file=sys.stderr)
+        print(f"::warning::Arceo verdict: WARN (blast radius {summary.get('max_blast_radius', 0)} "
+              f"is high but classified — no critical chain, opaque capability, or code execution)",
+              file=sys.stderr)
     return 0
 
 

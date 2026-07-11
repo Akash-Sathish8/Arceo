@@ -2482,6 +2482,10 @@ def scan_files(req: ScanRequest, request: Request):
     agents_out: list[dict] = []
     max_blast_radius = 0
     total_critical_chains = 0
+    critical_chain_names: list[str] = []
+    total_actions = 0
+    total_unclassified = 0
+    exec_code_agents: list[str] = []  # agents that can run arbitrary code/shell
 
     for f in req.files:
         agent = _score_in_memory(f.path, f.content, client)
@@ -2491,12 +2495,48 @@ def scan_files(req: ScanRequest, request: Request):
         score = agent["blast_radius"].get("score", 0)
         if score > max_blast_radius:
             max_blast_radius = score
-        total_critical_chains += sum(1 for c in agent["chains"] if c["severity"] == "critical")
+        for c in agent["chains"]:
+            if c["severity"] == "critical":
+                total_critical_chains += 1
+                critical_chain_names.append(c["name"])
+        cov = agent["blast_radius"].get("coverage", {})
+        total_actions += cov.get("totalActions", 0) or 0
+        total_unclassified += cov.get("unclassifiedActions", 0) or 0
+        if any("executes_code" in a.get("risk_labels", [])
+               for t in agent.get("tools", []) for a in t.get("actions", [])):
+            exec_code_agents.append(agent["name"])
 
     threshold = req.threshold
-    if total_critical_chains > 0 or max_blast_radius > threshold:
+
+    # The verdict keys on what the scanner genuinely CAN'T VOUCH FOR — not on raw
+    # power. An honest, fully-classified, legitimately-powerful agent (a real
+    # refund bot) WARNs; it must not FAIL the build, or teams learn to ignore the
+    # gate. We FAIL only on distrust signals:
+    #   1. a critical action-chain fires (a concrete dangerous sequence),
+    #   2. opaque capability is significant (>25% of actions unclassifiable — the
+    #      score silently treats those as 0, so a "pass" would be false assurance),
+    #   3. the agent can execute arbitrary code/shell (executes_code) — an
+    #      unbounded capability no static score can bound.
+    fail_reasons: list[str] = []
+    if total_critical_chains > 0:
+        shown = ", ".join(dict.fromkeys(critical_chain_names))
+        fail_reasons.append(
+            f"{total_critical_chains} critical action-chain(s) detected: {shown}")
+    opaque_pct = round(100 * total_unclassified / total_actions) if total_actions else 0
+    if total_actions and total_unclassified / total_actions > 0.25:
+        fail_reasons.append(
+            f"{opaque_pct}% of actions are unclassifiable — the scanner can't vouch "
+            f"for this agent's blast radius (opaque capability)")
+    if exec_code_agents:
+        fail_reasons.append(
+            "arbitrary code/shell execution (executes_code) in: "
+            + ", ".join(dict.fromkeys(exec_code_agents)))
+
+    if fail_reasons:
         verdict = "fail"
     elif max_blast_radius >= max(0, threshold - 20):
+        # Honest but powerful: everything classified, no exec, no critical chain.
+        # High blast radius is worth a heads-up, not a broken build.
         verdict = "warn"
     else:
         verdict = "pass"
@@ -2509,12 +2549,13 @@ def scan_files(req: ScanRequest, request: Request):
             "critical_chains": total_critical_chains,
             "threshold": threshold,
             "verdict": verdict,
+            # Why the build failed (empty on warn/pass) — surfaced in the PR
+            # comment so the result is actionable, not a mystery number.
+            "fail_reasons": fail_reasons,
             # Actions the classifier had NO signal for — they contribute 0 to
-            # every score above, so "pass" may understate risk when this is >0.
-            "unclassified_actions": sum(
-                a["blast_radius"].get("coverage", {}).get("unclassifiedActions", 0)
-                for a in agents_out
-            ),
+            # every score above, so a "pass"/"warn" may understate risk. When this
+            # crosses 25% of total it becomes a fail reason above.
+            "unclassified_actions": total_unclassified,
         },
         "agents": agents_out,
     }
