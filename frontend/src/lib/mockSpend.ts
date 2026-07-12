@@ -54,10 +54,22 @@ export interface MockSpend {
    * traffic runs at the wide band) — caption the number with it so a
    * 20-minute burst never reads as a month of evidence. */
   observedDays?: number | null
+  /** Distinct calendar days with captured traffic (live path only) — the
+   * burst-guard signal behind confidenceCap. */
+  activeDays?: number | null
+  /** Why confidence was demoted despite heavy traffic: "single_day_burst"
+   * means the 50-call floor was met but traffic spans <3 distinct days, so
+   * the ±15% band would ride on one burst. */
+  confidenceCap?: "single_day_burst" | null
   /** Coverage disclosure: whether we actually recognize the agent's model and
    * how many of its tools we can price. Drives the "numbers may be off" banner. */
   coverage?: {
     modelRecognized: boolean
+    /** How the declared model mapped to a price row: "exact" | "prefix" (dated
+     * snapshot of a priced model) | "family" (price GUESSED from a related
+     * model — confidence capped) | "default" (no overlap; default model rates).
+     * Null when no model was declared. */
+    modelMatch?: "exact" | "prefix" | "family" | "default" | null
     declaredModel: string | null
     pricedModel: string
     toolsPriced: number
@@ -65,5 +77,9 @@ export interface MockSpend {
   }
   lastCalibrated?: string
   capturedAt?: string
+  /** Seeded demo agent: the traffic behind these numbers is synthetic.
+   * Rendered as a "Demo data" chip so illustrative numbers can never pass
+   * as measured. Set only by the demo seeder, never via the API. */
+  isDemo?: boolean
   dataSources?: { label: string; status: string; statusTone: "calibrated" | "active" | "partial" | "disconnected" }[]
 }

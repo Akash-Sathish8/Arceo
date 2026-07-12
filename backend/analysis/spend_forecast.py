@@ -270,6 +270,13 @@ def _compute_unit_econ(
 # and don't claim the high-confidence band.
 LIVE_TRACE_MIN_CALLS = 50
 
+# Call COUNT alone can't distinguish a month-shaped signal from a burst: 55
+# calls in one busy 20-minute demo used to extrapolate to a full month at
+# ±15%. HIGH additionally requires traffic on this many DISTINCT days in the
+# window; a burst that clears the call floor but not the day floor is honest
+# medium-band evidence, not high.
+LIVE_TRACE_MIN_ACTIVE_DAYS = 3
+
 # But early live traffic IS a real volume signal (D27): a zero-code customer's
 # first captured calls must unlock a forecast at the wide low/medium band, not
 # a "no data" screen that contradicts the data-sources panel. From this floor
@@ -286,7 +293,8 @@ FORECAST_FORMULA_VERSION = 2
 
 
 def _detect_tier(sandbox_traces: Optional[list], live_trace_count_7d: int = 0,
-                 model_recognized: bool = True) -> str:
+                 model_recognized: bool = True,
+                 live_active_days: Optional[int] = None) -> str:
     """Determine confidence tier from input availability.
 
     High tier (the tight ±15% band) requires enough live calls that the rolling
@@ -299,10 +307,18 @@ def _detect_tier(sandbox_traces: Optional[list], live_trace_count_7d: int = 0,
     volume of traffic makes a guessed price trustworthy. The check lives HERE,
     not at call sites, so no caller can accidentally claim confidence on an
     unpriced model.
+
+    Burst guard: HIGH also requires the calls to span LIVE_TRACE_MIN_ACTIVE_DAYS
+    distinct days — a single-day burst clears the call floor with zero evidence
+    about a month. Such traffic is demoted to MEDIUM (live data is at least as
+    good as a sandbox sweep). `live_active_days=None` means the caller doesn't
+    know (direct/legacy callers); both production paths pass the measured value.
     """
     if not model_recognized:
         return "low"
     if live_trace_count_7d >= LIVE_TRACE_MIN_CALLS:
+        if live_active_days is not None and live_active_days < LIVE_TRACE_MIN_ACTIVE_DAYS:
+            return "medium"
         return "high"
     if sandbox_traces and len(sandbox_traces) > 0:
         return "medium"
@@ -360,29 +376,34 @@ def _normalize_model_id(model_str: str) -> str:
     return ms.replace(".", "-").replace("_", "-")
 
 
-def _resolve_model_key(model_str: Optional[str], defaults: dict) -> str:
+def _resolve_model_pricing(model_str: Optional[str], defaults: dict) -> tuple[str, str]:
     """Map a raw provider model id (e.g. 'claude-sonnet-4-5-20250929',
-    'gpt-4o-2024-08-06', 'meta-llama/Llama-3.1-70B') to the closest catalog key.
+    'gpt-4o-2024-08-06', 'meta-llama/Llama-3.1-70B') to (catalog_key, match_kind).
 
-    Tries exact, then normalized-exact, then a catalog key that prefixes the
-    normalized id (longest wins), then longest-common-prefix. Falls back to the
-    default model only when nothing meaningful overlaps.
+    match_kind records how sure we are the catalog price is the REAL price:
+      "exact"   — the id (raw or normalized) is a catalog key
+      "prefix"  — a catalog key prefixes the id: a dated snapshot of a priced
+                  model (claude-sonnet-4-5-20250929 → claude-sonnet-4-5)
+      "family"  — only a family-level overlap (>=4 shared leading chars): the
+                  price is a GUESS from a related model, not a verified rate
+                  (an unpriced claude-fable-9 would bill at another claude row)
+      "default" — no meaningful overlap; key is the catalog default model
     """
     models = defaults.get("models", {})
     default = defaults.get("default_model")
     if not model_str:
-        return default
+        return default, "default"
     raw = model_str.lower()
     if raw in models:
-        return raw
+        return raw, "exact"
     ms = _normalize_model_id(model_str)
     if ms in models:
-        return ms
+        return ms, "exact"
     # Prefer a key that is an actual prefix of the id (longest such key wins so
     # "gpt-4o-mini" beats "gpt-4o", "llama-3-1-70b" beats nothing shorter).
     prefix_match = max((k for k in models if ms.startswith(k)), key=len, default=None)
     if prefix_match:
-        return prefix_match
+        return prefix_match, "prefix"
     # Version drift / partial id — fall back to longest common character prefix.
     best_key, best_len = None, 0
     for key in models:
@@ -390,27 +411,30 @@ def _resolve_model_key(model_str: Optional[str], defaults: dict) -> str:
         if overlap > best_len:
             best_key, best_len = key, overlap
     # Require a family-level overlap to avoid matching unrelated providers.
-    return best_key if best_len >= 4 else default
+    if best_len >= 4:
+        return best_key, "family"
+    return default, "default"
+
+
+def _resolve_model_key(model_str: Optional[str], defaults: dict) -> str:
+    """Closest catalog pricing key for a raw model id (see _resolve_model_pricing)."""
+    return _resolve_model_pricing(model_str, defaults)[0]
 
 
 def _model_recognized(model_str: Optional[str], defaults: dict) -> bool:
-    """True if `model_str` maps to a priced model by exact, normalized, prefix,
-    or family (>=4 shared leading chars) match — i.e. NOT a blind fallback to the
-    default. A version near-match (claude-sonnet-4-5 -> -4-6) and a namespaced id
-    (meta-llama/Llama-3.1-70B) count as recognized; a genuinely unknown model
-    does not.
+    """True only when the id's price is VERIFIED — an exact catalog hit or a
+    dated snapshot of a priced model (prefix match).
+
+    A family-level guess no longer counts as recognized: an unpriced model
+    billed at a related row's rates is still a guessed price, and a guessed
+    price must never carry the tight live-tier band (it used to — claude-fable-5
+    rode claude-opus-4-8 rates at HALF the real price with full confidence).
+    Family matches still PRICE at the guess (closer than the default model);
+    they just cap confidence at LOW and are disclosed via coverage.modelMatch.
     """
     if not model_str:
         return False
-    models = defaults.get("models", {})
-    if model_str.lower() in models:
-        return True
-    ms = _normalize_model_id(model_str)
-    if ms in models:
-        return True
-    if any(ms.startswith(k) or k.startswith(ms) for k in models):
-        return True
-    return max((_common_prefix_len(k, ms) for k in models), default=0) >= 4
+    return _resolve_model_pricing(model_str, defaults)[1] in ("exact", "prefix")
 
 
 def _extract_usage(detail: dict) -> Optional[tuple[int, int, int, int]]:
@@ -555,6 +579,10 @@ def compute_live_rolling_averages(audit_rows: list) -> dict:
         # the UI captions the high-tier number with this so ±15% never rides
         # on an unrepresentative window.
         "observed_days": round(span_days, 1),
+        # Distinct calendar days with traffic — the burst-guard signal. Unlike
+        # the clamped span above, this can't be inflated by two calls far apart
+        # in one day. None when rows carry no timestamps (guard stays out).
+        "active_days": len({t.date() for t in times}) if times else None,
     }
 
 
@@ -1130,8 +1158,10 @@ def _compute_per_agent_sensitivity(
     # measured against the agent's actual baseline model, not always the default.
     _declared = (agent_config.get("simulation_model") or "").strip()
     base_model = overrides.get("model")
-    if not base_model and _declared and _model_recognized(_declared, defaults):
-        base_model = _resolve_model_key(_declared, defaults)
+    if not base_model and _declared:
+        _base_key, _base_match = _resolve_model_pricing(_declared, defaults)
+        if _base_match != "default":  # mirror forecast_spend: family guess still prices
+            base_model = _base_key
     if not base_model:
         base_model = defaults["default_model"]
 
@@ -1285,10 +1315,24 @@ def forecast_spend(
     # recognize, we still compute a number (at the priced model's rates) but must
     # disclose it and not claim a tight band on a guessed price.
     declared_model = (agent_config.get("simulation_model") or "").strip()
-    model_recognized = (not declared_model) or _model_recognized(declared_model, defaults)
+    declared_key, declared_match = (
+        _resolve_model_pricing(declared_model, defaults) if declared_model else (None, None)
+    )
+    model_recognized = (not declared_model) or declared_match in ("exact", "prefix")
 
     # ── Tier (the unrecognized-model cap now lives inside _detect_tier) ──
-    tier = _detect_tier(sandbox_traces, live_trace_count_7d, model_recognized=model_recognized)
+    _live_active_days = overrides.get("active_days")
+    tier = _detect_tier(sandbox_traces, live_trace_count_7d,
+                        model_recognized=model_recognized,
+                        live_active_days=_live_active_days)
+    # Disclosed alongside the tier so the UI can say WHY a heavy-traffic agent
+    # isn't showing ±15% (burst guard demotes single-day bursts to medium).
+    burst_capped = (
+        model_recognized
+        and live_trace_count_7d >= LIVE_TRACE_MIN_CALLS
+        and _live_active_days is not None
+        and _live_active_days < LIVE_TRACE_MIN_ACTIVE_DAYS
+    )
     band = defaults["confidence_bands"][tier]
 
     # ── Resolve inputs (overrides > agent's declared model > YAML default) ──
@@ -1298,8 +1342,11 @@ def forecast_spend(
     # makes persisting simulation_model actually move the number.
     sd = defaults["scenario_defaults"]
     model_name = overrides.get("model")
-    if not model_name and declared_model and model_recognized:
-        model_name = _resolve_model_key(declared_model, defaults)
+    # A family-level guess still prices at the guessed row (closer to reality
+    # than the catalog default) — the LOW-tier cap + coverage.modelMatch carry
+    # the honesty; only a no-overlap id falls through to the default model.
+    if not model_name and declared_model and declared_match != "default":
+        model_name = declared_key
     if not model_name or model_name not in defaults["models"]:
         model_name = defaults["default_model"]
     model_pricing = defaults["models"][model_name]
@@ -1333,6 +1380,7 @@ def forecast_spend(
             "model": model_name,
             "coverage": {
                 "modelRecognized": model_recognized,
+                "modelMatch": declared_match,
                 "declaredModel": declared_model or None,
                 "pricedModel": model_name,
                 "toolsPriced": sum(1 for n in _tn if _tool_is_priced(_tc, n)),
@@ -1575,7 +1623,7 @@ def forecast_spend(
         cache_source = "declared"
     else:
         cache_source = "default"
-    model_source = "declared" if (overrides.get("model") or (declared_model and model_recognized)) else "default"
+    model_source = "declared" if (overrides.get("model") or (declared_model and declared_match != "default")) else "default"
     input_sources = {
         "runsPerDay": runs_source,
         "turnsPerRun": turns_source,
@@ -1594,6 +1642,10 @@ def forecast_spend(
         # Days of live traffic behind the averages (live tier only) — the UI
         # captions the forecast with this so a burst never masquerades as a month.
         "observedDays": (overrides.get("observed_days") if _live_path else None),
+        # Distinct days with traffic, and whether the burst guard demoted an
+        # over-the-call-floor agent from high to medium because of it.
+        "activeDays": (overrides.get("active_days") if _live_path else None),
+        "confidenceCap": ("single_day_burst" if burst_capped else None),
         "low": round(monthly_low),
         "high": round(monthly_high),
         # Derive annual from the ROUNDED monthly shown on the card, so a CFO who
@@ -1630,6 +1682,7 @@ def forecast_spend(
         "model": model_name,
         "coverage": {
             "modelRecognized": model_recognized,
+            "modelMatch": declared_match,
             "declaredModel": declared_model or None,
             "pricedModel": model_name,
             "toolsPriced": tools_priced,

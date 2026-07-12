@@ -1,12 +1,13 @@
 # Operational cost defaults for Arceo's spend forecaster.
 # Distinct from cost_defaults.yaml (which models cost-of-breach).
 # Verify against vendor pricing pages quarterly — these change.
-# Last calibrated: 2026-05-29 from brain/Signals/Cost forecaster calibration data.md
+# Calibration history lives in brain/Signals/Cost forecaster calibration data.md;
+# the authoritative date is the `last_calibrated` field below (keep them in sync).
 
 # Surfaced in forecast responses so the UI can show an accurate
 # "last calibrated" date instead of a hardcoded string. Update when the
 # YAML body is materially recalibrated.
-last_calibrated: "2026-07-03"
+last_calibrated: "2026-07-12"
 
 # ──────────────────────────────────────────────────────────────────────────
 # 1. LLM model pricing (USD per million tokens)
@@ -32,6 +33,44 @@ models:
   claude-haiku-4-5:
     input_per_mtok: 1.00
     output_per_mtok: 5.00
+    cache_discount: 0.90
+    tokenizer_inflation: 1.0
+  # Rows below verified against the live Anthropic model catalog on 2026-07-12.
+  # Before these existed, ids like claude-fable-5 silently family-matched to
+  # claude-opus-4-8 and billed at HALF the real rate.
+  claude-fable-5:
+    input_per_mtok: 10.00
+    output_per_mtok: 50.00
+    cache_discount: 0.90
+    # Same tokenizer as opus-4-8, so it inherits the same (unverified,
+    # static-tier-only) inflation assumption.
+    tokenizer_inflation: 1.35
+  claude-sonnet-5:
+    # Sticker price. Anthropic runs INTRO pricing of $2/$10 through 2026-08-31,
+    # so bills land ~33% below this until then; we price at sticker so forecasts
+    # don't silently jump when the promo lapses. Revisit after 2026-08-31.
+    input_per_mtok: 3.00
+    output_per_mtok: 15.00
+    cache_discount: 0.90
+    # Sonnet 5 moved to the opus-4-7/4-8 tokenizer (~30% more tokens than 4.6
+    # for the same text) — same unverified static-tier inflation as opus.
+    tokenizer_inflation: 1.35
+  claude-opus-4-7:
+    input_per_mtok: 5.00
+    output_per_mtok: 25.00
+    cache_discount: 0.90
+    tokenizer_inflation: 1.35
+  claude-opus-4-6:
+    input_per_mtok: 5.00
+    output_per_mtok: 25.00
+    cache_discount: 0.90
+    tokenizer_inflation: 1.0
+  # Legacy but still-active model; also what the demo seeder emits
+  # (claude-sonnet-4-5-20250929), which prefix-matches this row exactly
+  # instead of riding the family fallback to sonnet-4-6.
+  claude-sonnet-4-5:
+    input_per_mtok: 3.00
+    output_per_mtok: 15.00
     cache_discount: 0.90
     tokenizer_inflation: 1.0
   gpt-5:
