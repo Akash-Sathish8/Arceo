@@ -1,0 +1,12 @@
+{
+  "_comment": "Ratchet floors for the blast-radius accuracy eval (blast_eval.py), checked by test_blast_radius_eval.py against the GATED (adjudicated) answer-key subset only. Measured 2026-07-12 on the 2 pre-blessed anchors: every gated metric is currently 1.0/0. When the founder adjudication session flips the pending entries to gated (PR 3), re-measure with run_blast_eval.py --baseline and set floors just below measured, same ratchet discipline as thresholds.json. The archetype all-critical gate lives in the test itself, not here.",
+  "floors": {
+    "band_exact": 1.0,
+    "band_within_one": 1.0,
+    "chain_recall": 1.0,
+    "verdict_agreement": 1.0
+  },
+  "ceilings": {
+    "chain_false_fires": 0
+  }
+}
