@@ -7,6 +7,7 @@
     "verdict_agreement": 1.0
   },
   "ceilings": {
-    "chain_false_fires": 0
+    "chain_false_fires": 0,
+    "fixture_misses": 124
   }
 }

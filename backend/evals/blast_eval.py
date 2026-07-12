@@ -84,7 +84,7 @@ def valid_chain_ids() -> set[str]:
 
 def load_answer_key(path: str = ANSWER_KEY_PATH) -> list[BlastEvalEntry]:
     entries = []
-    with open(path) as f:
+    with open(path, encoding="utf-8") as f:
         for line in f:
             line = line.strip()
             if not line:
@@ -110,7 +110,7 @@ def load_answer_key(path: str = ANSWER_KEY_PATH) -> list[BlastEvalEntry]:
 
 
 def load_archetypes(path: str = ARCHETYPES_PATH) -> list[dict]:
-    with open(path) as f:
+    with open(path, encoding="utf-8") as f:
         data = json.load(f)
     archetypes = data["archetypes"]
     known_chains = valid_chain_ids()
@@ -125,7 +125,7 @@ def load_manifest(ref: str) -> dict | None:
     path = os.path.join(MANIFESTS_DIR, f"{ref}.json")
     if not os.path.exists(path):
         return None
-    with open(path) as f:
+    with open(path, encoding="utf-8") as f:
         return json.load(f)
 
 
@@ -135,7 +135,7 @@ def load_gold_labels() -> dict:
     Catalog actions need no entry — the catalog IS gold by construction and
     classify_with_fallback returns it verbatim."""
     gold: dict[str, dict] = {}
-    with open(CLASSIFIER_CASES_PATH) as f:
+    with open(CLASSIFIER_CASES_PATH, encoding="utf-8") as f:
         for line in f:
             line = line.strip()
             if not line:
@@ -147,7 +147,7 @@ def load_gold_labels() -> dict:
                 "reversible": case.get("expected_reversible", True),
             }
     if os.path.exists(GOLD_LABELS_PATH):
-        with open(GOLD_LABELS_PATH) as f:
+        with open(GOLD_LABELS_PATH, encoding="utf-8") as f:
             gold.update(json.load(f))
     return gold
 
@@ -205,7 +205,8 @@ def apply_gold(overrides: dict, gold: dict) -> dict:
             g = gold.get(f"{tool}.{name}")
             if g:
                 out[tool][name] = replace(
-                    mapped, risk_labels=list(g["labels"]), reversible=bool(g["reversible"])
+                    mapped, risk_labels=list(g["labels"]), reversible=bool(g["reversible"]),
+                    classification_source="gold",
                 )
             else:
                 out[tool][name] = mapped
@@ -230,12 +231,28 @@ def simulate_scan_verdict(score: float, critical_chains: int, has_exec_code: boo
 
 
 def score_agent(config, overrides) -> dict:
-    """config + classified overrides -> everything the metrics need."""
+    """config + classified overrides -> everything the metrics need.
+
+    Mirrors /api/scan's _score_in_memory path: magnitudes come from
+    raw_action_magnitudes over the classified labels (no policies, no
+    severity overrides — unregistered-code semantics), so the eval scores
+    the same number the product's CI gate scores."""
+    from analysis.cost_model import raw_action_magnitudes
     from authority.chain_detector import detect_chains
     from authority.graph import calculate_blast_radius
 
     chains = detect_chains(config, overrides)
-    br = calculate_blast_radius(config, overrides, chains=chains.flagged_chains)
+    mag_cfg = {"tools": [
+        {"name": tool, "actions": [
+            {"action": m.action, "risk_labels": m.risk_labels, "reversible": m.reversible}
+            for m in amap.values()
+        ]} for tool, amap in overrides.items()
+    ]}
+    br = calculate_blast_radius(
+        config, overrides,
+        magnitude_by_action=raw_action_magnitudes(mag_cfg),
+        chains=chains.flagged_chains,
+    )
 
     fired: dict[str, str] = {}
     for fc in chains.flagged_chains:
@@ -282,9 +299,14 @@ def _llm_layer(mode: str, missing: list | None = None):
     raise ValueError(f"unknown mode: {mode}")
 
 
-def run_key(mode: str = "fixtures") -> list[dict]:
+def run_key(mode: str = "fixtures", missing_out: list | None = None) -> list[dict]:
     """Score every answer-key agent under the given mode. Returns per-entry
-    result dicts; manifest entries without a frozen manifest are skipped=True."""
+    result dicts; manifest entries without a frozen manifest are skipped=True.
+
+    missing_out (if given) receives the fixture keys the LLM stub could not
+    replay — those actions silently fell back to keyword-only classification,
+    so fixtures mode degrades toward deterministic mode as this list grows.
+    Callers must surface it; test_blast_radius_eval ceilings it."""
     import authority.risk_classifier as rc
 
     entries = load_answer_key()
@@ -292,7 +314,7 @@ def run_key(mode: str = "fixtures") -> list[dict]:
     gold = load_gold_labels() if mode == "gold" else None
 
     original = rc.classify_with_llm
-    missing: list[str] = []
+    missing: list[str] = [] if missing_out is None else missing_out
     rc.classify_with_llm = _llm_layer(mode, missing)
     results = []
     try:
@@ -300,6 +322,13 @@ def run_key(mode: str = "fixtures") -> list[dict]:
         for entry in entries:
             built = build_agent(entry, archetypes_by_id)
             if built is None:
+                # A gated entry may NEVER silently skip: once adjudicated, a
+                # vanished manifest must break the build, not shrink the gate.
+                assert not entry.is_gated, (
+                    f"{entry.id} is adjudicated but its frozen manifest is missing "
+                    f"(extracted_manifests/{entry.ref}.json) — restore it or set the "
+                    f"entry back to pending; the ratchet must not lose gated coverage."
+                )
                 results.append({"id": entry.id, "entry": entry, "skipped": True,
                                 "skip_reason": f"no frozen manifest at extracted_manifests/{entry.ref}.json"})
                 continue
@@ -315,14 +344,14 @@ def run_key(mode: str = "fixtures") -> list[dict]:
     return results
 
 
-def run_archetypes(mode: str = "fixtures") -> list[dict]:
+def run_archetypes(mode: str = "fixtures", missing_out: list | None = None) -> list[dict]:
     """Score the four incident archetypes. Separate from run_key so the hard
     all-critical assert has its own artifact with citations attached."""
     import authority.risk_classifier as rc
 
     archetypes = load_archetypes()
     original = rc.classify_with_llm
-    rc.classify_with_llm = _llm_layer(mode)
+    rc.classify_with_llm = _llm_layer(mode, missing_out)
     results = []
     try:
         rc._llm_cache.clear()
@@ -338,6 +367,7 @@ def run_archetypes(mode: str = "fixtures") -> list[dict]:
                 "chain_misses": chain_misses,
                 "known_miss": bool(a.get("known_miss")),
                 "known_miss_note": a.get("known_miss_note", ""),
+                "min_score": a.get("min_score", 0),
             })
     finally:
         rc.classify_with_llm = original
@@ -457,15 +487,23 @@ def _range_distance(r: dict) -> float:
 
 
 def check_blast_thresholds(metrics: dict, thresholds: dict) -> list[str]:
-    """Ratchet check, same contract as eval_lib.check_thresholds."""
+    """Ratchet check. Unlike eval_lib's, a threshold key MISSING from the
+    metrics dict is a failure, not a silent pass — a renamed metric or an
+    empty gated set must never disarm a floor."""
+    if metrics.get("n", 0) == 0:
+        return ["gated set is empty (n=0) — nothing was measured, the ratchet is not armed"]
     failures = []
     for key, floor in thresholds.get("floors", {}).items():
         val = metrics.get(key)
-        if val is not None and val < floor:
+        if val is None:
+            failures.append(f"{key}: floor set but metric missing from results")
+        elif val < floor:
             failures.append(f"{key}: {val} < floor {floor}")
     for key, cap in thresholds.get("ceilings", {}).items():
         val = metrics.get(key)
-        if val is not None and val > cap:
+        if val is None:
+            failures.append(f"{key}: ceiling set but metric missing from results")
+        elif val > cap:
             failures.append(f"{key}: {val} > ceiling {cap}")
     return failures
 
@@ -475,8 +513,11 @@ def check_blast_thresholds(metrics: dict, thresholds: dict) -> list[str]:
 
 def decompose(results_by_mode: dict[str, list[dict]]) -> list[dict]:
     """Per-agent score deltas across modes. fixtures - deterministic = what the
-    LLM layer adds (the silent-0 cost when it's down); gold - fixtures =
-    classifier-induced score error; band mismatch under gold = formula error."""
+    LLM layer adds FOR FIXTURE-COVERED ACTIONS ONLY (a fixture miss replays as
+    LLM-unavailable, so uncovered actions contribute 0 to this delta — check
+    the fixture-miss count before reading it as 'the LLM adds nothing');
+    gold - fixtures = classifier-induced score error; band mismatch under
+    gold = formula error."""
     rows = []
     by_id = {m: {r["id"]: r for r in rs if not r["skipped"]}
              for m, rs in results_by_mode.items()}

@@ -8,7 +8,8 @@
       "citation": "Aim Security, June 2025 — first zero-click exfil chain against a production enterprise copilot.",
       "expected_band": "critical",
       "known_miss": true,
-      "known_miss_note": "Measured 2026-07-12: scores 45/medium. Chains fire correctly (pii-exfil, bulk-external, pii-bulk) but the score formula under-weights read+exfil capability: PII reads sit on the 0.15x read-only floor and touches_pii weighs 8, so an agent shaped like the best-known exfil incident cannot reach critical. THE top measured formula gap - do not remove this flag by relabeling; fix the formula.",
+      "known_miss_note": "Measured 2026-07-12: scores 47/medium (magnitude-aware). Chains fire correctly (pii-exfil, bulk-external, pii-bulk) but the score formula under-weights read+exfil capability: PII reads sit on the 0.15x read-only floor and touches_pii weighs 8, so an agent shaped like the best-known exfil incident cannot reach critical. THE top measured formula gap - do not remove this flag by relabeling; fix the formula.",
+      "min_score": 40,
       "must_fire_chains": [
         {"id": "pii-exfil", "min_severity": "high"},
         {"id": "bulk-external", "min_severity": "critical"}
@@ -46,7 +47,8 @@
       "citation": "Radware, September 2025 — zero-click, service-side data leak from ChatGPT Deep Research over Gmail.",
       "expected_band": "critical",
       "known_miss": true,
-      "known_miss_note": "Measured 2026-07-12: scores 40/medium. Same formula gap as arch-echoleak - read+exfil capability floored at 0.15x cannot reach critical band despite all expected chains firing.",
+      "known_miss_note": "Measured 2026-07-12: scores 41/medium (magnitude-aware). Same formula gap as arch-echoleak - read+exfil capability floored at 0.15x cannot reach critical band despite all expected chains firing.",
+      "min_score": 35,
       "must_fire_chains": [
         {"id": "pii-exfil", "min_severity": "high"},
         {"id": "pii-bulk", "min_severity": "high"}

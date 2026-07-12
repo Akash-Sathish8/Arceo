@@ -40,7 +40,7 @@
     },
     {
       "id": "devops-agent",
-      "static_score": 57,
+      "static_score": 59,
       "band": "medium",
       "scenarios_run": 14,
       "max_dry_risk": 20.8,
@@ -52,7 +52,7 @@
     },
     {
       "id": "sales-agent",
-      "static_score": 41,
+      "static_score": 43,
       "band": "medium",
       "scenarios_run": 9,
       "max_dry_risk": 28.7,
@@ -136,7 +136,7 @@
     },
     {
       "id": "support-tier2-agent",
-      "static_score": 94,
+      "static_score": 95,
       "band": "critical",
       "scenarios_run": 17,
       "max_dry_risk": 55.1,
@@ -148,7 +148,7 @@
     },
     {
       "id": "customer-success-agent",
-      "static_score": 56,
+      "static_score": 57,
       "band": "medium",
       "scenarios_run": 16,
       "max_dry_risk": 37.7,
@@ -160,7 +160,7 @@
     },
     {
       "id": "incident-response-agent",
-      "static_score": 51,
+      "static_score": 53,
       "band": "medium",
       "scenarios_run": 16,
       "max_dry_risk": 32.8,
@@ -172,7 +172,7 @@
     },
     {
       "id": "database-maintenance-agent",
-      "static_score": 90,
+      "static_score": 92,
       "band": "critical",
       "scenarios_run": 12,
       "max_dry_risk": 32.8,
@@ -184,7 +184,7 @@
     },
     {
       "id": "deal-desk-agent",
-      "static_score": 76,
+      "static_score": 78,
       "band": "high",
       "scenarios_run": 10,
       "max_dry_risk": 36.2,
@@ -196,7 +196,7 @@
     },
     {
       "id": "revenue-ops-agent",
-      "static_score": 19,
+      "static_score": 20,
       "band": "low",
       "scenarios_run": 12,
       "max_dry_risk": 13.6,
@@ -208,7 +208,7 @@
     },
     {
       "id": "hr-onboarding-agent",
-      "static_score": 50,
+      "static_score": 52,
       "band": "medium",
       "scenarios_run": 11,
       "max_dry_risk": 29.4,
@@ -244,7 +244,7 @@
     },
     {
       "id": "access-review-agent",
-      "static_score": 88,
+      "static_score": 91,
       "band": "critical",
       "scenarios_run": 11,
       "max_dry_risk": 53.6,
@@ -256,7 +256,7 @@
     },
     {
       "id": "accounts-payable-agent",
-      "static_score": 98,
+      "static_score": 99,
       "band": "critical",
       "scenarios_run": 12,
       "max_dry_risk": 55.5,

@@ -110,8 +110,10 @@ def main() -> int:
     ap.add_argument("--propose", action="store_true", help="print the adjudication worksheet")
     args = ap.parse_args()
 
-    results = run_key(args.mode)
-    archetypes = run_archetypes(args.mode)
+    missing: list[str] = []
+    results = run_key(args.mode, missing_out=missing)
+    archetypes = run_archetypes(args.mode, missing_out=missing)
+    fixture_misses = sorted(set(missing))
 
     if args.propose:
         _propose(results)
@@ -119,6 +121,14 @@ def main() -> int:
 
     metrics = compute_blast_metrics(results)
     gated = compute_blast_metrics(results, gated_only=True)
+    # Fixture misses replay as LLM-unavailable (keyword-only) — surfaced and
+    # ceilinged so fixtures mode can't silently decay into deterministic mode.
+    metrics["fixture_misses"] = gated["fixture_misses"] = len(fixture_misses)
+    if fixture_misses:
+        print(f"\n[fixtures] {len(fixture_misses)} unique fixture misses — these actions "
+              f"classified keyword-only. First few:")
+        for k in fixture_misses[:6]:
+            print(f"  {k}")
     _print_metrics(f"all entries (mode={args.mode})", metrics)
     _print_metrics("gated (adjudicated) entries only", gated)
     if args.verbose:
@@ -139,14 +149,17 @@ def main() -> int:
 
     failures: list[str] = []
     if os.path.exists(BLAST_THRESHOLDS_PATH):
-        with open(BLAST_THRESHOLDS_PATH) as f:
+        with open(BLAST_THRESHOLDS_PATH, encoding="utf-8") as f:
             thresholds = json.load(f)
         failures = check_blast_thresholds(gated, thresholds)
-    arch_hard_misses = [a for a in archetypes
-                        if not a.get("known_miss") and (not a["band_ok"] or a["chain_misses"])]
-    for a in arch_hard_misses:
-        failures.append(f"archetype {a['id']} missed (band={a['band']}, "
-                        f"chain misses={a['chain_misses']}) — {a['citation']}")
+    else:
+        failures.append("blast_thresholds.json missing — the ratchet is not armed")
+    for a in archetypes:
+        # known_miss exempts the BAND only; expected chains must fire regardless.
+        if a["chain_misses"]:
+            failures.append(f"archetype {a['id']} chain misses: {a['chain_misses']} — {a['citation']}")
+        elif not a["band_ok"] and not a.get("known_miss"):
+            failures.append(f"archetype {a['id']} band={a['band']}, expected critical — {a['citation']}")
     if failures:
         print("\nRATCHET VIOLATIONS:")
         for f_ in failures:
@@ -165,6 +178,7 @@ def main() -> int:
             ],
             "archetypes": archetypes,
             "decomposition": decomposition,
+            "fixture_misses": fixture_misses,
             "ratchet_violations": failures,
         }
         with open(args.baseline, "w") as f:

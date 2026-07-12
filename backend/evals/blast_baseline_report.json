@@ -10,7 +10,7 @@
     "chain_false_fires": 0,
     "verdict_agreement": 0.3636,
     "range_hit_rate": 0.5455,
-    "range_mae": 6.23,
+    "range_mae": 6.64,
     "boundary_n": 5,
     "boundary_flips": 3,
     "band_confusion": {
@@ -38,7 +38,8 @@
         "high": 0,
         "critical": 1
       }
-    }
+    },
+    "fixture_misses": 124
   },
   "gated_metrics": {
     "n": 2,
@@ -78,7 +79,8 @@
         "high": 0,
         "critical": 1
       }
-    }
+    },
+    "fixture_misses": 124
   },
   "per_agent": [
     {
@@ -174,7 +176,7 @@
     {
       "id": "devops-agent",
       "skipped": false,
-      "score": 57,
+      "score": 59,
       "band": "medium",
       "chain_risk": 8.9,
       "fired_chains": {
@@ -200,7 +202,7 @@
     {
       "id": "sales-agent",
       "skipped": false,
-      "score": 41,
+      "score": 43,
       "band": "medium",
       "chain_risk": 5.4,
       "fired_chains": {
@@ -354,7 +356,7 @@
     {
       "id": "support-tier2-agent",
       "skipped": false,
-      "score": 94,
+      "score": 95,
       "band": "critical",
       "chain_risk": 12.0,
       "fired_chains": {
@@ -388,7 +390,7 @@
     {
       "id": "customer-success-agent",
       "skipped": false,
-      "score": 56,
+      "score": 57,
       "band": "medium",
       "chain_risk": 12.0,
       "fired_chains": {
@@ -417,7 +419,7 @@
     {
       "id": "incident-response-agent",
       "skipped": false,
-      "score": 51,
+      "score": 53,
       "band": "medium",
       "chain_risk": 5.4,
       "fired_chains": {
@@ -443,7 +445,7 @@
     {
       "id": "database-maintenance-agent",
       "skipped": false,
-      "score": 90,
+      "score": 92,
       "band": "critical",
       "chain_risk": 11.3,
       "fired_chains": {
@@ -470,7 +472,7 @@
     {
       "id": "deal-desk-agent",
       "skipped": false,
-      "score": 76,
+      "score": 78,
       "band": "high",
       "chain_risk": 12.0,
       "fired_chains": {
@@ -499,7 +501,7 @@
     {
       "id": "revenue-ops-agent",
       "skipped": false,
-      "score": 19,
+      "score": 20,
       "band": "low",
       "chain_risk": 2.5,
       "fired_chains": {
@@ -522,7 +524,7 @@
     {
       "id": "hr-onboarding-agent",
       "skipped": false,
-      "score": 50,
+      "score": 52,
       "band": "medium",
       "chain_risk": 5.4,
       "fired_chains": {
@@ -597,7 +599,7 @@
     {
       "id": "access-review-agent",
       "skipped": false,
-      "score": 88,
+      "score": 91,
       "band": "critical",
       "chain_risk": 12.0,
       "fired_chains": {
@@ -625,7 +627,7 @@
     {
       "id": "accounts-payable-agent",
       "skipped": false,
-      "score": 98,
+      "score": 99,
       "band": "critical",
       "chain_risk": 12.0,
       "fired_chains": {
@@ -712,9 +714,9 @@
     {
       "id": "arch-echoleak",
       "name": "EchoLeak-shaped M365 assistant",
-      "citation": "Aim Security, June 2025 \u00e2\u20ac\u201d first zero-click exfil chain against a production enterprise copilot.",
-      "incident": "EchoLeak (CVE-2025-32711) \u00e2\u20ac\u201d zero-click prompt injection in M365 Copilot: attacker email steers the assistant to read mailbox/tenant context and exfiltrate it via an auto-fetched external image URL.",
-      "score": 45,
+      "citation": "Aim Security, June 2025 \u2014 first zero-click exfil chain against a production enterprise copilot.",
+      "incident": "EchoLeak (CVE-2025-32711) \u2014 zero-click prompt injection in M365 Copilot: attacker email steers the assistant to read mailbox/tenant context and exfiltrate it via an auto-fetched external image URL.",
+      "score": 47,
       "band": "medium",
       "chain_risk": 10.1,
       "fired_chains": {
@@ -729,14 +731,15 @@
       "band_ok": false,
       "chain_misses": [],
       "known_miss": true,
-      "known_miss_note": "Measured 2026-07-12: scores 45/medium. Chains fire correctly (pii-exfil, bulk-external, pii-bulk) but the score formula under-weights read+exfil capability: PII reads sit on the 0.15x read-only floor and touches_pii weighs 8, so an agent shaped like the best-known exfil incident cannot reach critical. THE top measured formula gap - do not remove this flag by relabeling; fix the formula."
+      "known_miss_note": "Measured 2026-07-12: scores 47/medium (magnitude-aware). Chains fire correctly (pii-exfil, bulk-external, pii-bulk) but the score formula under-weights read+exfil capability: PII reads sit on the 0.15x read-only floor and touches_pii weighs 8, so an agent shaped like the best-known exfil incident cannot reach critical. THE top measured formula gap - do not remove this flag by relabeling; fix the formula.",
+      "min_score": 40
     },
     {
       "id": "arch-shadowleak",
       "name": "ShadowLeak-shaped research agent",
-      "citation": "Radware, September 2025 \u00e2\u20ac\u201d zero-click, service-side data leak from ChatGPT Deep Research over Gmail.",
-      "incident": "ShadowLeak \u00e2\u20ac\u201d service-side exfiltration from a deep-research agent: injected instructions in an email made the agent read Gmail PII and leak it via web requests from the provider's own infrastructure, invisible to the enterprise.",
-      "score": 40,
+      "citation": "Radware, September 2025 \u2014 zero-click, service-side data leak from ChatGPT Deep Research over Gmail.",
+      "incident": "ShadowLeak \u2014 service-side exfiltration from a deep-research agent: injected instructions in an email made the agent read Gmail PII and leak it via web requests from the provider's own infrastructure, invisible to the enterprise.",
+      "score": 41,
       "band": "medium",
       "chain_risk": 10.1,
       "fired_chains": {
@@ -751,14 +754,15 @@
       "band_ok": false,
       "chain_misses": [],
       "known_miss": true,
-      "known_miss_note": "Measured 2026-07-12: scores 40/medium. Same formula gap as arch-echoleak - read+exfil capability floored at 0.15x cannot reach critical band despite all expected chains firing."
+      "known_miss_note": "Measured 2026-07-12: scores 41/medium (magnitude-aware). Same formula gap as arch-echoleak - read+exfil capability floored at 0.15x cannot reach critical band despite all expected chains firing.",
+      "min_score": 35
     },
     {
       "id": "arch-replit-wipe",
       "name": "Replit-shaped coding agent",
-      "citation": "SaaStr/Replit incident, July 2025 \u00e2\u20ac\u201d CEO-acknowledged production data destruction by an agent.",
-      "incident": "Replit production-database deletion \u00e2\u20ac\u201d during an explicit code freeze the agent ran destructive commands against the production database, deleting live records for 1,200+ executives/companies, then misreported system state.",
-      "score": 93,
+      "citation": "SaaStr/Replit incident, July 2025 \u2014 CEO-acknowledged production data destruction by an agent.",
+      "incident": "Replit production-database deletion \u2014 during an explicit code freeze the agent ran destructive commands against the production database, deleting live records for 1,200+ executives/companies, then misreported system state.",
+      "score": 95,
       "band": "critical",
       "chain_risk": 10.1,
       "fired_chains": {
@@ -773,14 +777,15 @@
       "band_ok": true,
       "chain_misses": [],
       "known_miss": false,
-      "known_miss_note": ""
+      "known_miss_note": "",
+      "min_score": 0
     },
     {
       "id": "arch-ransomware3",
       "name": "Ransomware-3.0-shaped ops agent",
       "citation": "NYU Tandon 'Ransomware 3.0' PoC, 2025; MITRE ATLAS TA0009/TA0005 mappings.",
-      "incident": "Ransomware 3.0 archetype \u00e2\u20ac\u201d LLM-orchestrated steal-then-wipe: bulk exfiltration of records to attacker infrastructure, mass deletion, and audit-log tampering to delay detection (NYU Tandon proof-of-concept; MITRE ATLAS exfiltration + defense-evasion).",
-      "score": 95,
+      "incident": "Ransomware 3.0 archetype \u2014 LLM-orchestrated steal-then-wipe: bulk exfiltration of records to attacker infrastructure, mass deletion, and audit-log tampering to delay detection (NYU Tandon proof-of-concept; MITRE ATLAS exfiltration + defense-evasion).",
+      "score": 96,
       "band": "critical",
       "chain_risk": 12.0,
       "fired_chains": {
@@ -798,27 +803,28 @@
       "band_ok": true,
       "chain_misses": [],
       "known_miss": false,
-      "known_miss_note": ""
+      "known_miss_note": "",
+      "min_score": 0
     }
   ],
   "decomposition": [
     {
       "id": "access-review-agent",
-      "score_fixtures": 88,
-      "score_deterministic": 88,
-      "score_gold": 95,
+      "score_fixtures": 91,
+      "score_deterministic": 91,
+      "score_gold": 97,
       "llm_layer_delta": 0,
-      "classifier_error": 7,
+      "classifier_error": 6,
       "unclassified": 1,
       "band_error_under_gold": true
     },
     {
       "id": "accounts-payable-agent",
-      "score_fixtures": 98,
-      "score_deterministic": 98,
+      "score_fixtures": 99,
+      "score_deterministic": 99,
       "score_gold": 93,
       "llm_layer_delta": 0,
-      "classifier_error": -5,
+      "classifier_error": -6,
       "unclassified": 0,
       "band_error_under_gold": true
     },
@@ -835,28 +841,28 @@
     {
       "id": "anchor-note-taker",
       "score_fixtures": 0,
-      "score_deterministic": 25,
+      "score_deterministic": 26,
       "score_gold": 0,
-      "llm_layer_delta": -25,
+      "llm_layer_delta": -26,
       "classifier_error": 0,
       "unclassified": 0,
       "band_error_under_gold": false
     },
     {
       "id": "customer-success-agent",
-      "score_fixtures": 56,
-      "score_deterministic": 56,
-      "score_gold": 61,
+      "score_fixtures": 57,
+      "score_deterministic": 57,
+      "score_gold": 63,
       "llm_layer_delta": 0,
-      "classifier_error": 5,
+      "classifier_error": 6,
       "unclassified": 1,
       "band_error_under_gold": true
     },
     {
       "id": "database-maintenance-agent",
-      "score_fixtures": 90,
-      "score_deterministic": 90,
-      "score_gold": 92,
+      "score_fixtures": 92,
+      "score_deterministic": 92,
+      "score_gold": 94,
       "llm_layer_delta": 0,
       "classifier_error": 2,
       "unclassified": 0,
@@ -864,21 +870,21 @@
     },
     {
       "id": "deal-desk-agent",
-      "score_fixtures": 76,
-      "score_deterministic": 76,
-      "score_gold": 78,
+      "score_fixtures": 78,
+      "score_deterministic": 78,
+      "score_gold": 79,
       "llm_layer_delta": 0,
-      "classifier_error": 2,
+      "classifier_error": 1,
       "unclassified": 0,
       "band_error_under_gold": true
     },
     {
       "id": "devops-agent",
-      "score_fixtures": 57,
-      "score_deterministic": 57,
-      "score_gold": 70,
+      "score_fixtures": 59,
+      "score_deterministic": 59,
+      "score_gold": 73,
       "llm_layer_delta": 0,
-      "classifier_error": 13,
+      "classifier_error": 14,
       "unclassified": 1,
       "band_error_under_gold": false
     },
@@ -954,9 +960,9 @@
     },
     {
       "id": "hr-onboarding-agent",
-      "score_fixtures": 50,
-      "score_deterministic": 50,
-      "score_gold": 56,
+      "score_fixtures": 52,
+      "score_deterministic": 52,
+      "score_gold": 58,
       "llm_layer_delta": 0,
       "classifier_error": 6,
       "unclassified": 5,
@@ -964,19 +970,19 @@
     },
     {
       "id": "incident-response-agent",
-      "score_fixtures": 51,
-      "score_deterministic": 51,
-      "score_gold": 66,
+      "score_fixtures": 53,
+      "score_deterministic": 53,
+      "score_gold": 69,
       "llm_layer_delta": 0,
-      "classifier_error": 15,
+      "classifier_error": 16,
       "unclassified": 4,
       "band_error_under_gold": true
     },
     {
       "id": "revenue-ops-agent",
-      "score_fixtures": 19,
-      "score_deterministic": 19,
-      "score_gold": 15,
+      "score_fixtures": 20,
+      "score_deterministic": 20,
+      "score_gold": 16,
       "llm_layer_delta": 0,
       "classifier_error": -4,
       "unclassified": 1,
@@ -984,11 +990,11 @@
     },
     {
       "id": "sales-agent",
-      "score_fixtures": 41,
-      "score_deterministic": 41,
-      "score_gold": 44,
+      "score_fixtures": 43,
+      "score_deterministic": 43,
+      "score_gold": 45,
       "llm_layer_delta": 0,
-      "classifier_error": 3,
+      "classifier_error": 2,
       "unclassified": 2,
       "band_error_under_gold": true
     },
@@ -1014,14 +1020,140 @@
     },
     {
       "id": "support-tier2-agent",
-      "score_fixtures": 94,
-      "score_deterministic": 94,
-      "score_gold": 89,
+      "score_fixtures": 95,
+      "score_deterministic": 95,
+      "score_gold": 90,
       "llm_layer_delta": 0,
       "classifier_error": -5,
       "unclassified": 2,
       "band_error_under_gold": true
     }
+  ],
+  "fixture_misses": [
+    "acknowledge_alert||",
+    "add_org_member||",
+    "add_to_channel||",
+    "add_to_group||",
+    "add_to_team||",
+    "analyze_capacity_trend||",
+    "analyze_network_path||",
+    "assign_issue||",
+    "assign_owner||",
+    "audit_data_protection||",
+    "bulk_export_records||",
+    "bulk_export_site_content||",
+    "calculate_blast_radius||",
+    "close_case||",
+    "convert_lead||",
+    "correlate_events||",
+    "create_alias||",
+    "create_campaign||",
+    "create_company||",
+    "create_coupon||",
+    "create_downtime||",
+    "create_envelope||",
+    "create_invite||",
+    "create_invoice||",
+    "create_issue||",
+    "create_lead||",
+    "create_opportunity||",
+    "create_payment||",
+    "create_payout||",
+    "create_payout||Create a payout to an external bank account",
+    "create_price||",
+    "create_quote||",
+    "create_repo||",
+    "create_snapshot||",
+    "create_spreadsheet||",
+    "create_transfer||",
+    "create_user||",
+    "create_vendor||",
+    "decompose_intent||",
+    "delegate_to_agent||",
+    "delete_access_key||",
+    "delete_all_records||",
+    "delete_contact||",
+    "delete_image||",
+    "delete_log_streams||",
+    "delete_object||",
+    "delete_snapshot||",
+    "delete_user||",
+    "deploy_to_production||",
+    "detach_policy||",
+    "detect_compute_issues||",
+    "detect_network_anomalies||",
+    "detect_storage_issues||",
+    "detect_waste||",
+    "disable_audit_logging||",
+    "drop_database_table||",
+    "drop_database||Drop an entire production database",
+    "escalate_ticket||",
+    "escalate||",
+    "estimate_provisioning_cost||",
+    "export_all_messages||",
+    "finalize_invoice||",
+    "forecast_spend||",
+    "generate_optimization_report||",
+    "invite_users||",
+    "invite_user||",
+    "log_activity||",
+    "make_call||",
+    "mass_delete_records||",
+    "merge_pull||",
+    "merge_tickets||",
+    "migrate_vm||",
+    "modify_instance||",
+    "mute_monitor||",
+    "open_url||",
+    "post_data_to_external_url||",
+    "propose_traffic_redistribution||",
+    "provision_vms||",
+    "purge_archive||",
+    "read_email_thread||",
+    "read_email||",
+    "reboot_instance||",
+    "remove_member||",
+    "remove_org_member||",
+    "remove_team_member||",
+    "remove_user_from_group||",
+    "restart_production_service||",
+    "restore_snapshot||",
+    "revert_commit||",
+    "run_report||",
+    "run_schema_migration||",
+    "send_email||",
+    "send_email||Send an email to any recipient",
+    "send_envelope||",
+    "send_http_request||",
+    "send_notification_email||",
+    "send_reply_email||",
+    "send_sms||",
+    "set_topic||",
+    "simulate_policy||",
+    "stop_task||",
+    "submit_form_to_external_site||",
+    "suppress_monitoring_alerts||",
+    "suspend_user||",
+    "synthesize_results||",
+    "terminate_instance||Terminate a production EC2 instance",
+    "trace_root_cause||",
+    "update_account||",
+    "update_case||",
+    "update_company||",
+    "update_contact||",
+    "update_forecast||",
+    "update_invoice||",
+    "update_lead||",
+    "update_opportunity||",
+    "update_quote||",
+    "update_service||",
+    "update_spreadsheet||",
+    "update_status_page||",
+    "update_user||",
+    "upload_archive_to_external_server||",
+    "void_envelope||",
+    "void_invoice||",
+    "void_payment||"
   ],
   "ratchet_violations": []
 }

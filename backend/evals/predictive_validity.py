@@ -72,9 +72,13 @@ def _recreate_scratch_db() -> None:
 
 
 def _agent_dict(config, overrides) -> dict:
-    """The DB-shaped agent dict the sandbox runner/boundary tester expect,
-    carrying the eval pipeline's classified labels so both sides see the same
-    capability picture."""
+    """The DB-shaped agent dict the sandbox runner/boundary tester expect.
+
+    Alignment caveat: the boundary tester honors the risk_labels carried here,
+    but run_simulation_dry re-classifies each bare action name itself via
+    classify_action (no tool/catalog context). Under the same stubbed LLM the
+    two pictures are closely aligned, not byte-identical — one more reason
+    these numbers are internal consistency, not independent validity."""
     return {
         "id": config.id,
         "name": config.name,
