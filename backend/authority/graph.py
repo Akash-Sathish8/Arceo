@@ -121,6 +121,11 @@ IRREVERSIBLE_MULTIPLIER = 2.0
 READ_PREFIXES = ("get_", "list_", "read_", "search_", "query_", "check_",
                  "describe_", "fetch_", "lookup_", "find_", "show_")
 
+# Normalizes the decayed action-sum onto 0-100 (see the calibration note in
+# _aggregate). Shared with sandbox/analyzer.py's dynamic risk_score so the
+# static and dynamic scores stay on one scale — they drifted once (240 vs 265).
+SCORE_NORMALIZER = 265.0
+
 # ── Bands — the single authoritative scale ───────────────────────────────
 # low <40, medium 40-59, high 60-79, critical >=80. The 60 boundary aligns
 # with /api/scan's default fail threshold ("CI fails ⇔ some agent is high or
@@ -422,7 +427,7 @@ def calculate_blast_radius(
         # Uncapped here — the soft cap below turns the true magnitude into a
         # 0-100 score, so a huge action surface keeps registering above the knee
         # instead of flat-lining at 100.
-        raw = (weighted / 265) * 100
+        raw = (weighted / SCORE_NORMALIZER) * 100
         active_chains = (
             [fc for fc in chain_list if not _chain_broken(fc, policies)] if broken_filter else chain_list
         )

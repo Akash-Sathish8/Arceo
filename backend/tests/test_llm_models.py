@@ -34,7 +34,7 @@ def test_no_hardcoded_model_ids_outside_llm_models():
     pattern = re.compile(r'model="claude-[^"]+"')
     offenders = []
     for path in glob.glob(os.path.join(BACKEND, "**", "*.py"), recursive=True):
-        rel = os.path.relpath(path, BACKEND)
+        rel = os.path.relpath(path, BACKEND).replace(os.sep, "/")
         # venv/ holds the vendored Anthropic SDK — third-party code, not call sites.
         if rel.startswith(("tests/", "analysis/", "venv/")) or rel == "llm_models.py":
             continue

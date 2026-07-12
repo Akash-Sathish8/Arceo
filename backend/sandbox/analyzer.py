@@ -20,7 +20,7 @@ from sandbox.models import (
     SweepReport, Scenario,
 )
 from authority.chain_detector import LABEL_TRANSITIONS
-from authority.graph import LABEL_WEIGHTS
+from authority.graph import LABEL_WEIGHTS, SCORE_NORMALIZER
 
 logger = logging.getLogger(__name__)
 
@@ -894,8 +894,9 @@ def analyze_trace(trace: SimulationTrace, scenario: "Scenario | None" = None) ->
         elif vol.severity == "high":
             raw += 8
 
-    # Same normalization as blast radius (graph.py normalizes against /240).
-    risk_score = min(100.0, round((raw / 240) * 100, 1))
+    # Same normalization as blast radius — graph.py's SCORE_NORMALIZER — so the
+    # dynamic trace score and the static capability score stay on one scale.
+    risk_score = min(100.0, round((raw / SCORE_NORMALIZER) * 100, 1))
 
     # Generate recommendations
     recommendations = _generate_recommendations(
