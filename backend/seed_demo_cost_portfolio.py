@@ -51,7 +51,14 @@ def register_agent() -> str:
         "tools": TOOLS,
     }, timeout=60)
     r.raise_for_status()
-    return r.json()["id"]
+    agent_id = r.json()["id"]
+    # Honesty flag: this agent's traffic is synthetic. The register API
+    # deliberately can't set is_demo (no external caller should), so the
+    # seeder marks it directly — the Cost Portfolio renders a "Demo data"
+    # chip off this and the forecast response carries isDemo.
+    with get_db() as conn:
+        conn.execute("UPDATE agents SET is_demo = true WHERE id = %s", (agent_id,))
+    return agent_id
 
 
 def _usage_detail(in_base: int, out: int, cache_read: int) -> str:

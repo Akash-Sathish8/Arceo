@@ -2827,7 +2827,9 @@ def _maybe_fire_budget_alert(agent_id: str):
             f":moneybag: *Arceo budget alert*\n"
             f"*Agent:* `{agent_id}`\n"
             f"This agent has spent *${mtd:.2f}* this month — *{pct}%* of its "
-            f"*${budget:.0f}* budget (alert set at {threshold_pct}%)."
+            f"*${budget:.0f}* budget (alert set at {threshold_pct}%).\n"
+            f"_Counts measured LLM token spend only — tool and infrastructure "
+            f"costs aren't captured per call, so total spend runs higher._"
         )}}]}, timeout=4)
     except Exception:
         pass  # Never let alerting failures break ingestion
@@ -4951,6 +4953,9 @@ def get_spend_forecast(
         snapshot_count=snapshot_count,
     )
     result["capturedAt"] = datetime.utcnow().isoformat()
+    # Demo-data honesty: seeded agents carry synthetic traffic that is
+    # structurally identical to real capture — the UI must be able to say so.
+    result["isDemo"] = bool(agent.get("is_demo"))
     return result
 
 
