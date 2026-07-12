@@ -21,6 +21,7 @@ import ErrorState from "@/components/shared/ErrorState"
 import { agentIcon, scoreBand, timeAgo } from "@/lib/utils"
 import type { MockSpend } from "@/lib/mockSpend"
 import { fetchBatchSpendForecasts } from "@/lib/spendApi"
+import InvoiceReconciliationPanel from "@/components/InvoiceReconciliation"
 import { pluralize } from "@/lib/strings"
 import { type FleetReportData } from "@/components/FleetCFOReport"
 
@@ -402,6 +403,11 @@ export default function SpendDashboard() {
               )}
             </div>
           )}
+
+          {/* Invoice reconciliation — the accuracy claim checked against the
+              provider's actual bill. Org-level: an invoice covers an API key,
+              never one agent. */}
+          <InvoiceReconciliationPanel />
 
           {sortedFleet.length > 0 && (
             <div className="panel-card overflow-hidden" style={{ padding: 0 }}>

@@ -174,6 +174,47 @@ def seed_prior_snapshot(agent_org: str):
     return prior_point, current["point"]
 
 
+def seed_demo_invoice(agent_org: str) -> float:
+    """ILLUSTRATIVE demo seed only: a fabricated provider bill at ~1.06× the
+    tracked spend, so the reconciliation demo beat shows a realistic picture —
+    a bill slightly ABOVE tracked (every real key carries some non-agent
+    traffic: consoles, notebooks, other apps). Stored with source='demo';
+    the UI labels it 'Sample import' off that. Deleted+reinserted per run
+    (invoice_imports is not append-only, unlike audit_log)."""
+    from datetime import datetime, timedelta
+
+    from analysis.invoice_reconciliation import aggregate_captured_spend
+    from analysis.spend_forecast import load_defaults
+
+    start = (datetime.utcnow() - timedelta(days=30)).isoformat()
+    with get_db() as conn:
+        rows = conn.execute(
+            "SELECT l.detail, l.resource, l.timestamp FROM audit_log l "
+            "JOIN agents a ON a.id = l.user_email "
+            "WHERE l.action IN ('LLM_CALL', 'LLM_CALL_PROXY') AND a.org_id = %s "
+            "AND l.timestamp >= %s",
+            (agent_org, start),
+        ).fetchall()
+        captured = aggregate_captured_spend([dict(r) for r in rows], "anthropic",
+                                            defaults=load_defaults())
+        # Per-day bill = tracked × 1.06, slightly off-round like a real invoice.
+        items = [{"day": d, "model": None, "usd": round(v * 1.06, 4)}
+                 for d, v in captured["by_day"].items()]
+        total = round(sum(it["usd"] for it in items), 2)
+        days = sorted(captured["by_day"])
+        conn.execute("DELETE FROM invoice_imports WHERE org_id = %s AND source = 'demo'",
+                     (agent_org,))
+        conn.execute(
+            "INSERT INTO invoice_imports (org_id, provider, source, filename, "
+            "period_start, period_end, total_usd, line_items, created_at) "
+            "VALUES (%s, 'anthropic', 'demo', %s, %s, %s, %s, %s, %s)",
+            (agent_org, "anthropic-usage-export-demo.csv",
+             days[0] if days else None, days[-1] if days else None,
+             total, json.dumps(items), datetime.utcnow().isoformat()),
+        )
+    return total
+
+
 def main() -> int:
     try:
         aid = register_agent()
@@ -185,10 +226,12 @@ def main() -> int:
 
     n = seed_trace(agent_org)
     prior, current = seed_prior_snapshot(agent_org)
+    invoice_total = seed_demo_invoice(agent_org)
     last7 = "≥50 (high tier)" if n else "0"
     print(f"Seeded '{AGENT_NAME}' ({aid}) in org '{agent_org}':")
     print(f"  • {n} backdated LLM calls across 30 days  → real actuals line, high-confidence tier")
     print(f"  • prior snapshot ${prior} vs current ${current}  → 'vs last month' shows a real trend")
+    print(f"  • demo Anthropic bill ${invoice_total} (source='demo')  → reconciliation panel shows ~94% coverage")
     print(f"\nOpen: {BASE.replace(':8000', ':5173')}/agent/{aid}/spend  (frontend)")
     return 0
 
