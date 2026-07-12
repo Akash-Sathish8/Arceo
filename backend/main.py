@@ -5475,6 +5475,165 @@ def set_org_default_model(req: DefaultModelInput, user: dict = Depends(get_curre
     return {"ok": True, "default_model": model}
 
 
+# ── Invoice reconciliation — "Arceo tracked $X, your invoice says $Y" ─────────
+
+class InvoiceImportInput(BaseModel):
+    provider: str                       # anthropic | openai | google | free text
+    source: str = "csv"                 # csv | manual
+    csv_text: Optional[str] = None      # csv: raw export text (read client-side)
+    total_usd: Optional[float] = None   # manual: the invoice total
+    period_start: Optional[str] = None  # YYYY-MM-DD (manual; csv infers from rows)
+    period_end: Optional[str] = None
+    filename: Optional[str] = None
+
+
+def _aggregate_invoice_items(items: list[dict]) -> list[dict]:
+    """Collapse parsed CSV rows to (day, model) sums so storage stays bounded
+    regardless of export row count."""
+    agg: dict[tuple, float] = {}
+    for it in items:
+        key = (it.get("day"), it.get("model"))
+        agg[key] = agg.get(key, 0.0) + float(it["usd"])
+    return [{"day": d, "model": m, "usd": round(v, 4)}
+            for (d, m), v in sorted(agg.items(), key=lambda kv: (kv[0][0] or "", kv[0][1] or ""))]
+
+
+def _reconcile_import(conn, org_id: str, imp: dict) -> dict:
+    """Compute reconciliation for a stored import: captured org-wide LLM spend
+    for the import's provider + window vs the imported bill."""
+    from analysis.invoice_reconciliation import (
+        aggregate_captured_spend, reconcile, window_bounds,
+    )
+    from analysis.spend_forecast import load_defaults
+    start, end = window_bounds(imp.get("period_start"), imp.get("period_end"))
+    rows = conn.execute(
+        "SELECT l.detail, l.resource, l.timestamp FROM audit_log l "
+        "JOIN agents a ON a.id = l.user_email "
+        "WHERE l.action IN ('LLM_CALL', 'LLM_CALL_PROXY') AND a.org_id = %s "
+        "AND l.timestamp >= %s AND l.timestamp < %s",
+        (org_id, start, end),
+    ).fetchall()
+    captured = aggregate_captured_spend(
+        [dict(r) for r in rows], imp["provider"], defaults=load_defaults(org_id))
+    invoice = {
+        "total_usd": imp["total_usd"],
+        "period_start": imp.get("period_start"),
+        "period_end": imp.get("period_end"),
+        "line_items": json.loads(imp["line_items"]) if imp.get("line_items") else [],
+    }
+    result = reconcile(invoice, captured)
+    result["invoiceId"] = imp["id"]
+    result["provider"] = imp["provider"]
+    result["source"] = imp["source"]
+    result["isDemo"] = imp["source"] == "demo"
+    # No dates on a manual import → we compared against the last 30 days.
+    result["windowAssumed30d"] = not (imp.get("period_start") and imp.get("period_end"))
+    return result
+
+
+@app.post("/api/cost/invoices")
+def import_invoice(req: InvoiceImportInput, user: dict = Depends(get_current_user)):
+    """Import a provider bill (usage-export CSV or a typed total) and return
+    the stored import plus its reconciliation against captured spend."""
+    from analysis.invoice_reconciliation import normalize_provider, parse_invoice_csv
+
+    provider = normalize_provider(req.provider)
+    if not provider:
+        raise HTTPException(status_code=400, detail="Provider is required")
+
+    if req.source == "manual":
+        if not req.total_usd or req.total_usd <= 0:
+            raise HTTPException(status_code=400, detail="A positive invoice total is required")
+        total, items = float(req.total_usd), []
+        period_start, period_end = req.period_start, req.period_end
+    else:
+        if not (req.csv_text or "").strip():
+            raise HTTPException(status_code=400, detail="CSV content is required")
+        try:
+            parsed = parse_invoice_csv(req.csv_text)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        total = parsed["total_usd"]
+        items = _aggregate_invoice_items(parsed["line_items"])
+        # Explicit period wins over what the rows imply (an export can trail
+        # into the next period by a day of clock skew).
+        period_start = req.period_start or parsed["period_start"]
+        period_end = req.period_end or parsed["period_end"]
+
+    org_id = _org(user)
+    now = datetime.utcnow().isoformat()
+    with get_db() as conn:
+        cur = conn.execute(
+            "INSERT INTO invoice_imports (org_id, provider, source, filename, "
+            "period_start, period_end, total_usd, line_items, created_at) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
+            (org_id, provider, "manual" if req.source == "manual" else "csv",
+             req.filename, period_start, period_end, total,
+             json.dumps(items) if items else None, now),
+        )
+        imp_id = cur.fetchone()["id"]
+        log_audit(conn, user["sub"], user["email"], "INVOICE_IMPORT",
+                  resource=provider,
+                  detail=f"Imported {provider} bill ${total:.2f} "
+                         f"({period_start or '?'} → {period_end or '?'}, {req.source})",
+                  org_id=org_id)
+        imp = {"id": imp_id, "provider": provider,
+               "source": "manual" if req.source == "manual" else "csv",
+               "period_start": period_start, "period_end": period_end,
+               "total_usd": total,
+               "line_items": json.dumps(items) if items else None}
+        return _reconcile_import(conn, org_id, imp)
+
+
+@app.get("/api/cost/invoices")
+def list_invoices(user: dict = Depends(get_current_user)):
+    """The org's imported bills, newest first (metadata only)."""
+    with get_db() as conn:
+        rows = conn.execute(
+            "SELECT id, provider, source, filename, period_start, period_end, "
+            "total_usd, created_at FROM invoice_imports WHERE org_id = %s "
+            "ORDER BY created_at DESC LIMIT 50", (_org(user),),
+        ).fetchall()
+    return {"invoices": [dict(r) for r in rows]}
+
+
+@app.get("/api/cost/reconciliation")
+def get_reconciliation(invoice_id: Optional[int] = None,
+                       user: dict = Depends(get_current_user)):
+    """Reconciliation for one import (or the newest, when no id is given)."""
+    org_id = _org(user)
+    with get_db() as conn:
+        if invoice_id is not None:
+            row = conn.execute(
+                "SELECT * FROM invoice_imports WHERE id = %s AND org_id = %s",
+                (invoice_id, org_id)).fetchone()
+        else:
+            row = conn.execute(
+                "SELECT * FROM invoice_imports WHERE org_id = %s "
+                "ORDER BY created_at DESC LIMIT 1", (org_id,)).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="No imported invoice found")
+        return _reconcile_import(conn, org_id, dict(row))
+
+
+@app.delete("/api/cost/invoices/{invoice_id}")
+def delete_invoice(invoice_id: int, user: dict = Depends(get_current_user)):
+    """Remove a bad import. The INVOICE_IMPORT audit row stays (append-only)."""
+    org_id = _org(user)
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT id, provider FROM invoice_imports WHERE id = %s AND org_id = %s",
+            (invoice_id, org_id)).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Import not found")
+        conn.execute("DELETE FROM invoice_imports WHERE id = %s AND org_id = %s",
+                     (invoice_id, org_id))
+        log_audit(conn, user["sub"], user["email"], "INVOICE_DELETE",
+                  resource=row["provider"], detail=f"Deleted invoice import #{invoice_id}",
+                  org_id=org_id)
+    return {"ok": True}
+
+
 def _model_provider(model_key: str) -> str:
     """Human-readable provider for a catalog model key."""
     k = model_key.lower()
