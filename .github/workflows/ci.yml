@@ -61,6 +61,11 @@ jobs:
         run: pip install -r requirements-dev.txt
       - name: Run tests
         run: python -m pytest tests/ -q
+      # Vendor prices drift; each model row carries verified_on + source_url.
+      # Warn-only (::warning:: annotations) so the passage of time never fails
+      # an unrelated PR — run with --strict in a scheduled audit if wanted.
+      - name: Price-table freshness (warn-only)
+        run: python ../scripts/check_price_freshness.py
       # Rehearse the SQLite→Postgres data-copy path the prod cutover will use:
       # seed a small legacy SQLite file, copy it into a fresh Postgres database,
       # and verify per-table row counts. Guards the runbook, not the app.

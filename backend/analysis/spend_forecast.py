@@ -23,6 +23,9 @@ except ImportError:
 # ── Config load ──────────────────────────────────────────────────────────────
 
 _DEFAULTS_PATH = Path(__file__).parent / "cost_defaults_operational.yaml"
+# Generated from the YAML by scripts/gen_cost_defaults_fallback.py; kept in
+# sync by tests/test_price_hygiene.py. Never edit by hand.
+_FALLBACK_JSON_PATH = Path(__file__).parent / "cost_defaults_operational.fallback.json"
 _DEFAULTS_CACHE: Optional[dict] = None
 
 
@@ -38,8 +41,12 @@ def load_defaults(org_id: Optional[str] = None) -> dict:
     global _DEFAULTS_CACHE
     if _DEFAULTS_CACHE is None:
         if yaml is None:
-            # Minimal fallback if pyyaml is not installed.
-            _DEFAULTS_CACHE = _MINIMAL_DEFAULTS
+            # No pyyaml: load the GENERATED JSON twin of the YAML (see
+            # scripts/gen_cost_defaults_fallback.py). The old hand-maintained
+            # fallback dict had drifted to a fraction of the catalog with
+            # stale rates — generation + a sync test make that impossible.
+            with open(_FALLBACK_JSON_PATH) as f:
+                _DEFAULTS_CACHE = json.load(f)
         else:
             with open(_DEFAULTS_PATH) as f:
                 _DEFAULTS_CACHE = yaml.safe_load(f)
@@ -1831,60 +1838,3 @@ def compute_budget_fit(
         recs.append(gate_rec)
     result["recommendations"] = recs
     return result
-
-
-# ── Minimal fallback if pyyaml not installed ─────────────────────────────────
-
-_MINIMAL_DEFAULTS = {
-    "last_calibrated": "2026-05-29",
-    "default_model": "claude-sonnet-4-6",
-    "models": {
-        "claude-sonnet-4-6": {"input_per_mtok": 3.00, "output_per_mtok": 15.00, "cache_discount": 0.90, "tokenizer_inflation": 1.0},
-        "claude-haiku-4-5": {"input_per_mtok": 1.00, "output_per_mtok": 5.00, "cache_discount": 0.90, "tokenizer_inflation": 1.0},
-        "claude-opus-4-8": {"input_per_mtok": 5.00, "output_per_mtok": 25.00, "cache_discount": 0.90, "tokenizer_inflation": 1.35},
-        "gpt-4o": {"input_per_mtok": 2.50, "output_per_mtok": 10.00, "cache_discount": 0.50, "tokenizer_inflation": 1.0},
-        "gpt-4o-mini": {"input_per_mtok": 0.15, "output_per_mtok": 0.60, "cache_discount": 0.50, "tokenizer_inflation": 1.0},
-        "gpt-4-1": {"input_per_mtok": 2.00, "output_per_mtok": 8.00, "cache_discount": 0.50, "tokenizer_inflation": 1.0},
-        "gemini-2-5-pro": {"input_per_mtok": 1.25, "output_per_mtok": 10.00, "cache_discount": 0.90, "tokenizer_inflation": 1.0},
-        "gemini-1-5-flash": {"input_per_mtok": 0.075, "output_per_mtok": 0.30, "cache_discount": 0.90, "tokenizer_inflation": 1.0},
-        "llama-3-3-70b": {"input_per_mtok": 0.60, "output_per_mtok": 0.60, "cache_discount": 0.0, "tokenizer_inflation": 1.0},
-        "deepseek-v3": {"input_per_mtok": 0.27, "output_per_mtok": 1.10, "cache_discount": 0.75, "tokenizer_inflation": 1.0},
-        "mistral-large": {"input_per_mtok": 2.00, "output_per_mtok": 6.00, "cache_discount": 0.0, "tokenizer_inflation": 1.0},
-    },
-    "tool_action_costs": {
-        "sendgrid": {"send_email": 0.0004},
-        "twilio": {"send_sms": 0.0079, "make_call": 0.014},
-        "stripe": {"create_payout": 0.25, "create_refund": 0.0},
-    },
-    "turn_defaults": {
-        "system_prompt_tokens": 800,
-        "tool_overhead_per_tool": 400,
-        "user_message_tokens": 120,
-        "tool_result_tokens": 500,
-        "completion_tokens": 300,
-        "history_growth_per_turn": 1500,
-    },
-    "scenario_defaults": {
-        "default_calls_per_day": 100,
-        "avg_turns_per_run": 4,
-        "default_runtime_seconds": 4.2,
-        "default_cache_hit_rate": 0.60,
-        "default_retry_rate": 0.03,
-    },
-    "default_turns_per_run_by_archetype": {
-        "scheduler": 2, "support": 4, "sales": 4, "devops": 8, "ops": 8, "default": 4,
-    },
-    "confidence_bands": {
-        "low": {"low_multiplier": 0.50, "high_multiplier": 3.00},  # asymmetric — see YAML calibration note
-        "medium": {"low_multiplier": 0.70, "high_multiplier": 2.00},  # asymmetric — see YAML calibration note
-        "high": {"low_multiplier": 0.85, "high_multiplier": 1.15},
-    },
-    "infrastructure": {"per_call_overhead_usd": 0.0002, "compute_cost_per_second_usd": 0.00018},
-    "sensitivity_ranking": [
-        {"label": "Calls per day", "pct": 76, "color": "linear-gradient(90deg, #fecaca, #ef4444)"},
-        {"label": "Model choice", "pct": 42, "color": "linear-gradient(90deg, #fde68a, #f59e0b)"},
-        {"label": "Cache hit rate", "pct": 23, "color": "linear-gradient(90deg, #fde68a, #f59e0b)"},
-        {"label": "Runtime / call", "pct": 18, "color": "linear-gradient(90deg, #d1d5db, #9ca3af)"},
-        {"label": "Retry rate", "pct": 10, "color": "linear-gradient(90deg, #d1d5db, #9ca3af)"},
-    ],
-}
