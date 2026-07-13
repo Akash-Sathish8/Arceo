@@ -50,7 +50,7 @@ jobs:
       REDIS_URL: redis://localhost:6379/15
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
       - name: Set up Python 3.11
         uses: actions/setup-python@v5
         with:
@@ -81,7 +81,7 @@ jobs:
         working-directory: frontend
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
       - name: Set up Node 22
         uses: actions/setup-node@v4
         with:
