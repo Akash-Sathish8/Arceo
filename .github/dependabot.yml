@@ -1,30 +1,49 @@
 version: 2
+# One grouped PR per ecosystem, monthly. Keeps the PR list and the branch list
+# quiet: at most ~5 PRs a month total (usually fewer), each bundling all of that
+# ecosystem's bumps onto a single branch instead of one PR/branch per package.
 updates:
   - package-ecosystem: pip
     directory: /backend
     schedule:
-      interval: weekly
-    open-pull-requests-limit: 5
+      interval: monthly
+    open-pull-requests-limit: 2
+    groups:
+      backend-python:
+        patterns: ["*"]
 
   - package-ecosystem: pip
     directory: /sdk
     schedule:
-      interval: weekly
-    open-pull-requests-limit: 5
+      interval: monthly
+    open-pull-requests-limit: 2
+    groups:
+      sdk-python:
+        patterns: ["*"]
 
   - package-ecosystem: npm
     directory: /frontend
     schedule:
-      interval: weekly
-    open-pull-requests-limit: 5
+      interval: monthly
+    open-pull-requests-limit: 2
+    groups:
+      frontend-npm:
+        patterns: ["*"]
 
   - package-ecosystem: npm
     directory: /website
     schedule:
-      interval: weekly
-    open-pull-requests-limit: 5
+      interval: monthly
+    open-pull-requests-limit: 2
+    groups:
+      website-npm:
+        patterns: ["*"]
 
   - package-ecosystem: github-actions
     directory: /
     schedule:
-      interval: weekly
+      interval: monthly
+    open-pull-requests-limit: 2
+    groups:
+      actions:
+        patterns: ["*"]
