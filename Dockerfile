@@ -4,17 +4,20 @@
 # port — suited to running in a customer's own VPC.
 #
 # Build:  docker build -t arceo .
-# Run:    docker run -p 8000:8000 -v arceo-data:/data \
+# Run:    docker run -p 8000:8000 \
+#           -e DATABASE_URL=postgresql://user:pass@host:5432/arceo \
 #           -e ANTHROPIC_API_KEY=sk-ant-... \
 #           -e JWT_SECRET=<openssl rand -hex 32> \
 #           arceo
 #
-# Runtime env: ANTHROPIC_API_KEY (required — classification, simulation,
-# forecasting), JWT_SECRET (required — auth warns on the dev default),
-# DEMO_MODE=true (demo instances only: enables the `demo` login wipe),
-# CORS_ORIGINS (only if the frontend is hosted on another origin).
-# SQLite lives at ARCEO_DB_PATH=/data/actiongate.db — keep /data on a volume
-# or every agent, policy, and captured trace dies with the container.
+# Runtime env: DATABASE_URL (required — the Postgres instance; the app refuses
+# to boot on known prod platforms without it and migrates schema on startup),
+# ANTHROPIC_API_KEY (required — classification, simulation, forecasting),
+# JWT_SECRET (required — auth warns on the dev default), DEMO_MODE=true (demo
+# instances only: enables the `demo` login wipe), CORS_ORIGINS (only if the
+# frontend is hosted on another origin), ARCEO_LLM_CACHE_PATH (optional — the
+# LLM-classification cache, a local SQLite file; point it at /data to keep
+# cached classifications across restarts).
 
 FROM node:22-alpine AS frontend
 WORKDIR /build
@@ -35,7 +38,7 @@ COPY --from=frontend /build/dist ./static
 RUN useradd --create-home arceo && mkdir -p /data && chown -R arceo:arceo /data /app
 USER arceo
 
-ENV ARCEO_DB_PATH=/data/actiongate.db
+ENV ARCEO_LLM_CACHE_PATH=/data/llm_cache.db
 VOLUME /data
 EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s \

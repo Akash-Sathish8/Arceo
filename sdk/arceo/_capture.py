@@ -15,6 +15,7 @@ import json
 import os
 import threading
 import time
+import types
 import urllib.request
 from typing import Any, Optional
 
@@ -127,6 +128,158 @@ def report_llm_call(
     _post_async(base_url.rstrip("/") + f"/api/agent/{agent_id}/llm-call", payload)
 
 
+def _get(obj: Any, key: str, default=None):
+    """Attribute-or-key access, so we handle both SDK objects and raw dicts."""
+    if isinstance(obj, dict):
+        return obj.get(key, default)
+    return getattr(obj, key, default)
+
+
+def _accumulate_anthropic(acc: dict, event: Any) -> None:
+    """Fold one Anthropic stream event into the usage accumulator.
+
+    input_tokens (+ cache tokens) arrive on message_start; output_tokens is
+    reported cumulatively on each message_delta, so the last one is the total."""
+    et = _get(event, "type")
+    if et == "message_start":
+        msg = _get(event, "message")
+        if msg is not None:
+            acc["id"] = _get(msg, "id") or acc.get("id")
+            acc["model"] = _get(msg, "model") or acc.get("model")
+            u = _get(msg, "usage")
+            if u is not None:
+                for k in ("input_tokens", "output_tokens",
+                          "cache_read_input_tokens", "cache_creation_input_tokens"):
+                    v = _get(u, k)
+                    if v is not None:
+                        acc["usage"][k] = v
+    elif et == "message_delta":
+        u = _get(event, "usage")
+        if u is not None:
+            ot = _get(u, "output_tokens")
+            if ot is not None:
+                acc["usage"]["output_tokens"] = ot  # cumulative → final value
+
+
+def _accumulate_openai(acc: dict, chunk: Any) -> None:
+    """Fold one OpenAI stream chunk. Usage is only present on the final chunk and
+    only when the caller passed stream_options={"include_usage": True}; without
+    that the accumulator stays empty and we report nothing (honest no-op)."""
+    cid = _get(chunk, "id")
+    if cid:
+        acc["id"] = cid
+    cmodel = _get(chunk, "model")
+    if cmodel:
+        acc["model"] = cmodel
+    u = _get(chunk, "usage")
+    if u is not None:
+        for k in ("prompt_tokens", "completion_tokens", "total_tokens"):
+            v = _get(u, k)
+            if v is not None:
+                acc["usage"][k] = v
+        details = _get(u, "prompt_tokens_details")
+        if details is not None:
+            cached = _get(details, "cached_tokens")
+            if cached is not None:
+                acc["usage"]["prompt_tokens_details"] = {"cached_tokens": cached}
+
+
+class _CapturingStream:
+    """Transparent proxy over a provider stream.
+
+    Yields every item unchanged; once the stream is fully consumed (StopIteration),
+    exited, or closed, it reports the accumulated usage exactly once. Best-effort:
+    a capture failure never interrupts iteration, and unknown attributes/methods
+    delegate to the wrapped stream so `with`, `.close()`, `.text_stream`, etc. keep
+    working."""
+
+    def __init__(self, inner: Any, on_item, on_done):
+        self._inner = inner
+        self._iter = iter(inner)
+        self._on_item = on_item
+        self._on_done = on_done
+        self._done = False
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        try:
+            item = next(self._iter)
+        except StopIteration:
+            self._finish()
+            raise
+        try:
+            self._on_item(item)
+        except Exception:
+            pass
+        return item
+
+    def _finish(self) -> None:
+        if not self._done:
+            self._done = True
+            try:
+                self._on_done()
+            except Exception:
+                pass
+
+    def __enter__(self):
+        enter = getattr(self._inner, "__enter__", None)
+        if enter is not None:
+            enter()
+        return self
+
+    def __exit__(self, *exc):
+        try:
+            exit_ = getattr(self._inner, "__exit__", None)
+            if exit_ is not None:
+                return exit_(*exc)
+        finally:
+            self._finish()
+        return False
+
+    def close(self):
+        self._finish()
+        close = getattr(self._inner, "close", None)
+        if close is not None:
+            return close()
+
+    def __getattr__(self, name):
+        # Only reached for attributes this proxy doesn't define — delegate them.
+        return getattr(self._inner, name)
+
+
+def _wrap_stream(resp: Any, provider: str, agent_id: str, base_url: str,
+                 kwargs: dict, t0: float, capture_prompts: bool) -> Any:
+    """Return a proxy stream that reports usage once the caller finishes consuming
+    it. Falls back to the raw stream if anything goes wrong (never breaks it)."""
+    acc: dict = {"id": None, "model": None, "usage": {}}
+    on_item = ((lambda ev: _accumulate_anthropic(acc, ev)) if provider == "anthropic"
+               else (lambda ch: _accumulate_openai(acc, ch)))
+
+    def on_done() -> None:
+        if not acc["usage"]:
+            return  # no usage seen (e.g. OpenAI without include_usage) — report nothing
+        response = types.SimpleNamespace(
+            usage=acc["usage"], id=acc["id"], model=acc["model"] or kwargs.get("model"))
+        report_llm_call(
+            agent_id,
+            provider=provider,
+            model=kwargs.get("model") or acc["model"] or "unknown",
+            response=response,
+            base_url=base_url,
+            system=kwargs.get("system", ""),
+            messages=kwargs.get("messages"),
+            tools=kwargs.get("tools"),
+            max_tokens=kwargs.get("max_tokens"),
+            temperature=kwargs.get("temperature"),
+            latency_ms=(time.time() - t0) * 1000,
+            capture_prompts=capture_prompts,
+        )
+
+    return _CapturingStream(resp, on_item, on_done)
+
+
 def _detect_provider(client: Any) -> str:
     mod = (type(client).__module__ or "").lower()
     if "anthropic" in mod:
@@ -154,9 +307,13 @@ def wrap_llm(
         client.messages.create(...)   # captured automatically
 
     Returns the same client (its create method is patched in place). Capture is
-    async + best-effort: it never alters the response and never raises. Streaming
-    calls (stream=True) are skipped — usage isn't available until the stream is
-    consumed.
+    async + best-effort: it never alters the response and never raises.
+
+    Streaming calls (stream=True) are captured too: the returned stream is wrapped
+    in a transparent proxy that reports usage once you finish consuming it. For
+    Anthropic this always works (usage rides in the stream events). For OpenAI it
+    works only when you pass stream_options={"include_usage": True} — otherwise the
+    API never sends usage and there is nothing honest to report.
     """
     provider = provider or _detect_provider(client)
 
@@ -172,24 +329,28 @@ def wrap_llm(
     def patched(*args, **kwargs):
         t0 = time.time()
         resp = original(*args, **kwargs)
-        if not kwargs.get("stream"):
+        if kwargs.get("stream"):
             try:
-                report_llm_call(
-                    agent_id,
-                    provider=provider,
-                    model=kwargs.get("model") or getattr(resp, "model", "unknown"),
-                    response=resp,
-                    base_url=base_url,
-                    system=kwargs.get("system", ""),
-                    messages=kwargs.get("messages"),
-                    tools=kwargs.get("tools"),
-                    max_tokens=kwargs.get("max_tokens"),
-                    temperature=kwargs.get("temperature"),
-                    latency_ms=(time.time() - t0) * 1000,
-                    capture_prompts=capture_prompts,
-                )
+                return _wrap_stream(resp, provider, agent_id, base_url, kwargs, t0, capture_prompts)
             except Exception:
-                pass  # capture must never affect the real call
+                return resp  # never break the stream
+        try:
+            report_llm_call(
+                agent_id,
+                provider=provider,
+                model=kwargs.get("model") or getattr(resp, "model", "unknown"),
+                response=resp,
+                base_url=base_url,
+                system=kwargs.get("system", ""),
+                messages=kwargs.get("messages"),
+                tools=kwargs.get("tools"),
+                max_tokens=kwargs.get("max_tokens"),
+                temperature=kwargs.get("temperature"),
+                latency_ms=(time.time() - t0) * 1000,
+                capture_prompts=capture_prompts,
+            )
+        except Exception:
+            pass  # capture must never affect the real call
         return resp
 
     resource.create = patched

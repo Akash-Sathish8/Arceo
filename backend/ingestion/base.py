@@ -41,13 +41,13 @@ def ingest_trace(
             "actions": [{"name": a, "description": a} for a in sorted(actions)],
         })
 
-    # Upsert agent
+    # Upsert agent directly in the caller's org — passing org_id in means the
+    # existence check is org-scoped from the start. The old code upserted under
+    # DEFAULT_ORG_ID then UPDATE'd org_id after, which briefly filed the agent in
+    # the wrong tenant and could stomp a same-named agent in the default org.
     with get_db() as conn:
         from main import _upsert_agent
-        _upsert_agent(conn, agent_id, agent_name, agent_name, reg_tools, f"ingest-{source}")
-
-        # Set org_id on the agent
-        conn.execute("UPDATE agents SET org_id = ? WHERE id = ?", (org_id, agent_id))
+        _upsert_agent(conn, agent_id, agent_name, agent_name, reg_tools, f"ingest-{source}", org_id=org_id)
 
     # Build simulation trace
     trace = SimulationTrace(
@@ -59,15 +59,19 @@ def ingest_trace(
         prompt=f"Historical trace from {source}",
     )
 
+    from redaction import redact_value
+
     for i, step in enumerate(normalized_steps):
         trace.steps.append(TraceStep(
             step_index=i,
             tool=step["tool"],
             action=step["action"],
-            params=step.get("params", {}),
+            # Mask obvious PII (emails, cards, SSNs, phones) in the captured
+            # values before they're persisted, keeping the structure intact.
+            params=redact_value(step.get("params", {})),
             enforce_decision="ALLOW",  # historical — already happened
             enforce_policy=None,
-            result=step.get("result", {}),
+            result=redact_value(step.get("result", {})),
             timestamp=step.get("timestamp", ""),
         ))
 
@@ -77,7 +81,7 @@ def ingest_trace(
     # Store
     with get_db() as conn:
         conn.execute(
-            "INSERT INTO simulations (id, agent_id, scenario_id, status, trace_json, report_json, org_id, created_at, run_mode) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO simulations (id, agent_id, scenario_id, status, trace_json, report_json, org_id, created_at, run_mode) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
             # Imported real traces are LIVE evidence — actual agent behavior,
             # the strongest class. (A distinct 'captured' value is a Phase-6
             # refinement once trace-replay is first-class.)

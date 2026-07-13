@@ -48,8 +48,24 @@ client.chat.completions.create(model="gpt-4o", messages=[...])
 
 **What's sent:** provider, model, token usage, and request *shape* (message/tool
 counts) — **never prompt or response content**. Pass `capture_prompts=True` to
-also include the system prompt. Streaming calls (`stream=True`) are skipped
-(usage isn't available until the stream is consumed).
+also include the system prompt.
+
+**Streaming (`stream=True`) is captured too (0.4.0).** The returned stream is
+wrapped in a transparent proxy that reports usage once you finish consuming it —
+your loop is unchanged:
+
+```python
+client = wrap_llm(Anthropic(), "your-agent-id")
+stream = client.messages.create(model="claude-...", messages=[...], max_tokens=1024, stream=True)
+for event in stream:
+    ...
+# ↑ usage reported after the stream is fully consumed
+```
+
+- **Anthropic** always works — usage rides in the stream events.
+- **OpenAI** reports usage only when you pass `stream_options={"include_usage": True}`;
+  without it the API never sends usage, so there is nothing honest to report and
+  the call is skipped (no crash, no guessed numbers).
 
 Already have the raw response and want to report it yourself?
 
@@ -81,6 +97,28 @@ else:  # BLOCK
 > Opt out per call with `on_error="allow"`, or process-wide with
 > `ARCEO_FAIL_MODE=allow` (the break-glass so an Arceo outage doesn't halt
 > your agents). An explicit `on_error=` argument always wins over the env var.
+
+### Wait for a human (0.3.0)
+
+When an action needs a person's sign-off, `enforce_and_wait` blocks right there
+until they decide — no polling loop to write yourself:
+
+```python
+from arceo import enforce_and_wait
+
+decision = enforce_and_wait("your-agent-id", "stripe", "create_refund",
+                            {"amount": 5000}, token="<your-arceo-jwt>")
+
+if decision["decision"] == "ALLOW":      # a human approved
+    stripe.refunds.create(...)
+else:                                     # BLOCK = rejected (or PENDING if max_wait hit)
+    log.info("refund not approved")
+```
+
+`ALLOW`/`BLOCK` return immediately; `REQUIRE_APPROVAL` polls the held action
+until a teammate approves or rejects it in the Arceo dashboard. It waits
+indefinitely by default (Arceo never expires a pending action); pass
+`max_wait=<seconds>` to give up and get back `{"decision": "PENDING"}`.
 
 ## Configuration
 

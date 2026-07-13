@@ -18,19 +18,31 @@ ALGORITHM = "HS256"
 TOKEN_EXPIRY_HOURS = 24
 
 _logger = _logging.getLogger("actiongate.auth")
+
+# A host is "dev-like" ONLY if it says so explicitly. The old guard whitelisted
+# four PaaS env vars and let everything else (bare VMs, Docker, a tunneled
+# laptop) boot on the public demo secret — an open door to token forgery. We
+# invert it: the default secret is refused everywhere UNLESS ARCEO_ENV opts in.
+_DEV_ENVS = {"dev", "local", "test", "ci"}
+ARCEO_ENV = os.getenv("ARCEO_ENV", "").lower()
+
 if SECRET_KEY == "actiongate-demo-secret-key-change-in-prod":
-    if os.getenv("RAILWAY_ENVIRONMENT") or os.getenv("FLY_APP_NAME") or os.getenv("RENDER") or os.getenv("PRODUCTION"):
-        raise RuntimeError("JWT_SECRET must be set in production. Cannot use default demo value.")
-    _logger.warning(
-        "JWT_SECRET is using the default demo value. Set JWT_SECRET env var in production. "
-        "This is insecure and will allow anyone to forge authentication tokens."
-    )
+    if ARCEO_ENV not in _DEV_ENVS:
+        raise RuntimeError(
+            "JWT_SECRET is unset and defaulting to the public demo value, which lets "
+            "anyone forge admin tokens. Set JWT_SECRET, or set ARCEO_ENV=dev for local work."
+        )
+    _logger.warning("JWT_SECRET is the default demo value — allowed only because ARCEO_ENV=%s.", ARCEO_ENV)
 
 # DEMO_MODE bypasses JWT entirely (get_current_user returns the admin user). It
-# must never run on a real deploy, where it would collapse the tenant boundary.
+# must never run on a real deploy, where it would collapse the tenant boundary —
+# so it too is gated on an explicit dev environment, not a platform whitelist.
 if os.getenv("DEMO_MODE", "").lower() == "true":
-    if os.getenv("RAILWAY_ENVIRONMENT") or os.getenv("FLY_APP_NAME") or os.getenv("RENDER") or os.getenv("PRODUCTION"):
-        raise RuntimeError("DEMO_MODE=true is an authentication bypass and must not run in production.")
+    if ARCEO_ENV not in _DEV_ENVS:
+        raise RuntimeError(
+            "DEMO_MODE=true is an authentication bypass and must not run outside a dev "
+            "environment. Set ARCEO_ENV=dev to acknowledge this is local-only."
+        )
     _logger.warning("DEMO_MODE is ON — JWT auth is bypassed and any login wipes demo data. Never set this in production.")
 
 
@@ -46,12 +58,14 @@ def verify_password(password: str, hashed: str) -> bool:
         return hashlib.sha256(password.encode()).hexdigest() == hashed
 
 
-def create_token(user_id: str, email: str, role: str, org_id: str = DEFAULT_ORG_ID) -> str:
+def create_token(user_id: str, email: str, role: str, org_id: str = DEFAULT_ORG_ID,
+                 token_version: int = 0) -> str:
     payload = {
         "sub": user_id,
         "email": email,
         "role": role,
         "org_id": org_id,
+        "tv": token_version,  # bumped on password change → old tokens stop verifying
         "exp": datetime.utcnow() + timedelta(hours=TOKEN_EXPIRY_HOURS),
     }
     return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
@@ -87,22 +101,32 @@ def get_current_user(request: Request) -> dict:
     # Ensure org_id is always present (backward compat with old tokens)
     if "org_id" not in payload:
         payload["org_id"] = DEFAULT_ORG_ID
+    # Instant revocation: a token whose version is behind the user's current
+    # token_version was issued before a password change — reject it.
+    with get_db() as conn:
+        row = conn.execute("SELECT token_version, role FROM users WHERE id = %s", (payload.get("sub"),)).fetchone()
+    if row is not None:
+        if int(payload.get("tv", 0)) != int(row["token_version"] or 0):
+            raise HTTPException(status_code=401, detail="Session expired — please log in again")
+        # Trust the DB role over the token's (a role change takes effect without re-login).
+        payload["role"] = row["role"]
     return payload
 
 
 def login_user(email: str, password: str) -> dict:
     """Authenticate user and return token + user info including org_id."""
     with get_db() as conn:
-        row = conn.execute("SELECT * FROM users WHERE email = ?", (email,)).fetchone()
+        row = conn.execute("SELECT * FROM users WHERE email = %s", (email,)).fetchone()
         if not row or not verify_password(password, row["password_hash"]):
             raise HTTPException(status_code=401, detail="Invalid email or password")
 
         if not row["password_hash"].startswith("$2b$"):
             new_hash = hash_password(password)
-            conn.execute("UPDATE users SET password_hash = ? WHERE id = ?", (new_hash, row["id"]))
+            conn.execute("UPDATE users SET password_hash = %s WHERE id = %s", (new_hash, row["id"]))
 
         org_id = row["org_id"] if "org_id" in row.keys() else DEFAULT_ORG_ID
-        token = create_token(row["id"], row["email"], row["role"], org_id)
+        tv = int(row["token_version"]) if "token_version" in row.keys() and row["token_version"] is not None else 0
+        token = create_token(row["id"], row["email"], row["role"], org_id, token_version=tv)
         log_audit(conn, row["id"], row["email"], "LOGIN", detail="User logged in", org_id=org_id)
 
         return {

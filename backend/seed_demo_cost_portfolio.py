@@ -20,14 +20,13 @@ fresh window ending today, so it's safe to run right before each demo.
 """
 
 import random
-import sqlite3
 import sys
 import json
 from datetime import datetime, timedelta
 
 import httpx
 
-from db import DB_PATH
+from db import get_db
 
 BASE = "http://localhost:8000"
 AGENT_NAME = "Acme Support Copilot"
@@ -52,7 +51,14 @@ def register_agent() -> str:
         "tools": TOOLS,
     }, timeout=60)
     r.raise_for_status()
-    return r.json()["id"]
+    agent_id = r.json()["id"]
+    # Honesty flag: this agent's traffic is synthetic. The register API
+    # deliberately can't set is_demo (no external caller should), so the
+    # seeder marks it directly — the Cost Portfolio renders a "Demo data"
+    # chip off this and the forecast response carries isDemo.
+    with get_db() as conn:
+        conn.execute("UPDATE agents SET is_demo = true WHERE id = %s", (agent_id,))
+    return agent_id
 
 
 def _usage_detail(in_base: int, out: int, cache_read: int) -> str:
@@ -86,15 +92,13 @@ def seed_trace(agent_org: str) -> int:
             cache_read = rng.choice([0, 1800, 2000, 2200])  # ~55% cache hit on avg
             rows.append((None, AGENT_ID, "LLM_CALL", f"anthropic:{MODEL}",
                          _usage_detail(in_base, out, cache_read), agent_org, ts.isoformat()))
-    conn = sqlite3.connect(str(DB_PATH))
-    try:
-        conn.execute("DELETE FROM audit_log WHERE action='LLM_CALL' AND user_email=?", (AGENT_ID,))
-        conn.executemany(
-            "INSERT INTO audit_log (user_id, user_email, action, resource, detail, org_id, timestamp) "
-            "VALUES (?,?,?,?,?,?,?)", rows)
-        conn.commit()
-    finally:
-        conn.close()
+    with get_db() as conn:
+        # audit_log is append-only (Phase 6) — can't delete prior seed rows;
+        # re-running the seeder just appends more LLM_CALL history, which is fine.
+        with conn.cursor() as cur:
+            cur.executemany(
+                "INSERT INTO audit_log (user_id, user_email, action, resource, detail, org_id, timestamp) "
+                "VALUES (%s,%s,%s,%s,%s,%s,%s)", rows)
     return len(rows)
 
 
@@ -106,7 +110,7 @@ def seed_prior_snapshot(agent_org: str):
     """
     import uuid
     # Derive the prior point from a local forecast (no HTTP/auth needed).
-    from db import get_db, get_agent_from_db
+    from db import get_agent_from_db
     from analysis.spend_forecast import (
         forecast_spend, compute_live_rolling_averages, LIVE_TRACE_MIN_CALLS,
         FORECAST_FORMULA_VERSION,
@@ -115,9 +119,9 @@ def seed_prior_snapshot(agent_org: str):
         agent = get_agent_from_db(conn, AGENT_ID, org_id=agent_org)
         seven_days_ago = (datetime.utcnow() - timedelta(days=7)).isoformat()
         live_count = int(conn.execute(
-            "SELECT COUNT(*) FROM audit_log WHERE action='LLM_CALL' AND user_email=? AND timestamp > ?",
+            "SELECT COUNT(*) AS n FROM audit_log WHERE action='LLM_CALL' AND user_email=%s AND timestamp > %s",
             (AGENT_ID, seven_days_ago),
-        ).fetchone()[0])
+        ).fetchone()["n"])
         # Mirror /api/agents/{id}/spend-forecast EXACTLY: at high tier it feeds
         # the live rolling averages back in as overrides. If we forecast without
         # them here, `current` falls back to capability-tree defaults (~3.5x
@@ -127,7 +131,7 @@ def seed_prior_snapshot(agent_org: str):
         if live_count >= LIVE_TRACE_MIN_CALLS:
             live_rows = conn.execute(
                 "SELECT detail, timestamp FROM audit_log "
-                "WHERE action='LLM_CALL' AND user_email=? AND timestamp > ?",
+                "WHERE action='LLM_CALL' AND user_email=%s AND timestamp > %s",
                 (AGENT_ID, seven_days_ago),
             ).fetchall()
             overrides = compute_live_rolling_averages(live_rows) or None
@@ -157,18 +161,58 @@ def seed_prior_snapshot(agent_org: str):
             "confidence": current.get("confidence"),
             "formulaVersion": FORECAST_FORMULA_VERSION,
         })
-        conn.execute("DELETE FROM forecast_snapshots WHERE agent_id=?", (AGENT_ID,))
+        conn.execute("DELETE FROM forecast_snapshots WHERE agent_id=%s", (AGENT_ID,))
         conn.execute(
             "INSERT INTO forecast_snapshots "
             "(id, agent_id, org_id, snapshot_date, point_usd, low_usd, high_usd, composition_json, captured_at) "
-            "VALUES (?,?,?,?,?,?,?,?,?)",
+            "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)",
             (str(uuid.uuid4()), AGENT_ID, agent_org,
              (datetime.utcnow() - timedelta(days=31)).date().isoformat(),
              prior_point, round(prior_point * 0.85, 2), round(prior_point * 1.15, 2),
              composition_json, captured),
         )
-        conn.commit()
     return prior_point, current["point"]
+
+
+def seed_demo_invoice(agent_org: str) -> float:
+    """ILLUSTRATIVE demo seed only: a fabricated provider bill at ~1.06× the
+    tracked spend, so the reconciliation demo beat shows a realistic picture —
+    a bill slightly ABOVE tracked (every real key carries some non-agent
+    traffic: consoles, notebooks, other apps). Stored with source='demo';
+    the UI labels it 'Sample import' off that. Deleted+reinserted per run
+    (invoice_imports is not append-only, unlike audit_log)."""
+    from datetime import datetime, timedelta
+
+    from analysis.invoice_reconciliation import aggregate_captured_spend
+    from analysis.spend_forecast import load_defaults
+
+    start = (datetime.utcnow() - timedelta(days=30)).isoformat()
+    with get_db() as conn:
+        rows = conn.execute(
+            "SELECT l.detail, l.resource, l.timestamp FROM audit_log l "
+            "JOIN agents a ON a.id = l.user_email "
+            "WHERE l.action IN ('LLM_CALL', 'LLM_CALL_PROXY') AND a.org_id = %s "
+            "AND l.timestamp >= %s",
+            (agent_org, start),
+        ).fetchall()
+        captured = aggregate_captured_spend([dict(r) for r in rows], "anthropic",
+                                            defaults=load_defaults())
+        # Per-day bill = tracked × 1.06, slightly off-round like a real invoice.
+        items = [{"day": d, "model": None, "usd": round(v * 1.06, 4)}
+                 for d, v in captured["by_day"].items()]
+        total = round(sum(it["usd"] for it in items), 2)
+        days = sorted(captured["by_day"])
+        conn.execute("DELETE FROM invoice_imports WHERE org_id = %s AND source = 'demo'",
+                     (agent_org,))
+        conn.execute(
+            "INSERT INTO invoice_imports (org_id, provider, source, filename, "
+            "period_start, period_end, total_usd, line_items, created_at) "
+            "VALUES (%s, 'anthropic', 'demo', %s, %s, %s, %s, %s, %s)",
+            (agent_org, "anthropic-usage-export-demo.csv",
+             days[0] if days else None, days[-1] if days else None,
+             total, json.dumps(items), datetime.utcnow().isoformat()),
+        )
+    return total
 
 
 def main() -> int:
@@ -177,16 +221,17 @@ def main() -> int:
     except Exception as e:
         print(f"Could not register agent (is the server up on :8000?): {e}", file=sys.stderr)
         return 1
-    conn = sqlite3.connect(str(DB_PATH))
-    agent_org = conn.execute("SELECT org_id FROM agents WHERE id=?", (aid,)).fetchone()[0]
-    conn.close()
+    with get_db() as conn:
+        agent_org = conn.execute("SELECT org_id FROM agents WHERE id=%s", (aid,)).fetchone()["org_id"]
 
     n = seed_trace(agent_org)
     prior, current = seed_prior_snapshot(agent_org)
+    invoice_total = seed_demo_invoice(agent_org)
     last7 = "≥50 (high tier)" if n else "0"
     print(f"Seeded '{AGENT_NAME}' ({aid}) in org '{agent_org}':")
     print(f"  • {n} backdated LLM calls across 30 days  → real actuals line, high-confidence tier")
     print(f"  • prior snapshot ${prior} vs current ${current}  → 'vs last month' shows a real trend")
+    print(f"  • demo Anthropic bill ${invoice_total} (source='demo')  → reconciliation panel shows ~94% coverage")
     print(f"\nOpen: {BASE.replace(':8000', ':5173')}/agent/{aid}/spend  (frontend)")
     return 0
 

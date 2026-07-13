@@ -145,11 +145,25 @@ export default function Approvals() {
   const decide = async (id: string, decision: 'approve' | 'reject') => {
     setDeciding((prev) => ({ ...prev, [id]: decision }))
     try {
-      await apiFetch(`/api/approvals/${id}`, {
-        method: 'POST',
-        body: JSON.stringify({ decision, reason: notes[id] ?? '' }),
-      })
-      toast(decision === 'approve' ? 'Agent resumed' : 'Agent blocked')
+      const res = await apiFetch<{ status: string; replay?: { status: string; detail?: string } | null }>(
+        `/api/approvals/${id}`,
+        {
+          method: 'POST',
+          body: JSON.stringify({ decision, reason: notes[id] ?? '' }),
+        },
+      )
+      // Honest outcome: say whether the real action actually ran on approve.
+      if (decision === 'reject') {
+        toast('Agent blocked')
+      } else if (res.replay?.status === 'replayed') {
+        toast('Approved — action executed')
+      } else if (res.replay?.status === 'replay_failed') {
+        toast(`Approved, but the action failed: ${res.replay.detail ?? 'unknown'}`, 'error')
+      } else if (res.replay?.status === 'skipped') {
+        toast('Approved — will execute when live replay is enabled')
+      } else {
+        toast('Approved — agent resumed')
+      }
       setDecided((prev) => ({ ...prev, [id]: decision }))
       setTimeout(() => {
         setApprovals((prev) => prev.filter((a) => a.id !== id))

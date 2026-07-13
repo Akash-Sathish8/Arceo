@@ -1,0 +1,537 @@
+{
+ "confidence_bands": {
+  "high": {
+   "high_multiplier": 1.15,
+   "low_multiplier": 0.85
+  },
+  "low": {
+   "high_multiplier": 3.0,
+   "low_multiplier": 0.5
+  },
+  "medium": {
+   "high_multiplier": 2.0,
+   "low_multiplier": 0.7
+  }
+ },
+ "default_model": "claude-sonnet-4-6",
+ "default_turns_per_run_by_archetype": {
+  "default": 4,
+  "devops": 8,
+  "ops": 8,
+  "sales": 4,
+  "scheduler": 2,
+  "support": 4
+ },
+ "infrastructure": {
+  "compute_cost_per_second_usd": 0.00018,
+  "per_call_overhead_usd": 0.0002
+ },
+ "last_calibrated": "2026-07-12",
+ "models": {
+  "claude-fable-5": {
+   "cache_discount": 0.9,
+   "input_per_mtok": 10.0,
+   "output_per_mtok": 50.0,
+   "source_url": "https://platform.claude.com/docs/en/pricing",
+   "tokenizer_inflation": 1.35,
+   "verified_on": "2026-07-12"
+  },
+  "claude-haiku-4-5": {
+   "cache_discount": 0.9,
+   "input_per_mtok": 1.0,
+   "output_per_mtok": 5.0,
+   "source_url": "https://platform.claude.com/docs/en/pricing",
+   "tokenizer_inflation": 1.0,
+   "verified_on": "2026-07-12"
+  },
+  "claude-opus-4-6": {
+   "cache_discount": 0.9,
+   "input_per_mtok": 5.0,
+   "output_per_mtok": 25.0,
+   "source_url": "https://platform.claude.com/docs/en/pricing",
+   "tokenizer_inflation": 1.0,
+   "verified_on": "2026-07-12"
+  },
+  "claude-opus-4-7": {
+   "cache_discount": 0.9,
+   "input_per_mtok": 5.0,
+   "output_per_mtok": 25.0,
+   "source_url": "https://platform.claude.com/docs/en/pricing",
+   "tokenizer_inflation": 1.35,
+   "verified_on": "2026-07-12"
+  },
+  "claude-opus-4-8": {
+   "cache_discount": 0.9,
+   "input_per_mtok": 5.0,
+   "output_per_mtok": 25.0,
+   "source_url": "https://platform.claude.com/docs/en/pricing",
+   "tokenizer_inflation": 1.35,
+   "verified_on": "2026-07-12"
+  },
+  "claude-sonnet-4-5": {
+   "cache_discount": 0.9,
+   "input_per_mtok": 3.0,
+   "output_per_mtok": 15.0,
+   "source_url": "https://platform.claude.com/docs/en/pricing",
+   "tokenizer_inflation": 1.0,
+   "verified_on": "2026-07-12"
+  },
+  "claude-sonnet-4-6": {
+   "cache_discount": 0.9,
+   "input_per_mtok": 3.0,
+   "output_per_mtok": 15.0,
+   "source_url": "https://platform.claude.com/docs/en/pricing",
+   "tokenizer_inflation": 1.0,
+   "verified_on": "2026-07-12"
+  },
+  "claude-sonnet-5": {
+   "cache_discount": 0.9,
+   "input_per_mtok": 3.0,
+   "output_per_mtok": 15.0,
+   "source_url": "https://platform.claude.com/docs/en/pricing",
+   "tokenizer_inflation": 1.35,
+   "verified_on": "2026-07-12"
+  },
+  "command-r": {
+   "cache_discount": 0.0,
+   "input_per_mtok": 0.15,
+   "output_per_mtok": 0.6,
+   "source_url": "https://cohere.com/pricing",
+   "tokenizer_inflation": 1.0,
+   "verified_on": "2026-07-12"
+  },
+  "command-r-plus": {
+   "cache_discount": 0.0,
+   "input_per_mtok": 2.5,
+   "output_per_mtok": 10.0,
+   "source_url": "https://cohere.com/pricing",
+   "tokenizer_inflation": 1.0,
+   "verified_on": "2026-07-12"
+  },
+  "deepseek-r1": {
+   "cache_discount": 0.98,
+   "input_per_mtok": 0.14,
+   "output_per_mtok": 0.28,
+   "source_url": "https://api-docs.deepseek.com/quick_start/pricing",
+   "tokenizer_inflation": 1.0,
+   "verified_on": "2026-07-12"
+  },
+  "deepseek-v3": {
+   "cache_discount": 0.98,
+   "input_per_mtok": 0.14,
+   "output_per_mtok": 0.28,
+   "source_url": "https://api-docs.deepseek.com/quick_start/pricing",
+   "tokenizer_inflation": 1.0,
+   "verified_on": "2026-07-12"
+  },
+  "deepseek-v4-flash": {
+   "cache_discount": 0.98,
+   "input_per_mtok": 0.14,
+   "output_per_mtok": 0.28,
+   "source_url": "https://api-docs.deepseek.com/quick_start/pricing",
+   "tokenizer_inflation": 1.0,
+   "verified_on": "2026-07-12"
+  },
+  "gemini-1-5-flash": {
+   "cache_discount": 0.9,
+   "input_per_mtok": 0.075,
+   "output_per_mtok": 0.3,
+   "source_url": "https://ai.google.dev/gemini-api/docs/pricing",
+   "tokenizer_inflation": 1.0,
+   "verified_on": "2026-07-12"
+  },
+  "gemini-1-5-pro": {
+   "cache_discount": 0.9,
+   "input_per_mtok": 1.25,
+   "output_per_mtok": 5.0,
+   "source_url": "https://ai.google.dev/gemini-api/docs/pricing",
+   "tokenizer_inflation": 1.0,
+   "verified_on": "2026-07-12"
+  },
+  "gemini-2-0-flash": {
+   "cache_discount": 0.9,
+   "input_per_mtok": 0.1,
+   "output_per_mtok": 0.4,
+   "source_url": "https://ai.google.dev/gemini-api/docs/pricing",
+   "tokenizer_inflation": 1.0,
+   "verified_on": "2026-07-12"
+  },
+  "gemini-2-5-flash": {
+   "cache_discount": 0.9,
+   "input_per_mtok": 0.3,
+   "output_per_mtok": 2.5,
+   "source_url": "https://ai.google.dev/gemini-api/docs/pricing",
+   "tokenizer_inflation": 1.0,
+   "verified_on": "2026-07-12"
+  },
+  "gemini-2-5-flash-lite": {
+   "cache_discount": 0.9,
+   "input_per_mtok": 0.1,
+   "output_per_mtok": 0.4,
+   "source_url": "https://ai.google.dev/gemini-api/docs/pricing",
+   "tokenizer_inflation": 1.0,
+   "verified_on": "2026-07-12"
+  },
+  "gemini-2-5-pro": {
+   "cache_discount": 0.9,
+   "input_per_mtok": 1.25,
+   "output_per_mtok": 10.0,
+   "source_url": "https://ai.google.dev/gemini-api/docs/pricing",
+   "tokenizer_inflation": 1.0,
+   "verified_on": "2026-07-12"
+  },
+  "gemini-3-1-flash-lite": {
+   "cache_discount": 0.0,
+   "input_per_mtok": 0.25,
+   "output_per_mtok": 1.5,
+   "source_url": "https://ai.google.dev/gemini-api/docs/pricing",
+   "tokenizer_inflation": 1.0,
+   "verified_on": "2026-07-12"
+  },
+  "gemini-3-1-pro-preview": {
+   "cache_discount": 0.9,
+   "input_per_mtok": 2.0,
+   "output_per_mtok": 12.0,
+   "source_url": "https://ai.google.dev/gemini-api/docs/pricing",
+   "tokenizer_inflation": 1.0,
+   "verified_on": "2026-07-12"
+  },
+  "gemini-3-5-flash": {
+   "cache_discount": 0.9,
+   "input_per_mtok": 1.5,
+   "output_per_mtok": 9.0,
+   "source_url": "https://ai.google.dev/gemini-api/docs/pricing",
+   "tokenizer_inflation": 1.0,
+   "verified_on": "2026-07-12"
+  },
+  "gemini-3-flash-preview": {
+   "cache_discount": 0.9,
+   "input_per_mtok": 0.5,
+   "output_per_mtok": 3.0,
+   "source_url": "https://ai.google.dev/gemini-api/docs/pricing",
+   "tokenizer_inflation": 1.0,
+   "verified_on": "2026-07-12"
+  },
+  "gpt-4-1": {
+   "cache_discount": 0.75,
+   "input_per_mtok": 2.0,
+   "output_per_mtok": 8.0,
+   "source_url": "https://developers.openai.com/api/docs/models/gpt-4.1",
+   "tokenizer_inflation": 1.0,
+   "verified_on": "2026-07-12"
+  },
+  "gpt-4-1-mini": {
+   "cache_discount": 0.75,
+   "input_per_mtok": 0.4,
+   "output_per_mtok": 1.6,
+   "source_url": "https://developers.openai.com/api/docs/models/gpt-4.1-mini",
+   "tokenizer_inflation": 1.0,
+   "verified_on": "2026-07-12"
+  },
+  "gpt-4-1-nano": {
+   "cache_discount": 0.75,
+   "input_per_mtok": 0.1,
+   "output_per_mtok": 0.4,
+   "source_url": "https://developers.openai.com/api/docs/models/gpt-4.1-nano",
+   "tokenizer_inflation": 1.0,
+   "verified_on": "2026-07-12"
+  },
+  "gpt-4o": {
+   "cache_discount": 0.5,
+   "input_per_mtok": 2.5,
+   "output_per_mtok": 10.0,
+   "source_url": "https://developers.openai.com/api/docs/models/gpt-4o",
+   "tokenizer_inflation": 1.0,
+   "verified_on": "2026-07-12"
+  },
+  "gpt-4o-mini": {
+   "cache_discount": 0.5,
+   "input_per_mtok": 0.15,
+   "output_per_mtok": 0.6,
+   "source_url": "https://developers.openai.com/api/docs/models/gpt-4o-mini",
+   "tokenizer_inflation": 1.0,
+   "verified_on": "2026-07-12"
+  },
+  "gpt-5": {
+   "cache_discount": 0.9,
+   "input_per_mtok": 1.25,
+   "output_per_mtok": 10.0,
+   "source_url": "https://developers.openai.com/api/docs/models/gpt-5",
+   "tokenizer_inflation": 1.0,
+   "verified_on": "2026-07-12"
+  },
+  "gpt-5-4": {
+   "cache_discount": 0.9,
+   "input_per_mtok": 2.5,
+   "output_per_mtok": 15.0,
+   "source_url": "https://developers.openai.com/api/docs/pricing",
+   "tokenizer_inflation": 1.0,
+   "verified_on": "2026-07-12"
+  },
+  "gpt-5-4-mini": {
+   "cache_discount": 0.9,
+   "input_per_mtok": 0.75,
+   "output_per_mtok": 4.5,
+   "source_url": "https://developers.openai.com/api/docs/pricing",
+   "tokenizer_inflation": 1.0,
+   "verified_on": "2026-07-12"
+  },
+  "gpt-5-4-nano": {
+   "cache_discount": 0.9,
+   "input_per_mtok": 0.2,
+   "output_per_mtok": 1.25,
+   "source_url": "https://developers.openai.com/api/docs/pricing",
+   "tokenizer_inflation": 1.0,
+   "verified_on": "2026-07-12"
+  },
+  "gpt-5-4-pro": {
+   "cache_discount": 0.9,
+   "input_per_mtok": 30.0,
+   "output_per_mtok": 180.0,
+   "source_url": "https://developers.openai.com/api/docs/pricing",
+   "tokenizer_inflation": 1.0,
+   "verified_on": "2026-07-12"
+  },
+  "gpt-5-5": {
+   "cache_discount": 0.9,
+   "input_per_mtok": 5.0,
+   "output_per_mtok": 30.0,
+   "source_url": "https://developers.openai.com/api/docs/pricing",
+   "tokenizer_inflation": 1.0,
+   "verified_on": "2026-07-12"
+  },
+  "gpt-5-5-pro": {
+   "cache_discount": 0.9,
+   "input_per_mtok": 30.0,
+   "output_per_mtok": 180.0,
+   "source_url": "https://developers.openai.com/api/docs/pricing",
+   "tokenizer_inflation": 1.0,
+   "verified_on": "2026-07-12"
+  },
+  "gpt-5-6-luna": {
+   "cache_discount": 0.9,
+   "input_per_mtok": 1.0,
+   "output_per_mtok": 6.0,
+   "source_url": "https://developers.openai.com/api/docs/pricing",
+   "tokenizer_inflation": 1.0,
+   "verified_on": "2026-07-12"
+  },
+  "gpt-5-6-sol": {
+   "cache_discount": 0.9,
+   "input_per_mtok": 5.0,
+   "output_per_mtok": 30.0,
+   "source_url": "https://developers.openai.com/api/docs/pricing",
+   "tokenizer_inflation": 1.0,
+   "verified_on": "2026-07-12"
+  },
+  "gpt-5-6-terra": {
+   "cache_discount": 0.9,
+   "input_per_mtok": 2.5,
+   "output_per_mtok": 15.0,
+   "source_url": "https://developers.openai.com/api/docs/pricing",
+   "tokenizer_inflation": 1.0,
+   "verified_on": "2026-07-12"
+  },
+  "grok-2": {
+   "cache_discount": 0.0,
+   "input_per_mtok": 2.0,
+   "output_per_mtok": 10.0,
+   "source_url": "https://docs.x.ai/developers/models",
+   "tokenizer_inflation": 1.0,
+   "verified_on": "2026-07-12"
+  },
+  "grok-3": {
+   "cache_discount": 0.84,
+   "input_per_mtok": 1.25,
+   "output_per_mtok": 2.5,
+   "source_url": "https://docs.x.ai/developers/migration/may-15-retirement",
+   "tokenizer_inflation": 1.0,
+   "verified_on": "2026-07-12"
+  },
+  "grok-4-20-0309": {
+   "cache_discount": 0.84,
+   "input_per_mtok": 1.25,
+   "output_per_mtok": 2.5,
+   "source_url": "https://docs.x.ai/developers/models",
+   "tokenizer_inflation": 1.0,
+   "verified_on": "2026-07-12"
+  },
+  "grok-4-3": {
+   "cache_discount": 0.84,
+   "input_per_mtok": 1.25,
+   "output_per_mtok": 2.5,
+   "source_url": "https://docs.x.ai/developers/models",
+   "tokenizer_inflation": 1.0,
+   "verified_on": "2026-07-12"
+  },
+  "grok-4-5": {
+   "cache_discount": 0.75,
+   "input_per_mtok": 2.0,
+   "output_per_mtok": 6.0,
+   "source_url": "https://docs.x.ai/developers/models",
+   "tokenizer_inflation": 1.0,
+   "verified_on": "2026-07-12"
+  },
+  "grok-build-0-1": {
+   "cache_discount": 0.8,
+   "input_per_mtok": 1.0,
+   "output_per_mtok": 2.0,
+   "source_url": "https://docs.x.ai/developers/models",
+   "tokenizer_inflation": 1.0,
+   "verified_on": "2026-07-12"
+  },
+  "llama-3-1-405b": {
+   "cache_discount": 0.0,
+   "input_per_mtok": 3.5,
+   "output_per_mtok": 3.5,
+   "source_url": "https://www.together.ai/models/llama-3-1-405b",
+   "tokenizer_inflation": 1.0,
+   "verified_on": "2026-07-12"
+  },
+  "llama-3-1-70b": {
+   "cache_discount": 0.0,
+   "input_per_mtok": 0.88,
+   "output_per_mtok": 0.88,
+   "source_url": "https://www.together.ai/models/llama-3-1-70b",
+   "tokenizer_inflation": 1.0,
+   "verified_on": "2026-07-12"
+  },
+  "llama-3-1-8b": {
+   "cache_discount": 0.0,
+   "input_per_mtok": 0.18,
+   "output_per_mtok": 0.18,
+   "source_url": "https://www.together.ai/models/llama-3-1",
+   "tokenizer_inflation": 1.0,
+   "verified_on": "2026-07-12"
+  },
+  "llama-3-3-70b": {
+   "cache_discount": 0.0,
+   "input_per_mtok": 1.04,
+   "output_per_mtok": 1.04,
+   "source_url": "https://www.together.ai/models/llama-3-3-70b",
+   "tokenizer_inflation": 1.0,
+   "verified_on": "2026-07-12"
+  },
+  "mistral-large": {
+   "cache_discount": 0.9,
+   "input_per_mtok": 0.5,
+   "output_per_mtok": 1.5,
+   "source_url": "https://mistral.ai/pricing/api",
+   "tokenizer_inflation": 1.0,
+   "verified_on": "2026-07-12"
+  },
+  "mistral-small": {
+   "cache_discount": 0.9,
+   "input_per_mtok": 0.15,
+   "output_per_mtok": 0.6,
+   "source_url": "https://mistral.ai/pricing/api",
+   "tokenizer_inflation": 1.0,
+   "verified_on": "2026-07-12"
+  },
+  "o1": {
+   "cache_discount": 0.5,
+   "input_per_mtok": 15.0,
+   "output_per_mtok": 60.0,
+   "source_url": "https://developers.openai.com/api/docs/models/o1",
+   "tokenizer_inflation": 1.0,
+   "verified_on": "2026-07-12"
+  },
+  "o3": {
+   "cache_discount": 0.75,
+   "input_per_mtok": 2.0,
+   "output_per_mtok": 8.0,
+   "source_url": "https://developers.openai.com/api/docs/models/o3",
+   "tokenizer_inflation": 1.0,
+   "verified_on": "2026-07-12"
+  },
+  "o4-mini": {
+   "cache_discount": 0.75,
+   "input_per_mtok": 1.1,
+   "output_per_mtok": 4.4,
+   "source_url": "https://developers.openai.com/api/docs/models/o4-mini",
+   "tokenizer_inflation": 1.0,
+   "verified_on": "2026-07-12"
+  }
+ },
+ "scenario_defaults": {
+  "avg_turns_per_run": 4,
+  "default_cache_hit_rate": 0.6,
+  "default_calls_per_day": 100,
+  "default_retry_rate": 0.03,
+  "default_runtime_seconds": 4.2
+ },
+ "sensitivity_ranking": [
+  {
+   "color": "linear-gradient(90deg, #fecaca, #ef4444)",
+   "label": "Calls per day",
+   "pct": 76
+  },
+  {
+   "color": "linear-gradient(90deg, #fde68a, #f59e0b)",
+   "label": "Model choice",
+   "pct": 42
+  },
+  {
+   "color": "linear-gradient(90deg, #fde68a, #f59e0b)",
+   "label": "Cache hit rate",
+   "pct": 23
+  },
+  {
+   "color": "linear-gradient(90deg, #d1d5db, #9ca3af)",
+   "label": "Runtime / call",
+   "pct": 18
+  },
+  {
+   "color": "linear-gradient(90deg, #d1d5db, #9ca3af)",
+   "label": "Retry rate",
+   "pct": 10
+  }
+ ],
+ "tool_action_costs": {
+  "aws_lambda": {
+   "invocation": 2e-07
+  },
+  "aws_rds": {
+   "create_snapshot": 0.02,
+   "delete_snapshot": 0.0
+  },
+  "aws_s3": {
+   "get_object": 4e-07,
+   "put_object": 5e-06
+  },
+  "browserbase": {
+   "create_session": 0.0017
+  },
+  "openai_embeddings": {
+   "embed": 1.3e-07
+  },
+  "pinecone": {
+   "query": 8.25e-06,
+   "upsert": 2e-06
+  },
+  "sendgrid": {
+   "create_campaign": 0.001,
+   "send_email": 0.0004,
+   "send_template_email": 0.0004
+  },
+  "stripe": {
+   "create_charge": 0.029,
+   "create_payout": 0.25,
+   "create_refund": 0.0,
+   "create_transfer": 0.25,
+   "void_invoice": 0.0
+  },
+  "twilio": {
+   "make_call": 0.014,
+   "send_sms": 0.0079
+  }
+ },
+ "turn_defaults": {
+  "completion_tokens": 300,
+  "history_growth_per_turn": 1500,
+  "system_prompt_tokens": 800,
+  "tool_overhead_per_tool": 400,
+  "tool_result_tokens": 500,
+  "user_message_tokens": 120
+ }
+}

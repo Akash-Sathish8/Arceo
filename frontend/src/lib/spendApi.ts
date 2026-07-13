@@ -197,3 +197,67 @@ export async function fetchBatchSpendForecasts(): Promise<Record<string, MockSpe
     return {}
   }
 }
+
+// ── Invoice reconciliation — "Arceo tracked $X, your invoice says $Y" ─────────
+
+export interface ReconciliationDay {
+  day: string
+  invoiceUsd: number
+  trackedUsd: number
+}
+
+export interface Reconciliation {
+  invoiceId: number
+  provider: string
+  source: "csv" | "manual" | "demo"
+  isDemo: boolean
+  invoiceUsd: number
+  trackedUsd: number
+  deltaUsd: number
+  deltaPct: number | null
+  coveragePct: number | null
+  /** reconciled (≤5%) | partial (≤20%) | large_gap | no_invoice_total */
+  verdict: string
+  causes: string[]
+  byDay: ReconciliationDay[]
+  trackedByModel: Record<string, number>
+  trackedCalls: number
+  periodStart: string | null
+  periodEnd: string | null
+  /** Captured calls are priced at TODAY's catalog rates (no price history). */
+  pricedAtCurrentRates: boolean
+  /** Manual import without dates → compared against the last 30 days. */
+  windowAssumed30d: boolean
+}
+
+export async function fetchReconciliation(): Promise<Reconciliation | null> {
+  try {
+    return await apiFetch<Reconciliation>("/api/cost/reconciliation")
+  } catch {
+    return null // 404 = nothing imported yet
+  }
+}
+
+export async function importInvoice(body: {
+  provider: string
+  source: "csv" | "manual"
+  csv_text?: string
+  total_usd?: number
+  period_start?: string
+  period_end?: string
+  filename?: string
+}): Promise<Reconciliation> {
+  return apiFetch<Reconciliation>("/api/cost/invoices", {
+    method: "POST",
+    body: JSON.stringify(body),
+  })
+}
+
+export async function deleteInvoice(invoiceId: number): Promise<boolean> {
+  try {
+    await apiFetch(`/api/cost/invoices/${invoiceId}`, { method: "DELETE" })
+    return true
+  } catch {
+    return false
+  }
+}

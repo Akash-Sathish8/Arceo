@@ -36,11 +36,10 @@ def test_schema_keys_change_cache_key():
 
 
 def test_cache_degrades_gracefully_without_db(monkeypatch):
-    from pathlib import Path
-
-    import db as _db
-
-    monkeypatch.setattr(_db, "DB_PATH", Path("/nonexistent-dir/nope/x.db"))
+    # An unwritable cache path (the cache resolves ARCEO_LLM_CACHE_PATH per
+    # call). Pre-cutover this monkeypatched db.DB_PATH, which the cache no
+    # longer reads.
+    monkeypatch.setenv("ARCEO_LLM_CACHE_PATH", "/nonexistent-dir/nope/x.db")
     monkeypatch.setattr(rc, "_cache_table_ready", False)
     rc._llm_cache.clear()
     rc._pending_cache_rows.clear()
@@ -54,26 +53,28 @@ def test_cache_degrades_gracefully_without_db(monkeypatch):
 
 def test_cache_write_survives_callers_open_transaction():
     """The live bug: create_agent classifies INSIDE an open write transaction
-    on the app DB. The cache lives in its own file precisely so that write
-    succeeds immediately — no lock contention, no 10s stall, no lost rows."""
+    on the app DB. The cache lives in its own SQLite file precisely so that
+    write succeeds immediately, independent of any app-DB transaction state
+    (on SQLite this meant no lock contention; on Postgres it means no shared
+    transaction/connection at all)."""
     import db as _db
 
     rc._llm_cache.clear()
     rc._pending_cache_rows.clear()
-    outer = _db.get_conn()
-    outer.execute("CREATE TABLE IF NOT EXISTS _lock_probe (x)")
-    outer.commit()
-    outer.execute("INSERT INTO _lock_probe VALUES (1)")  # hold the app-DB write lock
+    _db._POOL.open()
+    outer = _db._POOL.getconn()
     try:
+        outer.execute("CREATE TEMP TABLE _lock_probe (x int)")
+        outer.execute("INSERT INTO _lock_probe VALUES (1)")  # open write txn on the app DB
         key = rc._cache_key("locked_db_action", "")
         rc._cache_put(key, "locked_db_action", "", ["moves_money"], False, 3)
-        assert not rc._pending_cache_rows, "separate cache file must not contend with app-DB locks"
+        assert not rc._pending_cache_rows, "separate cache file must not depend on app-DB transactions"
         # Survives L1 loss while the app transaction is STILL open.
         rc._llm_cache.clear()
         assert rc._cache_get(key) == (["moves_money"], False)
     finally:
         outer.rollback()
-        outer.close()
+        _db._POOL.putconn(outer)
 
 
 class _FakeAnthropic:

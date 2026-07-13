@@ -17,6 +17,37 @@ jobs:
     defaults:
       run:
         working-directory: backend
+    # Phase 2: the suite runs on Postgres. conftest drops/recreates the test
+    # database named in ARCEO_TEST_DATABASE_URL on this service container and
+    # migrates it via Alembic before any app import.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: arceo
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 15
+      # Phase 3: shared state (rate limits, live-trace pub/sub, leader lock,
+      # notification dedup) runs on Redis. Tests use DB 15 (flushed per test).
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 15
+    env:
+      ARCEO_TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/arceo_test
+      REDIS_URL: redis://localhost:6379/15
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -30,6 +61,18 @@ jobs:
         run: pip install -r requirements-dev.txt
       - name: Run tests
         run: python -m pytest tests/ -q
+      # Vendor prices drift; each model row carries verified_on + source_url.
+      # Warn-only (::warning:: annotations) so the passage of time never fails
+      # an unrelated PR — run with --strict in a scheduled audit if wanted.
+      - name: Price-table freshness (warn-only)
+        run: python ../scripts/check_price_freshness.py
+      # Rehearse the SQLite→Postgres data-copy path the prod cutover will use:
+      # seed a small legacy SQLite file, copy it into a fresh Postgres database,
+      # and verify per-table row counts. Guards the runbook, not the app.
+      - name: Rehearse SQLite→Postgres migration script
+        run: python ../scripts/migrate_sqlite_to_pg.py --rehearse
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/arceo_migration_rehearsal
 
   frontend:
     runs-on: ubuntu-latest

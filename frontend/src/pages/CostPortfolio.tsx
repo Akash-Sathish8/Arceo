@@ -712,7 +712,16 @@ function CostPortfolioContent({
       <div className="text-xs text-gray-400 mb-2">
         <Link to="/" className="hover:underline" style={{ color: "var(--text-link)" }}>Agents</Link> · <Link to={`/agent/${agentId}`} className="hover:underline" style={{ color: "var(--text-link)" }}>{displayName}</Link> · Cost portfolio
       </div>
-      <h1 className="text-2xl font-bold tracking-tight">Cost portfolio · {displayName}</h1>
+      <h1 className="text-2xl font-bold tracking-tight">
+        Cost portfolio · {displayName}
+        {m.isDemo && (
+          <span
+            className="align-middle ml-3 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full cursor-help"
+            title="This agent's traffic is sample data seeded for demonstration — the math is real, but the calls were generated, not captured from a live agent."
+            style={{ background: "var(--severity-medium-bg)", color: "var(--severity-high)", border: "1px solid var(--severity-medium-border)" }}
+          >Demo data</span>
+        )}
+      </h1>
       <div className="mt-2">
         <div className="text-sm font-medium text-gray-700">Operational spend forecast</div>
         {/* observedDays is only set when live traffic actually fed the number —
@@ -736,8 +745,10 @@ function CostPortfolioContent({
                 {!m.coverage.modelRecognized && (
                   <li>
                     This agent runs <span className="font-medium">{m.coverage.declaredModel}</span>, which isn't in our
-                    price list. The forecast is computed at <span className="font-medium">{m.coverage.pricedModel}</span>{" "}
-                    rates as a placeholder and could be materially off. Add your rate in{" "}
+                    price list. The forecast is priced at <span className="font-medium">{m.coverage.pricedModel}</span>{" "}
+                    rates — {m.coverage.modelMatch === "family"
+                      ? "the closest model family we know, but the real rate could be very different (some models cost double their siblings)"
+                      : "a placeholder that could be materially off"}. Add your rate in{" "}
                     <Link to="/settings" className="underline" style={{ color: "var(--text-link)" }}>Settings → Cost model</Link>,
                     or connect live traces to measure it directly.
                   </li>
@@ -823,7 +834,9 @@ function CostPortfolioContent({
             range <span className="text-gray-900 mono font-semibold">${m.low.toLocaleString()} – ${m.high.toLocaleString()}</span>
             <span
               className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full mx-2 cursor-help"
-              title={m.observedDays != null && m.confidence !== "high"
+              title={m.confidenceCap === "single_day_burst"
+                ? `This agent has enough captured calls for high confidence, but they all arrived within ${m.activeDays ?? 1} day${(m.activeDays ?? 1) === 1 ? "" : "s"}. One burst says little about a full month, so the range stays wider until traffic lands on at least 3 different days.`
+                : m.observedDays != null && m.confidence !== "high"
                 ? "Built from this agent's first captured production calls — real traffic, but not enough of it yet to promise a tight range. The range narrows automatically as calls accumulate; high confidence unlocks at 50 calls."
                 : conf.tooltip}
               style={{ background: conf.bg, color: conf.color, border: `1px solid ${conf.border}` }}
@@ -833,7 +846,9 @@ function CostPortfolioContent({
                 {m.observedDays <= 1
                   ? "based on 1 day of observed traffic"
                   : `averaged over the last ${Math.round(m.observedDays)} days of traffic, including any days this agent didn't run`}
-                {m.confidence !== "high" && " — early days, so the range is wide; it tightens as more calls come through"}
+                {m.confidence !== "high" && (m.confidenceCap === "single_day_burst"
+                  ? " — the calls cluster in a short burst; high confidence unlocks once traffic spreads across 3+ different days"
+                  : " — early days, so the range is wide; it tightens as more calls come through")}
               </span>
             )}
             · last calibrated <strong className="text-gray-900">{formatCalibrationDate(m.lastCalibrated)}</strong>
@@ -1099,7 +1114,7 @@ function CostPortfolioContent({
           })}
         </PanelCard>
 
-        <PanelCard title="30-day actuals + 90-day projection" icon={<TrendingUp size={14} />} help="Solid line = observed daily LLM cost from live traces. Shaded band = forward forecast range." fullWidth>
+        <PanelCard title="30-day actuals + 90-day projection" icon={<TrendingUp size={14} />} help="Solid line = observed daily LLM token cost from live traces — tool and infrastructure costs aren't in these traces, so the forecast (which includes them) can sit above the line. Shaded band = forward forecast range." fullWidth>
           {timeseries && timeseries.hasData ? (
             <ActualsChart data={timeseries} />
           ) : (
@@ -1142,6 +1157,17 @@ function CostPortfolioContent({
               {savedBudget?.budget === budget ? "Alert set ✓" : "Set a spend alert"}
             </button>
           </div>
+
+          {/* Scope honesty: the alert fires on MEASURED LLM token spend, but the
+              forecast the budget is judged against also includes estimated tool +
+              infrastructure costs the traces can't see. Say so, with the $ gap. */}
+          {((m.toolsUsd ?? 0) + (m.infraUsd ?? 0)) > 0 && (
+            <div className="text-[11px] text-gray-500 mb-3">
+              The spend alert tracks measured LLM token spend only. This forecast also includes about{" "}
+              <span className="mono">${(((m.toolsUsd ?? 0) + (m.infraUsd ?? 0))).toLocaleString()}/mo</span> of tool and
+              infrastructure costs that per-call capture can't see — total spend runs that much above what the alert watches.
+            </div>
+          )}
 
           {/* Month-to-date actual spend vs the saved alert budget. */}
           {savedBudget?.budget != null && (

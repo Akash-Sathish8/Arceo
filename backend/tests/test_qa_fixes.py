@@ -9,11 +9,10 @@ Guards the two backend fixes:
 Run from backend/:  venv/bin/python -m pytest tests/ -q
 """
 import os
-import tempfile
 
-# Point the app at a throwaway DB BEFORE importing it, so the real
-# actiongate.db is never touched. Must run before `import main`.
-os.environ["ARCEO_DB_PATH"] = os.path.join(tempfile.mkdtemp(prefix="arceo-qa-"), "test.db")
+# DB isolation happens in conftest.py, which pytest imports before this module:
+# it creates the scratch Postgres database and exports DATABASE_URL before any
+# app import.
 os.environ.setdefault("JWT_SECRET", "test-secret-for-qa-fixes-0123456789abcdef")
 
 import pytest

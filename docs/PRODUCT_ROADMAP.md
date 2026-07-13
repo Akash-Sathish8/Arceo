@@ -81,6 +81,8 @@ existing agents don't go dark.
 
 **Goal:** production datastore; Arceo holds the credentials (the keystone primitive).
 
+> **Delegation package (2026-07-09):** [[Phase 2 — delegation package]] — operator instructions + verbatim agent prompt, verified against `dev` post-Phase-1. Three PRs (`phase2/prep`, `phase2/postgres-cutover`, `phase2/credential-vault`), owner-reviewed, vault PR gated on the security-specialist sign-off.
+
 | Task | Owner | ew | Files |
 |---|---|---|---|
 | SQLite→Postgres: SQLAlchemy/psycopg engine + pool; port `init_db` executescript → **Alembic** migrations; rewrite ~200 `?`→`%s` + `sqlite3.Row` sites; kill WAL/busy_timeout + audit-drop-on-lock hacks; data-copy + rollback script | A | 5.0 (→P3) | `db.py:44-304`; ~95 endpoints in `main.py`; `auth.py`; `enforcement.py` |
@@ -103,6 +105,8 @@ envelope-encryption + key-management design before merge.**
 
 **Goal:** zero cross-tenant leaks; no unauthenticated writes; multi-worker-safe.
 
+> **DONE (2026-07-10):** Phase 3 executed directly — PRs #48 (auth-hardening), #49 (close-tenant-leaks + adversarial matrix gate), #51 (redis-shared-state), #52 (postgres-rls), all merged to `dev`, 178 tests green on Postgres+Redis. The [[Phase 3 — delegation package]] is retained for reference but was not used (built when a separate dev was expected).
+
 | Task | Owner | ew | Files |
 |---|---|---|---|
 | Finish PG migration tail | A | 1.5 | — |
@@ -124,6 +128,8 @@ window + SDK docs (breaks zero-config self-register).
 
 **Goal:** the flagship human-in-the-loop workflow becomes real instead of fictional.
 
+> **DONE (2026-07-11):** PRs #54 (pending_requests durable queue + capture), #55 (replay-on-approve exactly-once behind `ARCEO_REPLAY_ENABLED`), #56 (SDK 0.3.0 `enforce_and_wait` + status endpoint), #57 (Approvals outcome UI) — all merged to `dev`, 204 tests green on Postgres+Redis, live end-to-end verified. **Deferred to Phase 5:** streaming-correct proxy + non-blocking/batched audit queue (rationale in commits — Postgres doesn't drop audit rows, so batching is perf not correctness).
+
 | Task | Owner | ew | Files |
 |---|---|---|---|
 | Params + full-request schema (one schema for log **and** replay, avoid double-migration); surface real params in Approvals UI (dead code already renders them); redact before store | B | 1.0 | `db.py:149-159,428-433`; `Approvals.tsx:207-226` |
@@ -143,6 +149,8 @@ state survives a restart.
 
 **Goal:** proxy stops breaking real agents; data protected; roles actually enforced.
 
+> **DONE (2026-07-11):** PRs #59 (streaming proxy + subdomain/instance fill), #60 (PII redaction, default-on), #61 (encryption at rest, flag-gated on specialist review), #62 (RBAC viewer/editor/admin + token-version revocation + team invite), #63 (enforcement adversarial harness) — all merged to `dev`, 227 tests green. Flags: `ARCEO_PII_REDACTION` (on), `ARCEO_ENCRYPT_AT_REST` (off — flip-on needs the security review), streaming (always). Only remaining phase: 6 (honest risk gate + audit-grade logging).
+
 | Task | Owner | ew | Files |
 |---|---|---|---|
 | Finish streaming: `client.stream()` + `StreamingResponse(aiter_bytes())`; fill `SERVICE_BASE_URLS` `{subdomain}`/`{instance}` placeholders; clear held-vs-streamable rules | A | 1.5 | `main.py:214-215,316-370` |
@@ -161,6 +169,8 @@ suite green.
 
 ## Phase 6 · Weeks 21–24 — Honest risk gate + capture + test debt + audit-grade logging
 
+> **DONE (2026-07-11):** PRs #66 (audit-grade logging — per-org hash chain + append-only trigger + `/api/audit/verify`), #67 (honest CI gate — fail on distrust signals: critical chains / opaque >25% / `executes_code`, not raw blast radius; `fail_reasons` surfaced in the PR comment), #68 (broad per-caller rate limit across all `/api/*` + security test-debt: API-key scoping, per-caller limit, comprehensive unauth-reject sweep), #69 (streaming LLM capture, SDK 0.4.0) — all merged to `dev`, **272 tests green** on Postgres+Redis. Flags/behavior: audit append-only + hash-chained (always on); global rate limit `RATE_LIMIT_GLOBAL_MAX`/`_WINDOW` (default 1000/60s); streaming capture on by default. **Deliberately superseded, not built:** the deferred async audit *queue* — same-transaction + hash-chain + append-only is the correct audit-grade design; async-queuing would open a crash window that loses rows (noted in `db.py`). **→ All 6 phases complete; 10/10 engineering floor reached.**
+
 **Goal:** close the remaining honesty gaps; harden; reach audit-ready code posture.
 
 | Task | Owner | ew | Files |
@@ -176,6 +186,33 @@ honest billing agents (recalibrated + tested). Ingestion mints no phantom tools.
 append-only / hash-chained / non-droppable. Risky paths covered by tests gating CI.
 
 **Locks:** Honest risk gate; audit-grade logging; test coverage. → **10/10 engineering floor reached.**
+
+---
+
+## Post-roadmap hardening (2026-07-11, after all 6 phases)
+
+Three follow-on PRs closed out the code-side of what were the "founder-only" and
+partial items — everything finishable in-repo now:
+
+- **PR #71 — SOC2 code-side controls:** security-headers middleware (HSTS gated
+  outside dev), a structured privileged-action access log, and `SECURITY_DESIGN.md`
+  expanded into a full controls-mapping (SOC2 CC → where + test).
+- **PR #72 — encryption-at-rest, complete + review-ready:** generalized the `_enc`
+  seam, encrypted `execution_log.params`, added a backfill script (existing rows)
+  and a master-key rotation script (`vault.rewrap_blob`/`rewrap_credential`).
+  **Default stays OFF** — the flip is a reviewed one-env-var change. Deliberate,
+  documented exclusions (audit detail / sim traces / system prompt).
+- **PR #73 — turnkey, RLS-live cutover:** audit seal is legacy-marker + fresh-start
+  at cutover (`/api/audit/verify` segments legacy vs sealed); `setup_prod_role.sql`
+  + `verify_rls_active.py` + `backup_restore_drill.sh` make the owner-run cutover
+  one-shot and verified. **Fixed a cutover-blocking bug:** 40/43 `log_audit` calls
+  mis-scoped rows to `'default'` — would 500 every audited action under RLS in
+  prod; `log_audit` now derives org from the request tenant context.
+
+**Still genuinely owner/founder-only:** run the cutover against a real prod
+Postgres (no hosted instance exists); the security-specialist sign-off to flip
+`ARCEO_ENCRYPT_AT_REST` on; engage a SOC2 auditor. Plus the two research-grade
+items below.
 
 ---
 
@@ -213,14 +250,13 @@ append-only / hash-chained / non-droppable. Risky paths covered by tests gating 
 
 ## Milestone summary
 
-| Phase | Weeks | Milestone | 10/10 property locked |
-|---|---|---|---|
-| 1 | 1–4 | Honest + fail-closed | Correctness / Honesty |
-| 2 | 5–8 | Postgres + credential custody | Architecture (datastore + chokepoint) |
-| 3 | 9–12 | Per-query isolation + no open writes | Security (tenancy) |
-| 4 | 13–16 | Real approvals + durable queue | Reliability |
-| 5 | 17–20 | Streaming + encryption + RBAC | Security / Correctness |
-| 6 | 21–24 | Honest gate + tests + audit log | Testability / Maintainability |
+| Phase | Weeks | Milestone | 10/10 property locked | Status |
+|---|---|---|---|---|
+| 1 | 1–4 | Honest + fail-closed | Correctness / Honesty | ✅ done |
+| 2 | 5–8 | Postgres + credential custody | Architecture (datastore + chokepoint) | ✅ done |
+| 3 | 9–12 | Per-query isolation + no open writes | Security (tenancy) | ✅ done |
+| 4 | 13–16 | Real approvals + durable queue | Reliability | ✅ done |
+| 5 | 17–20 | Streaming + encryption + RBAC | Security / Correctness | ✅ done |
+| 6 | 21–24 | Honest gate + tests + audit log | Testability / Maintainability | ✅ done |
 
-**Net:** in 24 weeks, 2 engineers make Arceo a genuinely 10/10-*engineered* system. The two
-research-grade capabilities are the *only* things that push past 24 weeks.
+**Net:** in 24 weeks the full roadmap shipped — Arceo is a genuinely 10/10-*engineered* system. **All 6 phases complete (2026-07-11).** What remains is *not* engineering-floor work: the two research-grade capabilities that genuinely don't fit 24 weeks (real customer-code sandboxing; static chains as data-flow reachability), plus the three founder-only unblocks (security-specialist review to flip `ARCEO_ENCRYPT_AT_REST` on; SOC2 auditor engagement; the production Postgres cutover via the migration runbook).

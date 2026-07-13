@@ -1,10 +1,9 @@
 """Shared pytest config: environment isolation + deterministic LLM stubbing.
 
 This module is imported by pytest BEFORE any test module, which matters:
-db.py resolves DB_PATH at import time, so ARCEO_DB_PATH must be set here —
-otherwise a test module that transitively imports db would point writes
-(including the persistent LLM-classification cache) at the developer's real
-actiongate.db.
+db.py resolves DATABASE_URL at import time, so the test database must be
+created and DATABASE_URL exported here — otherwise a test module that
+transitively imports db would bind its pool to the developer's dev database.
 
 ANTHROPIC_API_KEY is forced to "" so no test can hit the live API even though
 backend/.env contains a key (main.py's load_dotenv(override=False) will not
@@ -21,9 +20,49 @@ import os
 import tempfile
 
 _TEST_DIR = tempfile.mkdtemp(prefix="arceo-test-")
-os.environ["ARCEO_DB_PATH"] = os.path.join(_TEST_DIR, "test.db")
+# The LLM cache stays SQLite and resolves its own path — point it at a tempdir
+# so tests never write beside the repo.
+os.environ["ARCEO_LLM_CACHE_PATH"] = os.path.join(_TEST_DIR, "llm_cache.db")
 os.environ.setdefault("JWT_SECRET", "test-secret-not-for-prod")
+os.environ.setdefault("ARCEO_ENV", "test")  # lets DEMO_MODE tests run without a prod-guard trip
+# Shared state runs on a dedicated Redis DB (flushed between tests) so a real
+# store is exercised — no in-memory fallback to mask multi-worker bugs.
+os.environ.setdefault("REDIS_URL", "redis://localhost:6379/15")
 os.environ["ANTHROPIC_API_KEY"] = ""
+
+# Fresh Postgres database per session (dropped and recreated so every run
+# starts clean), then exported as DATABASE_URL before any app import. The
+# suite's isolation model is unchanged: one shared session DB, unique
+# orgs/emails per test. Server credentials match docker-compose.yml and CI.
+_TEST_DATABASE_URL = os.environ.get(
+    "ARCEO_TEST_DATABASE_URL",
+    "postgresql://postgres:postgres@localhost:5432/arceo_test",
+)
+
+
+def _recreate_test_db(url: str) -> None:
+    import psycopg
+    from urllib.parse import urlsplit
+
+    dbname = urlsplit(url).path.lstrip("/")
+    admin_url = url.rsplit("/", 1)[0] + "/postgres"
+    with psycopg.connect(admin_url, autocommit=True) as admin:
+        admin.execute(f'DROP DATABASE IF EXISTS "{dbname}" WITH (FORCE)')
+        admin.execute(f'CREATE DATABASE "{dbname}"')
+
+
+_recreate_test_db(_TEST_DATABASE_URL)
+os.environ["DATABASE_URL"] = _TEST_DATABASE_URL
+
+# Migrate once up front so test modules that hit the DB directly at import
+# don't depend on a TestClient (whose lifespan runs init_db) starting first.
+# init_db()'s own upgrade call then no-ops.
+from alembic import command as _alembic_command  # noqa: E402
+from alembic.config import Config as _AlembicConfig  # noqa: E402
+
+_alembic_command.upgrade(
+    _AlembicConfig(os.path.join(os.path.dirname(__file__), "..", "alembic.ini")), "head"
+)
 
 import pytest  # noqa: E402
 
@@ -68,6 +107,18 @@ def stub_llm_classifier(monkeypatch):
     rc._pending_cache_rows.clear()
 
 
+@pytest.fixture(autouse=True)
+def _reset_shared_state():
+    """Flush the test Redis DB between tests so rate-limit windows, live-trace
+    buffers, and leader locks don't bleed across tests (every test's signup/
+    login shares one TestClient IP, which would trip the auth limiter mid-suite).
+    """
+    import shared_state
+    shared_state._flush_for_tests()
+    yield
+    shared_state._flush_for_tests()
+
+
 # ── Shared HTTP fixtures ──────────────────────────────────────────────────────
 # The session-scoped temp DB persists across tests, so fixtures use unique
 # emails per invocation. Existing per-file TestClient/_auth patterns keep
@@ -96,7 +147,7 @@ def _signup_org(client, email: str) -> dict:
     from db import get_db
 
     with get_db() as conn:
-        org_id = conn.execute("SELECT org_id FROM users WHERE email = ?", (email,)).fetchone()["org_id"]
+        org_id = conn.execute("SELECT org_id FROM users WHERE email = %s", (email,)).fetchone()["org_id"]
     return {
         "token": token,
         "org_id": org_id,
@@ -114,6 +165,33 @@ def two_orgs(client):
     return {
         "org_a": _signup_org(client, f"org-a-{suffix}@example.com"),
         "org_b": _signup_org(client, f"org-b-{suffix}@example.com"),
+    }
+
+
+def _invite_teammate(client, admin, role: str) -> dict:
+    """Admin adds a teammate with a role; return their auth context."""
+    import uuid
+
+    email = f"{role}-{uuid.uuid4().hex[:8]}@example.com"
+    r = client.post("/api/team/invite", headers=admin["headers"],
+                    json={"email": email, "password": "pw12345678", "role": role})
+    assert r.status_code == 200, f"invite failed: {r.text}"
+    login = client.post("/api/auth/login", json={"email": email, "password": "pw12345678"})
+    token = login.json()["token"]
+    return {"token": token, "org_id": admin["org_id"], "email": email, "role": role,
+            "headers": {"Authorization": f"Bearer {token}"}}
+
+
+@pytest.fixture()
+def roles(client):
+    """One org with an admin (from signup) + an editor + a viewer teammate."""
+    import uuid
+
+    admin = _signup_org(client, f"admin-{uuid.uuid4().hex[:8]}@example.com")
+    return {
+        "admin": admin,
+        "editor": _invite_teammate(client, admin, "editor"),
+        "viewer": _invite_teammate(client, admin, "viewer"),
     }
 
 

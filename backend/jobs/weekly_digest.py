@@ -36,9 +36,9 @@ def _fleet_summary(conn, org_id: str) -> dict:
 
     seven_days_ago = (datetime.utcnow() - timedelta(days=7)).isoformat()
     blocked = conn.execute(
-        "SELECT COUNT(*) FROM execution_log WHERE org_id = ? AND status = 'BLOCKED' AND timestamp > ?",
+        "SELECT COUNT(*) AS n FROM execution_log WHERE org_id = %s AND status = 'BLOCKED' AND timestamp > %s",
         (org_id, seven_days_ago),
-    ).fetchone()[0]
+    ).fetchone()["n"]
 
     return {
         "total": total,
@@ -131,7 +131,7 @@ def run_weekly() -> dict:
         if ok:
             with get_db() as conn:
                 conn.execute(
-                    "UPDATE workspace_settings SET last_digest_sent = ? WHERE org_id = ?",
+                    "UPDATE workspace_settings SET last_digest_sent = %s WHERE org_id = %s",
                     (now.isoformat(), r["org_id"]),
                 )
             sent += 1

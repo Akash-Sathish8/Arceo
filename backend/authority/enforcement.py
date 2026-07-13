@@ -163,7 +163,7 @@ def match_policy(action_key: str, policies: list, params: dict | None = None, se
     variants of the action (see _action_variants).
     """
     def _get(p, key, default):
-        # Policies arrive as either dicts or sqlite3.Row (no .get()); Row raises
+        # Policies arrive as dicts (DB rows use dict_row) but may lack keys; missing
         # IndexError on a missing column.
         try:
             v = p[key]
@@ -266,14 +266,24 @@ def fire_block_notification(agent_id: str, tool: str, action: str, reason: str):
     try:
         from db import get_db
         with get_db() as conn:
-            org_row = conn.execute("SELECT org_id FROM agents WHERE id = ?", (agent_id,)).fetchone()
+            org_row = conn.execute("SELECT org_id FROM agents WHERE id = %s", (agent_id,)).fetchone()
             org_id = org_row["org_id"] if org_row else None
-            row = conn.execute("SELECT * FROM workspace_settings WHERE org_id = ?", (org_id,)).fetchone()
+            row = conn.execute("SELECT * FROM workspace_settings WHERE org_id = %s", (org_id,)).fetchone()
         if not row or not row["notify_on_block"]:
             return
         slack_url = row["slack_webhook_url"] or ""
         if not slack_url:
             return
+        # Cross-worker dedup: the same BLOCK evaluated on two workers should
+        # send ONE Slack message, not two. Short TTL so a genuinely repeated
+        # block later still alerts. Best-effort — if Redis is unreachable the
+        # notification still fires (worse to go silent than to double-send).
+        try:
+            import shared_state
+            if not shared_state.should_fire_once(f"block:{org_id}:{agent_id}:{tool}:{action}", 60):
+                return
+        except Exception:
+            pass
         import httpx
         payload = {
             "blocks": [
@@ -318,7 +328,7 @@ def safe_enforce_check(agent_id: str, tool: str, action: str, params: dict = Non
         try:
             from db import get_db, log_execution, DEFAULT_ORG_ID
             with get_db() as conn:
-                agent_row = conn.execute("SELECT org_id FROM agents WHERE id = ?", (agent_id,)).fetchone()
+                agent_row = conn.execute("SELECT org_id FROM agents WHERE id = %s", (agent_id,)).fetchone()
                 log_execution(conn, agent_id, tool, action,
                               "BLOCKED" if decision == "BLOCK" else "EXECUTED",
                               policy_id=None, detail=detail,
@@ -358,7 +368,7 @@ def enforce_check(agent_id: str, tool: str, action: str, params: dict = None, se
     with get_db() as conn:
         # Resolve the agent's org so the execution row (and the approvals queue it
         # feeds) lands in the right tenant rather than defaulting to 'default'.
-        agent_row = conn.execute("SELECT * FROM agents WHERE id = ?", (agent_id,)).fetchone()
+        agent_row = conn.execute("SELECT * FROM agents WHERE id = %s", (agent_id,)).fetchone()
         agent_org = agent_row["org_id"] if agent_row else DEFAULT_ORG_ID
         # Opt-in per-agent fail-closed posture. Unknown agents keep the historic
         # implicit-ALLOW (zero-config onboarding must not go dark).
@@ -367,7 +377,7 @@ def enforce_check(agent_id: str, tool: str, action: str, params: dict = None, se
             default_effect = agent_row["default_effect"] or "ALLOW"
 
         policies = conn.execute(
-            "SELECT * FROM policies WHERE agent_id = ? ORDER BY priority DESC, id", (agent_id,)
+            "SELECT * FROM policies WHERE agent_id = %s ORDER BY priority DESC, id", (agent_id,)
         ).fetchall()
 
         matched_policy = match_policy(action_key, policies, params=params or None, session_context=session_context or None)
@@ -397,7 +407,7 @@ def enforce_check(agent_id: str, tool: str, action: str, params: dict = None, se
         else:
             detail = "No matching policy"
 
-        log_execution(conn, agent_id, tool, action, status,
+        execution_id = log_execution(conn, agent_id, tool, action, status,
                       policy_id=matched_policy["id"] if matched_policy else None,
                       detail=detail,
                       org_id=agent_org, params=params, source=source)
@@ -418,4 +428,8 @@ def enforce_check(agent_id: str, tool: str, action: str, params: dict = None, se
             "agent_id": agent_id,
             "policy": dict(matched_policy) if matched_policy else None,
             "message": message,
+            # The PENDING_APPROVAL row id, so a caller can park a durable
+            # replayable request against it (Phase 4). None for non-approval
+            # decisions is fine; callers only use it on REQUIRE_APPROVAL.
+            "execution_id": execution_id,
         }

@@ -8,3 +8,14 @@ bcrypt>=4.0.0
 anthropic>=0.42.0
 httpx>=0.27.0
 PyYAML>=6.0
+# Postgres migration (Phase 2): psycopg3 is the driver; SQLAlchemy is present
+# only as Alembic's dependency — the app does NOT use the ORM.
+psycopg[binary]>=3.1
+psycopg-pool>=3.2
+alembic>=1.13
+sqlalchemy>=2.0
+# Cross-worker shared state (Phase 3): rate limits, live-trace pub/sub,
+# scheduler leader lock, notification dedup.
+redis>=5.0
+# Credential vault (Phase 2): AES-256-GCM envelope encryption.
+cryptography>=42
