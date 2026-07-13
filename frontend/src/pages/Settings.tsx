@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { Eye, EyeOff, Copy, Check, Users, KeyRound, UserCircle, Banknote, Bell, X } from "lucide-react";
-import { apiFetch, getUser, getToken } from "@/lib/api";
+import { apiFetch, getUser, getToken, apiBaseUrl } from "@/lib/api";
 import { Button } from "@/components/ui/Button";
 import { toast } from "@/components/shared/Toast";
 
@@ -653,6 +653,7 @@ export default function Settings() {
   };
 
   const tokenPrefix = token.slice(0, 20);
+  const apiBase = apiBaseUrl();
 
   const enforceSnippetPython = `import requests
 
@@ -661,7 +662,7 @@ AGENT_ID = "${firstAgentId}"
 
 def enforce(tool: str, action: str, params: dict) -> bool:
     resp = requests.post(
-        "https://api.arceo.io/api/enforce",
+        "${apiBase}/api/enforce",
         json={"agent_id": AGENT_ID, "tool": tool, "action": action, "params": params},
         headers={"Authorization": f"Bearer {ARCEO_TOKEN}"}
     )
@@ -672,7 +673,7 @@ def enforce(tool: str, action: str, params: dict) -> bool:
 if enforce("Stripe", "create_refund", {"amount": 500, "customer_id": "cus_123"}):
     stripe.create_refund(...)`;
 
-  const enforceSnippetCurl = `curl -X POST https://api.arceo.io/api/enforce \\
+  const enforceSnippetCurl = `curl -X POST ${apiBase}/api/enforce \\
   -H "Authorization: Bearer ${tokenPrefix}..." \\
   -H "Content-Type: application/json" \\
   -d '{
@@ -694,7 +695,7 @@ const AGENT_ID = "${firstAgentId}";
 
 async function enforce(tool, action, params) {
   const { data } = await axios.post(
-    "https://api.arceo.io/api/enforce",
+    "${apiBase}/api/enforce",
     { agent_id: AGENT_ID, tool, action, params },
     { headers: { Authorization: \`Bearer \${ARCEO_TOKEN}\` } }
   );

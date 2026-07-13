@@ -3,6 +3,19 @@ import type { User } from "./types";
 const API_BASE: string =
   (import.meta as ImportMeta & { env: Record<string, string> }).env.VITE_API_URL ?? "";
 
+/** Absolute base URL of THIS Arceo instance's API, for copy-paste integration
+ *  snippets (enforce/proxy/SDK). Uses VITE_API_URL when configured, else the
+ *  current origin — the SPA calls the backend same-origin by default. There is
+ *  no hosted Arceo, so snippets must show the user's own instance, never a
+ *  fabricated host like api.arceo.io. */
+export function apiBaseUrl(): string {
+  if (API_BASE) return API_BASE.replace(/\/+$/, "");
+  if (typeof window !== "undefined" && window.location?.origin) {
+    return window.location.origin;
+  }
+  return "http://localhost:8000";
+}
+
 let authToken: string | null = localStorage.getItem("arceo_token");
 
 export interface ApiFetchOptions extends RequestInit {

@@ -72,13 +72,19 @@ The canonical CLAUDE.md lives at the repo root on `dev` (added 2026-07-07). The 
 
 ## Running locally
 
+Arceo needs **Postgres and Redis** (both hard dependencies — no SQLite/in-memory fallback anymore). Bring them up first with the dev compose, then run the app from a venv:
+
 ```bash
+# Postgres + Redis (dev services; credentials match conftest + CI)
+docker compose up -d                              # docker-compose.yml → postgres:5432, redis:6379
+
 # Backend (port 8000)
 cd backend
 pip install -r requirements.txt
-echo "ANTHROPIC_API_KEY=sk-ant-..." > .env       # required for LLM classification + simulation
-echo "JWT_SECRET=$(openssl rand -hex 32)" >> .env # don't ship default secret
-python3 -m uvicorn main:app --reload --port 8000
+echo "ANTHROPIC_API_KEY=sk-ant-..." > .env        # required for LLM classification + simulation
+echo "JWT_SECRET=$(openssl rand -hex 32)" >> .env  # don't ship default secret
+# DATABASE_URL / REDIS_URL default to the compose services above; override in .env for anything else.
+python3 -m uvicorn main:app --reload --port 8000   # runs Alembic migrations on startup
 
 # Frontend (port 5173)
 cd frontend
@@ -91,7 +97,14 @@ npm install
 npm run dev
 ```
 
-Or the whole product as one container: `docker build -t arceo . && docker run -p 8000:8000 -v arceo-data:/data -e ANTHROPIC_API_KEY=... -e JWT_SECRET=... arceo` (backend serves the built SPA from `backend/static/`).
+Or the whole product with one command (app + Postgres + Redis) via the blessed pilot compose:
+
+```bash
+ANTHROPIC_API_KEY=sk-ant-...  JWT_SECRET=$(openssl rand -hex 32) \
+  docker compose -f docker-compose.pilot.yml up -d --build
+```
+
+The bare `Dockerfile` builds only the app container (backend + built SPA from `backend/static/`); it still needs a reachable `DATABASE_URL` **and** `REDIS_URL` supplied by you — it is not self-contained. See Deployment below.
 
 The website proxies API calls via `next.config.ts` rewrite: `/api/backend/*` → `${BACKEND_URL ?? "http://localhost:8000"}/api/*`. The frontend talks to the backend directly.
 
@@ -201,14 +214,18 @@ All endpoints under `/api/*` require a Bearer JWT in `Authorization` unless flag
 - `POST /mock/session` / `ANY /mock/{tool}/{action}` / `GET /mock/session/{session_id}/trace` / `GET /mock/sessions` / `GET /mock/available`
 
 ### Health + meta
-- `GET /api/health` — Returns OK
+- `GET /api/health` — **Readiness probe**: pings Redis + Postgres, returns `{status, checks}` with 200 when both are reachable, **503** when either is down (so a misconfigured deploy surfaces as unhealthy instead of green-but-broken)
 - `GET /api/demo-mode` — Whether DEMO_MODE env var is set
 
 ---
 
-## SQLite schema
+## Database (PostgreSQL)
 
-Single file: `backend/actiongate.db` (or `ARCEO_DB_PATH` — set it to a persistent volume in any real deploy). Schema defined inline in `backend/db.py:init_db()` via `executescript()` + `CREATE TABLE IF NOT EXISTS`. No ORM, raw `sqlite3`. Foreign keys enabled. **17 tables**:
+**Postgres, not SQLite** (the SQLite era is over — the cutover added RLS multi-tenancy, an append-only audit hash chain, and a Redis dependency; SQLite is no longer a fallback). Connection via `DATABASE_URL` (the app refuses to boot on known prod platforms without it). Schema is managed by **Alembic migrations** in `backend/alembic/versions/` — `init_db()` runs `alembic upgrade head` on startup. Access is raw `psycopg` (dict rows), no ORM in the request path. Row-Level Security (`FORCE RLS`, per-org policies) enforces tenant isolation at the DB layer; see `SECURITY_DESIGN.md`.
+
+Redis (`REDIS_URL`) is a separate hard dependency (see `backend/shared_state.py`): cross-worker rate limiting, live-trace pub/sub fan-out, and snapshot-scheduler leader-election. No in-memory fallback — every `/api/*` request rate-limits through it.
+
+The historical SQLite path name (`actiongate.db`) survives only in the LLM-classification cache, `backend/llm_cache.db` (still SQLite, deliberately separate from the app DB; `ARCEO_LLM_CACHE_PATH`). **~18 core tables** (Alembic head — check `backend/alembic/versions/`):
 
 | Table | Purpose |
 |---|---|
@@ -229,10 +246,11 @@ Single file: `backend/actiongate.db` (or `ARCEO_DB_PATH` — set it to a persist
 | `forecast_snapshots` | Periodic forecast snapshots (via `jobs/snapshot_forecasts.py`) → vs-last-time deltas |
 | `cost_overrides` | Per-org cost/rate overrides (scope, key, sub_key, value) |
 | `agent_budgets` | Per-agent budget caps |
+| `invoice_imports` | Imported provider invoices for reconciliation (Tier 2) |
 
-A second file, `backend/llm_cache.db`, persists the LLM risk-classification cache (`llm_classifications`) — deliberately separate from the app DB.
+Plus supporting tables from later migrations (pending approval requests, provider credential vault). `agents.is_demo` marks demo-seeded rows; `execution_log.had_session_context` records whether an enforcement decision carried chain-policy context (feeds the "inert chain policy" dashboard warning). `backend/llm_cache.db` (still SQLite) persists the LLM risk-classification cache (`llm_classifications`), deliberately separate from the app DB.
 
-Default org + `admin@actiongate.io` user seeded on first boot if tables empty (`db.py:217`).
+Default org + `admin@actiongate.io` user seeded on first boot if tables empty.
 
 ---
 
@@ -460,9 +478,9 @@ The brain owns the canonical Now/Next/Later. This is a Claude-facing summary; if
 
 - API client: `import { apiFetch } from "@/lib/api"` (auto Bearer token)
 - Toasts: `import { toast } from "@/components/shared/Toast"` — `toast(msg)` or `toast(msg, "error")`
-- All SQL: parameterized (`?` placeholders), never string interpolation
-- Multi-tenant: every query scoped by `org_id`
-- Tests: `cd backend && pytest` (CI runs via `.github/workflows/tests.yml`; conftest isolates the DB via `ARCEO_DB_PATH` and stubs the LLM)
+- All SQL: parameterized (`%s` placeholders — psycopg), never string interpolation
+- Multi-tenant: every query scoped by `org_id`, backed by Postgres Row-Level Security
+- Tests: `cd backend && pytest` (needs Postgres + Redis up — `docker compose up -d`; CI runs via `.github/workflows/tests.yml`; conftest provisions a scratch Postgres DB via `DATABASE_URL`, uses Redis DB 15, and stubs the LLM)
 - Commits on dev: be lean
 
 ---
@@ -471,10 +489,16 @@ The brain owns the canonical Now/Next/Later. This is a Claude-facing summary; if
 
 **There is currently NO hosted instance of Arceo anywhere** — no Railway, no staging, nothing (verified 2026-07-07; earlier versions of this file described a Railway setup that never existed on current branches). The only running Arceo is the local dev/campaign server.
 
-- **Container build:** root `Dockerfile` (PR #27, 2026-07-07) — multi-stage: node builds the SPA into `backend/static/` (main.py serves it, traversal-safe), `python:3.11-slim` runs uvicorn on :8000 as a non-root user. `.dockerignore` keeps `.env` and `*.db` out of the image.
-- **Run:** `docker run -p 8000:8000 -v arceo-data:/data -e ANTHROPIC_API_KEY=... -e JWT_SECRET=... arceo` — SQLite lives at `ARCEO_DB_PATH=/data/actiongate.db`; skip the volume and all data dies with the container. Suited to running in a customer's VPC (the pilot pitch).
-- **Healthcheck:** `GET /api/health`
-- **Env vars:** `ANTHROPIC_API_KEY` (required), `JWT_SECRET` (required for prod), `ARCEO_DB_PATH`, `GITHUB_TOKEN` (optional, raises GitHub scan limit from 60/hr to 5000/hr), `BACKEND_URL` (website), `DEMO_MODE` (demo instances must set it — see Demo login), `CORS_ORIGINS`
+**Arceo is a 3-service deploy, not a single container** (since the Postgres/Redis cutover): the app container + PostgreSQL 15+ + Redis 7. Both are hard dependencies with no fallback — every `/api/*` request hits both.
+
+- **Blessed pilot deploy:** `docker-compose.pilot.yml` — one command boots all three, wired together, with named volumes for durability. This is the recipe to hand a pilot; `docker run` on the bare image alone will NOT work (it has no DB/Redis).
+  ```bash
+  ANTHROPIC_API_KEY=sk-ant-...  JWT_SECRET=$(openssl rand -hex 32) \
+    docker compose -f docker-compose.pilot.yml up -d --build
+  ```
+- **Container build:** root `Dockerfile` — multi-stage: node builds the SPA into `backend/static/` (main.py serves it, traversal-safe), `python:3.11-slim` runs uvicorn on :8000 as a non-root user. Builds the **app only**; you supply `DATABASE_URL` + `REDIS_URL` pointing at reachable services. `.dockerignore` keeps `.env` and `*.db` out of the image.
+- **Healthcheck:** `GET /api/health` — a readiness probe that 503s when Redis or Postgres is unreachable (so a bad `REDIS_URL`/`DATABASE_URL` shows as an unhealthy container, not a green one whose API 500s).
+- **Env vars:** `ANTHROPIC_API_KEY` (required), `JWT_SECRET` (required for prod), `DATABASE_URL` (**required** — Postgres; app refuses to boot on prod platforms without it), `REDIS_URL` (**required** — Redis; all API traffic 500s without it), `ARCEO_LLM_CACHE_PATH` (optional — the separate SQLite classification cache), `GITHUB_TOKEN` (optional, raises GitHub scan limit from 60/hr to 5000/hr), `BACKEND_URL` (website), `DEMO_MODE` (demo instances must set it — see Demo login), `CORS_ORIGINS`
 
 ---
 

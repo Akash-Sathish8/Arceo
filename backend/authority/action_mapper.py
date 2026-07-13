@@ -19,6 +19,19 @@ RISK_LABELS = {
     "executes_code": "Runs arbitrary code, shell commands, or SQL",
 }
 
+# The labels that make an action "dangerous" for resilience/coverage scoring
+# (red team, boundary tester, trace replay). Every risk label EXCEPT touches_pii —
+# touching PII is sensitive but, on its own, an expected part of many benign
+# agents' jobs, so counting it here would swamp the danger signal with noise
+# (exfil-shaped PII flows are caught by chain rules, not this flat set).
+# Single source of truth: keeping three private copies in sync is what let the
+# red-team set silently fall behind at 4 of 9 labels.
+DANGEROUS_LABELS = frozenset({
+    "moves_money", "deletes_data", "sends_external", "changes_production",
+    "changes_access", "reads_secrets", "evades_detection", "bulk_export",
+    "executes_code",
+})
+
 
 @dataclass
 class MappedAction:

@@ -23,14 +23,22 @@ DEFAULT_BASE_URL = os.getenv("ARCEO_BASE_URL", "http://localhost:8000")
 DEFAULT_API_KEY = os.getenv("ARCEO_API_KEY", "")
 
 
-def _post_async(url: str, payload: dict, timeout: float = 5.0) -> None:
-    """Fire-and-forget POST in a daemon thread. Never raises into the caller."""
+def _post_async(url: str, payload: dict, timeout: float = 5.0, api_key: Optional[str] = None) -> None:
+    """Fire-and-forget POST in a daemon thread. Never raises into the caller.
+
+    The capture endpoint (/api/agent/{id}/llm-call) requires a valid X-API-Key
+    scoped to the agent's org — without one it 401s and, since capture is
+    best-effort, the call is silently dropped and NOTHING is recorded. Supply the
+    key explicitly (api_key=) or via the ARCEO_API_KEY env var.
+    """
+    key = api_key or DEFAULT_API_KEY
+
     def _run() -> None:
         try:
             data = json.dumps(payload).encode("utf-8")
             headers = {"Content-Type": "application/json"}
-            if DEFAULT_API_KEY:
-                headers["X-API-Key"] = DEFAULT_API_KEY
+            if key:
+                headers["X-API-Key"] = key
             req = urllib.request.Request(
                 url, data=data, headers=headers, method="POST"
             )
@@ -99,8 +107,13 @@ def report_llm_call(
     temperature: Optional[float] = None,
     latency_ms: float = 0,
     capture_prompts: bool = False,
+    api_key: Optional[str] = None,
 ) -> None:
-    """Report one captured LLM call to Arceo (async, best-effort)."""
+    """Report one captured LLM call to Arceo (async, best-effort).
+
+    api_key is the Arceo X-API-Key the capture endpoint requires (falls back to
+    the ARCEO_API_KEY env var). Without a valid key the endpoint 401s and the
+    call is silently dropped — capture is best-effort by design."""
     usage = _usage_dict(response)
     resp_payload: dict = {}
     if usage:
@@ -125,7 +138,7 @@ def report_llm_call(
         "latency_ms": int(latency_ms),
         "response": resp_payload,
     }
-    _post_async(base_url.rstrip("/") + f"/api/agent/{agent_id}/llm-call", payload)
+    _post_async(base_url.rstrip("/") + f"/api/agent/{agent_id}/llm-call", payload, api_key=api_key)
 
 
 def _get(obj: Any, key: str, default=None):
@@ -250,7 +263,8 @@ class _CapturingStream:
 
 
 def _wrap_stream(resp: Any, provider: str, agent_id: str, base_url: str,
-                 kwargs: dict, t0: float, capture_prompts: bool) -> Any:
+                 kwargs: dict, t0: float, capture_prompts: bool,
+                 api_key: Optional[str] = None) -> Any:
     """Return a proxy stream that reports usage once the caller finishes consuming
     it. Falls back to the raw stream if anything goes wrong (never breaks it)."""
     acc: dict = {"id": None, "model": None, "usage": {}}
@@ -275,6 +289,7 @@ def _wrap_stream(resp: Any, provider: str, agent_id: str, base_url: str,
             temperature=kwargs.get("temperature"),
             latency_ms=(time.time() - t0) * 1000,
             capture_prompts=capture_prompts,
+            api_key=api_key,
         )
 
     return _CapturingStream(resp, on_item, on_done)
@@ -300,14 +315,20 @@ def wrap_llm(
     base_url: str = DEFAULT_BASE_URL,
     provider: Optional[str] = None,
     capture_prompts: bool = False,
+    api_key: Optional[str] = None,
 ) -> Any:
     """Wrap an Anthropic or OpenAI client so each completion is reported to Arceo.
 
-        client = wrap_llm(Anthropic(), "my-agent-id")
+        client = wrap_llm(Anthropic(), "my-agent-id", api_key="ag_...")
         client.messages.create(...)   # captured automatically
 
     Returns the same client (its create method is patched in place). Capture is
     async + best-effort: it never alters the response and never raises.
+
+    api_key is the Arceo X-API-Key the capture endpoint requires (mint one at
+    /api/keys or Settings → API keys; falls back to the ARCEO_API_KEY env var).
+    WITHOUT a valid key the endpoint 401s and — because capture is best-effort —
+    nothing is recorded and your forecast never leaves the low-confidence tier.
 
     Streaming calls (stream=True) are captured too: the returned stream is wrapped
     in a transparent proxy that reports usage once you finish consuming it. For
@@ -331,7 +352,7 @@ def wrap_llm(
         resp = original(*args, **kwargs)
         if kwargs.get("stream"):
             try:
-                return _wrap_stream(resp, provider, agent_id, base_url, kwargs, t0, capture_prompts)
+                return _wrap_stream(resp, provider, agent_id, base_url, kwargs, t0, capture_prompts, api_key)
             except Exception:
                 return resp  # never break the stream
         try:
@@ -348,6 +369,7 @@ def wrap_llm(
                 temperature=kwargs.get("temperature"),
                 latency_ms=(time.time() - t0) * 1000,
                 capture_prompts=capture_prompts,
+                api_key=api_key,
             )
         except Exception:
             pass  # capture must never affect the real call

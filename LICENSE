@@ -1,0 +1,42 @@
+Arceo — Proprietary Software License
+Copyright (c) 2026 Arceo. All rights reserved.
+
+This software and its source code (the "Software") are proprietary and
+confidential. They are the exclusive property of Arceo and its licensors.
+
+1. GRANT. No license or right to use, copy, modify, merge, publish, distribute,
+   sublicense, or sell copies of the Software is granted by this file. Any such
+   right must be granted in a separate written agreement signed by Arceo (for
+   example, a pilot, evaluation, or commercial subscription agreement — see
+   legal/PILOT_AGREEMENT_TEMPLATE.md for a starting point). Absent such an
+   agreement, you may not use the Software.
+
+2. EVALUATION / PILOT USE. Where Arceo has provided the Software to you under a
+   written pilot or evaluation agreement, your use is limited to the scope,
+   term, and conditions of that agreement. All terms of that agreement control
+   over this file to the extent of any conflict.
+
+3. RESTRICTIONS. You may not (a) reverse engineer, decompile, or disassemble the
+   Software except to the extent applicable law expressly permits; (b) remove or
+   alter any proprietary notices; or (c) use the Software to build a competing
+   product.
+
+4. CONFIDENTIALITY. The Software, including its architecture, risk models, and
+   scoring logic, is Arceo's confidential information and must not be disclosed
+   to third parties without Arceo's prior written consent.
+
+5. NO WARRANTY. THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+   EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+   MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, AND NONINFRINGEMENT.
+
+6. LIMITATION OF LIABILITY. IN NO EVENT SHALL ARCEO BE LIABLE FOR ANY CLAIM,
+   DAMAGES, OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT, OR
+   OTHERWISE, ARISING FROM, OUT OF, OR IN CONNECTION WITH THE SOFTWARE OR THE
+   USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+For licensing inquiries, contact Arceo.
+
+NOTE: This is a proprietary license placeholder committed so the repository is
+not left with an ambiguous, license-less status. It is NOT legal advice and has
+not been reviewed by counsel. Replace the licensor entity name and have a lawyer
+review before relying on it for a commercial engagement.

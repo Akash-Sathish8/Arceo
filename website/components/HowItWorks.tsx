@@ -88,7 +88,7 @@ const STEPS = [
       </svg>
     ),
     title: "Get the danger/cost report",
-    desc: "You get the monthly cost with a confidence range, the worst case in dollars if a risky chain fires, and a budget cap you can actually enforce. It's one report, written so a CFO can sign it.",
+    desc: "You get the monthly cost with a confidence range, the worst case in dollars if a risky chain fires, and a budget with spend alerts that flag an agent running hot before the bill lands. It's one report, written so a CFO can sign it.",
     mockup: (
       <div className="card" style={{ padding: "18px 20px" }}>
         <div style={{ fontSize: 10.5, fontWeight: 700, color: "#87786A", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 12 }}>Monthly forecast</div>

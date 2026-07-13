@@ -22,11 +22,22 @@ Wrap your client once. Every completion's token usage is reported to Arceo
 (async, best-effort — it never changes the response or raises). After ~50 calls
 in a 7-day window your forecast moves to its high-confidence (±15%) tier.
 
+Capture is **authenticated**: mint an API key (Settings → API keys, or
+`POST /api/keys`) and pass it as `api_key=` (or set `ARCEO_API_KEY`). Without a
+valid key the capture endpoint returns 401 and — because capture is best-effort
+— the call is silently dropped and nothing is recorded. `base_url` is *your*
+Arceo instance (default `http://localhost:8000`); there is no hosted Arceo, so
+point it at wherever you run the backend.
+
 ```python
 from anthropic import Anthropic
 from arceo import wrap_llm
 
-client = wrap_llm(Anthropic(), "your-agent-id", base_url="https://api.arceo.dev")
+client = wrap_llm(
+    Anthropic(), "your-agent-id",
+    base_url="http://localhost:8000",   # your Arceo instance
+    api_key="ag_...",                    # from Settings → API keys (or set ARCEO_API_KEY)
+)
 
 client.messages.create(
     model="claude-sonnet-4-6",
@@ -42,7 +53,7 @@ OpenAI works the same way:
 from openai import OpenAI
 from arceo import wrap_llm
 
-client = wrap_llm(OpenAI(), "your-agent-id")
+client = wrap_llm(OpenAI(), "your-agent-id", api_key="ag_...")
 client.chat.completions.create(model="gpt-4o", messages=[...])
 ```
 
@@ -92,6 +103,28 @@ else:  # BLOCK
     raise PermissionError(decision.get("reason"))
 ```
 
+### Chain policies (`requires_prior`)
+
+A policy can require that another action ran earlier this session before it
+allows a dangerous one (e.g. "refund only after a customer lookup"). These fire
+**only when the check carries the prior actions** — otherwise the condition is
+treated as unmet and the guarded action falls through. Use `ArceoClient`, which
+remembers each `ALLOW`ed action and replays them automatically:
+
+```python
+from arceo import ArceoClient
+
+arceo = ArceoClient(base_url="http://localhost:8000", token="<jwt>")
+arceo.enforce("your-agent-id", "stripe", "get_customer", {"id": "cus_1"})   # remembered
+arceo.enforce("your-agent-id", "stripe", "create_refund", {"amount": 500})  # sees the prior
+# arceo.reset_session()  # clear the tracked priors at a task boundary
+```
+
+Prefer the raw `enforce()`? Pass the priors yourself:
+`enforce(..., session_context=["stripe.get_customer"])`. If you author a
+`requires_prior` policy but your traffic never carries context, the agent's
+dashboard flags the policy as **inert** so the gap is visible.
+
 > **Breaking change in 0.2.0:** `enforce` now fails **closed** by default — if
 > Arceo is unreachable, the decision is `BLOCK` and the action must not run.
 > Opt out per call with `on_error="allow"`, or process-wide with
@@ -124,5 +157,13 @@ indefinitely by default (Arceo never expires a pending action); pass
 
 Set these in the environment to avoid passing them every call:
 
-- `ARCEO_BASE_URL` — your Arceo backend (default `http://localhost:8000`)
-- `ARCEO_TOKEN` — your Arceo JWT (for `enforce`; capture is unauthenticated)
+- `ARCEO_BASE_URL` — your Arceo backend (default `http://localhost:8000`). There
+  is no hosted Arceo; this is whatever host you run the backend on.
+- `ARCEO_API_KEY` — an Arceo X-API-Key (mint at Settings → API keys or
+  `POST /api/keys`). **Required for capture** — the `/api/agent/{id}/llm-call`
+  endpoint 401s without it and capture is silently dropped. Also accepted by
+  `enforce`.
+- `ARCEO_TOKEN` — your Arceo JWT, an alternative credential for `enforce`
+  (`enforce` accepts either a JWT or an X-API-Key).
+- `ARCEO_FAIL_MODE` — `block` (default) or `allow`; the process-wide fallback
+  when Arceo is unreachable during `enforce`.

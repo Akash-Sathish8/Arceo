@@ -48,8 +48,20 @@
   Arceo can score agent code on every push/PR. The composite action in `.github/actions/scan` sends changed files to `/api/scan`, which returns a verdict — **fail** on any critical chain or a blast radius over
   your threshold, **warn** within 20 points, else **pass** — and comments on the PR. See `.github/workflows/agent-security.yml`.
 
+  ## Run it
+
+  Arceo needs Postgres and Redis (both hard dependencies). The blessed pilot deploy boots all three — app + Postgres + Redis — with one command:
+
+  ```bash
+  ANTHROPIC_API_KEY=sk-ant-...  JWT_SECRET=$(openssl rand -hex 32) \
+    docker compose -f docker-compose.pilot.yml up -d --build
+  # → app on http://localhost:8000  (readiness: GET /api/health)
+  ```
+
+  For local development, run Postgres + Redis via `docker compose up -d` (the dev `docker-compose.yml`) and start the backend from a venv and the frontend with `npm run dev` — see `CLAUDE.md` for the full contributor flow.
+
   ## Tech stack
 
-  - **Backend:** FastAPI · SQLite · NetworkX · Anthropic SDK · PyJWT · bcrypt
+  - **Backend:** FastAPI · PostgreSQL (SQLAlchemy/Alembic migrations, RLS multi-tenancy) · Redis (cross-worker rate limiting + live-trace fan-out) · NetworkX · Anthropic SDK · PyJWT · bcrypt
   - **Frontend:** React 19 · Vite · TypeScript · Tailwind v4 · React Router · Zustand · @react-pdf/renderer
   - **Website:** Next.js 16 · React 19 · Tailwind v4

@@ -8,7 +8,10 @@ version = "0.4.0"
 description = "Arceo SDK — capture LLM calls for cost forecasting and enforce agent policies at runtime."
 readme = "README.md"
 requires-python = ">=3.8"
-license = { text = "Proprietary" }
+# Proprietary — full terms in the repo-root LICENSE. Use is granted only under a
+# separate written agreement with Arceo (see legal/PILOT_AGREEMENT_TEMPLATE.md).
+license = { text = "Proprietary — see LICENSE" }
+classifiers = ["License :: Other/Proprietary License"]
 authors = [{ name = "Arceo" }]
 keywords = ["llm", "agents", "cost", "forecasting", "governance", "anthropic", "openai"]
 dependencies = []   # stdlib only — sits alongside your anthropic/openai client

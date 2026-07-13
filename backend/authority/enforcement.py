@@ -59,11 +59,19 @@ def _evaluate_session_conditions(conditions: list[dict], session_context: list |
     CONTRACT: a session-conditioned policy only matches when the caller passes
     session_context. With no context (or an empty one) the requires_prior
     condition is treated as UNMET, so the policy does NOT apply — the guarded
-    action is decided by the remaining policies/default. Callers that enforce
-    session-gated policies MUST pass session_context (the prior actions this
-    session); the /proxy and sandbox executor do. This is deliberate: a policy
-    conditioned on a prior that did not happen should not fire, and we do not
-    over-gate every action just because a caller omitted context.
+    action is decided by the remaining policies/default. This is deliberate: a
+    policy conditioned on a prior that did not happen should not fire, and we do
+    not over-gate every action just because a caller omitted context.
+
+    Callers that enforce session-gated policies MUST pass session_context (the
+    prior actions this session). Who passes it today:
+      • /api/enforce            — from the request body's session_context
+      • the SDK (ArceoClient)   — tracks ALLOWed actions and sends them
+      • /proxy/{service}/{path} — derived from the agent's recent EXECUTED rows
+      • sandbox runner/executor, red team, boundary tester, trace replay
+    A caller that omits it turns requires_prior policies inert — see
+    _recent_session_context (main.py) for the proxy's derivation, and the
+    dashboard "inert chain policy" warning that surfaces the gap to operators.
     """
     if not session_context:
         return False  # has session conditions but no/empty context — condition unmet
@@ -261,8 +269,11 @@ def match_policy(action_key: str, policies: list, params: dict | None = None, se
 
 # ── Notification ──────────────────────────────────────────────────────────────
 
-def fire_block_notification(agent_id: str, tool: str, action: str, reason: str):
-    """Fire Slack webhook when an action is blocked. Never raises — notification failures must not break enforcement."""
+def _fire_enforcement_notification(agent_id: str, tool: str, action: str, reason: str,
+                                   *, kind: str, dedup_prefix: str, text: str):
+    """Shared Slack-webhook sender for enforcement events. Never raises —
+    notification failures must not break enforcement. Gated on the workspace's
+    notify_on_block toggle + a configured webhook, and deduped across workers."""
     try:
         from db import get_db
         with get_db() as conn:
@@ -274,31 +285,47 @@ def fire_block_notification(agent_id: str, tool: str, action: str, reason: str):
         slack_url = row["slack_webhook_url"] or ""
         if not slack_url:
             return
-        # Cross-worker dedup: the same BLOCK evaluated on two workers should
-        # send ONE Slack message, not two. Short TTL so a genuinely repeated
-        # block later still alerts. Best-effort — if Redis is unreachable the
+        # Cross-worker dedup: the same event evaluated on two workers should send
+        # ONE Slack message, not two. Short TTL so a genuinely repeated event
+        # later still alerts. Best-effort — if Redis is unreachable the
         # notification still fires (worse to go silent than to double-send).
         try:
             import shared_state
-            if not shared_state.should_fire_once(f"block:{org_id}:{agent_id}:{tool}:{action}", 60):
+            if not shared_state.should_fire_once(f"{dedup_prefix}:{org_id}:{agent_id}:{tool}:{action}", 60):
                 return
         except Exception:
             pass
         import httpx
-        payload = {
-            "blocks": [
-                {
-                    "type": "section",
-                    "text": {
-                        "type": "mrkdwn",
-                        "text": f":shield: *Arceo blocked an action*\n*Agent:* `{agent_id}`\n*Action:* `{tool}.{action}`\n*Reason:* {reason or 'Policy match'}",
-                    },
-                }
-            ]
-        }
-        httpx.post(slack_url, json=payload, timeout=4)
+        httpx.post(slack_url, json={"blocks": [{"type": "section",
+                   "text": {"type": "mrkdwn", "text": text}}]}, timeout=4)
     except Exception:
         pass  # Never let notification failures break enforcement
+
+
+def fire_block_notification(agent_id: str, tool: str, action: str, reason: str):
+    """Fire Slack webhook when an action is blocked."""
+    _fire_enforcement_notification(
+        agent_id, tool, action, reason, kind="blocked", dedup_prefix="block",
+        text=f":shield: *Arceo blocked an action*\n*Agent:* `{agent_id}`\n"
+             f"*Action:* `{tool}.{action}`\n*Reason:* {reason or 'Policy match'}",
+    )
+
+
+def fire_approval_notification(agent_id: str, tool: str, action: str, reason: str):
+    """Fire Slack webhook when an action is held for human approval.
+
+    A REQUIRE_APPROVAL gate blocks the agent until a human decides. Without this,
+    a pending approval sat silently until someone happened to open the dashboard
+    — an unbounded stall (a production agent gated at 2am waits until morning).
+    Reuses the same webhook + notify_on_block toggle as blocks: a pending
+    approval is more urgent than a block, so anyone who wants block alerts wants
+    these too."""
+    _fire_enforcement_notification(
+        agent_id, tool, action, reason, kind="pending", dedup_prefix="approval",
+        text=f":hourglass_flowing_sand: *Arceo needs an approval*\n*Agent:* `{agent_id}`\n"
+             f"*Action:* `{tool}.{action}`\n*Reason:* {reason or 'Policy match'}\n"
+             f"Review it in the Arceo approvals queue.",
+    )
 
 
 # ── Enforcement Decision ──────────────────────────────────────────────────────
@@ -410,10 +437,13 @@ def enforce_check(agent_id: str, tool: str, action: str, params: dict = None, se
         execution_id = log_execution(conn, agent_id, tool, action, status,
                       policy_id=matched_policy["id"] if matched_policy else None,
                       detail=detail,
-                      org_id=agent_org, params=params, source=source)
+                      org_id=agent_org, params=params, source=source,
+                      had_session_context=bool(session_context))
 
         if status == "BLOCKED":
             fire_block_notification(agent_id, tool, action, detail)
+        elif status == "PENDING_APPROVAL":
+            fire_approval_notification(agent_id, tool, action, detail)
 
         if matched_policy:
             message = detail if unevaluable else matched_policy["reason"]

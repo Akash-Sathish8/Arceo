@@ -5,7 +5,7 @@ import {
   Bot, Headphones, Terminal, BarChart2, Settings2,
   AlertTriangle, Plus, X, ChevronRight, Info, Search, Upload,
 } from 'lucide-react'
-import { apiFetch, getUser } from '@/lib/api'
+import { apiFetch, getUser, apiBaseUrl } from '@/lib/api'
 import { scoreBand, riskLabelName } from '@/lib/utils'
 import { fetchBatchSpendForecasts } from '@/lib/spendApi'
 import type { MockSpend } from '@/lib/mockSpend'
@@ -997,9 +997,9 @@ export default function Authority() {
 
               <div className="bg-gray-900 text-gray-100 rounded-lg p-4 font-mono text-[12px] leading-relaxed overflow-x-auto">
                 <div className="text-gray-500"># Anthropic SDK (Python / JS / any language)</div>
-                <div>export ANTHROPIC_BASE_URL=<span className="text-amber-300">"https://api.arceo.io/proxy/llm/anthropic"</span></div>
+                <div>export ANTHROPIC_BASE_URL=<span className="text-amber-300">{`"${apiBaseUrl()}/proxy/llm/anthropic"`}</span></div>
                 <div className="mt-3 text-gray-500"># OpenAI SDK</div>
-                <div>export OPENAI_BASE_URL=<span className="text-amber-300">"https://api.arceo.io/proxy/llm/openai"</span></div>
+                <div>export OPENAI_BASE_URL=<span className="text-amber-300">{`"${apiBaseUrl()}/proxy/llm/openai"`}</span></div>
                 <div className="mt-3 text-gray-500"># Default header (set in your shared client config)</div>
                 <div>X-Agent-ID: <span className="text-amber-300">"{proxyName || '<your-agent-name>'}"</span></div>
                 <div className="mt-3 text-gray-500"># That's it. No SDK install, no code change. Restart your service —</div>
@@ -1013,7 +1013,8 @@ export default function Authority() {
                   variant="secondary"
                   onClick={() => {
                     const name = proxyName.trim() || '<your-agent-name>'
-                    const snippet = `export ANTHROPIC_BASE_URL="https://api.arceo.io/proxy/llm/anthropic"\nexport OPENAI_BASE_URL="https://api.arceo.io/proxy/llm/openai"\n# Set on every outbound request from your agent:\n#   X-Agent-ID: ${name}\n`
+                    const base = apiBaseUrl()
+                    const snippet = `export ANTHROPIC_BASE_URL="${base}/proxy/llm/anthropic"\nexport OPENAI_BASE_URL="${base}/proxy/llm/openai"\n# Set on every outbound request from your agent:\n#   X-Agent-ID: ${name}\n`
                     navigator.clipboard.writeText(snippet)
                     toast('Proxy config copied')
                   }}
@@ -1023,7 +1024,7 @@ export default function Authority() {
               </div>
 
               <div className="text-xs text-gray-500 leading-relaxed">
-                <strong>For 50 agents:</strong> set the env vars once in your shared infrastructure config (Helm chart, base Terraform module, ECS task family). Whole fleet onboarded in one PR. No per-agent code change. Replace <code className="text-[11px] bg-gray-100 px-1 rounded">api.arceo.io</code> with your tenant's endpoint (shown on the Settings page once you sign in).
+                <strong>For 50 agents:</strong> set the env vars once in your shared infrastructure config (Helm chart, base Terraform module, ECS task family). Whole fleet onboarded in one PR. No per-agent code change. These URLs already point at your instance (<code className="text-[11px] bg-gray-100 px-1 rounded">{apiBaseUrl()}</code>).
               </div>
             </div>
           )}

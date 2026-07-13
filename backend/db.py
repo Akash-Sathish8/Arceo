@@ -161,6 +161,7 @@ def get_agent_from_db(conn, agent_id: str, org_id: str = None) -> dict | None:
         "trigger_source": row["trigger_source"] if "trigger_source" in row.keys() else None,
         "human_in_loop": row["human_in_loop"] if "human_in_loop" in row.keys() else None,
         "default_effect": (row["default_effect"] if "default_effect" in row.keys() else None) or "ALLOW",
+        "is_demo": bool(row["is_demo"]) if "is_demo" in row.keys() else False,
         "created_at": row["created_at"],
         "updated_at": row["updated_at"],
         "tools": [],
@@ -274,14 +275,16 @@ def log_audit(conn, user_id: str | None, user_email: str | None, action: str, re
     )
 
 
-def log_execution(conn, agent_id: str, tool: str, action: str, status: str, policy_id: int = None, detail: str = None, org_id: str = DEFAULT_ORG_ID, params: dict = None, source: str = None) -> int:
+def log_execution(conn, agent_id: str, tool: str, action: str, status: str, policy_id: int = None, detail: str = None, org_id: str = DEFAULT_ORG_ID, params: dict = None, source: str = None, had_session_context: bool = None) -> int:
     """Write an execution log entry; returns the new row id.
 
     `params` (the action's arguments) are stored as JSON so the approvals queue
     can show reviewers WHAT they are approving, not just which action. `source`
     records where the call came from (runtime | sandbox | boundary_test |
     replay | report | test) so a reviewer can tell live agent traffic from
-    simulations and seeded data. The returned id lets a caller link a durable
+    simulations and seeded data. `had_session_context` records whether the
+    decision carried prior-action context (chain policies need it) — None when
+    the caller didn't say. The returned id lets a caller link a durable
     pending_requests row to the PENDING_APPROVAL execution row (Phase 4)."""
     # params are the action's arguments — actual customer data (amounts, ids,
     # recipients). Encrypt at rest via the shared seam when the flag is on; the
@@ -289,9 +292,9 @@ def log_execution(conn, agent_id: str, tool: str, action: str, status: str, poli
     import encryption
     params_pt, params_enc = encryption.split(json.dumps(params) if params else None)
     row = conn.execute(
-        "INSERT INTO execution_log (agent_id, tool, action, status, policy_id, detail, params, params_enc, source, org_id, timestamp) "
-        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
+        "INSERT INTO execution_log (agent_id, tool, action, status, policy_id, detail, params, params_enc, source, org_id, had_session_context, timestamp) "
+        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
         (agent_id, tool, action, status, policy_id, detail,
-         params_pt, params_enc, source, org_id, datetime.utcnow().isoformat()),
+         params_pt, params_enc, source, org_id, had_session_context, datetime.utcnow().isoformat()),
     ).fetchone()
     return row["id"]

@@ -231,6 +231,7 @@ def replay_traces(
     No external API calls — pure policy evaluation.
     """
     from authority.risk_classifier import classify_action
+    from authority.action_mapper import DANGEROUS_LABELS
 
     normalized = _normalize_traces(raw_traces)
     report = ReplayReport(agent_id=agent_id)
@@ -244,10 +245,7 @@ def replay_traces(
 
         # Classify risk
         labels, reversible = classify_action(action, "")
-        dangerous_labels = {"moves_money", "deletes_data", "sends_external", "changes_production",
-                            "changes_access", "reads_secrets", "evades_detection", "bulk_export",
-                            "executes_code"}
-        is_dangerous = bool(set(labels) & dangerous_labels)
+        is_dangerous = bool(set(labels) & DANGEROUS_LABELS)
 
         # Run through policy engine
         try:

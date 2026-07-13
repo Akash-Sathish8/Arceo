@@ -4,7 +4,7 @@ const FEATURES = [
   {
     tag: "Cost Forecasting",
     headline: "Know what it costs before the first invoice",
-    body: "Arceo works out each agent's monthly bill from its tools, model, and how much it runs. As real traces come in, the number tightens to within about 15%. Set a budget cap, and if spend starts heading past it, you hear about it. The figure comes back in plain English, ready for the CFO.",
+    body: "Arceo works out each agent's monthly bill from its tools, model, and how much it runs. As real traces come in, the number tightens to within about 15%. Set a budget, and if spend starts heading past it, you get an alert. The figure comes back in plain English, ready for the CFO.",
     mockup: (
       <div style={{
         background: "#0d1117",

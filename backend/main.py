@@ -722,6 +722,34 @@ async def _stream_upstream(method: str, url: str, headers: dict, content: bytes,
     return StreamingResponse(body_gen(), status_code=status, headers=resp_headers)
 
 
+def _recent_session_context(conn, agent_id: str, org_id: str, limit: int = 50) -> list[str]:
+    """Reconstruct 'prior actions this session' for stateless proxy traffic.
+
+    requires_prior chain policies need the list of tool.action strings the agent
+    already executed this session. The HTTP proxy has no session object, so we
+    approximate the session by the agent's most recent EXECUTED rows (this org,
+    newest first). This is what makes chain policies actually fire on live proxy
+    traffic instead of silently failing open — previously the proxy passed no
+    context at all, so every requires_prior policy was inert.
+
+    Approximation, stated honestly: without a session boundary on the wire this
+    is "recently executed by this agent", not "in this exact conversation". It
+    can over-match across back-to-back sessions; it never under-matches a real
+    prior. Callers that DO have a true session id (SDK) should send explicit
+    context instead.
+    """
+    try:
+        rows = conn.execute(
+            "SELECT tool, action FROM execution_log "
+            "WHERE agent_id = %s AND org_id = %s AND status = 'EXECUTED' "
+            "ORDER BY id DESC LIMIT %s",
+            (agent_id, org_id, limit),
+        ).fetchall()
+        return [f"{r['tool']}.{r['action']}" for r in rows]
+    except Exception:
+        return []
+
+
 @app.api_route("/proxy/{service}/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
 async def proxy_request(service: str, path: str, request: Request):
     """Transparent proxy — enforces policies then forwards to the real API.
@@ -765,10 +793,21 @@ async def proxy_request(service: str, path: str, request: Request):
         except (json.JSONDecodeError, UnicodeDecodeError):
             pass
 
+    # Derive session context so requires_prior chain policies fire on live proxy
+    # traffic (they can't without it — a requires_prior condition with no context
+    # is treated as unmet and the guarded action falls through to default ALLOW).
+    # Prefer an explicit X-Session-ID-scoped list if the caller sends one; else
+    # approximate the session from the agent's recent EXECUTED rows.
+    with get_db() as conn:
+        arow = conn.execute("SELECT org_id FROM agents WHERE id = %s", (agent_id,)).fetchone()
+        ctx_org = arow["org_id"] if arow else DEFAULT_ORG_ID
+        session_context = _recent_session_context(conn, agent_id, ctx_org)
+
     # Enforce policy using shared logic. safe_enforce_check never raises: an
     # exception mid-decision becomes a structured BLOCK (or ALLOW under the
     # ARCEO_FAIL_MODE=allow break-glass), so no error path executes an action.
-    result = safe_enforce_check(agent_id, service, action, params=params or None)
+    result = safe_enforce_check(agent_id, service, action, params=params or None,
+                                session_context=session_context or None)
     effect = result["decision"]
 
     if effect == "BLOCK":
@@ -1466,6 +1505,8 @@ def get_agent_detail(agent_id: str, user: dict = Depends(get_current_user)):
         sev_overrides = _fetch_breach_overrides(conn, _org(user))
         sim_evidence = _latest_sim_evidence(conn, agent_id, _org(user))
 
+        chain_policy_status = _chain_policy_status(conn, agent_id, _org(user), policies)
+
     config = _db_agent_to_config(agent)
     catalog = _db_agent_to_action_catalog(agent)
     graph = build_agent_graph(config, action_overrides=catalog)
@@ -1531,6 +1572,56 @@ def get_agent_detail(agent_id: str, user: dict = Depends(get_current_user)):
         "recommendations": recommendations,
         "policies": [_parse_policy(p) for p in policies],
         "executions": [encryption.hydrate(dict(e), "params") for e in executions],
+        "chain_policy_status": chain_policy_status,
+    }
+
+
+def _chain_policy_status(conn, agent_id: str, org_id: str, policies) -> dict:
+    """Whether this agent's requires_prior (chain) policies are actually being
+    exercised — or authored but inert because live traffic omits session context.
+
+    A requires_prior policy does nothing unless the caller supplies the prior
+    actions; without them the condition is unmet and the guarded action falls
+    through to default. We can only *warn* about this honestly by looking at
+    real decisions: how many recent runtime executions carried context vs not.
+    `likely_inert` is the operator-facing alarm: chain policies exist, there is
+    real runtime traffic, and none of it carried context — so the chain IP is
+    silently not firing.
+    """
+    chain_policies = []
+    for p in policies:
+        try:
+            conds = json.loads(p["conditions"]) if p["conditions"] else []
+        except (TypeError, json.JSONDecodeError):
+            conds = []
+        if isinstance(conds, list) and any(c.get("op") == "requires_prior" for c in conds):
+            chain_policies.append(p["id"])
+
+    if not chain_policies:
+        return {"has_chain_policies": False, "chain_policy_ids": [],
+                "recent_runtime_executions": 0, "recent_with_context": 0, "likely_inert": False}
+
+    # Look only at runtime (live) traffic — sandbox/replay rows would mask a real
+    # inert-in-production gap because the sandbox always supplies context.
+    row = conn.execute(
+        "SELECT COUNT(*) AS total, "
+        "COUNT(*) FILTER (WHERE had_session_context IS TRUE) AS with_ctx "
+        "FROM execution_log "
+        "WHERE agent_id = %s AND org_id = %s AND source = 'runtime' "
+        "AND timestamp > %s",
+        (agent_id, org_id, (datetime.utcnow() - timedelta(days=7)).isoformat()),
+    ).fetchone()
+    total = row["total"] or 0
+    with_ctx = row["with_ctx"] or 0
+
+    return {
+        "has_chain_policies": True,
+        "chain_policy_ids": chain_policies,
+        "recent_runtime_executions": total,
+        "recent_with_context": with_ctx,
+        # Fire only when there IS live traffic and none of it carried context —
+        # a brand-new agent with zero runtime rows is "unknown", not "inert".
+        "likely_inert": total > 0 and with_ctx == 0,
     }
 
 
@@ -6211,7 +6302,16 @@ async def call_mock_endpoint(tool: str, action: str, request: Request):
         logger.debug("Could not parse request body as JSON: %s", e)
         params = {}
 
-    # Step 1: Enforce check
+    # Step 1: Enforce check — full evaluation (params + chain conditions), same
+    # as live traffic. The mock session IS the session, so its prior ALLOWed
+    # steps are the requires_prior context. Without this the mock path skipped
+    # param + chain policies entirely (silent ALLOW) — a fail-open that hid
+    # exactly the chain violations the sandbox exists to surface.
+    session_context = [
+        f"{s['tool']}.{s['action']}"
+        for s in session["steps"]
+        if s.get("decision") == "ALLOW"
+    ]
     enforce_decision = "ALLOW"
     enforce_reason = ""
     try:
@@ -6221,13 +6321,27 @@ async def call_mock_endpoint(tool: str, action: str, request: Request):
             ).fetchall()
 
             action_key = f"{tool}.{action}"
-            matched = _match_policy(action_key, policies)
+            matched = _match_policy(action_key, policies,
+                                    params=params or None, session_context=session_context or None)
+            matched_policy_id = None
             if matched:
                 enforce_decision = matched["effect"]
-                enforce_reason = matched["reason"]
+                # match_policy fails an unevaluable policy closed (effect=BLOCK,
+                # unevaluable=True) and it may carry no "reason" — synthesize one.
+                if isinstance(matched, dict) and matched.get("unevaluable"):
+                    enforce_reason = "unevaluable policy — failing closed"
+                else:
+                    enforce_reason = matched["reason"]
+                    matched_policy_id = matched["id"]
 
             status = "BLOCKED" if enforce_decision == "BLOCK" else "PENDING_APPROVAL" if enforce_decision == "REQUIRE_APPROVAL" else "EXECUTED"
-            log_execution(conn, agent_id, tool, action, status, detail=enforce_reason or "Mock endpoint", source="sandbox")
+            # Log to the CALLER's org, never DEFAULT_ORG. The old call omitted
+            # org_id, so a pilot tenant's sandbox BLOCK/PENDING rows landed in
+            # 'default' — cross-tenant leakage into the wrong approvals queue.
+            log_execution(conn, agent_id, tool, action, status,
+                          policy_id=matched_policy_id, detail=enforce_reason or "Mock endpoint",
+                          org_id=caller_org, params=params or None, source="sandbox",
+                          had_session_context=bool(session_context))
     except Exception as e:
         logger.warning("Mock endpoint enforcement/logging error for %s.%s: %s", tool, action, e)
 
@@ -6383,9 +6497,29 @@ def revoke_api_key(key_id: str, user: dict = Depends(get_current_user)):
 
 # ── Health ──────────────────────────────────────────────────────────────────
 
+def _db_ping() -> bool:
+    """True if Postgres is reachable — a trivial round-trip."""
+    try:
+        with get_db() as conn:
+            conn.execute("SELECT 1")
+        return True
+    except Exception:
+        return False
+
+
 @app.get("/api/health")
 def health():
-    return {"status": "ok"}
+    """Readiness probe, not just liveness. Redis (every /api/* request rate-limits
+    through it) and Postgres both back every request, so a container that can't
+    reach them is NOT ready to serve — this returns 503 in that case. The old
+    unconditional 200 was why the Docker HEALTHCHECK went green while every real
+    API call 500'd on a missing REDIS_URL/DATABASE_URL."""
+    from fastapi.responses import JSONResponse
+
+    checks = {"redis": shared_state.ping(), "database": _db_ping()}
+    if all(checks.values()):
+        return {"status": "ok", "checks": checks}
+    return JSONResponse(status_code=503, content={"status": "degraded", "checks": checks})
 
 
 

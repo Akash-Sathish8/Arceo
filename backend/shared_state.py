@@ -29,6 +29,18 @@ def client() -> "redis.Redis":
     return _client
 
 
+def ping() -> bool:
+    """True if Redis is reachable. The readiness probe (/api/health) calls this:
+    Redis is a hard dependency — every /api/* request rate-limits through it —
+    so an instance that can't reach Redis is NOT ready, and the container's
+    HEALTHCHECK must reflect that instead of going green while every real API
+    call 500s."""
+    try:
+        return bool(_client.ping())
+    except Exception:
+        return False
+
+
 # ── Rate limiting: atomic sliding window ──────────────────────────────────────
 # One Lua script so the check-and-increment can't race between workers (the old
 # read-modify-write on a Python dict let two workers each admit the Nth request).

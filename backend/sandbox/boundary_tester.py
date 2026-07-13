@@ -93,10 +93,8 @@ def _check_policy(agent_id: str, tool: str, action: str, session_context: list =
 
 def _is_dangerous(labels: list[str]) -> bool:
     """Check if an action's labels indicate danger."""
-    dangerous_labels = {"moves_money", "deletes_data", "changes_production", "sends_external",
-                        "changes_access", "reads_secrets", "evades_detection", "bulk_export",
-                        "executes_code"}
-    return bool(set(labels) & dangerous_labels)
+    from authority.action_mapper import DANGEROUS_LABELS
+    return bool(set(labels) & DANGEROUS_LABELS)
 
 
 def _is_read_only(action_name: str) -> bool:

@@ -26,6 +26,11 @@ def _fleet_summary(conn, org_id: str) -> dict:
     agents = get_all_agents_from_db(conn, org_id=org_id)
     rows = []
     for a in agents:
+        # Never headline demo-seeded dollars in a CFO's inbox — the weekly digest
+        # is an unprompted, CFO-facing artifact, so fabricated demo agents must
+        # not inflate the projected fleet spend it reports.
+        if a.get("is_demo"):
+            continue
         try:
             f = forecast_spend(a, org_id=org_id, _skip_sensitivity=True)
             rows.append({"name": a["name"], "point": int(f.get("point", 0) or 0)})

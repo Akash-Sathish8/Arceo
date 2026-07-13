@@ -1,0 +1,76 @@
+# Arceo — blessed single-command pilot deploy (app + Postgres + Redis).
+#
+# Arceo is NOT a single container: the app needs Postgres AND Redis, both hard
+# dependencies (every /api/* request hits both, no in-memory fallback). This
+# file boots all three, wired together, for a pilot in a customer's own VPC.
+#
+# Run:
+#   ANTHROPIC_API_KEY=sk-ant-...  JWT_SECRET=$(openssl rand -hex 32) \
+#     docker compose -f docker-compose.pilot.yml up -d --build
+#
+# The two secrets above are the only required inputs; everything else has a
+# sane default below. Put them in a .env file next to this one instead of the
+# command line if you prefer (docker compose reads it automatically).
+#
+# Data lives in named volumes (arceo-pgdata, arceo-appdata) so it survives
+# `down`/`up`. To wipe everything: docker compose -f docker-compose.pilot.yml down -v
+#
+# (For local development + tests use docker-compose.yml instead — it runs only
+# Postgres + Redis and you run the app from a venv.)
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-arceo}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-arceo}
+      POSTGRES_DB: ${POSTGRES_DB:-arceo}
+    volumes:
+      - arceo-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-arceo} -d ${POSTGRES_DB:-arceo}"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    volumes:
+      - arceo-redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+    restart: unless-stopped
+
+  app:
+    build: .
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      # Wired to the two services above — do not point these at localhost.
+      DATABASE_URL: postgresql://${POSTGRES_USER:-arceo}:${POSTGRES_PASSWORD:-arceo}@postgres:5432/${POSTGRES_DB:-arceo}
+      REDIS_URL: redis://redis:6379/0
+      # Required — supply via shell env or a .env file next to this compose file.
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:?set ANTHROPIC_API_KEY}
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET (openssl rand -hex 32)}
+      # Optional.
+      ARCEO_ENV: ${ARCEO_ENV:-production}
+      CORS_ORIGINS: ${CORS_ORIGINS:-}
+      DEMO_MODE: ${DEMO_MODE:-}
+      ARCEO_LLM_CACHE_PATH: /data/llm_cache.db
+    ports:
+      - "${ARCEO_PORT:-8000}:8000"
+    volumes:
+      - arceo-appdata:/data
+    restart: unless-stopped
+
+volumes:
+  arceo-pgdata:
+  arceo-redisdata:
+  arceo-appdata:

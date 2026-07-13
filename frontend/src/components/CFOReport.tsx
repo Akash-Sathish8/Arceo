@@ -73,6 +73,20 @@ const styles = StyleSheet.create({
   numberLabel: { fontSize: 10, color: INK_MUTED },
   numberValue: { fontSize: 10, fontFamily: "Courier", color: INK },
   confidenceLine: { fontSize: 9, color: INK_MUTED, marginTop: 8, lineHeight: 1.5 },
+  disclosureRow: { flexDirection: "row", alignItems: "flex-start", marginTop: 2 },
+  disclosureBullet: { fontSize: 8, color: INK_DIM, width: 8 },
+  disclosureText: { flex: 1, fontSize: 8, color: INK_DIM, lineHeight: 1.5 },
+
+  // Demo-data banner
+  demoBanner: {
+    backgroundColor: WARN_BG,
+    borderLeftWidth: 3,
+    borderLeftColor: WARN,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    marginTop: 14,
+  },
+  demoBannerText: { fontSize: 8, fontWeight: 700, color: WARN, letterSpacing: 0.3, lineHeight: 1.4 },
   badge: {
     fontSize: 8,
     fontWeight: 700,
@@ -170,6 +184,15 @@ export function CFOReport({ data }: { data: CFOReportData }) {
           </View>
         </View>
 
+        {/* Demo-data banner — synthetic numbers must never pass as measured. */}
+        {data.isDemo && (
+          <View style={styles.demoBanner}>
+            <Text style={styles.demoBannerText}>
+              DEMO DATA — these figures are based on synthetic sample traffic for illustration, not measured production usage.
+            </Text>
+          </View>
+        )}
+
         {/* Agent intro */}
         <View style={styles.agentBlock}>
           <Text style={styles.agentLabel}>AGENT</Text>
@@ -199,6 +222,17 @@ export function CFOReport({ data }: { data: CFOReportData }) {
           </View>
 
           <Text style={styles.confidenceLine}>{data.confidenceLine}</Text>
+
+          {data.basisDisclosures.length > 0 && (
+            <View style={{ marginTop: 6 }}>
+              {data.basisDisclosures.map((d, i) => (
+                <View key={i} style={styles.disclosureRow}>
+                  <Text style={styles.disclosureBullet}>·</Text>
+                  <Text style={styles.disclosureText}>{d}</Text>
+                </View>
+              ))}
+            </View>
+          )}
         </View>
 
         {/* Where the money goes */}

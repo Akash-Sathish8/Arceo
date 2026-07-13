@@ -35,6 +35,7 @@ def enforce(
     action: str,
     params: Optional[dict] = None,
     *,
+    session_context: Optional[list] = None,
     token: Optional[str] = None,
     base_url: str = DEFAULT_BASE_URL,
     timeout: float = 8.0,
@@ -45,6 +46,13 @@ def enforce(
     Returns the decision dict, e.g. {"decision": "ALLOW"} /
     {"decision": "BLOCK", "reason": "..."} / {"decision": "REQUIRE_APPROVAL", ...}.
 
+    session_context is the list of tool.action strings this agent has already
+    executed this session, e.g. ["pagerduty.get_incident", "aws.list_instances"].
+    Chain policies (requires_prior conditions — Arceo's headline IP) can ONLY
+    fire when you pass it: a requires_prior policy with no context is treated as
+    unmet, so the guarded action falls through to the default. Track executed
+    actions yourself and pass them here, or use ArceoClient which does it for you.
+
     on_error controls behavior when Arceo is unreachable: "block" (default —
     fail closed; an unenforceable action does not run) or "allow" (don't halt
     the agent on an Arceo outage). Omitted, it falls back to the
@@ -53,6 +61,7 @@ def enforce(
     """
     body = json.dumps({
         "agent_id": agent_id, "tool": tool, "action": action, "params": params or {},
+        "session_context": session_context or [],
     }).encode("utf-8")
     headers = {"Content-Type": "application/json"}
     token = token or os.getenv("ARCEO_TOKEN")
@@ -96,6 +105,7 @@ def enforce_and_wait(
     action: str,
     params: Optional[dict] = None,
     *,
+    session_context: Optional[list] = None,
     token: Optional[str] = None,
     base_url: str = DEFAULT_BASE_URL,
     poll_interval: float = 2.0,
@@ -113,7 +123,8 @@ def enforce_and_wait(
     """
     import time
 
-    result = enforce(agent_id, tool, action, params, token=token, base_url=base_url, on_error=on_error)
+    result = enforce(agent_id, tool, action, params, session_context=session_context,
+                     token=token, base_url=base_url, on_error=on_error)
     if result.get("decision") != "REQUIRE_APPROVAL":
         return result
     execution_id = result.get("execution_id")
@@ -136,20 +147,44 @@ def enforce_and_wait(
 
 
 class ArceoClient:
-    """Convenience holder for base_url + token so you don't repeat them."""
+    """Convenience holder for base_url + token so you don't repeat them.
 
-    def __init__(self, base_url: str = DEFAULT_BASE_URL, token: Optional[str] = None):
+    Also tracks session context automatically: every action this client sees
+    ALLOWed is remembered and sent as session_context on subsequent enforce
+    calls, so chain policies (requires_prior) fire without you threading a list
+    through your code. Pass session_context= explicitly to override, or call
+    reset_session() at a task boundary. Set track_session=False to opt out.
+    """
+
+    def __init__(self, base_url: str = DEFAULT_BASE_URL, token: Optional[str] = None,
+                 *, track_session: bool = True):
         self.base_url = base_url
         self.token = token or os.getenv("ARCEO_TOKEN")
+        self.track_session = track_session
+        self._session_context: list = []
+
+    def reset_session(self) -> None:
+        """Clear the tracked prior-action list (call at a task/session boundary)."""
+        self._session_context = []
+
+    def _remember(self, tool: str, action: str, result: dict) -> None:
+        if self.track_session and result.get("decision") == "ALLOW":
+            self._session_context.append(f"{tool}.{action}")
 
     def enforce(self, agent_id: str, tool: str, action: str, params: Optional[dict] = None,
-                *, on_error: Optional[str] = None) -> dict:
-        return enforce(agent_id, tool, action, params,
-                       token=self.token, base_url=self.base_url, on_error=on_error)
+                *, session_context: Optional[list] = None, on_error: Optional[str] = None) -> dict:
+        ctx = session_context if session_context is not None else (self._session_context if self.track_session else None)
+        result = enforce(agent_id, tool, action, params, session_context=ctx,
+                         token=self.token, base_url=self.base_url, on_error=on_error)
+        self._remember(tool, action, result)
+        return result
 
     def enforce_and_wait(self, agent_id: str, tool: str, action: str, params: Optional[dict] = None,
-                         *, poll_interval: float = 2.0, max_wait: Optional[float] = None,
-                         on_error: Optional[str] = None) -> dict:
-        return enforce_and_wait(agent_id, tool, action, params, token=self.token,
-                                base_url=self.base_url, poll_interval=poll_interval,
-                                max_wait=max_wait, on_error=on_error)
+                         *, session_context: Optional[list] = None, poll_interval: float = 2.0,
+                         max_wait: Optional[float] = None, on_error: Optional[str] = None) -> dict:
+        ctx = session_context if session_context is not None else (self._session_context if self.track_session else None)
+        result = enforce_and_wait(agent_id, tool, action, params, session_context=ctx, token=self.token,
+                                  base_url=self.base_url, poll_interval=poll_interval,
+                                  max_wait=max_wait, on_error=on_error)
+        self._remember(tool, action, result)
+        return result

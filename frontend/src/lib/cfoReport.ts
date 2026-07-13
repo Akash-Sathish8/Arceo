@@ -79,6 +79,11 @@ export interface CFOReportData {
   // Recommendations
   recommendedActions: string[]
 
+  // Honesty disclosures the dashboard shows and the PDF used to drop —
+  // a CFO artifact must carry them or it overstates its own basis.
+  isDemo: boolean
+  basisDisclosures: string[]
+
   // Footer
   reviewBudgetCap: number
 }
@@ -167,15 +172,47 @@ function buildWhatItDoes(tools: string[]): string {
 
 // ── Confidence translation ──────────────────────────────────────────────────
 
-function buildConfidenceLine(tier: "low" | "medium" | "high"): string {
+// Confidence text must describe the SAME thresholds the forecaster actually
+// uses (spend_forecast.py): HIGH needs ~50 live calls across ≥3 active days —
+// NOT "seven days". The old hardcoded "seven or more days" overstated the basis
+// (a forecast graded HIGH on 3 days claimed a week of data it never had).
+function buildConfidenceLine(forecast: MockSpend): string {
+  const tier = forecast.confidence
+  const days = forecast.observedDays
   switch (tier) {
     case "low":
       return "Low — based only on the agent's setup. No test runs yet. Tightens once we run simulations."
     case "medium":
-      return "Moderate — based on simulated test conversations. Tightens to high confidence after seven days of live production usage."
+      if (forecast.confidenceCap === "single_day_burst") {
+        return "Moderate — there is live traffic, but so far it lands in fewer than 3 active days, so the tighter band isn't justified yet. It tightens as usage spreads across more days."
+      }
+      return "Moderate — based on simulated test conversations. Tightens to high confidence after ~50 live calls spread across at least 3 active days."
     case "high":
-      return "High — based on seven or more days of live production data."
+      return days != null
+        ? `High — based on ${days} day${days === 1 ? "" : "s"} of live production data (50+ calls across at least 3 active days).`
+        : "High — based on live production data (50+ calls across at least 3 active days)."
   }
+}
+
+// Pull the honesty disclosures the dashboard shows (demo, model/tool coverage,
+// burst guard) so the PDF carries them instead of silently dropping them.
+function buildBasisDisclosures(forecast: MockSpend): string[] {
+  const out: string[] = []
+  const cov = forecast.coverage
+  if (cov) {
+    if (cov.modelRecognized === false) {
+      out.push("The agent's model isn't in our price list, so token costs are an estimate and confidence is capped.")
+    } else if (cov.modelMatch === "family") {
+      out.push("Token price is inferred from a related model, so treat the per-token cost as approximate.")
+    }
+    if (typeof cov.toolsPriced === "number" && typeof cov.toolsTotal === "number" && cov.toolsPriced < cov.toolsTotal) {
+      out.push(`Priced ${cov.toolsPriced} of ${cov.toolsTotal} tools; costs for unpriced tools are not reflected in the figures above.`)
+    }
+  }
+  if (forecast.confidenceCap === "single_day_burst") {
+    out.push("Live traffic so far spans fewer than 3 active days, so the range is intentionally wide until usage spreads out.")
+  }
+  return out
 }
 
 function confidenceBadge(tier: "low" | "medium" | "high"): { label: string; tone: "low" | "medium" | "high" } {
@@ -324,7 +361,7 @@ export function buildCFOReportData(args: {
     monthlyLow: forecast.low,
     monthlyHigh: forecast.high,
     annual: forecast.annual,
-    confidenceLine: buildConfidenceLine(forecast.confidence),
+    confidenceLine: buildConfidenceLine(forecast),
     confidenceBadge: confidenceBadge(forecast.confidence),
 
     composition,
@@ -342,6 +379,8 @@ export function buildCFOReportData(args: {
     riskAssumptions: costReport?.assumptions ?? [],
 
     recommendedActions: generateRecommendations(forecast, costReport, budgetCap),
+    isDemo: Boolean(forecast.isDemo),
+    basisDisclosures: buildBasisDisclosures(forecast),
     reviewBudgetCap: budgetCap,
   }
 }

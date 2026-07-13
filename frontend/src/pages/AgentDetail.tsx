@@ -13,7 +13,7 @@ import {
   Plus,
   MoreHorizontal,
 } from 'lucide-react'
-import { apiFetch, getToken } from '@/lib/api'
+import { apiFetch, getToken, apiBaseUrl } from '@/lib/api'
 import { toast } from '@/components/shared/Toast'
 import { bandDescription, scoreBand, scoreToColor } from '@/lib/utils'
 import Tooltip from '@/components/shared/Tooltip'
@@ -145,6 +145,14 @@ interface Execution {
   detail?: string
 }
 
+interface ChainPolicyStatus {
+  has_chain_policies: boolean
+  chain_policy_ids: number[]
+  recent_runtime_executions: number
+  recent_with_context: number
+  likely_inert: boolean
+}
+
 interface AgentDetailResponse {
   agent: AgentDetailAgent
   graph: {
@@ -156,6 +164,7 @@ interface AgentDetailResponse {
   recommendations: Recommendation[]
   policies: Policy[]
   executions: Execution[]
+  chain_policy_status?: ChainPolicyStatus
 }
 
 // Backend shape: {policy_a, policy_b, overlap, winner: {id, effect}} — the
@@ -1076,13 +1085,14 @@ function IntegrationSnippets({ agentId, token }: IntegrationSnippetsProps) {
   const [tab, setTab] = useState<'python' | 'curl' | 'node'>('python')
   const [copied, setCopied] = useState(false)
   const shortToken = token ? token.slice(0, 20) + '...' : 'YOUR_TOKEN'
+  const apiBase = apiBaseUrl()
 
   const snippets: Record<'python' | 'curl' | 'node', string> = {
     python: `import requests
 
 def enforce(tool: str, action: str, params: dict) -> str:
     resp = requests.post(
-        "https://api.arceo.io/api/enforce",
+        "${apiBase}/api/enforce",
         json={
             "agent_id": "${agentId}",
             "tool": tool,
@@ -1100,7 +1110,7 @@ if decision == "ALLOW":
 elif decision == "BLOCK":
     raise Exception("Action blocked by policy")`,
 
-    curl: `curl -X POST https://api.arceo.io/api/enforce \\
+    curl: `curl -X POST ${apiBase}/api/enforce \\
   -H "Authorization: Bearer ${shortToken}" \\
   -H "Content-Type: application/json" \\
   -d '{
@@ -1110,7 +1120,7 @@ elif decision == "BLOCK":
     "params": {"amount": 500}
   }'`,
 
-    node: `const response = await fetch("https://api.arceo.io/api/enforce", {
+    node: `const response = await fetch("${apiBase}/api/enforce", {
   method: "POST",
   headers: {
     "Authorization": "Bearer ${shortToken}",
@@ -1693,6 +1703,14 @@ export default function AgentDetail() {
       ? sortedPolicies[0]?.reason
       : null
 
+  const chainStatus = data?.chain_policy_status
+  const chainPolicyIds = new Set<string>(
+    (chainStatus?.chain_policy_ids || []).map((id) => String(id))
+  )
+  const isChainPolicy = (p: Policy) =>
+    chainPolicyIds.has(String(p.id)) ||
+    (p.conditions || []).some((c) => c.op === 'requires_prior')
+
   const existingPolicyPatterns = new Set((policies || []).map((p) => p.action_pattern))
   const visibleRecs = recommendations
     .map((r, i) => ({ r, i }))
@@ -2265,6 +2283,26 @@ export default function AgentDetail() {
             </div>
           )}
 
+          {/* Inert chain-policy warning: a requires_prior policy exists but no
+              recent live traffic carried session context, so it never fires. */}
+          {chainStatus?.likely_inert && (
+            <div className="flex items-start gap-2 p-3 mb-4 rounded-lg border border-amber-200 bg-amber-50">
+              <AlertTriangle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
+              <div className="text-xs text-amber-800 leading-relaxed">
+                <span className="font-semibold">Chain policy not firing.</span>{' '}
+                This agent has a chain policy (<span className="font-mono">requires_prior</span>),
+                but none of its last {chainStatus.recent_runtime_executions} live{' '}
+                {chainStatus.recent_runtime_executions === 1 ? 'call' : 'calls'} carried
+                session context — so the condition is treated as unmet and the guarded
+                action falls through. Pass prior actions on each enforce check to activate it:
+                use the SDK's <span className="font-mono">ArceoClient</span> (tracks them for
+                you) or send <span className="font-mono">session_context</span> on{' '}
+                <span className="font-mono">/api/enforce</span>. Proxy traffic derives context
+                automatically from recent executions.
+              </div>
+            </div>
+          )}
+
           {/* Policies list */}
           <div className="space-y-2 mb-4">
             {sortedPolicies.map((p) => {
@@ -2284,6 +2322,19 @@ export default function AgentDetail() {
                         )}
                         {service && <span className="text-gray-300">›</span>}
                         <span className="text-sm font-medium text-gray-800">{action}</span>
+                        {isChainPolicy(p) && (
+                          <Tooltip text="Chain policy: only fires after a required prior action has run this session. It does nothing unless the caller supplies session context (the SDK ArceoClient and the proxy do this automatically).">
+                            <span
+                              className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full cursor-help"
+                              style={{
+                                background: chainStatus?.likely_inert ? '#fef3c7' : '#ede9fe',
+                                color: chainStatus?.likely_inert ? '#92400e' : '#6d28d9',
+                              }}
+                            >
+                              {chainStatus?.likely_inert ? 'CHAIN · INERT' : 'CHAIN'}
+                            </span>
+                          </Tooltip>
+                        )}
                       </div>
                       <select
                         value={p.effect}
