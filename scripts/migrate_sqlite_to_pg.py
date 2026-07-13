@@ -1,6 +1,6 @@
 """Copy a legacy SQLite actiongate.db into a fresh Postgres database.
 
-Usage (the prod cutover — see MIGRATION_RUNBOOK.md):
+Usage (the prod cutover — see docs/MIGRATION_RUNBOOK.md):
 
     DATABASE_URL=postgresql://user:pass@host:5432/arceo \
         python scripts/migrate_sqlite_to_pg.py --sqlite /data/actiongate.db
@@ -146,7 +146,7 @@ def copy_data(sqlite_path: str, url: str) -> list[tuple[str, int, int]]:
         # sealed chain here (a genesis row, prev_hash='') and honestly treat the
         # imported rows above it as legacy/unsealed — /api/audit/verify segments
         # the two. Runs AFTER the sequence reset so the genesis id doesn't collide
-        # with copied rows. (See MIGRATION_RUNBOOK.md.)
+        # with copied rows. (See docs/MIGRATION_RUNBOOK.md.)
         sealed_orgs = [r[0] for r in dst.execute(
             "SELECT DISTINCT org_id FROM audit_log WHERE org_id IS NOT NULL").fetchall()]
         for oid in sealed_orgs:
