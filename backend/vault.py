@@ -19,7 +19,7 @@ Scheme (envelope):
 Key custody is INTERIM: `EnvMasterKey` reads the master key from an
 environment variable. `MasterKeyProvider` is the KMS seam — a cloud-KMS
 provider (wrap/unwrap via KMS API, key never in process memory) implements
-the same two methods later. See SECURITY_DESIGN.md.
+the same two methods later. See docs/SECURITY_DESIGN.md.
 
 Never put secret material (master key, DEKs, decrypted config) in logs,
 exceptions, or reprs.

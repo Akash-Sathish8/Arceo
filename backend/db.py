@@ -204,7 +204,7 @@ def get_all_agents_from_db(conn, org_id: str = None) -> list[dict]:
 
 # The marker action that starts a fresh sealed audit chain (written at a prod
 # cutover). Rows before the last genesis are imported "legacy" history; the chain
-# is verified from the genesis onward. See /api/audit/verify + MIGRATION_RUNBOOK.
+# is verified from the genesis onward. See /api/audit/verify + docs/MIGRATION_RUNBOOK.md.
 AUDIT_GENESIS_ACTION = "AUDIT_CHAIN_GENESIS"
 
 

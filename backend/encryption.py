@@ -21,7 +21,7 @@ import vault
 
 def encrypt_at_rest_enabled() -> bool:
     """Whether new writes of sensitive columns are envelope-encrypted. Default OFF
-    — flipping it on is a deliberate, specialist-reviewed step (SECURITY_DESIGN.md)."""
+    — flipping it on is a deliberate, specialist-reviewed step (docs/SECURITY_DESIGN.md)."""
     return os.getenv("ARCEO_ENCRYPT_AT_REST", "").lower() in ("1", "true", "yes", "on")
 
 
