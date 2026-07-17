@@ -7,7 +7,7 @@ python-dotenv>=1.0.0
 bcrypt>=4.0.0
 anthropic>=0.42.0
 httpx>=0.27.0
-PyYAML>=6.0
+PyYAML>=6.0.3
 # Postgres migration (Phase 2): psycopg3 is the driver; SQLAlchemy is present
 # only as Alembic's dependency — the app does NOT use the ORM.
 psycopg[binary]>=3.1
