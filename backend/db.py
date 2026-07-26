@@ -266,11 +266,17 @@ def log_audit(conn, user_id: str | None, user_email: str | None, action: str, re
         "SELECT entry_hash FROM audit_log WHERE org_id = %s ORDER BY id DESC LIMIT 1", (org_id,)
     ).fetchone()
     prev_hash = (prev["entry_hash"] if prev and prev["entry_hash"] else "")
+    # The chain hashes the PLAINTEXT detail so /api/audit/verify stays valid whether
+    # encryption-at-rest is on or off, and across old plaintext rows. The stored
+    # column is split via the same seam execution_log.params uses (0011): flag on →
+    # detail_enc holds ciphertext and detail is NULL; every reader hydrates.
     entry = audit_entry_hash(prev_hash, org_id, action, resource, detail, user_id, user_email, ts)
+    import encryption
+    detail_pt, detail_enc = encryption.split(detail)
     conn.execute(
-        "INSERT INTO audit_log (user_id, user_email, action, resource, detail, org_id, timestamp, prev_hash, entry_hash) "
-        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
-        (user_id, user_email, action, resource, detail, org_id, ts, prev_hash, entry),
+        "INSERT INTO audit_log (user_id, user_email, action, resource, detail, detail_enc, org_id, timestamp, prev_hash, entry_hash) "
+        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+        (user_id, user_email, action, resource, detail_pt, detail_enc, org_id, ts, prev_hash, entry),
     )
 
 

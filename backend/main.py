@@ -28,6 +28,7 @@ from db import (
 )
 import vault
 import encryption
+import redaction
 from authority.chain_detector import detect_chains as _detect_chains
 from authority.enforcement import enforce_check, safe_enforce_check, match_policy as _match_policy
 from authority.graph import build_agent_graph, calculate_blast_radius, graph_to_dict
@@ -376,6 +377,15 @@ def _pin_url_to_ip(url: str, ip: str) -> tuple[str, str]:
     return urlunparse(p._replace(netloc=netloc)), host_header
 
 
+def _hydrate_audit_rows(rows) -> list[dict]:
+    """Decrypt audit_log.detail for a set of rows so encryption-at-rest (0011) is
+    transparent to every reader — display, hash-chain verify, and spend
+    computation. No-op when the flag is off or a row predates it. Rows must
+    include the detail_enc column (SELECT * or an explicit detail_enc). Also drops
+    the raw bytea detail_enc key so the row stays JSON-safe."""
+    return [encryption.hydrate(dict(r), "detail") for r in rows]
+
+
 # Honor CORS_ORIGINS (comma-separated). Default to localhost dev origins rather
 # than "*" — a wildcard with the API's bearer-token auth is a standard pentest
 # finding. Set CORS_ORIGINS to your real origins in production (or "*" to opt back in).
@@ -611,13 +621,15 @@ async def proxy_llm_request(provider: str, path: str, request: Request):
         except (json.JSONDecodeError, UnicodeDecodeError):
             response_data = {"raw_excerpt": response_body[:1000].decode("utf-8", errors="replace")}
         with get_db() as conn:
-            detail = json.dumps({
+            # HIGH-002: redact PII in the captured prompt + response before storing;
+            # log_audit then splits the column through the encryption-at-rest seam.
+            detail = json.dumps(redaction.redact_value({
                 "provider": provider, "model": captured.get("model"), "system": system_field,
                 "messages_count": len(captured.get("messages") or []),
                 "tools_count": len(captured.get("tools") or []),
                 "max_tokens": captured.get("max_tokens"), "temperature": captured.get("temperature"),
                 "latency_ms": latency_ms, "status_code": status_code, "response": response_data,
-            })[:32000]
+            }))[:32000]
             log_audit(conn, None, agent_id, "LLM_CALL_PROXY",
                       resource=f"{provider}:{captured.get('model') or 'unknown'}", detail=detail)
 
@@ -2736,12 +2748,12 @@ def _maybe_fire_spend_anomaly_alert(agent_id: str):
             if not slack_url:
                 return
             eight_days_ago = (datetime.utcnow() - timedelta(days=8)).isoformat()
-            rows = conn.execute(
-                "SELECT detail, timestamp FROM audit_log "
+            rows = _hydrate_audit_rows(conn.execute(
+                "SELECT detail, detail_enc, timestamp FROM audit_log "
                 "WHERE action IN ('LLM_CALL', 'LLM_CALL_PROXY') AND user_email = %s AND timestamp > %s "
                 "ORDER BY timestamp ASC",
                 (agent_id, eight_days_ago),
-            ).fetchall()
+            ).fetchall())
 
         result = detect_spend_anomaly(rows, defaults=load_defaults(agent_org))
         if not result["flagged"]:
@@ -2799,7 +2811,10 @@ def ingest_llm_call(agent_id: str, payload: dict, request: Request):
         provider = payload.get("provider", "unknown")
         model = payload.get("model", "unknown")
         latency = payload.get("latency_ms", 0)
-        detail = json.dumps({
+        # HIGH-002: the system prompt + response are the densest customer PII in the
+        # product. Redact before storing (default-on scrub), then log_audit splits
+        # the column through the encryption-at-rest seam.
+        detail = json.dumps(redaction.redact_value({
             "provider": provider,
             "model": model,
             "system": (payload.get("system") or "")[:8000],
@@ -2809,7 +2824,7 @@ def ingest_llm_call(agent_id: str, payload: dict, request: Request):
             "temperature": payload.get("temperature"),
             "latency_ms": latency,
             "response": payload.get("response"),
-        })[:32000]
+        }))[:32000]
 
         log_audit(conn, None, agent_id, "LLM_CALL", resource=f"{provider}:{model}", detail=detail)
 
@@ -2849,11 +2864,11 @@ def _maybe_fire_budget_alert(agent_id: str):
             budget = float(row["monthly_budget_usd"])
             threshold_pct = int(row["alert_threshold_pct"])
             month_start = datetime.utcnow().replace(day=1, hour=0, minute=0, second=0, microsecond=0).isoformat()
-            rows = conn.execute(
-                "SELECT detail, timestamp FROM audit_log "
+            rows = _hydrate_audit_rows(conn.execute(
+                "SELECT detail, detail_enc, timestamp FROM audit_log "
                 "WHERE action IN ('LLM_CALL', 'LLM_CALL_PROXY') AND user_email = %s AND timestamp >= %s",
                 (agent_id, month_start),
-            ).fetchall()
+            ).fetchall())
 
         mtd = compute_month_to_date_spend(rows, defaults=load_defaults(org_id))
         if budget <= 0 or mtd < budget * threshold_pct / 100.0:
@@ -2896,11 +2911,11 @@ def _budget_gate(agent_id: str):
             org_id = row["org_id"]
             budget = float(row["monthly_budget_usd"])
             month_start = datetime.utcnow().replace(day=1, hour=0, minute=0, second=0, microsecond=0).isoformat()
-            rows = conn.execute(
-                "SELECT detail, timestamp FROM audit_log "
+            rows = _hydrate_audit_rows(conn.execute(
+                "SELECT detail, detail_enc, timestamp FROM audit_log "
                 "WHERE action IN ('LLM_CALL', 'LLM_CALL_PROXY') AND user_email = %s AND timestamp >= %s",
                 (agent_id, month_start),
-            ).fetchall()
+            ).fetchall())
         mtd = compute_month_to_date_spend(rows, defaults=load_defaults(org_id))
     except HTTPException:
         raise
@@ -3573,7 +3588,7 @@ def get_audit_log(user: dict = Depends(get_current_user)):
             "SELECT * FROM audit_log WHERE org_id = %s ORDER BY timestamp DESC LIMIT 100",
             (_org(user),)
         ).fetchall()
-    return {"entries": [dict(r) for r in rows]}
+    return {"entries": _hydrate_audit_rows(rows)}
 
 
 @app.get("/api/audit/verify")
@@ -3585,7 +3600,9 @@ def verify_audit_chain(user: dict = Depends(get_current_user)):
     from db import audit_entry_hash, AUDIT_GENESIS_ACTION
     org_id = _org(user)
     with get_db() as conn:
-        rows = conn.execute("SELECT * FROM audit_log WHERE org_id = %s ORDER BY id", (org_id,)).fetchall()
+        rows = _hydrate_audit_rows(
+            conn.execute("SELECT * FROM audit_log WHERE org_id = %s ORDER BY id", (org_id,)).fetchall()
+        )
 
     # A production cutover copies audit history into a fresh DB, where the old
     # seal can't be proven across the copy. The migration writes a GENESIS row
@@ -4982,11 +4999,11 @@ def get_spend_forecast(
         # feeds the forecast at a wide band; the high tier still needs 50 (D27).
         live_rows = []
         if live_count >= LIVE_TRACE_MIN_CALLS_FORECAST:
-            live_rows = conn.execute(
-                "SELECT l.detail, l.timestamp FROM audit_log l JOIN agents a ON a.id = l.user_email "
+            live_rows = _hydrate_audit_rows(conn.execute(
+                "SELECT l.detail, l.detail_enc, l.timestamp FROM audit_log l JOIN agents a ON a.id = l.user_email "
                 "WHERE l.action IN ('LLM_CALL', 'LLM_CALL_PROXY') AND l.user_email = %s AND a.org_id = %s AND l.timestamp > %s",
                 (agent_id, _org(user), seven_days_ago),
-            ).fetchall()
+            ).fetchall())
         # Most recent forecast snapshot at least 30 days old (powers vsLastMonth)
         thirty_days_ago = (datetime.utcnow() - timedelta(days=30)).isoformat()
         previous_snapshot_point = _prev_snapshot_point(conn, agent_id, _org(user), thirty_days_ago)
@@ -5098,11 +5115,11 @@ def get_budget_fit(
             "WHERE l.action IN ('LLM_CALL', 'LLM_CALL_PROXY') AND l.user_email = %s AND a.org_id = %s AND l.timestamp > %s",
             (agent_id, org_id, seven_days_ago),
         ).fetchone()["n"])
-        live_rows = conn.execute(
-            "SELECT l.detail, l.timestamp FROM audit_log l JOIN agents a ON a.id = l.user_email "
+        live_rows = _hydrate_audit_rows(conn.execute(
+            "SELECT l.detail, l.detail_enc, l.timestamp FROM audit_log l JOIN agents a ON a.id = l.user_email "
             "WHERE l.action IN ('LLM_CALL', 'LLM_CALL_PROXY') AND l.user_email = %s AND a.org_id = %s AND l.timestamp > %s",
             (agent_id, org_id, seven_days_ago),
-        ).fetchall() if live_count >= LIVE_TRACE_MIN_CALLS_FORECAST else []
+        ).fetchall()) if live_count >= LIVE_TRACE_MIN_CALLS_FORECAST else []
         policies = conn.execute("SELECT * FROM policies WHERE agent_id = %s", (agent_id,)).fetchall()
         severity_overrides = _fetch_breach_overrides(conn, org_id)
 
@@ -5149,11 +5166,11 @@ class AgentBudgetInput(BaseModel):
 def _month_to_date_spend(conn, agent_id: str, org_id: str) -> float:
     from analysis.spend_forecast import compute_month_to_date_spend, load_defaults
     month_start = datetime.utcnow().replace(day=1, hour=0, minute=0, second=0, microsecond=0).isoformat()
-    rows = conn.execute(
-        "SELECT detail, timestamp FROM audit_log "
+    rows = _hydrate_audit_rows(conn.execute(
+        "SELECT detail, detail_enc, timestamp FROM audit_log "
         "WHERE action IN ('LLM_CALL', 'LLM_CALL_PROXY') AND user_email = %s AND timestamp >= %s",
         (agent_id, month_start),
-    ).fetchall()
+    ).fetchall())
     return compute_month_to_date_spend(rows, defaults=load_defaults(org_id))
 
 
@@ -5289,11 +5306,11 @@ def get_spend_forecasts_batch(user: dict = Depends(get_current_user)):
             ).fetchone()["n"])
             live_overrides = {}
             if live_count >= LIVE_TRACE_MIN_CALLS_FORECAST:
-                live_rows = conn.execute(
-                    "SELECT detail, timestamp FROM audit_log "
+                live_rows = _hydrate_audit_rows(conn.execute(
+                    "SELECT detail, detail_enc, timestamp FROM audit_log "
                     "WHERE action IN ('LLM_CALL', 'LLM_CALL_PROXY') AND user_email = %s AND timestamp > %s",
                     (aid, seven_days_ago),
-                ).fetchall()
+                ).fetchall())
                 live_overrides = compute_live_rolling_averages(live_rows)
             snap_stats = conn.execute(
                 "SELECT COUNT(*) AS n, MIN(captured_at) AS oldest FROM forecast_snapshots WHERE agent_id = %s AND org_id = %s",
@@ -5365,12 +5382,12 @@ def get_spend_timeseries(agent_id: str, user: dict = Depends(get_current_user)):
             raise HTTPException(status_code=404, detail=f"Agent '{agent_id}' not found")
 
         thirty_days_ago = (datetime.utcnow() - timedelta(days=30)).isoformat()
-        rows = conn.execute(
-            "SELECT detail, timestamp FROM audit_log "
+        rows = _hydrate_audit_rows(conn.execute(
+            "SELECT detail, detail_enc, timestamp FROM audit_log "
             "WHERE action IN ('LLM_CALL', 'LLM_CALL_PROXY') AND user_email = %s AND timestamp > %s "
             "ORDER BY timestamp ASC",
             (agent_id, thirty_days_ago),
-        ).fetchall()
+        ).fetchall())
 
         seven_days_ago = (datetime.utcnow() - timedelta(days=7)).isoformat()
         live_count = int(conn.execute(
@@ -5429,13 +5446,13 @@ def get_spend_anomalies(user: dict = Depends(get_current_user)):
 
     with get_db() as conn:
         # LLM_CALL stores the agent id in user_email (resource = provider:model).
-        rows = conn.execute(
-            "SELECT a.id AS agent_id, a.name AS agent_name, l.detail, l.timestamp "
+        rows = _hydrate_audit_rows(conn.execute(
+            "SELECT a.id AS agent_id, a.name AS agent_name, l.detail, l.detail_enc, l.timestamp "
             "FROM audit_log l JOIN agents a ON a.id = l.user_email "
             "WHERE l.action IN ('LLM_CALL', 'LLM_CALL_PROXY') AND a.org_id = %s AND l.timestamp > %s "
             "ORDER BY l.timestamp ASC",
             (org_id, eight_days_ago),
-        ).fetchall()
+        ).fetchall())
 
     by_agent: dict[str, dict] = {}
     for r in rows:
@@ -5606,15 +5623,15 @@ def _reconcile_import(conn, org_id: str, imp: dict) -> dict:
     )
     from analysis.spend_forecast import load_defaults
     start, end = window_bounds(imp.get("period_start"), imp.get("period_end"))
-    rows = conn.execute(
-        "SELECT l.detail, l.resource, l.timestamp FROM audit_log l "
+    rows = _hydrate_audit_rows(conn.execute(
+        "SELECT l.detail, l.detail_enc, l.resource, l.timestamp FROM audit_log l "
         "JOIN agents a ON a.id = l.user_email "
         "WHERE l.action IN ('LLM_CALL', 'LLM_CALL_PROXY') AND a.org_id = %s "
         "AND l.timestamp >= %s AND l.timestamp < %s",
         (org_id, start, end),
-    ).fetchall()
+    ).fetchall())
     captured = aggregate_captured_spend(
-        [dict(r) for r in rows], imp["provider"], defaults=load_defaults(org_id))
+        rows, imp["provider"], defaults=load_defaults(org_id))
     invoice = {
         "total_usd": imp["total_usd"],
         "period_start": imp.get("period_start"),
