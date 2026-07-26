@@ -233,7 +233,11 @@ export default function History(): React.ReactElement {
   useEffect(() => {
     Promise.all([
       apiFetch<{ entries: ExecutionEntry[] }>("/api/executions"),
-      apiFetch<{ entries: AuditEntry[] }>("/api/audit"),
+      // The audit trail is admin-only (it carries captured LLM content). For
+      // non-admins the 403 degrades to an empty list rather than failing the page.
+      apiFetch<{ entries: AuditEntry[] }>("/api/audit").catch(
+        () => ({ entries: [] as AuditEntry[] })
+      ),
       apiFetch<{ agents: AgentSummary[] }>("/api/authority/agents").catch(
         () => ({ agents: [] as AgentSummary[] })
       ),

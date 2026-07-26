@@ -115,9 +115,9 @@ def _seed_demo_user(conn):
     production DB must never boot with a publicly-known credential.
     """
     import secrets, logging
-    from auth import hash_password
+    from auth import hash_password, demo_mode_enabled
     now = datetime.utcnow().isoformat()
-    demo = os.getenv("DEMO_MODE", "").lower() == "true"
+    demo = demo_mode_enabled()
     password = "admin123" if demo else secrets.token_urlsafe(16)
     pw_hash = hash_password(password)
     conn.execute(

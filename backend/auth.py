@@ -26,6 +26,17 @@ _logger = _logging.getLogger("actiongate.auth")
 _DEV_ENVS = {"dev", "local", "test", "ci"}
 ARCEO_ENV = os.getenv("ARCEO_ENV", "").lower()
 
+_DEMO_TRUTHY = {"1", "true", "yes", "on"}
+
+
+def demo_mode_enabled() -> bool:
+    """Single source of truth for whether DEMO_MODE is on. Accepts any common
+    truthy value so the boot guard, the get_current_user JWT bypass, the demo
+    reset, and the trace WebSocket can never disagree. A prior mismatch — the WS
+    guard accepted 1/true/yes while everything else demanded exactly "true" —
+    left the trace socket unauthenticated in prod when DEMO_MODE=1 (MED-002)."""
+    return os.getenv("DEMO_MODE", "").lower() in _DEMO_TRUTHY
+
 if SECRET_KEY == "actiongate-demo-secret-key-change-in-prod":
     if ARCEO_ENV not in _DEV_ENVS:
         raise RuntimeError(
@@ -37,10 +48,10 @@ if SECRET_KEY == "actiongate-demo-secret-key-change-in-prod":
 # DEMO_MODE bypasses JWT entirely (get_current_user returns the admin user). It
 # must never run on a real deploy, where it would collapse the tenant boundary —
 # so it too is gated on an explicit dev environment, not a platform whitelist.
-if os.getenv("DEMO_MODE", "").lower() == "true":
+if demo_mode_enabled():
     if ARCEO_ENV not in _DEV_ENVS:
         raise RuntimeError(
-            "DEMO_MODE=true is an authentication bypass and must not run outside a dev "
+            "DEMO_MODE is an authentication bypass and must not run outside a dev "
             "environment. Set ARCEO_ENV=dev to acknowledge this is local-only."
         )
     _logger.warning("DEMO_MODE is ON — JWT auth is bypassed and any login wipes demo data. Never set this in production.")
@@ -86,7 +97,7 @@ def get_current_user(request: Request) -> dict:
     Returns dict with: sub, email, role, org_id.
     DEMO_MODE bypasses JWT and returns admin user with their org_id.
     """
-    if os.getenv("DEMO_MODE", "").lower() == "true":
+    if demo_mode_enabled():
         with get_db() as conn:
             row = conn.execute("SELECT * FROM users WHERE role = 'admin' ORDER BY created_at LIMIT 1").fetchone()
             if row:

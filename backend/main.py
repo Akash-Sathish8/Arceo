@@ -21,7 +21,7 @@ from fastapi.responses import StreamingResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from auth import get_current_user, login_user, verify_token
+from auth import get_current_user, login_user, verify_token, demo_mode_enabled
 from db import (
     get_db, init_db, get_agent_from_db, get_all_agents_from_db,
     log_audit, log_execution, DEFAULT_ORG_ID,
@@ -460,7 +460,7 @@ def demo_mode_status():
     """Unauthenticated — lets the frontend know if DEMO_MODE is active and
     whether LLM-driven simulation is available (key presence only, never the key)."""
     return {
-        "demo": os.getenv("DEMO_MODE", "").lower() == "true",
+        "demo": demo_mode_enabled(),
         "llm_available": bool(os.getenv("ANTHROPIC_API_KEY")),
     }
 
@@ -1365,7 +1365,7 @@ def login(req: LoginRequest, request: Request):
     # deployment: an anonymous POST {"email":"demo"} ran a DELETE across every
     # tenant's tables. Demo instances must set DEMO_MODE=true for the reset to
     # work; a customer deployment (DEMO_MODE unset) can never trigger it.
-    is_demo_mode = os.getenv("DEMO_MODE", "").lower() == "true"
+    is_demo_mode = demo_mode_enabled()
     is_demo_email = (req.email or "").strip().lower() == "demo"
     if is_demo_mode and is_demo_email:
         _wipe_demo_data()
@@ -3428,6 +3428,10 @@ class NotificationSettingsRequest(BaseModel):
 @app.get("/api/notifications/settings")
 def get_notification_settings(user: dict = Depends(get_current_user)):
     """Get this org's notification settings."""
+    # LOW-001: org-wide config (Slack webhook, alert email) — admin-only. The POST
+    # is already admin-gated by the RBAC middleware, but that only covers mutating
+    # methods, so the GET must gate itself.
+    require_admin(user)
     org_id = _org(user)
     with get_db() as conn:
         row = conn.execute("SELECT * FROM workspace_settings WHERE org_id = %s", (org_id,)).fetchone()
@@ -3583,6 +3587,9 @@ def delete_credential(provider: str, user: dict = Depends(get_current_user)):
 
 @app.get("/api/audit")
 def get_audit_log(user: dict = Depends(get_current_user)):
+    # MED-001: the audit trail carries captured LLM prompts/responses in `detail`.
+    # It's a compliance/integrity surface — admin-only, matching /api/audit/verify.
+    require_role(user, "admin")
     with get_db() as conn:
         rows = conn.execute(
             "SELECT * FROM audit_log WHERE org_id = %s ORDER BY timestamp DESC LIMIT 100",
@@ -4810,7 +4817,7 @@ async def ws_live_traces(websocket: WebSocket, agent_id: str):
     """WebSocket: subscribe to live trace events for an agent (auth via ?token=<JWT>)."""
     # ID2: authenticate before accepting. Browsers can't set headers on a WS
     # handshake, so the JWT comes in as a query param; DEMO_MODE keeps the demo open.
-    if os.getenv("DEMO_MODE", "").lower() not in ("1", "true", "yes"):
+    if not demo_mode_enabled():
         try:
             payload = verify_token(websocket.query_params.get("token", ""))
         except Exception:
