@@ -158,6 +158,12 @@ RATE_LIMIT_WINDOW = int(os.getenv("RATE_LIMIT_WINDOW", "60"))  # seconds
 # anything else. Tune via env for your traffic. Keyed by API-key (agents) else IP.
 RATE_LIMIT_GLOBAL_MAX = int(os.getenv("RATE_LIMIT_GLOBAL_MAX", "1000"))
 RATE_LIMIT_GLOBAL_WINDOW = int(os.getenv("RATE_LIMIT_GLOBAL_WINDOW", "60"))
+
+# LLM-invoking endpoints (ingest + LLM proxy) get their own per-agent ceiling so a
+# single agent id can't be used to amplify spend (HIGH-003). Generous by default;
+# tune down for stricter cost control.
+RATE_LIMIT_LLM_MAX = int(os.getenv("RATE_LIMIT_LLM_MAX", "120"))
+RATE_LIMIT_LLM_WINDOW = int(os.getenv("RATE_LIMIT_LLM_WINDOW", "60"))
 # Liveness/config probes must never be throttled (dashboards + load balancers
 # poll them); everything else under /api is covered.
 _RATE_LIMIT_EXEMPT_PATHS = {"/api/health", "/api/demo-mode"}
@@ -318,10 +324,15 @@ def check_auth_rate_limit(request: Request, email: str):
         check_rate_limit(f"auth-email:{email.lower()}", RATE_LIMIT_AUTH_MAX, RATE_LIMIT_AUTH_WINDOW)
 
 
-def validate_external_url(url: str) -> None:
+def validate_external_url(url: str) -> str | None:
     """SSRF guard for server-side fetches (e.g. MCP connect). Requires http(s),
-    resolves the host, and rejects loopback / link-local / private / reserved
-    addresses unless ARCEO_ALLOW_INTERNAL_MCP is set (for local-dev MCP servers)."""
+    resolves the host ONCE, and rejects loopback / link-local / private / reserved
+    addresses unless ARCEO_ALLOW_INTERNAL_MCP is set (for local-dev MCP servers).
+
+    Returns a *validated* IP for the caller to pin the connection to — so a DNS
+    rebind can't swap in an internal/metadata address between this check and the
+    actual request (TOCTOU). Returns None when the internal-MCP bypass is on, in
+    which case the caller should use the hostname unchanged."""
     import ipaddress
     import socket as _socket
     from urllib.parse import urlparse
@@ -333,16 +344,36 @@ def validate_external_url(url: str) -> None:
     if not host:
         raise HTTPException(status_code=400, detail="URL must include a host")
     if os.getenv("ARCEO_ALLOW_INTERNAL_MCP", "").lower() in ("1", "true", "yes"):
-        return
+        return None
     try:
         infos = _socket.getaddrinfo(host, parsed.port or (443 if parsed.scheme == "https" else 80))
     except _socket.gaierror:
         raise HTTPException(status_code=400, detail="Could not resolve URL host")
+    validated_ip = None
     for info in infos:
         ip = ipaddress.ip_address(info[4][0])
         if (ip.is_loopback or ip.is_private or ip.is_link_local
                 or ip.is_reserved or ip.is_multicast or ip.is_unspecified):
             raise HTTPException(status_code=400, detail="URL resolves to a disallowed internal address")
+        if validated_ip is None:
+            validated_ip = str(ip)
+    if validated_ip is None:
+        raise HTTPException(status_code=400, detail="Could not resolve URL host")
+    return validated_ip
+
+
+def _pin_url_to_ip(url: str, ip: str) -> tuple[str, str]:
+    """Rewrite `url` so the request connects to the already-validated `ip`, and
+    return (pinned_url, host_header). Defeats DNS rebinding: we talk to the exact
+    IP we vetted, while the returned Host header (and TLS SNI, set by the caller)
+    preserve the real hostname so routing and cert verification still work."""
+    from urllib.parse import urlparse, urlunparse
+
+    p = urlparse(url)
+    host_header = p.hostname + (f":{p.port}" if p.port else "")
+    ip_host = f"[{ip}]" if ":" in ip else ip
+    netloc = f"{ip_host}:{p.port}" if p.port else ip_host
+    return urlunparse(p._replace(netloc=netloc)), host_header
 
 
 # Honor CORS_ORIGINS (comma-separated). Default to localhost dev origins rather
@@ -533,6 +564,11 @@ async def proxy_llm_request(provider: str, path: str, request: Request):
     if key_info and (key_info.get("agent_id") or "") and key_info["agent_id"] != agent_id:
         raise HTTPException(status_code=403, detail="API key is scoped to a different agent")
     proxy_org = key_info["org_id"] if key_info else DEFAULT_ORG_ID
+
+    # HIGH-003: the LLM proxy sits outside the /api/* rate-limit middleware, so cap
+    # it per-agent here and enforce the budget before forwarding the (billable) call.
+    check_rate_limit(f"llmproxy:{agent_id}", RATE_LIMIT_LLM_MAX, RATE_LIMIT_LLM_WINDOW)
+    _budget_gate(agent_id)
 
     # Auto-create agent on first call
     with get_db() as conn:
@@ -2750,6 +2786,9 @@ def ingest_llm_call(agent_id: str, payload: dict, request: Request):
         raise HTTPException(status_code=401, detail="X-API-Key required")
     if key_row.get("agent_id") and key_row["agent_id"] != agent_id:
         raise HTTPException(status_code=403, detail="API key is scoped to a different agent")
+    # HIGH-003: cap call frequency and enforce the budget before recording spend.
+    check_rate_limit(f"llm:{agent_id}", RATE_LIMIT_LLM_MAX, RATE_LIMIT_LLM_WINDOW)
+    _budget_gate(agent_id)
     with get_db() as conn:
         agent = conn.execute("SELECT id, org_id FROM agents WHERE id = %s", (agent_id,)).fetchone()
         if not agent:
@@ -2835,6 +2874,49 @@ def _maybe_fire_budget_alert(agent_id: str):
         pass  # Never let alerting failures break ingestion
 
 
+def _budget_gate(agent_id: str):
+    """Pre-spend budget enforcement (HIGH-003). When ARCEO_BUDGET_ENFORCE is on and
+    the agent's month-to-date spend has reached its saved monthly budget, reject
+    further LLM calls with 429 BEFORE the spend happens — the counterpart to the
+    after-the-fact `_maybe_fire_budget_alert`. Default is warn-only (flag off) so
+    existing deployments keep their soft-alert behavior and are never surprised by
+    a hard block. Only ever raises the intentional 429; internal errors fall open."""
+    if os.getenv("ARCEO_BUDGET_ENFORCE", "").lower() not in ("1", "true", "yes", "on"):
+        return
+    try:
+        from analysis.spend_forecast import compute_month_to_date_spend, load_defaults
+
+        with get_db() as conn:
+            row = conn.execute(
+                "SELECT org_id, monthly_budget_usd FROM agent_budgets WHERE agent_id = %s",
+                (agent_id,),
+            ).fetchone()
+            if not row or float(row["monthly_budget_usd"]) <= 0:
+                return
+            org_id = row["org_id"]
+            budget = float(row["monthly_budget_usd"])
+            month_start = datetime.utcnow().replace(day=1, hour=0, minute=0, second=0, microsecond=0).isoformat()
+            rows = conn.execute(
+                "SELECT detail, timestamp FROM audit_log "
+                "WHERE action IN ('LLM_CALL', 'LLM_CALL_PROXY') AND user_email = %s AND timestamp >= %s",
+                (agent_id, month_start),
+            ).fetchall()
+        mtd = compute_month_to_date_spend(rows, defaults=load_defaults(org_id))
+    except HTTPException:
+        raise
+    except Exception:
+        return  # never block a call because the gate itself hit an internal error
+    if mtd >= budget:
+        raise HTTPException(
+            status_code=429,
+            detail=(
+                f"Agent '{agent_id}' has reached its monthly budget "
+                f"(${mtd:.2f} of ${budget:.0f}). Further LLM calls are blocked until "
+                f"the budget is raised or the month resets."
+            ),
+        )
+
+
 class MCPToolInput(BaseModel):
     name: str
     description: str = ""
@@ -2880,9 +2962,20 @@ def connect_mcp_server(req: MCPConnectInput, user: dict = Depends(get_current_us
     an optional bearer token; falls back to a bare tools/list for simple servers.
     """
     import httpx as _httpx
+    from urllib.parse import urlparse as _urlparse
 
     url = req.url.rstrip("/")
-    validate_external_url(url)  # IC3: block SSRF to internal/metadata addresses
+    # SSRF guard: resolve + validate ONCE, then pin the connection to the vetted IP
+    # so a DNS rebind can't swap in an internal/metadata address between the check
+    # and the request (TOCTOU). sni_hostname keeps TLS cert verification against the
+    # real hostname; follow_redirects=False stops a 30x from bouncing us — with the
+    # caller's token — to an unvetted host.
+    pinned_ip = validate_external_url(url)
+    if pinned_ip:
+        request_url, host_header = _pin_url_to_ip(url, pinned_ip)
+        tls_ext = {"sni_hostname": _urlparse(url).hostname}
+    else:
+        request_url, host_header, tls_ext = url, None, {}
 
     headers = {
         "Content-Type": "application/json",
@@ -2891,10 +2984,16 @@ def connect_mcp_server(req: MCPConnectInput, user: dict = Depends(get_current_us
         "Accept": "application/json, text/event-stream",
     }
     if req.auth_token:
+        # Safe to forward: the connection is pinned to the validated host and
+        # redirects are blocked, so the token only reaches the server the user named.
         headers["Authorization"] = f"Bearer {req.auth_token}"
+    if host_header:
+        headers["Host"] = host_header
 
     def _post(body: dict, extra: dict | None = None):
-        return _httpx.post(url, json=body, headers={**headers, **(extra or {})}, timeout=15.0)
+        h = {**headers, **(extra or {})}
+        with _httpx.Client(timeout=15.0, follow_redirects=False) as _c:
+            return _c.send(_c.build_request("POST", request_url, json=body, headers=h, extensions=tls_ext))
 
     data = None
     try:
@@ -2925,7 +3024,8 @@ def connect_mcp_server(req: MCPConnectInput, user: dict = Depends(get_current_us
         except Exception:
             # Some servers expose tools/list as a plain GET.
             try:
-                resp = _httpx.get(f"{url}/tools/list", headers=headers, timeout=15.0)
+                with _httpx.Client(timeout=15.0, follow_redirects=False) as _c:
+                    resp = _c.send(_c.build_request("GET", f"{request_url}/tools/list", headers=headers, extensions=tls_ext))
                 resp.raise_for_status()
                 data = _mcp_parse(resp)
             except Exception as e:
