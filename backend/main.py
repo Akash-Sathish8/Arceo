@@ -195,6 +195,22 @@ async def _body_size_guard(request: Request, call_next):
     return await call_next(request)
 
 
+# MED-009: derive the caller IP for rate-limit keys. Behind a trusted proxy/ingress
+# (TRUSTED_PROXY set) every client shares the ingress socket IP, which collapses
+# them into one rate-limit bucket; honor the left-most X-Forwarded-For hop in that
+# case. Default OFF → identical to the prior request.client.host behavior, so an
+# untrusted deploy can't spoof its way past a limit with a forged header.
+TRUSTED_PROXY = os.getenv("TRUSTED_PROXY", "").lower() in ("1", "true", "yes", "on")
+
+
+def client_ip(request: Request) -> str:
+    if TRUSTED_PROXY:
+        xff = request.headers.get("x-forwarded-for", "")
+        if xff:
+            return xff.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
+
+
 @app.middleware("http")
 async def _global_rate_limit(request: Request, call_next):
     """A broad per-caller rate limit on every /api/* route. Rejects early (before
@@ -209,7 +225,7 @@ async def _global_rate_limit(request: Request, call_next):
             import hashlib as _h
             caller = "k:" + _h.sha256(key.encode()).hexdigest()[:16]
         else:
-            caller = "ip:" + (request.client.host if request.client else "unknown")
+            caller = "ip:" + client_ip(request)
         if not shared_state.rate_limit_ok(f"global:{caller}", RATE_LIMIT_GLOBAL_MAX, RATE_LIMIT_GLOBAL_WINDOW):
             from fastapi.responses import JSONResponse
             return JSONResponse(status_code=429,
@@ -344,7 +360,7 @@ RATE_LIMIT_AUTH_WINDOW = int(os.getenv("RATE_LIMIT_AUTH_WINDOW", "900"))  # 15 m
 
 def check_auth_rate_limit(request: Request, email: str):
     """Rate-limit auth attempts by client IP and by email (both must stay under)."""
-    ip = request.client.host if request.client else "unknown"
+    ip = client_ip(request)
     check_rate_limit(f"auth-ip:{ip}", RATE_LIMIT_AUTH_MAX, RATE_LIMIT_AUTH_WINDOW)
     if email:
         check_rate_limit(f"auth-email:{email.lower()}", RATE_LIMIT_AUTH_MAX, RATE_LIMIT_AUTH_WINDOW)
@@ -598,6 +614,11 @@ async def proxy_llm_request(provider: str, path: str, request: Request):
     key_info = verify_api_key(request)
     if key_info and (key_info.get("agent_id") or "") and key_info["agent_id"] != agent_id:
         raise HTTPException(status_code=403, detail="API key is scoped to a different agent")
+    # MED-007: the proxy is open by default (the SDK wrap_llm flow sends only
+    # X-Agent-ID). Deployments that want it locked down set ARCEO_PROXY_REQUIRE_KEY
+    # to demand a valid X-API-Key here without breaking existing keyless callers.
+    if os.getenv("ARCEO_PROXY_REQUIRE_KEY", "").lower() in ("1", "true", "yes", "on") and not key_info:
+        raise HTTPException(status_code=401, detail="X-API-Key required for the LLM proxy")
     proxy_org = key_info["org_id"] if key_info else DEFAULT_ORG_ID
 
     # HIGH-003: the LLM proxy sits outside the /api/* rate-limit middleware, so cap
