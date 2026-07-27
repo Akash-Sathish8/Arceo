@@ -148,7 +148,7 @@ def call_scan(files: list[dict]) -> dict:
         print("::error::API key rejected by Arceo (401). Check ARCEO_API_KEY secret.", file=sys.stderr)
         sys.exit(1)
     if resp.status_code != 200:
-        print(f"::error::Arceo returned {resp.status_code}: {resp.text[:500]}", file=sys.stderr)
+        print(f"::error::Arceo returned {resp.status_code}: {_clean_cmd(resp.text[:500])}", file=sys.stderr)
         sys.exit(1)
     return resp.json()
 
@@ -167,6 +167,21 @@ VERDICT_BADGE = {
     "warn": "⚠️ **WARN**",
     "fail": "🛑 **FAIL**",
 }
+
+
+def _clean_cmd(s) -> str:
+    """Strip CR/LF so untrusted text (a response body, a scanned agent name) in a
+    ::error::/::warning:: line can't inject a second workflow command (LOW-012)."""
+    return str(s).replace("\r", " ").replace("\n", " ")
+
+
+def _md(s) -> str:
+    """Escape markdown/table metacharacters in untrusted values before embedding
+    them in a PR comment (LOW-013): pipes break tables, backticks break code spans,
+    and CR/LF break list/table structure. Scanned repo file paths + agent names
+    flow through here, so a crafted repo can't inject markdown into the comment."""
+    return (str(s).replace("\\", "\\\\").replace("`", "\\`")
+            .replace("|", "\\|").replace("\r", " ").replace("\n", " "))
 
 
 def render_markdown(result: dict) -> str:
@@ -194,7 +209,7 @@ def render_markdown(result: dict) -> str:
     if verdict == "fail" and fail_reasons:
         lines.append("**Why this failed:**")
         for r in fail_reasons:
-            lines.append(f"- {r}")
+            lines.append(f"- {_md(r)}")
         lines.append("")
     elif verdict == "warn":
         lines.append(
@@ -210,7 +225,7 @@ def render_markdown(result: dict) -> str:
     for agent in agents:
         br = agent.get("blast_radius", {})
         score = br.get("score", 0)
-        lines.append(f"### `{agent['file']}` — `{agent['name']}`  ·  score **{score} / 100**")
+        lines.append(f"### `{_md(agent['file'])}` — `{_md(agent['name'])}`  ·  score **{score} / 100**")
         lines.append("")
 
         # Risk-label counts row
@@ -233,8 +248,8 @@ def render_markdown(result: dict) -> str:
             lines.append("| Severity | Chain | Why it matters |")
             lines.append("|---|---|---|")
             for c in chains:
-                sev = SEVERITY_BADGE.get(c["severity"], c["severity"])
-                lines.append(f"| {sev} | **{c['name']}** | {c['description']} |")
+                sev = SEVERITY_BADGE.get(c["severity"], _md(c["severity"]))
+                lines.append(f"| {sev} | **{_md(c['name'])}** | {_md(c['description'])} |")
             lines.append("")
         else:
             lines.append("_No dangerous chains detected for this agent._")
@@ -278,7 +293,7 @@ def post_pr_comment(body: str) -> None:
                 json={"body": body},
             )
         if resp.status_code not in (200, 201):
-            print(f"::warning::PR comment failed ({resp.status_code}): {resp.text[:300]}", file=sys.stderr)
+            print(f"::warning::PR comment failed ({resp.status_code}): {_clean_cmd(resp.text[:300])}", file=sys.stderr)
     except httpx.HTTPError as e:
         print(f"::warning::PR comment request failed: {e}", file=sys.stderr)
 
@@ -313,7 +328,7 @@ def main() -> int:
     verdict = summary.get("verdict", "pass")
     if verdict == "fail":
         reasons = "; ".join(summary.get("fail_reasons", [])) or "distrust signal"
-        print(f"::error::Arceo verdict: FAIL — {reasons}", file=sys.stderr)
+        print(f"::error::Arceo verdict: FAIL — {_clean_cmd(reasons)}", file=sys.stderr)
         return 1
     if verdict == "warn":
         print(f"::warning::Arceo verdict: WARN (blast radius {summary.get('max_blast_radius', 0)} "

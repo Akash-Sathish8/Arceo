@@ -19,7 +19,9 @@
 # LLM-classification cache, a local SQLite file; point it at /data to keep
 # cached classifications across restarts).
 
-FROM node:22-alpine AS frontend
+# LOW-011: pin base images by digest for reproducible, tamper-evident builds.
+# Refresh with: docker manifest inspect node:22-alpine (and python:3.11-slim).
+FROM node:22-alpine@sha256:16e22a550f3863206a3f701448c45f7912c6896a62de43add43bb9c86130c3e2 AS frontend
 WORKDIR /build
 COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci
@@ -28,7 +30,7 @@ COPY frontend/ ./
 # right when the backend serves it.
 RUN npm run build
 
-FROM python:3.11-slim
+FROM python:3.11-slim@sha256:db3ff2e1800a8581e2c48a27c3995339d47bdf046da21c7627accd3d51053a93
 WORKDIR /app
 # Install from the hash-pinned lockfile so the image is reproducible and every
 # wheel's integrity is verified (MED-012). requirements.txt stays the source;

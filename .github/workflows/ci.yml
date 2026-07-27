@@ -11,6 +11,11 @@ on:
   pull_request:
     branches: [dev, Prod]
 
+# MED-013: least privilege — the default GITHUB_TOKEN is repo-wide write unless
+# scoped here. CI only reads the code, so grant read-only.
+permissions:
+  contents: read
+
 jobs:
   backend:
     runs-on: ubuntu-latest
@@ -50,9 +55,9 @@ jobs:
       REDIS_URL: redis://localhost:6379/15
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@eef61447b9ff4aafe5dcd4e0bbf5d482be7e7871  # v4.2.1
       - name: Set up Python 3.11
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@f677139bbe7f9c59b41e40162b753c062f5d49a3  # v5.2.0
         with:
           python-version: '3.11'
           cache: pip
@@ -82,9 +87,9 @@ jobs:
         working-directory: frontend
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@eef61447b9ff4aafe5dcd4e0bbf5d482be7e7871  # v4.2.1
       - name: Set up Node 22
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@cdca7365b2dadb8aad0a33bc7601856ffabcc48e  # v4.3.0
         with:
           node-version: '22'
           cache: npm
