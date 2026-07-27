@@ -100,3 +100,31 @@ jobs:
         run: npx tsc --noEmit
       - name: Build
         run: npm run build
+
+  # Advisory dependency-vulnerability scan (the report noted no such step existed).
+  # Non-blocking for now: pip-audit (backend lock) + npm audit (frontend lock)
+  # surface CVEs as annotations without failing unrelated PRs. Flip the
+  # continue-on-error flags off to make it a hard gate once the tree is clean.
+  security-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@eef61447b9ff4aafe5dcd4e0bbf5d482be7e7871  # v4.2.1
+      - name: Set up Python 3.11
+        uses: actions/setup-python@f677139bbe7f9c59b41e40162b753c062f5d49a3  # v5.2.0
+        with:
+          python-version: '3.11'
+      - name: pip-audit (backend deps)
+        continue-on-error: true
+        working-directory: backend
+        run: |
+          pip install pip-audit
+          pip-audit -r requirements.lock
+      - name: Set up Node 22
+        uses: actions/setup-node@cdca7365b2dadb8aad0a33bc7601856ffabcc48e  # v4.3.0
+        with:
+          node-version: '22'
+      - name: npm audit (frontend deps)
+        continue-on-error: true
+        working-directory: frontend
+        run: npm audit --audit-level=high
