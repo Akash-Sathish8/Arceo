@@ -1350,8 +1350,8 @@ def signup(req: SignupRequest, request: Request):
     # but the API is the contract — `not-an-email` used to create a working account.
     if not _re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", req.email or ""):
         raise HTTPException(status_code=400, detail="Enter a valid email address")
-    if len(req.password) < 6:
-        raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
+    if len(req.password) < 8:
+        raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
 
     with get_db() as conn:
         existing = conn.execute("SELECT id FROM users WHERE email = %s", (req.email,)).fetchone()
@@ -1433,8 +1433,8 @@ class ChangePasswordRequest(BaseModel):
 def change_password(req: ChangePasswordRequest, user: dict = Depends(get_current_user)):
     """Change the current user's password."""
     from auth import verify_password, hash_password
-    if len(req.new_password) < 6:
-        raise HTTPException(status_code=400, detail="New password must be at least 6 characters")
+    if len(req.new_password) < 8:
+        raise HTTPException(status_code=400, detail="New password must be at least 8 characters")
     with get_db() as conn:
         row = conn.execute("SELECT * FROM users WHERE id = %s", (user["sub"],)).fetchone()
         if not row:
@@ -1467,8 +1467,8 @@ def invite_teammate(req: TeamInviteRequest, user: dict = Depends(get_current_use
     import re as _re
     if not _re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", req.email or ""):
         raise HTTPException(status_code=400, detail="Enter a valid email address")
-    if len(req.password) < 6:
-        raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
+    if len(req.password) < 8:
+        raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
     from auth import hash_password
     org_id = _org(user)
     with get_db() as conn:
@@ -3464,6 +3464,46 @@ def enforce_status(execution_id: int, request: Request):
 
 
 # ── Notification Settings ───────────────────────────────────────────────────
+
+class SessionSettingsInput(BaseModel):
+    # Bounded to match auth.TOKEN_EXPIRY_{MIN,MAX}_HOURS so it can't be set to a
+    # value that's useless or insecure (2026-07-24 review).
+    token_expiry_hours: int = Field(ge=1, le=72)
+
+
+@app.get("/api/settings/session")
+def get_session_settings(user: dict = Depends(get_current_user)):
+    """This org's configurable JWT session length (hours). Admin-only."""
+    require_admin(user)
+    import auth as _auth
+    org_id = _org(user)
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT token_expiry_hours FROM workspace_settings WHERE org_id = %s", (org_id,)
+        ).fetchone()
+    hours = row["token_expiry_hours"] if row and row["token_expiry_hours"] is not None else _auth.TOKEN_EXPIRY_HOURS
+    return {"tokenExpiryHours": hours, "default": _auth.TOKEN_EXPIRY_HOURS,
+            "min": _auth.TOKEN_EXPIRY_MIN_HOURS, "max": _auth.TOKEN_EXPIRY_MAX_HOURS}
+
+
+@app.put("/api/settings/session")
+def set_session_settings(req: SessionSettingsInput, user: dict = Depends(get_current_user)):
+    """Set this org's JWT session length. Admin-only. Takes effect on next login."""
+    require_admin(user)
+    org_id = _org(user)
+    now = datetime.utcnow().isoformat()
+    with get_db() as conn:
+        existing = conn.execute("SELECT id FROM workspace_settings WHERE org_id = %s", (org_id,)).fetchone()
+        if existing:
+            conn.execute("UPDATE workspace_settings SET token_expiry_hours = %s, updated_at = %s WHERE org_id = %s",
+                         (req.token_expiry_hours, now, org_id))
+        else:
+            conn.execute("INSERT INTO workspace_settings (token_expiry_hours, org_id, updated_at) VALUES (%s, %s, %s)",
+                         (req.token_expiry_hours, org_id, now))
+        log_audit(conn, user["sub"], user["email"], "SESSION_EXPIRY_SET",
+                  detail=f"{req.token_expiry_hours}h", org_id=org_id)
+    return {"ok": True, "tokenExpiryHours": req.token_expiry_hours}
+
 
 class NotificationSettingsRequest(BaseModel):
     slack_webhook_url: str = ""

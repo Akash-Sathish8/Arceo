@@ -15,7 +15,11 @@ import logging as _logging
 
 SECRET_KEY = os.getenv("JWT_SECRET", "actiongate-demo-secret-key-change-in-prod")
 ALGORITHM = "HS256"
-TOKEN_EXPIRY_HOURS = 24
+TOKEN_EXPIRY_HOURS = 24  # default session length; per-org override in workspace_settings
+# Configurable per-org expiry is clamped to this range so it can't be set to a
+# value that's either useless or a security hole (2026-07-24 review).
+TOKEN_EXPIRY_MIN_HOURS = 1
+TOKEN_EXPIRY_MAX_HOURS = 72
 
 _logger = _logging.getLogger("actiongate.auth")
 
@@ -65,21 +69,44 @@ def verify_password(password: str, hashed: str) -> bool:
     if hashed.startswith("$2b$") or hashed.startswith("$2a$"):
         return bcrypt.checkpw(password.encode(), hashed.encode())
     else:
+        # LOW-003: legacy unsalted SHA-256 fallback. login_user re-hashes to bcrypt
+        # on the next successful login, so this branch is transitional — log it so
+        # any remaining legacy rows are visible and can be aged out.
         import hashlib
-        return hashlib.sha256(password.encode()).hexdigest() == hashed
+        ok = hashlib.sha256(password.encode()).hexdigest() == hashed
+        if ok:
+            _logger.warning("Verified a login against a legacy unsalted SHA-256 hash "
+                            "(deprecated) — it will be upgraded to bcrypt on this login.")
+        return ok
 
 
 def create_token(user_id: str, email: str, role: str, org_id: str = DEFAULT_ORG_ID,
-                 token_version: int = 0) -> str:
+                 token_version: int = 0, expiry_hours: int | None = None) -> str:
+    hours = expiry_hours if expiry_hours is not None else TOKEN_EXPIRY_HOURS
     payload = {
         "sub": user_id,
         "email": email,
         "role": role,
         "org_id": org_id,
         "tv": token_version,  # bumped on password change → old tokens stop verifying
-        "exp": datetime.utcnow() + timedelta(hours=TOKEN_EXPIRY_HOURS),
+        "exp": datetime.utcnow() + timedelta(hours=hours),
     }
     return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
+
+
+def resolve_token_expiry_hours(conn, org_id: str) -> int:
+    """Per-org session length from workspace_settings.token_expiry_hours, clamped
+    to [TOKEN_EXPIRY_MIN_HOURS, TOKEN_EXPIRY_MAX_HOURS] and defaulting to 24h when
+    unset. 'Dumb code, smart config' — orgs tune sessions without a code change."""
+    try:
+        row = conn.execute(
+            "SELECT token_expiry_hours FROM workspace_settings WHERE org_id = %s", (org_id,)
+        ).fetchone()
+    except Exception:
+        return TOKEN_EXPIRY_HOURS
+    if not row or row["token_expiry_hours"] is None:
+        return TOKEN_EXPIRY_HOURS
+    return max(TOKEN_EXPIRY_MIN_HOURS, min(TOKEN_EXPIRY_MAX_HOURS, int(row["token_expiry_hours"])))
 
 
 def verify_token(token: str) -> dict:
@@ -124,11 +151,30 @@ def get_current_user(request: Request) -> dict:
     return payload
 
 
+# A fixed bcrypt hash of a value no password will match. When the email is
+# unknown we still run a verify against this so login takes the same time whether
+# or not the account exists — closing the timing side-channel that let an attacker
+# enumerate valid emails (LOW-002).
+_DUMMY_HASH = bcrypt.hashpw(b"arceo-login-timing-equalizer", bcrypt.gensalt()).decode()
+
+
 def login_user(email: str, password: str) -> dict:
     """Authenticate user and return token + user info including org_id."""
     with get_db() as conn:
         row = conn.execute("SELECT * FROM users WHERE email = %s", (email,)).fetchone()
-        if not row or not verify_password(password, row["password_hash"]):
+        # Always run a hash comparison so a missing account and a wrong password
+        # take the same time (LOW-002); the boolean is discarded when row is None.
+        password_ok = verify_password(password, row["password_hash"]) if row else verify_password(password, _DUMMY_HASH)
+        if not row or not password_ok:
+            # LOW-004: record the failed attempt in its OWN committed transaction —
+            # this outer transaction is rolled back by the 401 below.
+            try:
+                with get_db() as audit_conn:
+                    log_audit(audit_conn, row["id"] if row else None, email, "FAILED_LOGIN",
+                              detail="Invalid credentials",
+                              org_id=(row["org_id"] if row and "org_id" in row.keys() else DEFAULT_ORG_ID))
+            except Exception:
+                pass  # never let audit failure change the auth outcome
             raise HTTPException(status_code=401, detail="Invalid email or password")
 
         if not row["password_hash"].startswith("$2b$"):
@@ -137,7 +183,8 @@ def login_user(email: str, password: str) -> dict:
 
         org_id = row["org_id"] if "org_id" in row.keys() else DEFAULT_ORG_ID
         tv = int(row["token_version"]) if "token_version" in row.keys() and row["token_version"] is not None else 0
-        token = create_token(row["id"], row["email"], row["role"], org_id, token_version=tv)
+        expiry = resolve_token_expiry_hours(conn, org_id)
+        token = create_token(row["id"], row["email"], row["role"], org_id, token_version=tv, expiry_hours=expiry)
         log_audit(conn, row["id"], row["email"], "LOGIN", detail="User logged in", org_id=org_id)
 
         return {
