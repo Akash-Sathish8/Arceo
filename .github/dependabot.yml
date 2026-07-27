@@ -1,49 +1,37 @@
 version: 2
-# One grouped PR per ecosystem, monthly. Keeps the PR list and the branch list
-# quiet: at most ~5 PRs a month total (usually fewer), each bundling all of that
-# ecosystem's bumps onto a single branch instead of one PR/branch per package.
+# Dependabot version updates are PAUSED. `open-pull-requests-limit: 0` stops it
+# from automatically opening dependency PRs (they were creating branch/PR noise).
+# The config is kept (not deleted) so it's easy to re-enable: raise the limit
+# (e.g. back to 2) with grouped + monthly updates on whichever ecosystems you
+# want. Note: this only governs version-update PRs; Dependabot security
+# alerts/updates are a separate repo setting.
 updates:
   - package-ecosystem: pip
     directory: /backend
     schedule:
-      interval: monthly
-    open-pull-requests-limit: 2
-    groups:
-      backend-python:
-        patterns: ["*"]
+      interval: weekly
+    open-pull-requests-limit: 0
 
   - package-ecosystem: pip
     directory: /sdk
     schedule:
-      interval: monthly
-    open-pull-requests-limit: 2
-    groups:
-      sdk-python:
-        patterns: ["*"]
+      interval: weekly
+    open-pull-requests-limit: 0
 
   - package-ecosystem: npm
     directory: /frontend
     schedule:
-      interval: monthly
-    open-pull-requests-limit: 2
-    groups:
-      frontend-npm:
-        patterns: ["*"]
+      interval: weekly
+    open-pull-requests-limit: 0
 
   - package-ecosystem: npm
     directory: /website
     schedule:
-      interval: monthly
-    open-pull-requests-limit: 2
-    groups:
-      website-npm:
-        patterns: ["*"]
+      interval: weekly
+    open-pull-requests-limit: 0
 
   - package-ecosystem: github-actions
     directory: /
     schedule:
-      interval: monthly
-    open-pull-requests-limit: 2
-    groups:
-      actions:
-        patterns: ["*"]
+      interval: weekly
+    open-pull-requests-limit: 0
