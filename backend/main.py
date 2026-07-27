@@ -59,6 +59,9 @@ async def lifespan(app: FastAPI):
             "(postgresql://postgres:postgres@localhost:5432/arceo). Set "
             "DATABASE_URL explicitly in production."
         )
+    # LOW-006: in a non-dev environment, refuse to boot unless encryption-at-rest
+    # is on (sensitive columns must not be cleartext in prod). No-op in dev/test.
+    encryption.enforce_prod_encryption_policy()
     init_db()
     verify_models_at_startup(os.environ.get("ANTHROPIC_API_KEY"))
     if not _snapshot_scheduler_disabled():
@@ -334,6 +337,10 @@ def _caller_org(request: Request) -> str:
     Raises 401 if neither is present/valid. This is the shared gate for
     endpoints that agents (keys) OR humans (JWT) call — register, live-trace
     ingest, mock. Mirrors the /api/enforce pattern so the two never diverge.
+
+    (MED-010 was a false positive: there is NO unauthenticated "bootstrap window"
+    — this always requires a valid key or JWT, and returns no default org without
+    one. Do not add a keyless fallback here.)
     """
     key_row = verify_api_key(request)
     if key_row:
@@ -438,8 +445,10 @@ ALLOWED_ORIGINS = [o.strip() for o in _cors_env.split(",") if o.strip()] or [
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    # LOW-008: scope CORS to the methods/headers the SPA actually uses instead of
+    # "*" (a wildcard alongside bearer-token auth is a standard pentest finding).
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "X-API-Key", "X-Agent-ID"],
 )
 
 

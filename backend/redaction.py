@@ -30,6 +30,17 @@ _SSN = re.compile(r"\b\d{3}-\d{2}-\d{4}\b")
 # Phone: +1 555-123-4567 / (555) 123-4567 / 555.123.4567 — US-shaped, 3-digit area.
 _PHONE = re.compile(r"(?<!\d)(?:\+?\d{1,3}[ .\-]?)?(?:\(\d{3}\)|\d{3})[ .\-]?\d{3}[ .\-]?\d{4}(?!\d)")
 
+# LOW-007: secrets/credentials — redaction was blind to these, yet captured LLM
+# prompts routinely contain them. High-signal, low-false-positive prefixes only
+# (no generic high-entropy scan, which would over-mask ids/hashes). Ordered so
+# sk-ant- matches before the broader sk- rule.
+_ANTHROPIC_KEY = re.compile(r"\bsk-ant-[A-Za-z0-9_\-]{20,}")
+_OPENAI_KEY = re.compile(r"\bsk-[A-Za-z0-9_\-]{20,}")
+_AWS_KEY = re.compile(r"\bAKIA[0-9A-Z]{16}\b")
+_GITHUB_TOKEN = re.compile(r"\bgh[pousr]_[A-Za-z0-9]{36,}\b")
+_BEARER = re.compile(r"(?i)\bBearer\s+[A-Za-z0-9._\-]{20,}")
+_SECRETS = (_ANTHROPIC_KEY, _OPENAI_KEY, _AWS_KEY, _GITHUB_TOKEN, _BEARER)
+
 
 def redaction_enabled() -> bool:
     return os.getenv("ARCEO_PII_REDACTION", "true").lower() not in ("0", "false", "no", "off")
@@ -55,6 +66,10 @@ def redact_text(text: str) -> str:
     """Mask PII patterns in a string. No-op when redaction is disabled."""
     if not text or not redaction_enabled():
         return text
+    # Secrets first: an API key that happens to contain a digit run shouldn't be
+    # partially rewritten by the card/phone rules.
+    for pat in _SECRETS:
+        text = pat.sub("[REDACTED_SECRET]", text)
     text = _EMAIL.sub("[REDACTED_EMAIL]", text)
     text = _SSN.sub("[REDACTED_SSN]", text)
     text = _CARD.sub(lambda m: "[REDACTED_CARD]" if _luhn_ok(m.group(0)) else m.group(0), text)

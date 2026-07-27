@@ -25,6 +25,31 @@ def encrypt_at_rest_enabled() -> bool:
     return os.getenv("ARCEO_ENCRYPT_AT_REST", "").lower() in ("1", "true", "yes", "on")
 
 
+_DEV_ENVS = {"dev", "local", "test", "ci"}
+
+
+def enforce_prod_encryption_policy() -> None:
+    """LOW-006: refuse to boot in a non-dev environment unless encryption-at-rest
+    is enabled — sensitive columns (LLM PII, execution params, held requests) must
+    not sit in cleartext in prod. Mirrors auth.py's default-JWT-secret guard. Also
+    fails fast if the flag is on but no master key is set (writes would error at
+    runtime). Called from app startup; no-op in dev/test/ci."""
+    dev = os.getenv("ARCEO_ENV", "").lower() in _DEV_ENVS
+    if not encrypt_at_rest_enabled():
+        if not dev:
+            raise RuntimeError(
+                "ARCEO_ENCRYPT_AT_REST is off in a non-dev environment — sensitive "
+                "columns would be stored in cleartext. Set ARCEO_ENCRYPT_AT_REST=1 "
+                "and ARCEO_VAULT_MASTER_KEY, or set ARCEO_ENV=dev for local work."
+            )
+        return
+    if not os.getenv(vault.MASTER_KEY_ENV):
+        raise RuntimeError(
+            f"ARCEO_ENCRYPT_AT_REST is on but {vault.MASTER_KEY_ENV} is unset — "
+            "encrypted writes would fail. Provide the base64 master key."
+        )
+
+
 def split(plaintext: str | None) -> tuple[str | None, bytes | None]:
     """Return `(plaintext_col, enc_col)` for a sensitive string value. When the
     flag is on and there's a value, encrypt it and null the plaintext column;

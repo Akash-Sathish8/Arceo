@@ -3,6 +3,11 @@ import type { User } from "./types";
 const API_BASE: string =
   (import.meta as ImportMeta & { env: Record<string, string> }).env.VITE_API_URL ?? "";
 
+// LOW-005 (accepted risk): the JWT is kept in localStorage rather than an
+// httpOnly cookie, so an XSS payload could read it. Accepted because a strict CSP
+// (default-src 'self', no inline/eval — see backend security headers) blocks the
+// script-injection vector, and short/configurable token expiry limits exposure.
+// Revisit with httpOnly cookies + CSRF protection if the CSP is ever loosened.
 let authToken: string | null = localStorage.getItem("arceo_token");
 
 export interface ApiFetchOptions extends RequestInit {
