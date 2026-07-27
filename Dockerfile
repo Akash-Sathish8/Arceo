@@ -30,8 +30,11 @@ RUN npm run build
 
 FROM python:3.11-slim
 WORKDIR /app
-COPY backend/requirements.txt ./
-RUN pip install --no-cache-dir -r requirements.txt
+# Install from the hash-pinned lockfile so the image is reproducible and every
+# wheel's integrity is verified (MED-012). requirements.txt stays the source;
+# regenerate the lock with: pip-compile --generate-hashes requirements.txt
+COPY backend/requirements.lock ./
+RUN pip install --no-cache-dir --require-hashes -r requirements.lock
 COPY backend/ ./
 COPY --from=frontend /build/dist ./static
 

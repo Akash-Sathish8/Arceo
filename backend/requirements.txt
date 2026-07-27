@@ -1,4 +1,8 @@
-fastapi==0.115.0
+# fastapi 0.115.0 caps starlette <0.39.0, below the CVE-2024-47874 fix (multipart
+# DoS, fixed 0.40.0). Bump within the 0.115.x line so starlette>=0.40.0 resolves
+# (LOW-014). Patch-level bump — no API changes.
+fastapi>=0.115.6,<0.116
+starlette>=0.40.0,<0.42.0
 uvicorn[standard]==0.30.6
 pydantic==2.9.2
 networkx>=3.2

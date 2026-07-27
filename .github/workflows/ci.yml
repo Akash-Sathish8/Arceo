@@ -56,9 +56,10 @@ jobs:
         with:
           python-version: '3.11'
           cache: pip
-          cache-dependency-path: backend/requirements*.txt
+          cache-dependency-path: backend/requirements*.lock
       - name: Install dependencies
-        run: pip install -r requirements-dev.txt
+        # Hash-pinned install (MED-012): reproducible + integrity-verified.
+        run: pip install --require-hashes -r requirements-dev.lock
       - name: Run tests
         run: python -m pytest tests/ -q
       # Vendor prices drift; each model row carries verified_on + source_url.
