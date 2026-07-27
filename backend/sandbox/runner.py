@@ -28,7 +28,7 @@ from sandbox.agents.executor import (
     parse_tool_name,
 )
 from sandbox.prompts.scenarios import Scenario
-from llm_models import SIM_MODEL
+from llm_models import SIM_MODEL, anthropic_client
 
 
 MAX_TURNS = 20  # Safety limit on agent tool-calling loops
@@ -154,8 +154,7 @@ def _usage_from_raw(raw):
 
 def _call_anthropic(model, system_prompt, messages, tools, api_key=None):
     """Call Anthropic Messages API."""
-    import anthropic
-    client = anthropic.Anthropic(api_key=api_key) if api_key else anthropic.Anthropic()
+    client = anthropic_client(api_key)
 
     response = client.messages.create(
         model=model,

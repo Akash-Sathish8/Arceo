@@ -92,7 +92,7 @@ class _FakeAnthropic:
                 return types.SimpleNamespace(content=[block])
 
         class Anthropic:
-            def __init__(self, api_key=None):
+            def __init__(self, api_key=None, **kwargs):  # tolerate timeout= etc.
                 self.messages = _Messages()
 
         self.Anthropic = Anthropic
@@ -133,7 +133,7 @@ def test_vote_failure_degrades_to_successful_votes(monkeypatch):
                     return types.SimpleNamespace(content=[block])
 
             class Anthropic:
-                def __init__(self, api_key=None):
+                def __init__(self, api_key=None, **kwargs):  # tolerate timeout= etc.
                     self.messages = _Messages()
 
             self.Anthropic = Anthropic

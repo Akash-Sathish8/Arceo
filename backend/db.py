@@ -40,8 +40,19 @@ DEFAULT_ORG_ID = "default"
 # itself opens lazily on first use, so importing this module never requires a
 # reachable server (alembic and utility scripts import it too). Thread-safe:
 # the snapshot-scheduler daemon thread calls get_db() off the request path.
+# MED-005: bound the pool and give every transaction a statement/lock timeout.
+# Without these an unbounded/slow query holds a connection open indefinitely and
+# a burst starves the (small) pool — a DoS surface. All env-tunable; the timeouts
+# are set transaction-local in get_db() so a runaway query is killed, not the app.
+DB_POOL_MIN = int(os.getenv("ARCEO_DB_POOL_MIN", "2"))
+DB_POOL_MAX = int(os.getenv("ARCEO_DB_POOL_MAX", "10"))
+DB_STATEMENT_TIMEOUT_MS = int(os.getenv("ARCEO_DB_STATEMENT_TIMEOUT_MS", "15000"))
+DB_LOCK_TIMEOUT_MS = int(os.getenv("ARCEO_DB_LOCK_TIMEOUT_MS", "5000"))
+
 _POOL = ConnectionPool(
     DATABASE_URL,
+    min_size=DB_POOL_MIN,
+    max_size=DB_POOL_MAX,
     kwargs={"row_factory": dict_row},
     open=False,
 )
@@ -74,6 +85,11 @@ def get_db():
         # set_config(..., is_local=true) == SET LOCAL: resets on commit/rollback,
         # so a pooled connection never leaks one request's org into the next.
         conn.execute("SELECT set_config('app.current_org', %s, true)", (current_org.get(),))
+        # MED-005: transaction-local timeouts — a runaway statement or a lock wait
+        # is killed rather than pinning a pooled connection indefinitely. Local, so
+        # they reset with the transaction exactly like the org GUC above.
+        conn.execute("SELECT set_config('statement_timeout', %s, true)", (str(DB_STATEMENT_TIMEOUT_MS),))
+        conn.execute("SELECT set_config('lock_timeout', %s, true)", (str(DB_LOCK_TIMEOUT_MS),))
         yield conn
         conn.commit()
     except BaseException:

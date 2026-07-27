@@ -19,7 +19,7 @@ import logging
 from pathlib import Path
 
 from authority.action_mapper import ACTION_CATALOG, MappedAction
-from llm_models import FAST_MODEL
+from llm_models import FAST_MODEL, anthropic_client
 
 logger = logging.getLogger(__name__)
 
@@ -708,8 +708,7 @@ def classify_with_llm(action_name: str, description: str = "", schema_props: dic
         return None
 
     try:
-        import anthropic
-        client = anthropic.Anthropic(api_key=api_key)
+        client = anthropic_client(api_key)
     except Exception as e:
         logger.warning(f"anthropic client unavailable: {e}")
         return None

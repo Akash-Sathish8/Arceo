@@ -14,13 +14,11 @@ import os
 from dataclasses import dataclass, field
 from datetime import datetime
 
-import anthropic
-
 from sandbox.models import TraceStep
 from sandbox.mocks.registry import MockState
 from sandbox.mocks import *  # noqa: register mocks
 from sandbox.agents.executor import execute_tool_call, build_tool_definitions, parse_tool_name
-from llm_models import SIM_MODEL, FAST_MODEL
+from llm_models import SIM_MODEL, FAST_MODEL, anthropic_client
 
 
 # ── Attack types ─────────────────────────────────────────────────────────
@@ -216,7 +214,7 @@ def _generate_adversarial_input(attack_type: dict, goal_params: dict, api_key: s
     template = attack_type["template"]
     prompt = template.format(**goal_params)
 
-    client = anthropic.Anthropic(api_key=api_key)
+    client = anthropic_client(api_key)
     response = client.messages.create(
         model=FAST_MODEL,
         max_tokens=500,
@@ -237,7 +235,7 @@ def _run_agent_with_input(
     state = MockState()
     tool_defs = build_tool_definitions(agent_config)
 
-    client = anthropic.Anthropic(api_key=api_key)
+    client = anthropic_client(api_key)
     messages = [{"role": "user", "content": adversarial_input}]
 
     all_steps = []

@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 import random
-from llm_models import FAST_MODEL
+from llm_models import FAST_MODEL, anthropic_client
 
 
 TENANT_DATA = {
@@ -493,8 +493,7 @@ def _llm_mock(tool: str, action: str, params: dict, state: MockState) -> dict | 
             session_context += f"- {h['tool']}.{h['action']}: {_json.dumps(h['result'])[:200]}\n"
 
     try:
-        import anthropic
-        client = anthropic.Anthropic(api_key=api_key)
+        client = anthropic_client(api_key)
 
         response = client.messages.create(
             model=FAST_MODEL,

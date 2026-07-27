@@ -40,7 +40,7 @@ import time
 from collections import defaultdict
 
 from contextlib import asynccontextmanager
-from llm_models import FAST_MODEL, DEEP_MODEL, verify_models_at_startup
+from llm_models import FAST_MODEL, DEEP_MODEL, verify_models_at_startup, anthropic_client
 import shared_state
 import approvals
 
@@ -168,6 +168,31 @@ RATE_LIMIT_LLM_WINDOW = int(os.getenv("RATE_LIMIT_LLM_WINDOW", "60"))
 # Liveness/config probes must never be throttled (dashboards + load balancers
 # poll them); everything else under /api is covered.
 _RATE_LIMIT_EXEMPT_PATHS = {"/api/health", "/api/demo-mode"}
+
+# MED-006: cap the overall request body so an oversized payload can't exhaust
+# memory / drive unbounded work before per-model validation runs. Generous enough
+# for the largest legit body (a 50-file scan at 200KB each ≈ 10 MB); tune via env.
+MAX_BODY_BYTES = int(os.getenv("ARCEO_MAX_BODY_BYTES", str(12 * 1024 * 1024)))
+
+# MED-008: cap concurrent live-trace WebSockets per agent — each one opens its own
+# Redis pubsub client, so unbounded sockets are a resource-exhaustion vector.
+WS_MAX_CONNECTIONS_PER_AGENT = int(os.getenv("ARCEO_WS_MAX_CONN_PER_AGENT", "5"))
+
+
+@app.middleware("http")
+async def _body_size_guard(request: Request, call_next):
+    """Reject an oversized request (413) up front, based on Content-Length, before
+    any handler reads or parses the body."""
+    cl = request.headers.get("content-length")
+    if cl:
+        try:
+            if int(cl) > MAX_BODY_BYTES:
+                from fastapi.responses import JSONResponse
+                return JSONResponse(status_code=413, content={
+                    "detail": f"Request body too large (max {MAX_BODY_BYTES} bytes)."})
+        except ValueError:
+            pass
+    return await call_next(request)
 
 
 @app.middleware("http")
@@ -1979,21 +2004,23 @@ def bulk_delete_agents(req: BulkDeleteRequest, user: dict = Depends(get_current_
 # ── Agent Discovery: Register + Import ─────────────────────────────────────
 
 class RegisterActionInput(BaseModel):
-    name: str
-    description: str = ""
+    name: str = Field(max_length=500)
+    description: str = Field(default="", max_length=4000)
 
 
 class RegisterToolInput(BaseModel):
-    name: str
-    service: str = ""
-    description: str = ""
-    actions: list[RegisterActionInput] = []
+    name: str = Field(max_length=500)
+    service: str = Field(default="", max_length=500)
+    description: str = Field(default="", max_length=4000)
+    # MED-006: cap the tool/action fan-out — each unknown action can trigger a
+    # billable Haiku classification, so an unbounded manifest is a spend amplifier.
+    actions: list[RegisterActionInput] = Field(default=[], max_length=500)
 
 
 class RegisterAgentInput(BaseModel):
-    name: str
-    description: str = ""
-    tools: list[RegisterToolInput] = []
+    name: str = Field(max_length=500)
+    description: str = Field(default="", max_length=4000)
+    tools: list[RegisterToolInput] = Field(default=[], max_length=200)
     simulation_model: Optional[str] = None
     expected_calls_per_day: Optional[int] = None
     expected_turns_per_run: Optional[int] = None
@@ -2141,9 +2168,9 @@ def register_agent(req: RegisterAgentInput, request: Request):
 
 
 class ExtractInput(BaseModel):
-    filename: str = ""
-    content: str
-    agent_name_hint: str = ""
+    filename: str = Field(default="", max_length=1000)
+    content: str = Field(max_length=200_000)  # mirrors the runtime 200KB gate
+    agent_name_hint: str = Field(default="", max_length=500)
 
 
 _EXTRACTION_PROMPT = """You are analyzing source code from an AI agent. Extract its structure.
@@ -2194,8 +2221,7 @@ def _extract_and_register(content: str, filename: str = "", agent_name_hint: str
     if len(content) > 200_000:
         raise HTTPException(status_code=400, detail="File too large (max 200KB)")
 
-    import anthropic as _anthropic
-    client = _anthropic.Anthropic(api_key=api_key)
+    client = anthropic_client(api_key)
 
     try:
         response = client.messages.create(
@@ -2461,12 +2487,12 @@ async def extract_agents_from_github(req: GithubExtractInput, user: dict = Depen
 # Does NOT persist to the DB.
 
 class ScanFileInput(BaseModel):
-    path: str
-    content: str
+    path: str = Field(max_length=2000)
+    content: str = Field(max_length=200_000)  # mirrors _score_in_memory's 200KB skip
 
 
 class ScanRequest(BaseModel):
-    files: list[ScanFileInput]
+    files: list[ScanFileInput] = Field(max_length=50)  # mirrors the runtime file-count gate
     threshold: int = 60
 
 
@@ -2632,8 +2658,7 @@ def scan_files(req: ScanRequest, request: Request):
     if not api_key:
         raise HTTPException(status_code=503, detail="ANTHROPIC_API_KEY not configured on server")
 
-    import anthropic as _anthropic
-    client = _anthropic.Anthropic(api_key=api_key)
+    client = anthropic_client(api_key)
 
     agents_out: list[dict] = []
     max_blast_radius = 0
@@ -2942,7 +2967,7 @@ class MCPImportInput(BaseModel):
     agent_name: str
     agent_description: str = ""
     source: str = ""
-    mcp_tools: list[MCPToolInput]
+    mcp_tools: list[MCPToolInput] = Field(max_length=1000)
 
 
 class MCPConnectInput(BaseModel):
@@ -3153,7 +3178,7 @@ class OpenAIImportInput(BaseModel):
     agent_name: str
     agent_description: str = ""
     source: str = ""
-    tools: list[OpenAIToolInput]
+    tools: list[OpenAIToolInput] = Field(max_length=1000)
 
 
 @app.post("/api/authority/agents/import/openai")
@@ -3999,9 +4024,8 @@ def generate_llm_scenarios(agent_id: str, user: dict = Depends(get_current_user)
         f"Detected dangerous chains:\n" + ("\n".join(chain_lines) if chain_lines else "(none)")
     )
 
-    import anthropic as _anthropic
     try:
-        client = _anthropic.Anthropic(api_key=api_key)
+        client = anthropic_client(api_key)
         msg = client.messages.create(
             model=DEEP_MODEL,
             max_tokens=4000,
@@ -4827,6 +4851,10 @@ async def ws_live_traces(websocket: WebSocket, agent_id: str):
             if not get_agent_from_db(conn, agent_id, org_id=payload.get("org_id", DEFAULT_ORG_ID)):
                 await websocket.close(code=4404)
                 return
+    # MED-008: bound concurrent sockets per agent (each opens a Redis pubsub client).
+    if not shared_state.ws_acquire_slot(agent_id, WS_MAX_CONNECTIONS_PER_AGENT):
+        await websocket.close(code=4429)
+        return
     await websocket.accept()
 
     # Subscribe to this agent's Redis channel — events published by ANY worker
@@ -4850,6 +4878,8 @@ async def ws_live_traces(websocket: WebSocket, agent_id: str):
     except WebSocketDisconnect:
         pass
     finally:
+        # Release the per-agent connection slot (MED-008) before teardown.
+        shared_state.ws_release_slot(agent_id)
         # Await the cancelled forward task BEFORE closing the pubsub/client, so
         # its listen() coroutine finishes unwinding and can't race with (or
         # use-after-close) the Redis objects we're about to tear down.

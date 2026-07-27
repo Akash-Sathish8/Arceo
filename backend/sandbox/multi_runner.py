@@ -14,15 +14,13 @@ import json
 import uuid
 from datetime import datetime
 
-import anthropic
-
 from sandbox.models import SimulationTrace, TraceStep, MultiAgentTrace
 from sandbox.mocks.registry import MockState
 from sandbox.mocks import *  # noqa: F401, F403
 from sandbox.agents.executor import execute_tool_call, build_tool_definitions, parse_tool_name
 from sandbox.prompts.scenarios import Scenario
 from sandbox.runner import SYSTEM_PROMPTS, MAX_TURNS
-from llm_models import SIM_MODEL
+from llm_models import SIM_MODEL, anthropic_client
 
 
 DISPATCH_TOOL = {
@@ -52,6 +50,30 @@ DISPATCH_TOOL = {
 
 MAX_DISPATCH_DEPTH = 3
 
+# MED-003 / LOW-015: the dispatch recursion is bounded in DEPTH and by cycle
+# detection, but NOT in WIDTH — an agent can dispatch on every turn and each
+# sub-agent can do the same, so a single request could fan out to tens of
+# thousands of billable model calls. A shared per-request ceiling on TOTAL LLM
+# calls, threaded through the whole recursion, makes the blow-up impossible.
+import os as _os
+
+MAX_TOTAL_LLM_CALLS = int(_os.getenv("ARCEO_SIM_MAX_LLM_CALLS", "60"))
+
+
+class _SimBudget:
+    """A hard ceiling on total LLM calls, shared across the whole multi-agent
+    recursion so fan-out can't exceed it."""
+    __slots__ = ("remaining",)
+
+    def __init__(self, total: int):
+        self.remaining = total
+
+    def take(self) -> bool:
+        if self.remaining <= 0:
+            return False
+        self.remaining -= 1
+        return True
+
 
 def _run_single_agent(
     agent_config: dict,
@@ -63,12 +85,17 @@ def _run_single_agent(
     depth: int = 0,
     max_turns: int = MAX_TURNS,
     visited_agents: frozenset[str] | None = None,
+    budget: "_SimBudget | None" = None,
 ) -> SimulationTrace:
     """Run a single agent within a multi-agent simulation.
 
     If the agent calls dispatch_agent, recursively runs the target agent
-    and returns the result. Depth-limited to MAX_DISPATCH_DEPTH.
+    and returns the result. Depth-limited to MAX_DISPATCH_DEPTH and, across the
+    whole recursion, bounded to MAX_TOTAL_LLM_CALLS model calls (MED-003).
     """
+    # First (top-level) call seeds the shared budget; recursion passes it down.
+    if budget is None:
+        budget = _SimBudget(MAX_TOTAL_LLM_CALLS)
     agent_id = agent_config["id"]
     agent_name = agent_config["name"]
 
@@ -93,7 +120,7 @@ def _run_single_agent(
         dispatch["description"] += f" Available agents: {', '.join(available)}"
         tool_defs.append(dispatch)
 
-    client = anthropic.Anthropic(api_key=api_key) if api_key else anthropic.Anthropic()
+    client = anthropic_client(api_key)
 
     # Determine system prompt
     agent_type = _infer_agent_type(agent_config)
@@ -109,6 +136,10 @@ def _run_single_agent(
     session_context: list[str] = []
 
     for turn in range(max_turns):
+        # MED-003: stop before exceeding the shared total-call ceiling.
+        if not budget.take():
+            trace.error = f"Simulation LLM-call budget ({MAX_TOTAL_LLM_CALLS}) exhausted"
+            break
         try:
             response = client.messages.create(
                 model=SIM_MODEL,
@@ -192,6 +223,7 @@ def _run_single_agent(
                         depth=depth + 1,
                         max_turns=max_turns,
                         visited_agents=current_visited,
+                        budget=budget,
                     )
                     multi_trace.agent_traces[target_id] = sub_trace
 

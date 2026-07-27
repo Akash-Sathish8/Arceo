@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 # ── Risk label extraction from trace steps ────────────────────────────────
 
 from functools import lru_cache
-from llm_models import FAST_MODEL
+from llm_models import FAST_MODEL, anthropic_client
 
 
 @lru_cache(maxsize=512)
@@ -524,8 +524,7 @@ def _generate_executive_summary(
     api_key = os.getenv("ANTHROPIC_API_KEY")
     if api_key:
         try:
-            import anthropic
-            client = anthropic.Anthropic(api_key=api_key)
+            client = anthropic_client(api_key)
 
             response = client.messages.create(
                 model=FAST_MODEL,
@@ -1312,8 +1311,7 @@ def _generate_sweep_summary(report: SweepReport) -> str:
     api_key = os.getenv("ANTHROPIC_API_KEY")
     if api_key:
         try:
-            import anthropic
-            client = anthropic.Anthropic(api_key=api_key)
+            client = anthropic_client(api_key)
 
             findings = {
                 "agent": report.agent_name,

@@ -12,6 +12,7 @@ ours to centralize.
 """
 
 import logging
+import os
 
 # Sandbox simulation loops, multi-agent coordinator, red-team attacker.
 SIM_MODEL = "claude-sonnet-4-6"
@@ -26,6 +27,24 @@ DEEP_MODEL = "claude-opus-4-8"
 ALL_MODELS = (SIM_MODEL, FAST_MODEL, DEEP_MODEL)
 
 logger = logging.getLogger("arceo")
+
+# Bounded timeout for every Anthropic call (MED-004). The SDK defaults to a
+# 10-minute timeout, so a slow/hung upstream pins a worker thread for the whole
+# window; a burst exhausts the threadpool and turns a latency problem into an
+# availability outage. Seconds; override with ARCEO_ANTHROPIC_TIMEOUT.
+ANTHROPIC_TIMEOUT = float(os.getenv("ARCEO_ANTHROPIC_TIMEOUT", "60"))
+
+
+def anthropic_client(api_key: str | None = None):
+    """Construct an Anthropic client with a bounded timeout (MED-004).
+
+    Every call site MUST use this rather than anthropic.Anthropic() directly so
+    the timeout is applied uniformly. Passing api_key=None makes the SDK read
+    ANTHROPIC_API_KEY from the environment, collapsing the old
+    `Anthropic(api_key=k) if k else Anthropic()` pattern. The SDK's built-in
+    retries (max_retries, default 2) still cover transient errors."""
+    import anthropic
+    return anthropic.Anthropic(api_key=api_key or None, timeout=ANTHROPIC_TIMEOUT)
 
 
 def verify_models_at_startup(api_key: str | None) -> None:
@@ -44,7 +63,7 @@ def verify_models_at_startup(api_key: str | None) -> None:
         return
     try:
         import anthropic
-        client = anthropic.Anthropic(api_key=api_key)
+        client = anthropic_client(api_key)
         for model_id in ALL_MODELS:
             try:
                 client.models.retrieve(model_id)

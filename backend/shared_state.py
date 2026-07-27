@@ -127,6 +127,32 @@ def should_fire_once(key: str, ttl_seconds: int) -> bool:
     return bool(_client.set(f"once:{key}", "1", nx=True, ex=ttl_seconds))
 
 
+# ── WebSocket connection caps ─────────────────────────────────────────────────
+_WS_CONN_TTL = 3600  # safety expiry so a crashed worker's slot count self-heals
+
+
+def ws_acquire_slot(agent_id: str, limit: int) -> bool:
+    """Claim one live-trace WS slot for an agent (MED-008). INCR-then-check so the
+    count is correct across workers; on overflow, DECR back and refuse. A TTL on
+    the counter means a worker that dies without releasing can't leak slots."""
+    key = f"ws:conns:{agent_id}"
+    n = _client.incr(key)
+    if n == 1:
+        _client.expire(key, _WS_CONN_TTL)
+    if n > limit:
+        _client.decr(key)
+        return False
+    return True
+
+
+def ws_release_slot(agent_id: str) -> None:
+    """Release a slot claimed by ws_acquire_slot; floors at 0 so a stale/expired
+    counter can't go negative."""
+    key = f"ws:conns:{agent_id}"
+    if _client.decr(key) < 0:
+        _client.set(key, 0)
+
+
 # ── Test support ──────────────────────────────────────────────────────────────
 
 def _flush_for_tests() -> None:
