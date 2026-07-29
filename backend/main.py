@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import functools
 import json
 import re
 import secrets
 import uuid
+
+import anyio
+import anyio.to_thread
 from dataclasses import asdict
 from datetime import datetime, timedelta
 from typing import Optional
@@ -233,7 +237,16 @@ async def _global_rate_limit(request: Request, call_next):
             caller = "k:" + _h.sha256(key.encode()).hexdigest()[:16]
         else:
             caller = "ip:" + client_ip(request)
-        if not shared_state.rate_limit_ok(f"global:{caller}", RATE_LIMIT_GLOBAL_MAX, RATE_LIMIT_GLOBAL_WINDOW):
+        # MED-007: the Redis client is synchronous, and this is async middleware —
+        # calling it directly ran a blocking socket read ON the event-loop thread,
+        # so a degraded Redis froze every in-flight request on the worker, not just
+        # this one. Off to a thread. fail_open: this broad limit is DoS hygiene, so
+        # a Redis outage should cost rate limiting, not the whole API (the tighter
+        # auth/enforce limiters stay fail-closed).
+        ok = await anyio.to_thread.run_sync(
+            functools.partial(shared_state.rate_limit_ok, f"global:{caller}",
+                              RATE_LIMIT_GLOBAL_MAX, RATE_LIMIT_GLOBAL_WINDOW, fail_open=True))
+        if not ok:
             from fastapi.responses import JSONResponse
             return JSONResponse(status_code=429,
                                 content={"detail": "Rate limit exceeded. Slow down and retry shortly."})
@@ -350,6 +363,50 @@ def _caller_org(request: Request) -> str:
     if key_row:
         return key_row.get("org_id") or DEFAULT_ORG_ID
     return _org(get_current_user(request))  # raises 401 if no valid bearer token
+
+
+# ── Heavy LLM jobs: bounded concurrency off the request path (MED-006) ────────
+# Starlette runs sync `def` handlers in AnyIO's threadpool, which holds a fixed,
+# process-wide 40 tokens. The sandbox/red-team/sweep/prelaunch handlers each drive
+# multi-turn LLM loops for seconds to minutes and held a token the entire time, so
+# ~40 concurrent jobs took every slot — and since nearly every other route is also
+# a sync `def` (login, /api/enforce, the dashboard reads), the whole instance
+# stalled for every tenant. The runtime enforcement this product sells queued
+# behind sweeps.
+#
+# These handlers are now `async def` wrappers that push the work to a thread under
+# a dedicated limiter, so at most ARCEO_HEAVY_JOB_CONCURRENCY of them are ever in
+# flight and the rest await on the loop (holding no thread at all). Callers past
+# the queue window get an explicit 503 rather than joining an invisible queue.
+#
+# This is the audit's stated INTERIM fix. The real one is a background job queue
+# with a job id the client polls — tracked as a follow-up, since it changes the
+# API contract for seven endpoints.
+HEAVY_JOB_CONCURRENCY = int(os.getenv("ARCEO_HEAVY_JOB_CONCURRENCY", "8"))
+HEAVY_JOB_QUEUE_TIMEOUT = float(os.getenv("ARCEO_HEAVY_JOB_QUEUE_TIMEOUT", "30"))
+_heavy_job_limiter = anyio.CapacityLimiter(HEAVY_JOB_CONCURRENCY)
+
+
+async def _run_heavy_job(fn, *args, **kwargs):
+    """Run a long-running LLM handler body in a worker thread, bounded.
+
+    Waits up to HEAVY_JOB_QUEUE_TIMEOUT for a slot, then 503s. The wait happens on
+    the event loop, so queued callers cost a coroutine rather than a thread — which
+    is the whole point: auth and /api/enforce keep their share of the threadpool no
+    matter how many sweeps are queued."""
+    try:
+        with anyio.fail_after(HEAVY_JOB_QUEUE_TIMEOUT):
+            await _heavy_job_limiter.acquire()
+    except TimeoutError:
+        raise HTTPException(
+            status_code=503,
+            detail=("The server is at capacity for long-running jobs. "
+                    "Retry shortly — nothing was started or charged."),
+        )
+    try:
+        return await anyio.to_thread.run_sync(functools.partial(fn, *args, **kwargs))
+    finally:
+        _heavy_job_limiter.release()
 
 
 def check_rate_limit(key: str, max_requests: int = RATE_LIMIT_MAX, window: int = RATE_LIMIT_WINDOW):
@@ -4365,7 +4422,13 @@ def generate_llm_scenarios(agent_id: str, user: dict = Depends(get_current_user)
 
 
 @app.post("/api/sandbox/simulate")
-def run_sandbox_simulation(req: SimulateRequest, user: dict = Depends(get_current_user)):
+async def run_sandbox_simulation(req: SimulateRequest, user: dict = Depends(get_current_user)):
+    # MED-006: bounded off the request path so a burst of these can't take
+    # the whole threadpool and stall auth/enforce for every tenant.
+    return await _run_heavy_job(_run_sandbox_simulation_impl, req, user)
+
+
+def _run_sandbox_simulation_impl(req: SimulateRequest, user: dict):
     """Run a simulation: agent + scenario + mocks + enforcement + trace."""
     _budget_gate(req.agent_id, _org(user))  # HIGH-003: per-org monthly spend gate
                                             # (one sim is already bounded by max_turns)
@@ -4451,7 +4514,13 @@ class MultiSimulateRequest(BaseModel):
 
 
 @app.post("/api/sandbox/simulate/multi")
-def run_multi_agent_simulation(req: MultiSimulateRequest, user: dict = Depends(get_current_user)):
+async def run_multi_agent_simulation(req: MultiSimulateRequest, user: dict = Depends(get_current_user)):
+    # MED-006: bounded off the request path so a burst of these can't take
+    # the whole threadpool and stall auth/enforce for every tenant.
+    return await _run_heavy_job(_run_multi_agent_simulation_impl, req, user)
+
+
+def _run_multi_agent_simulation_impl(req: MultiSimulateRequest, user: dict):
     """Run a multi-agent simulation with dispatch between agents."""
     from sandbox.multi_runner import run_multi_simulation, run_multi_simulation_dry
     from sandbox.analyzer import analyze_multi_trace
@@ -4990,7 +5059,13 @@ class PrelaunchRequest(BaseModel):
 
 
 @app.post("/api/prelaunch/{agent_id}")
-def run_prelaunch_audit_endpoint(agent_id: str, req: PrelaunchRequest = None, user: dict = Depends(get_current_user)):
+async def run_prelaunch_audit_endpoint(agent_id: str, req: PrelaunchRequest = None, user: dict = Depends(get_current_user)):
+    # MED-006: bounded off the request path so a burst of these can't take
+    # the whole threadpool and stall auth/enforce for every tenant.
+    return await _run_heavy_job(_run_prelaunch_audit_impl, agent_id, req, user)
+
+
+def _run_prelaunch_audit_impl(agent_id: str, req: PrelaunchRequest, user: dict):
     """Run every test and return a single prioritized fix list.
 
     Runs: boundary test + regression test + cost model + trace replay.
@@ -5137,12 +5212,21 @@ async def ws_live_traces(websocket: WebSocket, agent_id: str):
         except Exception:
             await websocket.close(code=4401)
             return
-        with get_db() as conn:
-            if not get_agent_from_db(conn, agent_id, org_id=payload.get("org_id", DEFAULT_ORG_ID)):
-                await websocket.close(code=4404)
-                return
-    # MED-008: bound concurrent sockets per agent (each opens a Redis pubsub client).
-    if not shared_state.ws_acquire_slot(agent_id, WS_MAX_CONNECTIONS_PER_AGENT):
+        # MED-007: get_db()/psycopg are synchronous, and this is an async handler —
+        # run the lookup in a thread so a slow database can't stall the event loop
+        # (and with it every other request on this worker).
+        def _agent_visible() -> bool:
+            with get_db() as conn:
+                return bool(get_agent_from_db(
+                    conn, agent_id, org_id=payload.get("org_id", DEFAULT_ORG_ID)))
+
+        if not await anyio.to_thread.run_sync(_agent_visible):
+            await websocket.close(code=4404)
+            return
+    # MED-008 (earlier round): bound concurrent sockets per agent — each opens a
+    # Redis pubsub client. MED-007: off the loop, same reason as above.
+    if not await anyio.to_thread.run_sync(
+            functools.partial(shared_state.ws_acquire_slot, agent_id, WS_MAX_CONNECTIONS_PER_AGENT)):
         await websocket.close(code=4429)
         return
     await websocket.accept()
@@ -5169,7 +5253,9 @@ async def ws_live_traces(websocket: WebSocket, agent_id: str):
         pass
     finally:
         # Release the per-agent connection slot (MED-008) before teardown.
-        shared_state.ws_release_slot(agent_id)
+        # MED-007: off the loop like the acquire above.
+        await anyio.to_thread.run_sync(
+            functools.partial(shared_state.ws_release_slot, agent_id))
         # Await the cancelled forward task BEFORE closing the pubsub/client, so
         # its listen() coroutine finishes unwinding and can't race with (or
         # use-after-close) the Redis objects we're about to tear down.
@@ -6170,7 +6256,13 @@ def delete_cost_override(override_id: int, user: dict = Depends(get_current_user
 # ── Regression Testing (CI/CD Safety Gate) ───────────────────────────────
 
 @app.post("/api/regression-test/{agent_id}")
-def run_regression_test_endpoint(agent_id: str, create_baseline: bool = False, user: dict = Depends(get_current_user)):
+async def run_regression_test_endpoint(agent_id: str, create_baseline: bool = False, user: dict = Depends(get_current_user)):
+    # MED-006: bounded off the request path so a burst of these can't take
+    # the whole threadpool and stall auth/enforce for every tenant.
+    return await _run_heavy_job(_run_regression_test_impl, agent_id, create_baseline, user)
+
+
+def _run_regression_test_impl(agent_id: str, create_baseline: bool, user: dict):
     """Run regression test against stored baseline. CI-friendly — returns pass/fail.
 
     First call with ?create_baseline=true to establish the baseline.
@@ -6256,7 +6348,13 @@ class RedTeamRequest(BaseModel):
 
 
 @app.post("/api/red-team/{agent_id}")
-def run_red_team_endpoint(agent_id: str, req: RedTeamRequest = None, user: dict = Depends(get_current_user)):
+async def run_red_team_endpoint(agent_id: str, req: RedTeamRequest = None, user: dict = Depends(get_current_user)):
+    # MED-006: bounded off the request path so a burst of these can't take
+    # the whole threadpool and stall auth/enforce for every tenant.
+    return await _run_heavy_job(_run_red_team_impl, agent_id, req, user)
+
+
+def _run_red_team_impl(agent_id: str, req: RedTeamRequest, user: dict):
     """Run adversarial red team test against an agent.
 
     Generates prompt injections, social engineering, authority escalation,
@@ -6295,7 +6393,13 @@ def run_red_team_endpoint(agent_id: str, req: RedTeamRequest = None, user: dict 
 # ── Boundary Testing (Policy Penetration Test) ───────────────────────────
 
 @app.post("/api/boundary-test/{agent_id}")
-def run_boundary_test_endpoint(agent_id: str, user: dict = Depends(get_current_user)):
+async def run_boundary_test_endpoint(agent_id: str, user: dict = Depends(get_current_user)):
+    # MED-006: bounded off the request path so a burst of these can't take
+    # the whole threadpool and stall auth/enforce for every tenant.
+    return await _run_heavy_job(_run_boundary_test_impl, agent_id, user)
+
+
+def _run_boundary_test_impl(agent_id: str, user: dict):
     """Exhaustively test every dangerous action sequence against policies.
 
     Returns a matrix of {sequence, decision, matched_rule, gap_detected}.
@@ -6326,7 +6430,13 @@ class SweepRequest(BaseModel):
 
 
 @app.post("/api/sandbox/sweep")
-def run_sweep(req: SweepRequest, user: dict = Depends(get_current_user)):
+async def run_sweep(req: SweepRequest, user: dict = Depends(get_current_user)):
+    # MED-006: bounded off the request path so a burst of these can't take
+    # the whole threadpool and stall auth/enforce for every tenant.
+    return await _run_heavy_job(_run_sweep_impl, req, user)
+
+
+def _run_sweep_impl(req: SweepRequest, user: dict):
     """Run every applicable scenario for an agent and produce an aggregate report."""
     _budget_gate(req.agent_id, _org(user))  # HIGH-003: per-org monthly spend gate
     from sandbox.runner import run_simulation, run_simulation_dry, _SimBudget, MAX_TOTAL_LLM_CALLS

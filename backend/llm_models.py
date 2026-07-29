@@ -47,6 +47,32 @@ def anthropic_client(api_key: str | None = None):
     return anthropic.Anthropic(api_key=api_key or None, timeout=ANTHROPIC_TIMEOUT)
 
 
+# Same reasoning as ANTHROPIC_TIMEOUT, for the OpenAI-compatible path (MED-008).
+# The OpenAI SDK defaults to a 600s request timeout, so a hung upstream pinned a
+# worker thread for ten minutes — and because these calls run inside the sandbox
+# handlers, that directly compounded the threadpool exhaustion in MED-006.
+OPENAI_TIMEOUT = float(os.getenv("ARCEO_OPENAI_TIMEOUT", "60"))
+OPENAI_MAX_RETRIES = int(os.getenv("ARCEO_OPENAI_MAX_RETRIES", "2"))
+
+
+def openai_client(api_key: str | None = None, base_url: str | None = None):
+    """Construct an OpenAI-compatible client with a bounded timeout (MED-008).
+
+    `base_url` drives the OpenAI-compatible providers the sandbox supports
+    (Gemini's OpenAI endpoint, DeepSeek, xAI/Grok, Together, Groq, …). Every call
+    site MUST use this rather than OpenAI() directly, so the timeout applies
+    uniformly — the same contract anthropic_client() carries. max_retries is
+    pinned too: the SDK default retries transient errors silently, multiplying
+    both wall-clock latency and token spend per logical call."""
+    from openai import OpenAI
+    return OpenAI(
+        api_key=api_key or os.getenv("OPENAI_API_KEY"),
+        base_url=base_url,
+        timeout=OPENAI_TIMEOUT,
+        max_retries=OPENAI_MAX_RETRIES,
+    )
+
+
 def verify_models_at_startup(api_key: str | None) -> None:
     """Check every model ID resolves against the live Models API.
 
