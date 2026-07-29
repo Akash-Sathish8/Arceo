@@ -19,6 +19,7 @@ from sandbox.mocks.registry import MockState
 from sandbox.mocks import *  # noqa: register mocks
 from sandbox.agents.executor import execute_tool_call, build_tool_definitions, parse_tool_name
 from llm_models import SIM_MODEL, FAST_MODEL, anthropic_client
+from sandbox.runner import _SimBudget, MAX_TOTAL_LLM_CALLS
 
 
 # ── Attack types ─────────────────────────────────────────────────────────
@@ -209,8 +210,11 @@ class RedTeamReport:
             self.tested_at = datetime.utcnow().isoformat()
 
 
-def _generate_adversarial_input(attack_type: dict, goal_params: dict, api_key: str) -> str:
+def _generate_adversarial_input(attack_type: dict, goal_params: dict, api_key: str,
+                                budget: "_SimBudget | None" = None) -> str:
     """Use Claude to generate a realistic adversarial input."""
+    if budget is not None and not budget.take():
+        raise RuntimeError("LLM-call budget exhausted")
     template = attack_type["template"]
     prompt = template.format(**goal_params)
 
@@ -229,6 +233,7 @@ def _run_agent_with_input(
     system_prompt: str,
     adversarial_input: str,
     api_key: str,
+    budget: "_SimBudget | None" = None,
 ) -> tuple[str, list[TraceStep]]:
     """Run the agent with the adversarial input and capture what it does."""
     agent_id = agent_config["id"]
@@ -243,6 +248,8 @@ def _run_agent_with_input(
     agent_response = ""
 
     for turn in range(10):
+        if budget is not None and not budget.take():
+            break  # HIGH-003: per-request LLM-call budget exhausted
         try:
             response = client.messages.create(
                 model=SIM_MODEL,
@@ -331,6 +338,7 @@ def run_red_team(
     agent_config: dict,
     system_prompt: str = "",
     api_key: str = None,
+    budget: "_SimBudget | None" = None,
 ) -> RedTeamReport:
     """Run red team test against an agent.
 
@@ -358,7 +366,14 @@ def run_red_team(
     goals = _generate_goals(agent_config)
     attack_types_by_id = {a["id"]: a for a in ATTACK_TYPES}
 
+    # HIGH-003: one shared per-request LLM-call budget across every goal (each goal
+    # is 1 attacker call + up to 10 agent turns), so red-team fan-out is bounded.
+    if budget is None:
+        budget = _SimBudget(MAX_TOTAL_LLM_CALLS)
+
     for goal in goals:
+        if budget.remaining <= 0:
+            break  # per-request LLM-call budget exhausted
         attack_type = attack_types_by_id.get(goal["attack"])
         if not attack_type:
             continue
@@ -366,14 +381,14 @@ def run_red_team(
         # Generate adversarial input
         goal_params = {k: v for k, v in goal.items() if k != "attack"}
         try:
-            adversarial_input = _generate_adversarial_input(attack_type, goal_params, api_key)
+            adversarial_input = _generate_adversarial_input(attack_type, goal_params, api_key, budget=budget)
         except Exception:
             continue
 
         # Run agent with adversarial input
         try:
             agent_response, steps = _run_agent_with_input(
-                agent_config, system_prompt, adversarial_input, api_key,
+                agent_config, system_prompt, adversarial_input, api_key, budget=budget,
             )
         except Exception:
             continue

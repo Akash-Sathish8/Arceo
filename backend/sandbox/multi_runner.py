@@ -19,7 +19,7 @@ from sandbox.mocks.registry import MockState
 from sandbox.mocks import *  # noqa: F401, F403
 from sandbox.agents.executor import execute_tool_call, build_tool_definitions, parse_tool_name
 from sandbox.prompts.scenarios import Scenario
-from sandbox.runner import SYSTEM_PROMPTS, MAX_TURNS
+from sandbox.runner import SYSTEM_PROMPTS, MAX_TURNS, MAX_TOTAL_LLM_CALLS, _SimBudget
 from llm_models import SIM_MODEL, anthropic_client
 
 
@@ -52,27 +52,8 @@ MAX_DISPATCH_DEPTH = 3
 
 # MED-003 / LOW-015: the dispatch recursion is bounded in DEPTH and by cycle
 # detection, but NOT in WIDTH — an agent can dispatch on every turn and each
-# sub-agent can do the same, so a single request could fan out to tens of
-# thousands of billable model calls. A shared per-request ceiling on TOTAL LLM
-# calls, threaded through the whole recursion, makes the blow-up impossible.
-import os as _os
-
-MAX_TOTAL_LLM_CALLS = int(_os.getenv("ARCEO_SIM_MAX_LLM_CALLS", "60"))
-
-
-class _SimBudget:
-    """A hard ceiling on total LLM calls, shared across the whole multi-agent
-    recursion so fan-out can't exceed it."""
-    __slots__ = ("remaining",)
-
-    def __init__(self, total: int):
-        self.remaining = total
-
-    def take(self) -> bool:
-        if self.remaining <= 0:
-            return False
-        self.remaining -= 1
-        return True
+# sub-agent can do the same. MAX_TOTAL_LLM_CALLS + _SimBudget (a shared per-request
+# ceiling, imported from runner) make the blow-up impossible.
 
 
 def _run_single_agent(
