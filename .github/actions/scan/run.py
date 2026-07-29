@@ -202,6 +202,20 @@ def render_markdown(result: dict) -> str:
     )
     lines.append("")
 
+    # Coverage caveat: files the scanner couldn't read at all. Shown even on a
+    # pass — a clean verdict over unread files is exactly the false assurance the
+    # gate exists to avoid.
+    unscannable = summary.get("unscannable_files", 0)
+    if unscannable:
+        paths = summary.get("unscannable_paths") or []
+        shown = ", ".join(f"`{_md(p)}`" for p in paths[:5])
+        more = f" (+{len(paths) - 5} more)" if len(paths) > 5 else ""
+        lines.append(
+            f"⚠️ **{unscannable} file(s) could not be scanned** — this verdict does "
+            f"not cover them: {shown}{more}"
+        )
+        lines.append("")
+
     # Why the build failed — the gate fails on distrust signals (critical chains,
     # opaque/unclassifiable capability, arbitrary code execution), NOT on raw
     # blast radius. A powerful-but-honest agent WARNs. Make the reason actionable.
