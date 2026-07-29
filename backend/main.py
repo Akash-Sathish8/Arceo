@@ -186,20 +186,80 @@ MAX_BODY_BYTES = int(os.getenv("ARCEO_MAX_BODY_BYTES", str(12 * 1024 * 1024)))
 WS_MAX_CONNECTIONS_PER_AGENT = int(os.getenv("ARCEO_WS_MAX_CONN_PER_AGENT", "5"))
 
 
-@app.middleware("http")
-async def _body_size_guard(request: Request, call_next):
-    """Reject an oversized request (413) up front, based on Content-Length, before
-    any handler reads or parses the body."""
-    cl = request.headers.get("content-length")
-    if cl:
-        try:
-            if int(cl) > MAX_BODY_BYTES:
-                from fastapi.responses import JSONResponse
-                return JSONResponse(status_code=413, content={
-                    "detail": f"Request body too large (max {MAX_BODY_BYTES} bytes)."})
-        except ValueError:
-            pass
-    return await call_next(request)
+class BodySizeLimitMiddleware:
+    """Reject an oversized request (413) before any handler reads or parses it.
+
+    MED-009: the previous guard checked `Content-Length` and nothing else, so a
+    chunked request (`Transfer-Encoding: chunked`) or one that simply omits the
+    header walked straight past the cap — exactly what a client sending an
+    oversized body would do. The declared length is still checked first because
+    rejecting before a byte arrives is cheaper; the drain below then enforces the
+    same cap on the bytes ACTUALLY received, which is the part nobody can lie
+    about.
+
+    Written as pure ASGI rather than `@app.middleware("http")` for two reasons:
+    raising from inside a receive-wrapper gets swallowed by FastAPI's body parsing
+    and surfaces as a confusing 400, and BaseHTTPMiddleware does not reliably carry
+    a patched `receive` through `call_next`. Here the replay channel is ours.
+
+    Buffering costs nothing in practice — every handler that reads a body (the
+    proxy included) already calls `await request.body()`, and the cap IS the
+    ceiling on what gets held.
+    """
+
+    def __init__(self, app):
+        self.app = app
+
+    async def _reject(self, send):
+        payload = json.dumps(
+            {"detail": f"Request body too large (max {MAX_BODY_BYTES} bytes)."}).encode()
+        await send({"type": "http.response.start", "status": 413,
+                    "headers": [(b"content-type", b"application/json"),
+                                (b"content-length", str(len(payload)).encode())]})
+        await send({"type": "http.response.body", "body": payload})
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            return await self.app(scope, receive, send)
+
+        for name, value in scope.get("headers", []):
+            if name == b"content-length":
+                try:
+                    if int(value) > MAX_BODY_BYTES:
+                        return await self._reject(send)
+                except ValueError:
+                    pass  # unparseable — the drain below still applies
+                break
+
+        body = bytearray()
+        more = True
+        while more:
+            message = await receive()
+            if message["type"] == "http.disconnect":
+                return
+            body += message.get("body", b"") or b""
+            if len(body) > MAX_BODY_BYTES:
+                return await self._reject(send)
+            more = message.get("more_body", False)
+
+        replayed = False
+
+        async def _replay():
+            # After the buffered body is handed over, DELEGATE to the real channel
+            # rather than synthesising a disconnect. StreamingResponse polls
+            # receive() to notice a client hang-up, and a fake disconnect makes it
+            # abandon the response after the first chunk — which is how this broke
+            # the streaming proxy the first time round.
+            nonlocal replayed
+            if replayed:
+                return await receive()
+            replayed = True
+            return {"type": "http.request", "body": bytes(body), "more_body": False}
+
+        await self.app(scope, _replay, send)
+
+
+app.add_middleware(BodySizeLimitMiddleware)
 
 
 # MED-009: derive the caller IP for rate-limit keys. Behind a trusted proxy/ingress
@@ -2399,6 +2459,23 @@ def extract_agent_from_code(req: ExtractInput, user: dict = Depends(get_current_
     return _extract_and_register(req.content, req.filename, req.agent_name_hint, org_id=_org(user))
 
 
+# MED-012: a repo scan fetched each candidate with `r.text` and no byte cap, so a
+# single crafted multi-GB blob (or a padded repo) could exhaust the worker's
+# memory. Both a per-file and a whole-scan ceiling, enforced while streaming so
+# the bytes are never buffered in the first place.
+GITHUB_MAX_FILE_BYTES = int(os.getenv("ARCEO_GITHUB_MAX_FILE_BYTES", str(1024 * 1024)))
+GITHUB_MAX_SCAN_BYTES = int(os.getenv("ARCEO_GITHUB_MAX_SCAN_BYTES", str(64 * 1024 * 1024)))
+
+# A branch name lands inside a raw.githubusercontent.com URL. Left unvalidated, a
+# caller-supplied ref could carry path traversal or control characters and steer
+# the fetch somewhere other than the repo they named.
+_GIT_REF_RE = re.compile(r"^[A-Za-z0-9._/-]{1,255}$")
+
+
+def _valid_git_ref(ref: str) -> bool:
+    return bool(_GIT_REF_RE.match(ref)) and ".." not in ref and not ref.startswith("/")
+
+
 class GithubExtractInput(BaseModel):
     url: str
     branch: str = ""
@@ -2440,6 +2517,9 @@ async def extract_agents_from_github(req: GithubExtractInput, user: dict = Depen
 
     async with _httpx.AsyncClient(timeout=30.0, headers=headers, follow_redirects=True) as client:
         # Try requested branch, then main, then master
+        # MED-012: the ref is interpolated into a raw.githubusercontent.com URL.
+        if req.branch and not _valid_git_ref(req.branch):
+            raise HTTPException(status_code=400, detail="Invalid branch name")
         branches_to_try = [req.branch] if req.branch else []
         branches_to_try += ["main", "master"]
         tree_data = None
@@ -2484,18 +2564,44 @@ async def extract_agents_from_github(req: GithubExtractInput, user: dict = Depen
         scanned = 0
         fetch_errors = 0        # files we couldn't fetch (rate limit / transient)
         rate_limited = False
+        oversized_files: list[str] = []   # MED-012: skipped for size, not silently
+        scan_bytes = 0
+        notes_budget_hit = False
         for path in candidates[:CANDIDATE_SCAN_CAP]:
+            if scan_bytes >= GITHUB_MAX_SCAN_BYTES:
+                notes_budget_hit = True
+                break
             scanned += 1
             raw_url = f"https://raw.githubusercontent.com/{owner}/{repo}/{used_branch}/{path}"
-            r = await client.get(raw_url)
-            if r.status_code != 200:
-                # A 403/429 is a rate-limit drop, not "not an agent file" — track it
-                # so a partial scan doesn't silently under-report.
-                if r.status_code in (403, 429):
-                    fetch_errors += 1
-                    rate_limited = True
+            # MED-012: streamed with a running byte count instead of `r.text`, so an
+            # oversized blob is abandoned mid-transfer rather than fully buffered
+            # into the worker and only then measured.
+            try:
+                async with client.stream("GET", raw_url) as r:
+                    if r.status_code != 200:
+                        # A 403/429 is a rate-limit drop, not "not an agent file" —
+                        # track it so a partial scan doesn't silently under-report.
+                        if r.status_code in (403, 429):
+                            fetch_errors += 1
+                            rate_limited = True
+                        continue
+                    chunks: list[bytes] = []
+                    size = 0
+                    over = False
+                    async for chunk in r.aiter_bytes():
+                        size += len(chunk)
+                        if size > GITHUB_MAX_FILE_BYTES:
+                            over = True
+                            break
+                        chunks.append(chunk)
+            except _httpx.HTTPError:
+                fetch_errors += 1
                 continue
-            content = r.text
+            if over:
+                oversized_files.append(path)
+                continue
+            scan_bytes += size
+            content = b"".join(chunks).decode("utf-8", errors="replace")
             if not any(ind.lower() in content.lower() for ind in indicators):
                 continue
             agent_files.append({"path": path, "content": content})
@@ -2529,7 +2635,10 @@ async def extract_agents_from_github(req: GithubExtractInput, user: dict = Depen
     # Disclose when the scan was cut short so the caller knows the result is partial.
     candidates_capped = len(candidates) > CANDIDATE_SCAN_CAP
     max_files_reached = len(agent_files) >= req.max_files
-    truncated = candidates_capped or max_files_reached or fetch_errors > 0
+    # MED-012: a file skipped for size, or a scan stopped at the byte budget, is a
+    # coverage gap — report it rather than letting the result read as complete.
+    truncated = (candidates_capped or max_files_reached or fetch_errors > 0
+                 or bool(oversized_files) or notes_budget_hit)
     notes = []
     if candidates_capped:
         notes.append(f"scanned first {CANDIDATE_SCAN_CAP} of {len(candidates)} candidate files")
@@ -2537,6 +2646,14 @@ async def extract_agents_from_github(req: GithubExtractInput, user: dict = Depen
         notes.append(f"stopped at the {req.max_files}-file limit — more agents may exist")
     if fetch_errors:
         notes.append(f"{fetch_errors} file(s) could not be fetched" + (" (GitHub rate limit — set GITHUB_TOKEN)" if rate_limited else ""))
+    if oversized_files:
+        shown = ", ".join(oversized_files[:3])
+        notes.append(f"{len(oversized_files)} file(s) skipped over the "
+                     f"{GITHUB_MAX_FILE_BYTES // 1024}KB per-file limit: {shown}"
+                     + ("…" if len(oversized_files) > 3 else ""))
+    if notes_budget_hit:
+        notes.append(f"stopped at the {GITHUB_MAX_SCAN_BYTES // (1024 * 1024)}MB "
+                     f"total-download budget — more agents may exist")
 
     return {
         "owner": owner,
