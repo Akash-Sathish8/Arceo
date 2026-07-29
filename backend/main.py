@@ -29,6 +29,7 @@ from db import (
 import vault
 import encryption
 import redaction
+import egress
 from authority.chain_detector import detect_chains as _detect_chains
 from authority.enforcement import enforce_check, safe_enforce_check, match_policy as _match_policy
 from authority.graph import build_agent_graph, calculate_blast_radius, graph_to_dict
@@ -374,56 +375,12 @@ def check_auth_rate_limit(request: Request, email: str):
         check_rate_limit(f"auth-email:{email.lower()}", RATE_LIMIT_AUTH_MAX, RATE_LIMIT_AUTH_WINDOW)
 
 
-def validate_external_url(url: str) -> str | None:
-    """SSRF guard for server-side fetches (e.g. MCP connect). Requires http(s),
-    resolves the host ONCE, and rejects loopback / link-local / private / reserved
-    addresses unless ARCEO_ALLOW_INTERNAL_MCP is set (for local-dev MCP servers).
-
-    Returns a *validated* IP for the caller to pin the connection to — so a DNS
-    rebind can't swap in an internal/metadata address between this check and the
-    actual request (TOCTOU). Returns None when the internal-MCP bypass is on, in
-    which case the caller should use the hostname unchanged."""
-    import ipaddress
-    import socket as _socket
-    from urllib.parse import urlparse
-
-    parsed = urlparse(url)
-    if parsed.scheme not in ("http", "https"):
-        raise HTTPException(status_code=400, detail="URL must be http(s)")
-    host = parsed.hostname
-    if not host:
-        raise HTTPException(status_code=400, detail="URL must include a host")
-    if os.getenv("ARCEO_ALLOW_INTERNAL_MCP", "").lower() in ("1", "true", "yes"):
-        return None
-    try:
-        infos = _socket.getaddrinfo(host, parsed.port or (443 if parsed.scheme == "https" else 80))
-    except _socket.gaierror:
-        raise HTTPException(status_code=400, detail="Could not resolve URL host")
-    validated_ip = None
-    for info in infos:
-        ip = ipaddress.ip_address(info[4][0])
-        if (ip.is_loopback or ip.is_private or ip.is_link_local
-                or ip.is_reserved or ip.is_multicast or ip.is_unspecified):
-            raise HTTPException(status_code=400, detail="URL resolves to a disallowed internal address")
-        if validated_ip is None:
-            validated_ip = str(ip)
-    if validated_ip is None:
-        raise HTTPException(status_code=400, detail="Could not resolve URL host")
-    return validated_ip
-
-
-def _pin_url_to_ip(url: str, ip: str) -> tuple[str, str]:
-    """Rewrite `url` so the request connects to the already-validated `ip`, and
-    return (pinned_url, host_header). Defeats DNS rebinding: we talk to the exact
-    IP we vetted, while the returned Host header (and TLS SNI, set by the caller)
-    preserve the real hostname so routing and cert verification still work."""
-    from urllib.parse import urlparse, urlunparse
-
-    p = urlparse(url)
-    host_header = p.hostname + (f":{p.port}" if p.port else "")
-    ip_host = f"[{ip}]" if ":" in ip else ip
-    netloc = f"{ip_host}:{p.port}" if p.port else ip_host
-    return urlunparse(p._replace(netloc=netloc)), host_header
+# MED-010: these moved to egress.py so authority/enforcement.py can use the same
+# guard for the org Slack webhook — main imports enforcement, so enforcement can't
+# import back. Re-bound here because every existing caller (and test) reaches for
+# them as main.validate_external_url / main._pin_url_to_ip.
+validate_external_url = egress.validate_external_url
+_pin_url_to_ip = egress.pin_url_to_ip
 
 
 def _hydrate_audit_rows(rows) -> list[dict]:
@@ -2864,7 +2821,9 @@ def _maybe_fire_spend_anomaly_alert(agent_id: str):
                 }
             ]
         }
-        httpx.post(slack_url, json=payload, timeout=4)
+        # MED-010: guarded egress — the stored URL is re-validated and the
+        # connection pinned, so this alert can't be turned into an SSRF probe.
+        egress.post_webhook(slack_url, payload)
     except Exception:
         pass  # Never let alerting failures break ingestion
 
@@ -2973,8 +2932,8 @@ def _maybe_fire_budget_alert(agent_id: str):
         _BUDGET_ALERT_FIRED[agent_id] = month_key
 
         pct = round(mtd / budget * 100)
-        import httpx
-        httpx.post(slack_url, json={"blocks": [{"type": "section", "text": {"type": "mrkdwn", "text": (
+        # MED-010: guarded egress (see _maybe_fire_spend_anomaly_alert).
+        egress.post_webhook(slack_url, {"blocks": [{"type": "section", "text": {"type": "mrkdwn", "text": (
             f":moneybag: *Arceo budget alert*\n"
             f"*Agent:* `{agent_id}`\n"
             f"This agent has spent *${mtd:.2f}* this month — *{pct}%* of its "
@@ -3702,6 +3661,12 @@ def get_notification_settings(user: dict = Depends(get_current_user)):
 def save_notification_settings(req: NotificationSettingsRequest, user: dict = Depends(get_current_user)):
     """Save this org's notification settings."""
     org_id = _org(user)
+    # MED-010: the webhook URL is fired server-side on every BLOCK and spend alert,
+    # so an unvalidated value here is an SSRF primitive pointed at anything the
+    # server can reach. Reject it at the point it's typed; the fire sites re-check
+    # too (URLs stored before this guard existed, and DNS rebinding after it).
+    if req.slack_webhook_url:
+        egress.validate_webhook_url(req.slack_webhook_url)
     now = datetime.utcnow().isoformat()
     with get_db() as conn:
         existing = conn.execute("SELECT id FROM workspace_settings WHERE org_id = %s", (org_id,)).fetchone()

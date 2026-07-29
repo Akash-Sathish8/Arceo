@@ -499,8 +499,10 @@ function NotificationsSection({ inputStyle }: { inputStyle: React.CSSProperties 
         }),
       });
       toast("Notification settings saved");
-    } catch {
-      toast("Failed to save settings", "error");
+    } catch (e) {
+      // The webhook URL is now validated server-side (allowlisted host, no internal
+      // targets), so show why it was refused instead of a generic failure.
+      toast(e instanceof Error ? e.message : "Failed to save settings", "error");
     }
     setSaving(false);
   };
