@@ -753,7 +753,10 @@ def classify_with_llm(action_name: str, description: str = "", schema_props: dic
             labels = [l for l in result.get("risk_labels", []) if l in VALID_LABELS]
             votes.append((labels, bool(result.get("reversible", True))))
         except Exception as e:
-            logger.warning(f"LLM classification vote failed for {action_name}: {e}")
+            # MED-017: action_name is customer-supplied.
+            import redaction
+            logger.warning(
+                f"LLM classification vote failed for {redaction.log_safe(action_name)}: {e}")
 
     if not votes:
         return None
