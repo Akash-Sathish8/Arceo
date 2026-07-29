@@ -522,5 +522,8 @@ def _llm_mock(tool: str, action: str, params: dict, state: MockState) -> dict | 
         return result
 
     except Exception as e:
-        _logger.warning(f"LLM mock failed for {tool}.{action}: {e}")
+        # MED-017: tool/action come from customer manifests — never log them raw.
+        import redaction
+        _logger.warning(
+            f"LLM mock failed for {redaction.log_safe(tool)}.{redaction.log_safe(action)}: {e}")
         return None

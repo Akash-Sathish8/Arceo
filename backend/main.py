@@ -352,6 +352,26 @@ def _caller_org(request: Request) -> str:
     return _org(get_current_user(request))  # raises 401 if no valid bearer token
 
 
+# MED-017: what an X-Agent-ID may contain. Deliberately wider than the audit's
+# suggested `[a-z0-9-]`, which would reject ids the product itself already mints
+# (extraction lowercases names but agents registered via SDK/MCP carry dots and
+# colons). The security property is the same — no CR/LF, no control bytes, no
+# whitespace — without breaking existing callers over cosmetics.
+_AGENT_ID_RE = re.compile(r"^[A-Za-z0-9._:-]{1,200}$")
+
+
+def _proxy_requires_key() -> bool:
+    """Whether /proxy/llm demands an X-API-Key (MED-005). On outside dev; the
+    ARCEO_PROXY_REQUIRE_KEY env var overrides in both directions. Same convention
+    as the budget gate."""
+    flag = os.getenv("ARCEO_PROXY_REQUIRE_KEY", "").strip().lower()
+    if flag in ("1", "true", "yes", "on"):
+        return True
+    if flag in ("0", "false", "no", "off"):
+        return False
+    return not _IS_DEV_ENV
+
+
 def check_rate_limit(key: str, max_requests: int = RATE_LIMIT_MAX, window: int = RATE_LIMIT_WINDOW):
     """Check rate limit for a key. Raises 429 if exceeded.
 
@@ -576,32 +596,54 @@ async def proxy_llm_request(provider: str, path: str, request: Request):
     agent_id = (request.headers.get("X-Agent-ID") or "").strip()
     if not agent_id:
         raise HTTPException(status_code=400, detail="X-Agent-ID header required")
+    # MED-017: .strip() only trims the ENDS, so an interior \n survived and this
+    # value reaches the application logger. Constrain the charset at ingest rather
+    # than sanitising at every downstream sink.
+    if not _AGENT_ID_RE.match(agent_id):
+        raise HTTPException(
+            status_code=400,
+            detail="X-Agent-ID may contain only letters, digits, '.', '_', ':' and '-' (max 200)")
 
     # M1 soft-bind: if an API key is sent, derive the org from it and require the
-    # agent matches the key's scope. No key -> open (unchanged), lands in the
-    # default org. Closes cross-tenant agent creation for keyed callers.
+    # agent matches the key's scope.
     key_info = verify_api_key(request)
     if key_info and (key_info.get("agent_id") or "") and key_info["agent_id"] != agent_id:
         raise HTTPException(status_code=403, detail="API key is scoped to a different agent")
-    # MED-007: the proxy is open by default (the SDK wrap_llm flow sends only
-    # X-Agent-ID). Deployments that want it locked down set ARCEO_PROXY_REQUIRE_KEY
-    # to demand a valid X-API-Key here without breaking existing keyless callers.
-    if os.getenv("ARCEO_PROXY_REQUIRE_KEY", "").lower() in ("1", "true", "yes", "on") and not key_info:
+    # MED-005: the proxy used to be open unless ARCEO_PROXY_REQUIRE_KEY was set, so
+    # a keyless caller could spend through the shared provider key and drop
+    # attacker-named agents into the default org. Now key-required outside dev,
+    # matching /api/agent/{id}/llm-call — which HIGH-003 already made
+    # key-required UNCONDITIONALLY, so the SDK's capture flow needs a key either
+    # way. ARCEO_PROXY_REQUIRE_KEY still overrides in both directions.
+    if _proxy_requires_key() and not key_info:
         raise HTTPException(status_code=401, detail="X-API-Key required for the LLM proxy")
     proxy_org = key_info["org_id"] if key_info else DEFAULT_ORG_ID
 
     # HIGH-003: the LLM proxy sits outside the /api/* rate-limit middleware, so cap
-    # it per-agent here and enforce the budget before forwarding the (billable) call.
-    check_rate_limit(f"llmproxy:{agent_id}", RATE_LIMIT_LLM_MAX, RATE_LIMIT_LLM_WINDOW)
+    # it here and enforce the budget before forwarding the (billable) call.
+    # MED-005: keyed on an identity the caller CANNOT rotate. It used to be the
+    # X-Agent-ID they supplied, so changing the header landed every request in a
+    # fresh sliding window and the ceiling counted per fabricated identity rather
+    # than per caller — i.e. no ceiling at all.
+    check_rate_limit(f"llmproxy:{proxy_org}:{client_ip(request)}",
+                     RATE_LIMIT_LLM_MAX, RATE_LIMIT_LLM_WINDOW)
     # MED-004: reserve against the caller's OWN org (proxy_org, derived from the key
     # — not from the agent named in the header) and settle to the real cost in the
     # capture callback below, which runs whether or not upstream succeeded.
     budget_ticket = _budget_gate(agent_id, proxy_org, reserve=True)
 
-    # Auto-create agent on first call
+    # Auto-create agent on first call — MED-005: only for an authenticated caller.
+    # Unkeyed auto-create let a header-rotating client flood `agents` and
+    # `audit_log` with junk rows, and land attacker-named agents in a real tenant's
+    # namespace (they defaulted to DEFAULT_ORG_ID).
     with get_db() as conn:
         existing = conn.execute("SELECT id FROM agents WHERE id = %s", (agent_id,)).fetchone()
         if not existing:
+            if not key_info:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Unknown agent '{agent_id}'. Send a valid X-API-Key to register "
+                           f"it on first call, or create it from the dashboard.")
             now = datetime.utcnow().isoformat()
             conn.execute(
                 "INSERT INTO agents (id, name, description, org_id, created_at, updated_at) VALUES (%s, %s, %s, %s, %s, %s)",
@@ -5673,7 +5715,7 @@ def get_spend_forecasts_batch(user: dict = Depends(get_current_user)):
                 forecasts[aid] = forecast
                 _BATCH_FORECAST_CACHE[cache_key] = (now, forecast)
             except Exception as e:
-                logger.warning(f"Forecast failed for agent {aid}: {e}")
+                logger.warning(f"Forecast failed for agent {redaction.log_safe(aid)}: {e}")  # MED-017
                 forecasts[aid] = None
 
     return {"forecasts": forecasts}
