@@ -166,3 +166,91 @@ def test_backfill_encrypts_existing_plaintext_rows(client, two_orgs, monkeypatch
         after = conn.execute("SELECT params, params_enc FROM execution_log WHERE id = %s", (row_id,)).fetchone()
     assert after["params"] is None and after["params_enc"] is not None
     assert encryption.read(dict(after), "params") == '{"amount": 42, "note": "backfill_me"}'
+
+
+# ── HIGH-004: registry completeness + audit_log.detail_enc coverage past the
+#    append-only trigger, for both the backfill and the master-key rotation ─────────
+
+def test_encrypted_columns_registry_matches_schema():
+    """Every `*_enc` column in the live schema must be registered in
+    encryption.ENCRYPTED_COLUMNS, or a master-key rotation would silently skip it and
+    the old key's retirement would permanently brick it (HIGH-004)."""
+    with get_db() as conn:
+        live = {
+            (r["table_name"], r["column_name"])
+            for r in conn.execute(
+                "SELECT table_name, column_name FROM information_schema.columns "
+                "WHERE table_schema = 'public' AND column_name LIKE '%enc'"
+            ).fetchall()
+            if r["column_name"].endswith("_enc")
+        }
+    registered = {(t, enc) for t, _id, _pt, enc in encryption.ENCRYPTED_COLUMNS}
+    missing = live - registered
+    assert not missing, f"_enc columns missing from encryption.ENCRYPTED_COLUMNS: {missing}"
+
+
+def test_backfill_encrypts_audit_detail_past_append_only_trigger(client, two_orgs, monkeypatch):
+    """Backfill must encrypt audit_log.detail even though the append-only trigger
+    (migration 0007) blocks UPDATEs — the script suspends it, and the tamper-evident
+    chain stays valid because the hash is over the (unchanged) plaintext."""
+    backfill = _load_script("backfill_encryption.py")
+    assert ("audit_log", "id", "detail", "detail_enc") in backfill._COLUMNS
+
+    monkeypatch.setenv("ARCEO_ENCRYPT_AT_REST", "false")
+    a = two_orgs["org_a"]
+    from db import log_audit
+    with get_db() as conn:
+        log_audit(conn, "u", "u@ex.com", "LLM_CALL", resource="r",
+                  detail='{"prompt": "audit_backfill_SECRET"}', org_id=a["org_id"])
+        row = conn.execute(
+            "SELECT id, detail, detail_enc FROM audit_log WHERE org_id = %s AND action = 'LLM_CALL' "
+            "ORDER BY id DESC LIMIT 1", (a["org_id"],)).fetchone()
+    assert row["detail"] is not None and row["detail_enc"] is None
+    row_id = row["id"]
+
+    monkeypatch.setattr(sys, "argv", ["backfill_encryption.py"])
+    backfill.main()
+
+    with get_db() as conn:
+        after = conn.execute("SELECT detail, detail_enc FROM audit_log WHERE id = %s", (row_id,)).fetchone()
+    assert after["detail"] is None and after["detail_enc"] is not None
+    assert b"audit_backfill_SECRET" not in bytes(after["detail_enc"])
+    assert encryption.read(dict(after), "detail") == '{"prompt": "audit_backfill_SECRET"}'
+    assert client.get("/api/audit/verify", headers=a["headers"]).json()["valid"] is True
+
+
+def test_rotation_covers_and_rewraps_audit_detail(client, two_orgs, monkeypatch):
+    """Rotation must rewrap audit_log.detail_enc past the append-only trigger — else
+    retiring the old key bricks it (HIGH-004). The rotation script's column list is
+    derived from the registry (asserted); this drives the exact per-row rewrap it
+    performs on audit_log with the same trigger-suspension helper, without re-keying
+    the shared session DB (a full rotation needs every row under a single old key)."""
+    rotate = _load_script("rotate_vault_master_key.py")
+    assert ("audit_log", "id", "detail_enc") in rotate._BLOB_COLUMNS
+
+    monkeypatch.setenv("ARCEO_ENCRYPT_AT_REST", "true")
+    a = two_orgs["org_a"]
+    from db import log_audit
+    with get_db() as conn:
+        log_audit(conn, "u", "u@ex.com", "LLM_CALL", resource="r",
+                  detail='{"prompt": "rotate_me_SECRET"}', org_id=a["org_id"])
+        row = conn.execute(
+            "SELECT id, detail_enc FROM audit_log WHERE org_id = %s AND action = 'LLM_CALL' "
+            "ORDER BY id DESC LIMIT 1", (a["org_id"],)).fetchone()
+    assert row["detail_enc"] is not None
+    row_id, blob = row["id"], bytes(row["detail_enc"])
+
+    old = vault.EnvMasterKey(vault.MASTER_KEY_ENV)
+    monkeypatch.setenv("K_ROT_NEW", base64.b64encode(os.urandom(32)).decode())
+    new = vault.EnvMasterKey("K_ROT_NEW")
+    with get_db() as conn:
+        with encryption.suspend_append_only_trigger(conn, "audit_log"):
+            conn.execute("UPDATE audit_log SET detail_enc = %s WHERE id = %s",
+                         (vault.rewrap_blob(blob, old, new), row_id))
+
+    with get_db() as conn:
+        after = conn.execute("SELECT detail_enc FROM audit_log WHERE id = %s", (row_id,)).fetchone()
+    # Decrypts only under the NEW key now; the chain still verifies under it.
+    assert vault.decrypt_value(bytes(after["detail_enc"]), provider=new) == '{"prompt": "rotate_me_SECRET"}'
+    monkeypatch.setenv("ARCEO_VAULT_MASTER_KEY", os.environ["K_ROT_NEW"])
+    assert client.get("/api/audit/verify", headers=a["headers"]).json()["valid"] is True

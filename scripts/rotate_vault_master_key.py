@@ -13,9 +13,12 @@ transaction: it either fully completes or leaves everything on the old key.
 After it succeeds, deploy the new key as ARCEO_VAULT_MASTER_KEY and retire the
 old one.
 
-Covers: provider_credentials (wrapped_dek) + every encrypt_value column added by
-the encryption-at-rest rollout (pending_requests.body_enc / params_json_enc,
-execution_log.params_enc). Add new `_enc` columns to _BLOB_COLUMNS below.
+Covers: provider_credentials (wrapped_dek) + every encrypt_value column in the
+shared encryption.ENCRYPTED_COLUMNS registry (pending_requests.body_enc /
+params_json_enc, execution_log.params_enc, audit_log.detail_enc). Add a new `_enc`
+column to that registry and both this script and backfill_encryption.py pick it up.
+Requires a role that OWNS audit_log (or superuser): its append-only trigger is
+suspended around the (hash-chain-safe) detail_enc rewrap.
 
 No key or DEK material is ever printed.
 """
@@ -31,16 +34,15 @@ import psycopg
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "backend"))
 
+import encryption  # noqa: E402
 import vault  # noqa: E402
 from vault import EnvMasterKey, VaultConfigError  # noqa: E402
 
-# encrypt_value() blob columns, rewrapped with vault.rewrap_blob.
+# encrypt_value() blob columns, rewrapped with vault.rewrap_blob — derived from the
+# single ENCRYPTED_COLUMNS registry so a new `_enc` migration can't desync the tooling.
 # (table, id_col, enc_col)
-_BLOB_COLUMNS = [
-    ("pending_requests", "id", "body_enc"),
-    ("pending_requests", "id", "params_json_enc"),
-    ("execution_log", "id", "params_enc"),
-]
+_BLOB_COLUMNS = [(table, id_col, enc_col)
+                 for table, id_col, _pt_col, enc_col in encryption.ENCRYPTED_COLUMNS]
 
 
 def main() -> None:
@@ -70,16 +72,18 @@ def main() -> None:
                              (new_wrapped, row_id))
         counts["provider_credentials.wrapped_dek"] = len(creds)
 
-        # 2) encrypt_value blob columns: rewrap the DEK header in place.
+        # 2) encrypt_value blob columns: rewrap the DEK header in place. audit_log's
+        # append-only trigger is suspended around its (hash-chain-safe) rewrap.
         for table, id_col, enc_col in _BLOB_COLUMNS:
             rows = conn.execute(
                 f"SELECT {id_col}, {enc_col} FROM {table} WHERE {enc_col} IS NOT NULL"
             ).fetchall()
-            for row_id, blob in rows:
-                if not args.dry_run:
-                    conn.execute(
-                        f"UPDATE {table} SET {enc_col} = %s WHERE {id_col} = %s",
-                        (vault.rewrap_blob(bytes(blob), old, new), row_id))
+            with encryption.suspend_append_only_trigger(conn, table, write=not args.dry_run):
+                for row_id, blob in rows:
+                    if not args.dry_run:
+                        conn.execute(
+                            f"UPDATE {table} SET {enc_col} = %s WHERE {id_col} = %s",
+                            (vault.rewrap_blob(bytes(blob), old, new), row_id))
             counts[f"{table}.{enc_col}"] = len(rows)
 
         if args.dry_run:
