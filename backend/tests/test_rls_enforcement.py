@@ -109,3 +109,33 @@ def test_system_context_sees_all(restricted_role):
         appconn.execute("SELECT set_config('app.current_org', %s, true)", ("system",))
         ids = {r[0] for r in appconn.execute("SELECT id FROM agents").fetchall()}
         assert a_agent in ids and b_agent in ids
+
+
+def test_rls_write_check_blocks_policy_insert_without_org(restricted_role):
+    """HIGH-002: under prod RLS, a policy INSERT that omits org_id (→ server default
+    'default') is rejected by WITH CHECK for any non-default tenant — the concrete
+    cause of 'policy creation 500s under RLS'. With org_id set, the same insert is
+    accepted. (The app pool runs as superuser, so this can only be reproduced at the
+    psycopg layer under the restricted role, not through an endpoint.)"""
+    org_a = f"orgA-{uuid.uuid4().hex[:6]}"
+    with psycopg.connect(_admin_url(), autocommit=True) as admin:
+        a_agent = _seed_org(admin, org_a)
+
+    # Omitting org_id → 'default' → WITH CHECK rejects it under org A's context.
+    with psycopg.connect(_app_url()) as appconn:
+        appconn.execute("SELECT set_config('app.current_org', %s, true)", (org_a,))
+        with pytest.raises(psycopg.errors.Error):
+            appconn.execute(
+                "INSERT INTO policies (agent_id, action_pattern, effect, created_at) VALUES (%s,%s,%s,%s)",
+                (a_agent, "stripe.create_refund", "BLOCK", "2026-01-01"),
+            )
+
+    # With org_id explicitly set to the tenant, the same insert is accepted.
+    with psycopg.connect(_app_url()) as appconn:
+        appconn.execute("SELECT set_config('app.current_org', %s, true)", (org_a,))
+        appconn.execute(
+            "INSERT INTO policies (agent_id, action_pattern, effect, org_id, created_at) VALUES (%s,%s,%s,%s,%s)",
+            (a_agent, "stripe.create_refund", "BLOCK", org_a, "2026-01-01"),
+        )
+        cnt = appconn.execute("SELECT count(*) FROM policies WHERE agent_id = %s", (a_agent,)).fetchone()[0]
+        assert cnt == 1

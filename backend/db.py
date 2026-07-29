@@ -296,7 +296,7 @@ def log_audit(conn, user_id: str | None, user_email: str | None, action: str, re
     )
 
 
-def log_execution(conn, agent_id: str, tool: str, action: str, status: str, policy_id: int = None, detail: str = None, org_id: str = DEFAULT_ORG_ID, params: dict = None, source: str = None) -> int:
+def log_execution(conn, agent_id: str, tool: str, action: str, status: str, policy_id: int = None, detail: str = None, org_id: str = None, params: dict = None, source: str = None) -> int:
     """Write an execution log entry; returns the new row id.
 
     `params` (the action's arguments) are stored as JSON so the approvals queue
@@ -304,7 +304,15 @@ def log_execution(conn, agent_id: str, tool: str, action: str, status: str, poli
     records where the call came from (runtime | sandbox | boundary_test |
     replay | report | test) so a reviewer can tell live agent traffic from
     simulations and seeded data. The returned id lets a caller link a durable
-    pending_requests row to the PENDING_APPROVAL execution row (Phase 4)."""
+    pending_requests row to the PENDING_APPROVAL execution row (Phase 4).
+
+    org_id defaults to the request's tenant (the app.current_org context), mirroring
+    log_audit (HIGH-002): a caller that omits it must not silently file the row under
+    'default' — under RLS that mis-scopes or drops the row for a real tenant. System
+    context (seeding, scheduler, unauthenticated paths) falls back to DEFAULT_ORG_ID."""
+    if org_id is None:
+        ctx = current_org.get()
+        org_id = ctx if ctx and ctx != "system" else DEFAULT_ORG_ID
     # params are the action's arguments — actual customer data (amounts, ids,
     # recipients). Encrypt at rest via the shared seam when the flag is on; the
     # read path (encryption.hydrate at every execution-row endpoint) is symmetric.

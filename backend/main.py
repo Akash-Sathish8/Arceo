@@ -856,6 +856,22 @@ async def proxy_request(service: str, path: str, request: Request):
     if not base_url:
         raise HTTPException(status_code=404, detail=f"Unknown service '{service}'. Known: {', '.join(SERVICE_BASE_URLS.keys())}")
 
+    # HIGH-001: bind the caller-supplied X-Agent-ID to the API key's org BEFORE any
+    # enforcement or vault injection. Without this, a non-agent-scoped key from org A
+    # could name an agent in org B and have the proxy inject org B's vaulted secret
+    # (incl. moves_money). Mirrors the llm-call / enforce checks. Resolve the agent
+    # once and reuse its org below — never fall back to DEFAULT_ORG_ID, which would
+    # inject the default org's secret for an unknown or cross-org agent id. Under
+    # active RLS a cross-org lookup returns None (→ 404); with RLS off it returns the
+    # row (→ 403 on org mismatch), so the check holds either way.
+    with get_db() as conn:
+        agent_row = conn.execute("SELECT org_id FROM agents WHERE id = %s", (agent_id,)).fetchone()
+    if not agent_row:
+        raise HTTPException(status_code=404, detail="Unknown agent")
+    if key_info.get("org_id") and agent_row["org_id"] != key_info["org_id"]:
+        raise HTTPException(status_code=403, detail="API key does not belong to this agent's org")
+    agent_org = agent_row["org_id"]
+
     # Infer action from HTTP method + path
     action = _infer_action_from_request(request.method, path)
 
@@ -886,10 +902,9 @@ async def proxy_request(service: str, path: str, request: Request):
         pending_id = None
         if exec_id is not None:
             with get_db() as conn:
-                arow = conn.execute("SELECT org_id FROM agents WHERE id = %s", (agent_id,)).fetchone()
                 pending_id = approvals.create_pending_proxy(
                     conn, execution_id=exec_id,
-                    org_id=(arow["org_id"] if arow else DEFAULT_ORG_ID), agent_id=agent_id,
+                    org_id=agent_org, agent_id=agent_id,
                     service=service, method=request.method, path=path,
                     query=dict(request.query_params),
                     headers={k: v for k, v in request.headers.items()},
@@ -900,11 +915,8 @@ async def proxy_request(service: str, path: str, request: Request):
 
     # ALLOW → forward and STREAM the response back (held/replay never reach here;
     # only a live-allowed call streams). Same vault-inject prepare replay uses,
-    # so injection can't drift. Org is the AGENT's from the DB, never a header.
-    with get_db() as conn:
-        agent_row = conn.execute("SELECT org_id FROM agents WHERE id = %s", (agent_id,)).fetchone()
-    agent_org = agent_row["org_id"] if agent_row else DEFAULT_ORG_ID
-
+    # so injection can't drift. Org is the AGENT's (resolved + bound to the key's
+    # org at the top of the handler), never a header.
     try:
         upstream_url, forward_headers = _vault_prepare(
             service, path, {k: v for k, v in request.headers.items()}, agent_org,
@@ -3309,8 +3321,8 @@ def create_policy(agent_id: str, req: PolicyInput, user: dict = Depends(get_curr
             raise HTTPException(status_code=404, detail=f"Agent '{agent_id}' not found")
 
         cur = conn.execute(
-            "INSERT INTO policies (agent_id, action_pattern, effect, reason, conditions, priority, created_by, created_at) VALUES (%s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
-            (agent_id, req.action_pattern, req.effect, req.reason, conditions_json, priority, user["email"], datetime.utcnow().isoformat()),
+            "INSERT INTO policies (agent_id, action_pattern, effect, reason, conditions, priority, created_by, created_at, org_id) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
+            (agent_id, req.action_pattern, req.effect, req.reason, conditions_json, priority, user["email"], datetime.utcnow().isoformat(), _org(user)),
         )
         policy_id = cur.fetchone()["id"]
 
@@ -4833,8 +4845,8 @@ def apply_prelaunch_fixes(agent_id: str, user: dict = Depends(get_current_user))
 
             priority = {"BLOCK": 100, "REQUIRE_APPROVAL": 50, "ALLOW": 10}.get(ps["effect"], 0)
             conn.execute(
-                "INSERT INTO policies (agent_id, action_pattern, effect, reason, conditions, priority, created_by, created_at) VALUES (%s, %s, %s, %s, '[]', %s, %s, %s)",
-                (agent_id, ps["action_pattern"], ps["effect"], ps["reason"], priority, user["email"], datetime.utcnow().isoformat()),
+                "INSERT INTO policies (agent_id, action_pattern, effect, reason, conditions, priority, created_by, created_at, org_id) VALUES (%s, %s, %s, %s, '[]', %s, %s, %s, %s)",
+                (agent_id, ps["action_pattern"], ps["effect"], ps["reason"], priority, user["email"], datetime.utcnow().isoformat(), _org(user)),
             )
             applied.append({"action_pattern": ps["action_pattern"], "effect": ps["effect"]})
 
@@ -6276,8 +6288,8 @@ def apply_recommended_policy(req: ApplyPolicyRequest, user: dict = Depends(get_c
         # at enforcement (ORDER BY priority DESC): the recommended block was fail-open.
         priority = {"BLOCK": 100, "REQUIRE_APPROVAL": 50, "ALLOW": 10}.get(req.effect, 0)
         cur = conn.execute(
-            "INSERT INTO policies (agent_id, action_pattern, effect, reason, priority, created_by, created_at) VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING id",
-            (req.agent_id, req.action_pattern, req.effect, req.reason, priority, user["email"], datetime.utcnow().isoformat()),
+            "INSERT INTO policies (agent_id, action_pattern, effect, reason, priority, created_by, created_at, org_id) VALUES (%s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
+            (req.agent_id, req.action_pattern, req.effect, req.reason, priority, user["email"], datetime.utcnow().isoformat(), _org(user)),
         )
         policy_id = cur.fetchone()["id"]
         log_audit(conn, user["sub"], user["email"], "APPLY_RECOMMENDATION", resource=req.agent_id,
@@ -6313,8 +6325,8 @@ def apply_all_recommended_policies(req: ApplyAllPoliciesRequest, user: dict = De
 
             priority = {"BLOCK": 100, "REQUIRE_APPROVAL": 50, "ALLOW": 10}.get(p.effect, 0)
             conn.execute(
-                "INSERT INTO policies (agent_id, action_pattern, effect, reason, priority, created_by, created_at) VALUES (%s, %s, %s, %s, %s, %s, %s)",
-                (req.agent_id, p.action_pattern, p.effect, p.reason, priority, user["email"], datetime.utcnow().isoformat()),
+                "INSERT INTO policies (agent_id, action_pattern, effect, reason, priority, created_by, created_at, org_id) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
+                (req.agent_id, p.action_pattern, p.effect, p.reason, priority, user["email"], datetime.utcnow().isoformat(), _org(user)),
             )
             created += 1
 
@@ -6451,7 +6463,7 @@ async def call_mock_endpoint(tool: str, action: str, request: Request):
                 enforce_reason = matched["reason"]
 
             status = "BLOCKED" if enforce_decision == "BLOCK" else "PENDING_APPROVAL" if enforce_decision == "REQUIRE_APPROVAL" else "EXECUTED"
-            log_execution(conn, agent_id, tool, action, status, detail=enforce_reason or "Mock endpoint", source="sandbox")
+            log_execution(conn, agent_id, tool, action, status, detail=enforce_reason or "Mock endpoint", org_id=caller_org, source="sandbox")
     except Exception as e:
         logger.warning("Mock endpoint enforcement/logging error for %s.%s: %s", tool, action, e)
 

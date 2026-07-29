@@ -123,3 +123,23 @@ def test_cross_org_matrix(client, two_orgs):
             leaks.append(f"{method} {template} → {resp.status_code} (expected 403/404)")
 
     assert not leaks, "cross-org leaks:\n" + "\n".join(leaks)
+
+
+def test_policy_create_stamps_caller_org(client, two_orgs):
+    """HIGH-002: a policy created by a tenant is filed under THAT tenant's org, not the
+    'default' server-default. A mis-filed policy is invisible to the tenant's RLS-scoped
+    enforcement read (enforcement fails open) and, under prod RLS, 500s on insert."""
+    b = two_orgs["org_b"]
+    r = client.post("/api/authority/agents", headers=b["headers"],
+                    json={"name": "orgb-pol-" + uuid.uuid4().hex[:6], "tools": [STRIPE_TOOL]})
+    assert r.status_code == 200, r.text
+    agent_id = r.json()["id"]
+
+    r = client.post(f"/api/authority/agent/{agent_id}/policies", headers=b["headers"],
+                    json={"action_pattern": "stripe.create_refund", "effect": "BLOCK",
+                          "reason": "x", "priority": 100})
+    assert r.status_code == 200, r.text
+
+    with get_db() as conn:
+        org = conn.execute("SELECT org_id FROM policies WHERE agent_id = %s", (agent_id,)).fetchone()["org_id"]
+    assert org == b["org_id"], f"policy filed under '{org}', expected '{b['org_id']}'"

@@ -238,3 +238,47 @@ def test_delete_then_require_vault_blocks_again(client, two_orgs, capture_upstre
                    headers={"X-API-Key": api_key, "X-Agent-ID": agent_id})
     assert r.json().get("blocked") is True
     assert capture_upstream == []
+
+
+# ── HIGH-001: proxy binds the target agent to the API key's org ────────────────
+
+def test_proxy_rejects_cross_org_agent(client, two_orgs, capture_upstream):
+    """A non-agent-scoped key from org A that names org B's agent must be refused
+    (403) BEFORE any enforcement or vault egress — otherwise the proxy would inject
+    org B's vaulted secret on behalf of an org-A caller (cross-tenant money movement)."""
+    a, b = two_orgs["org_a"], two_orgs["org_b"]
+    key_a = _mint_key(client, a["headers"])                 # org A key, not agent-scoped
+    agent_b = _make_agent(client, b["headers"], "orgb-proxy-target")
+    # org B has a real credential — proves the 403 is the org bind, not a missing secret.
+    client.put("/api/credentials/stripe", headers=b["headers"], json={"secret": "sk_orgB_secret"})
+
+    r = client.post("/proxy/stripe/v1/refunds",
+                    headers={"X-API-Key": key_a, "X-Agent-ID": agent_b}, json={"amount": 1000})
+    assert r.status_code == 403, r.text
+    assert capture_upstream == [], "cross-org proxy must not forward upstream"
+
+
+def test_proxy_unknown_agent_is_404(client, two_orgs, capture_upstream):
+    """An unknown X-Agent-ID is a hard 404, never a fall-through to the default org's
+    secret — this is the branch that bites under active RLS, where a cross-org agent
+    lookup returns no row."""
+    a = two_orgs["org_a"]
+    key_a = _mint_key(client, a["headers"])
+    r = client.post("/proxy/stripe/v1/refunds",
+                    headers={"X-API-Key": key_a, "X-Agent-ID": "does-not-exist"}, json={"amount": 1})
+    assert r.status_code == 404, r.text
+    assert capture_upstream == []
+
+
+def test_proxy_same_org_agent_passes_bind(client, two_orgs, capture_upstream):
+    """Positive: a key + agent in the SAME org pass the org bind and reach the normal
+    enforce → vault-inject → forward path, so the new check isn't overbroad."""
+    a = two_orgs["org_a"]
+    key_a = _mint_key(client, a["headers"])
+    agent_a = _make_agent(client, a["headers"], "orga-proxy-self")
+    client.put("/api/credentials/stripe", headers=a["headers"], json={"secret": "sk_orgA_secret"})
+
+    r = client.get("/proxy/stripe/v1/customers",
+                   headers={"X-API-Key": key_a, "X-Agent-ID": agent_a})
+    assert r.status_code == 200, r.text          # bind passed → forwarded via MockTransport
+    assert len(capture_upstream) == 1

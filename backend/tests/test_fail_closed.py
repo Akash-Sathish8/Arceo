@@ -80,6 +80,11 @@ def test_proxy_requires_api_key_even_with_zero_keys(client):
 def test_proxy_blocks_and_skips_upstream_on_enforcement_error(client, two_orgs, monkeypatch):
     a = two_orgs["org_a"]
     key = _mint_key(client, a["headers"])
+    # A real agent in the key's org: the proxy now resolves + org-binds the agent
+    # (HIGH-001) before enforcement, so an unknown id would 404 before this path.
+    ra = client.post("/api/authority/agents", headers=a["headers"],
+                     json={"name": "fail-closed-proxy", "tools": [STRIPE_TOOL]})
+    agent_id = ra.json()["agent"]["id"] if "agent" in ra.json() else ra.json()["id"]
 
     monkeypatch.setattr(enf, "enforce_check", _boom)
     monkeypatch.delenv("ARCEO_FAIL_MODE", raising=False)
@@ -97,7 +102,7 @@ def test_proxy_blocks_and_skips_upstream_on_enforcement_error(client, two_orgs, 
                         lambda *a, **k: real(transport=httpx.MockTransport(_handler), timeout=k.get("timeout")))
 
     r = client.post("/proxy/stripe/v1/refunds",
-                    headers={"X-API-Key": key, "X-Agent-ID": "some-agent"},
+                    headers={"X-API-Key": key, "X-Agent-ID": agent_id},
                     json={"amount": 100})
     assert r.status_code == 200, r.text
     body = r.json()
@@ -108,6 +113,9 @@ def test_proxy_blocks_and_skips_upstream_on_enforcement_error(client, two_orgs, 
 def test_proxy_strips_stale_content_headers(client, two_orgs, monkeypatch):
     a = two_orgs["org_a"]
     key = _mint_key(client, a["headers"], name="proxy-header-key")
+    ra = client.post("/api/authority/agents", headers=a["headers"],
+                     json={"name": "proxy-header-agent", "tools": [STRIPE_TOOL]})
+    agent_id = ra.json()["agent"]["id"] if "agent" in ra.json() else ra.json()["id"]
 
     decompressed = b'{"ok": true, "padding": "' + b"x" * 200 + b'"}'
 
@@ -124,7 +132,7 @@ def test_proxy_strips_stale_content_headers(client, two_orgs, monkeypatch):
                         lambda *a, **k: real(transport=httpx.MockTransport(_handler), timeout=k.get("timeout")))
 
     r = client.get("/proxy/stripe/v1/customers",
-                   headers={"X-API-Key": key, "X-Agent-ID": "some-agent"})
+                   headers={"X-API-Key": key, "X-Agent-ID": agent_id})
     assert r.status_code == 200
     assert r.content == decompressed  # full body, not truncated to 23 bytes
     assert r.headers.get("content-encoding") is None
