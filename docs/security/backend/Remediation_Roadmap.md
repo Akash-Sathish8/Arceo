@@ -17,20 +17,20 @@ This roadmap sequences all 39 findings into four phases by urgency and dependenc
 
 ### The tenancy pair — fix HIGH-001 and HIGH-002 together
 
-- [ ] **HIGH-001** — `backend/main.py` (`proxy_request`, lines 850–911). After resolving the agent, compare its org to the key's org and reject on mismatch on both the ALLOW and REQUIRE_APPROVAL paths: `if agent_row and key_info.get("org_id") and agent_row["org_id"] != key_info["org_id"]: raise HTTPException(403)`. Resolve the agent's org once and reuse it. Return an identical response for "not found" and "other org."
+- [x] **HIGH-001** — `backend/main.py` (`proxy_request`, lines 850–911). After resolving the agent, compare its org to the key's org and reject on mismatch on both the ALLOW and REQUIRE_APPROVAL paths: `if agent_row and key_info.get("org_id") and agent_row["org_id"] != key_info["org_id"]: raise HTTPException(403)`. Resolve the agent's org once and reuse it. Return an identical response for "not found" and "other org." *(shipped 2026-07-29, PR #124)*
   - **Validation:** add a cross-org proxy case to `backend/tests/test_cross_org_matrix.py` (org-A non-agent-scoped key + org-B `X-Agent-ID` → 403, no upstream forward); run the suite under the non-superuser role.
-- [ ] **HIGH-002** — `backend/main.py` (policy INSERTs 3312/4836/6279/6316) + `backend/db.py` (`log_execution`, 299). Add the `org_id` column to all four policy INSERTs with the authenticated tenant; give `log_execution` the same `current_org` derivation `log_audit` uses; add a BEFORE-INSERT `org_id` trigger on `policies`.
+- [x] **HIGH-002** — `backend/main.py` (policy INSERTs 3312/4836/6279/6316) + `backend/db.py` (`log_execution`, 299). Add the `org_id` column to all four policy INSERTs with the authenticated tenant; give `log_execution` the same `current_org` derivation `log_audit` uses; add a BEFORE-INSERT `org_id` trigger on `policies`. *(shipped 2026-07-29, PR #124)*
   - **Validation:** under the non-superuser role, `test_rls_enforcement.py` asserts (a) policy creation succeeds for a non-`default` tenant and (b) a BLOCK policy still blocks after `FORCE ROW LEVEL SECURITY` is active.
 - **Coupling:** these two must ship in the same change set — turning RLS on to close HIGH-001 activates HIGH-002, and vice versa. Do not enable the non-superuser RLS role in any shared environment until both land.
 
 ### Denial of wallet
 
-- [ ] **HIGH-003** — `backend/main.py` (spenders 4041/4149/4233/6039/6106). Thread a per-org pre-call spend/call-count ceiling through `run_simulation`/`run_sweep`/`run_red_team` (mirror `multi_runner.MAX_TOTAL_LLM_CALLS`); call the budget gate at each spender's entry; require a key unconditionally on `/api/report` (1046) and `/api/sdk/analyze-trace` (961); pin `generate-scenarios` off the premium model by default.
+- [x] **HIGH-003** — `backend/main.py` (spenders 4041/4149/4233/6039/6106). Thread a per-org pre-call spend/call-count ceiling through `run_simulation`/`run_sweep`/`run_red_team` (mirror `multi_runner.MAX_TOTAL_LLM_CALLS`); call the budget gate at each spender's entry; require a key unconditionally on `/api/report` (1046) and `/api/sdk/analyze-trace` (961); pin `generate-scenarios` off the premium model by default. *(shipped 2026-07-29, PR #126)*
   - **Validation:** a test drives a sweep past a per-org call budget and asserts it aborts; `/api/report` returns 401 on a keyless instance.
 
 ### Encryption-at-rest key operations
 
-- [ ] **HIGH-004** — `scripts/rotate_vault_master_key.py` (`_BLOB_COLUMNS`, 39–43) + `scripts/backfill_encryption.py` (`_COLUMNS`, 35–39). Add `audit_log.detail_enc` to both; replace the two hardcoded lists with a single shared registry in `backend/encryption.py`; add a CI assertion that every `*_enc` column in the schema appears in the registry.
+- [x] **HIGH-004** — `scripts/rotate_vault_master_key.py` (`_BLOB_COLUMNS`, 39–43) + `scripts/backfill_encryption.py` (`_COLUMNS`, 35–39). Add `audit_log.detail_enc` to both; replace the two hardcoded lists with a single shared registry in `backend/encryption.py`; add a CI assertion that every `*_enc` column in the schema appears in the registry. *(shipped 2026-07-29, PR #125)*
   - **Validation:** extend `backend/tests/test_encrypt_at_rest.py` to rotate-then-read and backfill-then-read **every** encrypted column, including `audit_log.detail_enc`, asserting each decrypts under the new key. **Do not run a production key rotation until this lands.**
 
 **Phase 1 gate:** all four Highs merged; the cross-org proxy test and the RLS-on policy/enforce tests pass under the non-superuser role; the rotation test covers every `_enc` column; the per-org spend ceiling is enforced on all server-key spenders. No shared multi-tenant deployment and no master-key rotation before this gate is met.
@@ -39,7 +39,7 @@ This roadmap sequences all 39 findings into four phases by urgency and dependenc
 
 ## Phase 2 — Short-term (weeks 1–2): high-impact hardening
 
-- [ ] **MED-004** — `backend/main.py` (`_budget_gate`, 2947). Make it enforce-by-default outside dev, fail **closed** on error, resolve the wallet from the authenticated org, and keep a per-org running total in Redis. (Prerequisite for HIGH-003's ceiling to be reliable.)
+- [x] **MED-004** — `backend/main.py` (`_budget_gate`, 2947). Make it enforce-by-default outside dev, fail **closed** on error, resolve the wallet from the authenticated org, and keep a per-org running total in Redis. (Prerequisite for HIGH-003's ceiling to be reliable.) *(shipped 2026-07-29, PR #127)*
   - **Validation:** a test asserts the gate blocks once a per-org total is exceeded and blocks (not allows) when the store is unreachable.
 - [ ] **MED-010** — `backend/main.py` (3550) + `backend/authority/enforcement.py` (299). Run the stored Slack webhook URL through `validate_external_url`; allowlist `hooks.slack.com`; disable redirects.
   - **Validation:** a test that a webhook pointing at `169.254.169.254`/loopback is rejected at save and at fire time.
@@ -51,10 +51,13 @@ This roadmap sequences all 39 findings into four phases by urgency and dependenc
   - **Validation:** a job test purges detail older than the retention window while leaving the hash chain verifiable via `GET /api/audit/verify`.
 - [ ] **MED-006** — `backend/main.py` (sync LLM handlers 4773/5953/6075 et al.). Move heavy LLM jobs to a background queue or wrap them in an `anyio.CapacityLimiter`.
   - **Validation:** a concurrency test shows sync routes stay responsive while N sweeps run.
-- [ ] **MED-007** — `backend/shared_state.py` (25, 110). Set `socket_timeout`/`socket_connect_timeout`; call Redis via `anyio.to_thread` or an async client.
+- [ ] **MED-007** — `backend/shared_state.py` (25, 110). Set `socket_timeout`/`socket_connect_timeout`; call Redis via `anyio.to_thread` or an async client. **Half done:** both clients now carry `socket_timeout`/`socket_connect_timeout` (`REDIS_TIMEOUT`, default 2s), pulled forward with PR #127 because the budget gate blocks on a Redis round-trip. Still open: the sync client is called from async middleware — move those calls to `anyio.to_thread` or an async client.
   - **Validation:** a test with a stalled Redis asserts the request path times out rather than hanging.
 - [ ] **MED-008** — `backend/sandbox/runner.py` (190, 229). Pass `timeout` + `max_retries` when constructing the OpenAI-compatible client; centralize construction.
   - **Validation:** a test asserts a hung upstream fails fast rather than at ~600s.
+
+- [ ] **MED-004-b (follow-up, surfaced while fixing MED-004)** — **sandbox spend is not metered, so the gate cannot see it.** `sandbox/runner.py`, `sandbox/multi_runner.py` and `sandbox/red_team.py` write no `LLM_CALL`/`LLM_CALL_PROXY` audit row, and month-to-date spend is computed exclusively from those rows. The budget gate therefore runs at `/api/sandbox/simulate`, `/api/sandbox/sweep` and `/api/red-team/*` against a counter their own spend never advances: a sweep is blocked only once *proxy/SDK-captured* spend has already exhausted the cap, and sweeps alone can never trip it. Those endpoints remain bounded per-request by `_SimBudget` / `ARCEO_SIM_MAX_LLM_CALLS` (HIGH-003), so this is a metering gap rather than an uncapped path — but it means the monthly cap under-counts real server-key spend. **Fix:** record each server-key model call to the audit log the same way the capture paths do (or charge the counter directly from `_SimBudget`), so one accounting covers both.
+  - **Validation:** a test asserts that a completed dry-run-off sweep advances the org's month-to-date counter, and that a sweep is refused once the cap is reached on sandbox spend alone.
 
 **Phase 2 gate:** the budget gate is enforce-by-default and fail-closed; the Slack egress is validated; the extraction prompts are fenced and fail toward higher risk; revocation closes on deleted users and the WS path; an audit-retention job is scheduled; heavy LLM handlers no longer hold the sync threadpool.
 

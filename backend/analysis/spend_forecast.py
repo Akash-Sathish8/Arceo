@@ -711,6 +711,24 @@ def compute_month_to_date_spend(
     return round(total, 2)
 
 
+def call_cost_from_detail(detail: dict, *, defaults: Optional[dict] = None) -> float:
+    """Dollar cost of one captured call, from the same audit-log `detail` blob the
+    month-to-date sum reads. Returns 0.0 when the call carries no usable usage.
+
+    Same arithmetic as `compute_month_to_date_spend` on a single row, exposed so
+    the budget counter can be settled to the real cost as each call lands instead
+    of re-summing the month (MED-004). Keep the two on one code path — a drift
+    between them would let the counter and the reported spend disagree.
+    """
+    u = _extract_usage(detail)
+    if u is None:
+        return 0.0
+    defaults = defaults or load_defaults()
+    total_in, cached, cache_creation, out = u
+    model_key = _resolve_model_key(detail.get("model"), defaults)
+    return _call_cost_usd(total_in, cached, out, model_key, defaults, cache_creation=cache_creation)
+
+
 # Anthropic bills a cache WRITE (cache_creation) at ~1.25x the input rate; a
 # cache READ gets the discount. Billing writes at 1.0x under-counted cache-heavy
 # agents on the observed (high-confidence) path.

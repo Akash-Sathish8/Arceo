@@ -5,8 +5,12 @@ pins the connection to, defeating DNS-rebinding/TOCTOU. Internal/metadata target
 are still rejected outright.
 
 Spend: LLM endpoints gain a per-agent rate limit and a pre-spend budget gate that
-blocks (429) BEFORE recording spend — but only when ARCEO_BUDGET_ENFORCE is on, so
-existing warn-only deployments are unaffected.
+blocks (429) BEFORE recording spend.
+
+Note: MED-004 later made that gate enforce by DEFAULT outside dev — the "flag off"
+cases below still hold because the suite runs with ARCEO_ENV=test. The hardened
+behaviour (default-on, fail-closed, atomic, org-scoped wallet) is pinned in
+test_budget_gate_hardening.py.
 """
 
 from __future__ import annotations
@@ -125,14 +129,15 @@ def test_budget_gate_blocks_over_budget_when_enforced(client, roles, monkeypatch
     assert "budget" in r.json()["detail"].lower()
 
 
-def test_budget_gate_is_noop_when_flag_off(client, roles, monkeypatch):
+def test_budget_gate_is_noop_when_disabled_for_this_env(client, roles, monkeypatch):
     import analysis.spend_forecast as sf
     admin = roles["admin"]
     agent = _mk_agent(client, admin["headers"], "bud-off-" + uuid.uuid4().hex[:5])
     _set_budget(client, admin["headers"], agent, 10.0)
     key = _key(client, admin["headers"], agent_id=agent)
 
-    # Flag unset (default) → warn-only, spend is recorded even when "over budget".
+    # ARCEO_ENV=test → enforcement off for this env, so spend is still recorded even
+    # when "over budget". On a real (non-dev) deployment this call would 429.
     monkeypatch.setattr(sf, "compute_month_to_date_spend", lambda *a, **k: 25.0)
     r = _llm_call(client, key, agent)
     assert r.status_code == 200, r.text

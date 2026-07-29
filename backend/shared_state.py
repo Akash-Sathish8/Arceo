@@ -20,9 +20,19 @@ import redis
 
 REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
 
+# Socket timeouts (MED-007, partial): every call below sits on a request path, and
+# the spend gate now blocks on one. Without these a degraded-but-reachable Redis
+# hangs the caller until the OS gives up. Bounded here so a wedged Redis surfaces
+# as a fast redis.RedisError the caller can fall back from. (The remaining half of
+# MED-007 — calling these from async code via to_thread — is tracked separately.)
+REDIS_TIMEOUT = float(os.environ.get("REDIS_TIMEOUT_SECONDS", "2"))
+
 # Sync client for the fast request-path ops (rate limit, publish, locks). The
 # WS subscribe loop uses redis.asyncio separately (see subscribe_channel).
-_client = redis.Redis.from_url(REDIS_URL, decode_responses=True)
+_client = redis.Redis.from_url(
+    REDIS_URL, decode_responses=True,
+    socket_timeout=REDIS_TIMEOUT, socket_connect_timeout=REDIS_TIMEOUT,
+)
 
 
 def client() -> "redis.Redis":
@@ -107,7 +117,10 @@ def subscribe_channel(agent_id: str):
     """
     import redis.asyncio as aioredis
 
-    aclient = aioredis.Redis.from_url(REDIS_URL, decode_responses=True)
+    aclient = aioredis.Redis.from_url(
+        REDIS_URL, decode_responses=True,
+        socket_timeout=REDIS_TIMEOUT, socket_connect_timeout=REDIS_TIMEOUT,
+    )
     pubsub = aclient.pubsub()
     return aclient, pubsub
 
@@ -125,6 +138,90 @@ def should_fire_once(key: str, ttl_seconds: int) -> bool:
     """True the first time this key is seen within the TTL, False after — so two
     workers deciding the same BLOCK don't both fire a notification."""
     return bool(_client.set(f"once:{key}", "1", nx=True, ex=ttl_seconds))
+
+
+# ── Spend counters: atomic month-to-date totals (MED-004) ─────────────────────
+# The budget gate used to read month-to-date spend out of `audit_log`, compare it
+# to the cap, and only then let the call through. That read-then-spend sequence is
+# a TOCTOU window: a burst of concurrent calls all observe "under budget" before
+# any of their spend is recorded, so the cap is routinely overshot. These counters
+# move the check-and-increment into one atomic Redis op instead.
+#
+# A counter is authoritative only while it exists; it is seeded (`spend_hydrate`)
+# from `audit_log` on a cold key and then maintained incrementally. The TTL
+# outlives the month it keys, so a stale month's counter disappears on its own.
+_SPEND_TTL = 40 * 24 * 3600
+
+# Reserve-then-settle: the caller charges an estimate BEFORE the billable call and
+# corrects it to the real cost after. Redis Lua truncates numbers to integers on
+# return, so every dollar amount crosses the boundary as a string.
+_SPEND_RESERVE = _client.register_script(
+    """
+    local key = KEYS[1]
+    local cap = tonumber(ARGV[1])
+    local amount = tonumber(ARGV[2])
+    local ttl = tonumber(ARGV[3])
+    local current = redis.call('GET', key)
+    if not current then
+        return {'cold', '0'}
+    end
+    if tonumber(current) >= cap then
+        return {'over', current}
+    end
+    local total = redis.call('INCRBYFLOAT', key, amount)
+    redis.call('EXPIRE', key, ttl)
+    return {'ok', total}
+    """
+)
+
+# Adjust an existing counter without creating one: a settle against a counter that
+# has since expired must not resurrect it holding only that delta (which would
+# under-count the month). Absent key -> no-op; the next cold read re-hydrates from
+# audit_log and gets the truth.
+_SPEND_ADJUST = _client.register_script(
+    """
+    local key = KEYS[1]
+    if redis.call('EXISTS', key) == 0 then
+        return 0
+    end
+    redis.call('INCRBYFLOAT', key, ARGV[1])
+    redis.call('EXPIRE', key, tonumber(ARGV[2]))
+    return 1
+    """
+)
+
+
+def _spend_key(scope: str) -> str:
+    return f"spend:{scope}"
+
+
+def spend_reserve(scope: str, cap: float, amount: float) -> tuple[str, float]:
+    """Atomically check the counter against `cap` and, if under, add `amount`.
+
+    Returns (status, total): `ok` (reserved, total includes the reservation),
+    `over` (at/above the cap — nothing added), or `cold` (no counter yet — the
+    caller must `spend_hydrate` from the system of record and retry).
+    """
+    status, total = _SPEND_RESERVE(keys=[_spend_key(scope)], args=[cap, amount, _SPEND_TTL])
+    return status, float(total)
+
+
+def spend_hydrate(scope: str, value: float) -> None:
+    """Seed a cold counter from the system of record. SET NX, so a concurrent
+    hydrate or an already-counted reservation is never clobbered."""
+    _client.set(_spend_key(scope), repr(float(value)), nx=True, ex=_SPEND_TTL)
+
+
+def spend_adjust(scope: str, delta: float) -> None:
+    """Apply a correction to a live counter (settle a reservation to its real cost,
+    or release it entirely with the negative of what was reserved)."""
+    _SPEND_ADJUST(keys=[_spend_key(scope)], args=[repr(float(delta)), _SPEND_TTL])
+
+
+def spend_total(scope: str) -> float | None:
+    """Current counter value, or None if cold. Read-only; for tests + diagnostics."""
+    raw = _client.get(_spend_key(scope))
+    return None if raw is None else float(raw)
 
 
 # ── WebSocket connection caps ─────────────────────────────────────────────────
