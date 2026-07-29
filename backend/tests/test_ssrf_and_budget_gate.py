@@ -157,3 +157,18 @@ def test_llm_endpoint_rate_limited(client, roles, monkeypatch):
     codes = [_llm_call(client, key, agent).status_code for _ in range(8)]
     assert codes[0] == 200, codes
     assert 429 in codes, codes
+
+
+# ── HIGH-003: the keyless LLM faucets now require a key unconditionally ──────────
+
+def test_report_faucet_requires_key(client):
+    """/api/report reaches an LLM summary; on a keyless install it used to run
+    unauthenticated. It must now 401 without a key regardless of how many keys exist."""
+    r = client.post("/api/report", json={"agent_id": "x", "actions": []})
+    assert r.status_code == 401, r.text
+
+
+def test_analyze_trace_faucet_requires_key(client):
+    """/api/sdk/analyze-trace also spends on the LLM; unconditional key requirement."""
+    r = client.post("/api/sdk/analyze-trace", json={})
+    assert r.status_code == 401, r.text

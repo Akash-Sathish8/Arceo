@@ -54,6 +54,37 @@ def test_sim_budget_bounds_total_calls():
     assert MAX_TOTAL_LLM_CALLS > 0
 
 
+# ── HIGH-003: the per-request budget is honored by the server-key spenders ───────
+
+def test_run_simulation_stops_when_budget_exhausted(monkeypatch):
+    """A single run_simulation given an exhausted budget makes ZERO model calls
+    (a sweep shares one budget across all scenarios, so this is how the ceiling bites)."""
+    import sandbox.runner as runner
+    from sandbox.prompts.scenarios import ALL_SCENARIOS
+    calls = {"n": 0}
+    monkeypatch.setattr(runner, "_call_llm", lambda *a, **k: calls.__setitem__("n", calls["n"] + 1))
+    trace = runner.run_simulation({"id": "a", "name": "A", "tools": []}, ALL_SCENARIOS[0],
+                                  budget=runner._SimBudget(0))
+    assert calls["n"] == 0
+    assert trace.status == "error" and "budget" in (trace.error or "").lower()
+
+
+def test_run_red_team_stops_when_budget_exhausted(monkeypatch):
+    """run_red_team stops issuing attacks once the shared per-request budget is spent,
+    so its goals × turns fan-out can't run unbounded on the server key."""
+    import sandbox.red_team as rt
+    monkeypatch.setattr(rt, "_generate_goals", lambda cfg: [{"attack": "prompt_injection", "target": "x"}] * 5)
+    gen = {"n": 0}
+    run = {"n": 0}
+    monkeypatch.setattr(rt, "_generate_adversarial_input",
+                        lambda *a, **k: (gen.__setitem__("n", gen["n"] + 1), "adv")[1])
+    monkeypatch.setattr(rt, "_run_agent_with_input",
+                        lambda *a, **k: (run.__setitem__("n", run["n"] + 1), ("", []))[1])
+    report = rt.run_red_team({"id": "a", "name": "A"}, api_key="test-key", budget=rt._SimBudget(0))
+    assert gen["n"] == 0 and run["n"] == 0     # goal loop broke before any attack ran
+    assert report.total_attacks == 0
+
+
 # ── MED-008: per-agent WebSocket connection cap ────────────────────────────────
 
 def test_ws_connection_slot_cap():

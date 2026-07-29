@@ -974,13 +974,13 @@ class SDKTraceInput(BaseModel):
 def analyze_sdk_trace(req: SDKTraceInput, request: Request = None):
     """Arceo SDK endpoint — accepts a captured trace, auto-registers the agent,
     runs full analysis, and returns a risk report. Requires API key if keys exist."""
-    # Require API key if any exist; derive the tenant org from the key (IC14).
+    # HIGH-003: require an API key unconditionally — a keyless install (key_count==0)
+    # previously let this LLM-spending endpoint run unauthenticated. Derive the org
+    # from the key (IC14).
     org_id = DEFAULT_ORG_ID
     if request:
         key_info = verify_api_key(request)
-        with get_db() as conn:
-            key_count = conn.execute("SELECT COUNT(*) AS n FROM api_keys WHERE active = 1").fetchone()["n"]
-        if key_count > 0 and not key_info:
+        if not key_info:
             raise HTTPException(status_code=401, detail="X-API-Key required")
         if key_info and key_info.get("org_id"):
             org_id = key_info["org_id"]
@@ -1057,13 +1057,11 @@ def analyze_sdk_trace(req: SDKTraceInput, request: Request = None):
 
 @app.post("/api/report")
 def submit_post_hoc_report(req: PostHocReport, request: Request = None):
-    """Agent reports what it did after the fact. Requires API key if keys exist."""
+    """Agent reports what it did after the fact. Requires an API key (HIGH-003)."""
     org_id = DEFAULT_ORG_ID
     if request:
         key_info = verify_api_key(request)
-        with get_db() as conn:
-            key_count = conn.execute("SELECT COUNT(*) AS n FROM api_keys WHERE active = 1").fetchone()["n"]
-        if key_count > 0 and not key_info:
+        if not key_info:
             raise HTTPException(status_code=401, detail="X-API-Key required")
         if key_info and key_info.get("org_id"):
             org_id = key_info["org_id"]
@@ -4109,7 +4107,7 @@ def generate_llm_scenarios(agent_id: str, user: dict = Depends(get_current_user)
     try:
         client = anthropic_client(api_key)
         msg = client.messages.create(
-            model=DEEP_MODEL,
+            model=FAST_MODEL,  # HIGH-003: pin off the premium (Opus) model
             max_tokens=4000,
             system=system,
             messages=[{"role": "user", "content": user_block}],
@@ -4161,6 +4159,8 @@ def generate_llm_scenarios(agent_id: str, user: dict = Depends(get_current_user)
 @app.post("/api/sandbox/simulate")
 def run_sandbox_simulation(req: SimulateRequest, user: dict = Depends(get_current_user)):
     """Run a simulation: agent + scenario + mocks + enforcement + trace."""
+    _budget_gate(req.agent_id)  # HIGH-003: per-org monthly spend gate (one sim is
+                                # already bounded by max_turns)
     from sandbox.prompts.scenarios import get_scenario
     from sandbox.analyzer import analyze_trace
     from dataclasses import asdict as _asdict
@@ -6068,6 +6068,8 @@ def run_red_team_endpoint(agent_id: str, req: RedTeamRequest = None, user: dict 
         if not agent:
             raise HTTPException(status_code=404, detail=f"Agent '{agent_id}' not found")
 
+    _budget_gate(agent_id)  # HIGH-003: per-org monthly spend gate (run_red_team also
+                            # bounds itself with a per-request _SimBudget)
     system_prompt = ""
     if req:
         system_prompt = req.system_prompt
@@ -6117,7 +6119,8 @@ class SweepRequest(BaseModel):
 @app.post("/api/sandbox/sweep")
 def run_sweep(req: SweepRequest, user: dict = Depends(get_current_user)):
     """Run every applicable scenario for an agent and produce an aggregate report."""
-    from sandbox.runner import run_simulation, run_simulation_dry
+    _budget_gate(req.agent_id)  # HIGH-003: per-org monthly spend gate
+    from sandbox.runner import run_simulation, run_simulation_dry, _SimBudget, MAX_TOTAL_LLM_CALLS
     from sandbox.analyzer import analyze_trace, aggregate_reports
     from sandbox.prompts.scenarios import (
         get_scenarios_for_agent, generate_scenarios_for_agent, scenario_matches_tools,
@@ -6151,6 +6154,9 @@ def run_sweep(req: SweepRequest, user: dict = Depends(get_current_user)):
     api_key = os.getenv("ANTHROPIC_API_KEY")
     custom_data = _get_custom_data(req.agent_id)
     sweep_id = uuid.uuid4().hex[:12]
+    # HIGH-003: one shared LLM-call budget across ALL scenarios in the sweep — a
+    # sweep is the biggest fan-out (scenarios × up to 20 turns each).
+    sweep_budget = _SimBudget(MAX_TOTAL_LLM_CALLS)
 
     # Run each scenario
     results = []
@@ -6161,7 +6167,7 @@ def run_sweep(req: SweepRequest, user: dict = Depends(get_current_user)):
             else:
                 if not api_key:
                     raise HTTPException(status_code=400, detail="ANTHROPIC_API_KEY required for LLM sweep")
-                trace = run_simulation(agent, scenario, api_key=api_key, custom_data=custom_data)
+                trace = run_simulation(agent, scenario, api_key=api_key, custom_data=custom_data, budget=sweep_budget)
 
             report = analyze_trace(trace, scenario=scenario)
             results.append((scenario, trace, report))

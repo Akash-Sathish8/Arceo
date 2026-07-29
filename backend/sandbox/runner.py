@@ -33,6 +33,29 @@ from llm_models import SIM_MODEL, anthropic_client
 
 MAX_TURNS = 20  # Safety limit on agent tool-calling loops
 
+# HIGH-003: a hard ceiling on TOTAL LLM calls per request, shared across a whole
+# run — one simulation's turns, every scenario in a sweep, every goal in a red-team
+# run, or a multi-agent dispatch tree. Server-key endpoints fan one HTTP request
+# into many billable model calls; without a shared cap that fan-out is a
+# denial-of-wallet surface. The primitive lives here (not in multi_runner) because
+# multi_runner imports FROM runner; multi_runner and red_team re-import these names.
+MAX_TOTAL_LLM_CALLS = int(os.getenv("ARCEO_SIM_MAX_LLM_CALLS", "60"))
+
+
+class _SimBudget:
+    """A hard ceiling on total LLM calls, shared across a whole request so fan-out
+    (sweep scenarios, red-team goals, multi-agent dispatch) can't exceed it."""
+    __slots__ = ("remaining",)
+
+    def __init__(self, total: int):
+        self.remaining = total
+
+    def take(self) -> bool:
+        if self.remaining <= 0:
+            return False
+        self.remaining -= 1
+        return True
+
 
 SYSTEM_PROMPTS = {
     "support": (
@@ -321,6 +344,7 @@ def run_simulation(
     custom_data: dict | None = None,
     approval_mode: str = "pause",
     on_step_callback=None,
+    budget: "_SimBudget | None" = None,
 ) -> SimulationTrace:
     """Run a full simulation: LLM agent with tools, enforcement, and mocks.
 
@@ -389,6 +413,13 @@ def run_simulation(
     session_context: list[str] = []
 
     for turn in range(max_turns):
+        # HIGH-003: stop when the shared per-request LLM-call budget is exhausted
+        # (e.g. a sweep sharing one budget across all its scenarios).
+        if budget is not None and not budget.take():
+            trace.status = "error"
+            trace.error = f"LLM-call budget ({MAX_TOTAL_LLM_CALLS}) exhausted"
+            trace.completed_at = datetime.utcnow().isoformat()
+            break
         try:
             response = _call_llm(model, system_prompt, messages, tool_defs, api_key=api_key)
         except Exception as e:
@@ -489,7 +520,10 @@ def run_simulation(
         if approval_halted:
             break
 
-    trace.status = "completed"
+    # Preserve a terminal error (e.g. the per-request LLM-call budget was exhausted
+    # mid-loop) instead of masking it as a clean completion.
+    if trace.status != "error":
+        trace.status = "completed"
     trace.completed_at = datetime.utcnow().isoformat()
     return trace
 
