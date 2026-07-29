@@ -41,6 +41,7 @@ from collections import defaultdict
 
 from contextlib import asynccontextmanager
 from llm_models import FAST_MODEL, DEEP_MODEL, verify_models_at_startup, anthropic_client
+import redis  # for RedisError; the client itself lives in shared_state
 import shared_state
 import approvals
 
@@ -633,7 +634,10 @@ async def proxy_llm_request(provider: str, path: str, request: Request):
     # HIGH-003: the LLM proxy sits outside the /api/* rate-limit middleware, so cap
     # it per-agent here and enforce the budget before forwarding the (billable) call.
     check_rate_limit(f"llmproxy:{agent_id}", RATE_LIMIT_LLM_MAX, RATE_LIMIT_LLM_WINDOW)
-    _budget_gate(agent_id)
+    # MED-004: reserve against the caller's OWN org (proxy_org, derived from the key
+    # — not from the agent named in the header) and settle to the real cost in the
+    # capture callback below, which runs whether or not upstream succeeded.
+    budget_ticket = _budget_gate(agent_id, proxy_org, reserve=True)
 
     # Auto-create agent on first call
     with get_db() as conn:
@@ -675,23 +679,38 @@ async def proxy_llm_request(provider: str, path: str, request: Request):
             response_data: Any = json.loads(response_body)
         except (json.JSONDecodeError, UnicodeDecodeError):
             response_data = {"raw_excerpt": response_body[:1000].decode("utf-8", errors="replace")}
+        # HIGH-002: redact PII in the captured prompt + response before storing;
+        # log_audit then splits the column through the encryption-at-rest seam.
+        payload = redaction.redact_value({
+            "provider": provider, "model": captured.get("model"), "system": system_field,
+            "messages_count": len(captured.get("messages") or []),
+            "tools_count": len(captured.get("tools") or []),
+            "max_tokens": captured.get("max_tokens"), "temperature": captured.get("temperature"),
+            "latency_ms": latency_ms, "status_code": status_code, "response": response_data,
+        })
+        # MED-004: settle the reservation to what this call actually cost, priced off
+        # the same redacted payload the month-to-date sum reads, so the counter and the
+        # reported spend can't drift. Settled BEFORE the insert so a failed audit write
+        # still leaves the real cost charged rather than a stale hold.
+        from analysis.spend_forecast import call_cost_from_detail, load_defaults
+        _budget_settle(budget_ticket, call_cost_from_detail(
+            payload, defaults=load_defaults(proxy_org)))
         with get_db() as conn:
-            # HIGH-002: redact PII in the captured prompt + response before storing;
-            # log_audit then splits the column through the encryption-at-rest seam.
-            detail = json.dumps(redaction.redact_value({
-                "provider": provider, "model": captured.get("model"), "system": system_field,
-                "messages_count": len(captured.get("messages") or []),
-                "tools_count": len(captured.get("tools") or []),
-                "max_tokens": captured.get("max_tokens"), "temperature": captured.get("temperature"),
-                "latency_ms": latency_ms, "status_code": status_code, "response": response_data,
-            }))[:32000]
+            detail = json.dumps(payload)[:32000]
             log_audit(conn, None, agent_id, "LLM_CALL_PROXY",
                       resource=f"{provider}:{captured.get('model') or 'unknown'}", detail=detail)
 
-    return await _stream_upstream(
-        request.method, upstream_url, forward_headers, body,
-        dict(request.query_params), timeout=120.0, service=provider, on_complete=_capture,
-    )
+    try:
+        # On overflow (>8MB captured) _stream_upstream skips on_complete, so the
+        # reservation stays charged at the estimate rather than being settled — the
+        # safe direction for a response that large.
+        return await _stream_upstream(
+            request.method, upstream_url, forward_headers, body,
+            dict(request.query_params), timeout=120.0, service=provider, on_complete=_capture,
+        )
+    except Exception:
+        _budget_settle(budget_ticket, 0.0)  # never reached upstream — release the hold
+        raise
 
 
 class _VaultForwardBlocked(Exception):
@@ -2864,34 +2883,47 @@ def ingest_llm_call(agent_id: str, payload: dict, request: Request):
     if key_row.get("agent_id") and key_row["agent_id"] != agent_id:
         raise HTTPException(status_code=403, detail="API key is scoped to a different agent")
     # HIGH-003: cap call frequency and enforce the budget before recording spend.
+    # MED-004: the wallet is the KEY's org, never the org of the agent named in the
+    # path — and the reservation below is settled to this call's real cost, which is
+    # what keeps the month-to-date counter moving on the SDK capture path.
     check_rate_limit(f"llm:{agent_id}", RATE_LIMIT_LLM_MAX, RATE_LIMIT_LLM_WINDOW)
-    _budget_gate(agent_id)
-    with get_db() as conn:
-        agent = conn.execute("SELECT id, org_id FROM agents WHERE id = %s", (agent_id,)).fetchone()
-        if not agent:
-            raise HTTPException(status_code=404, detail=f"Unknown agent: {agent_id}")
-        if agent["org_id"] != key_row.get("org_id"):
-            raise HTTPException(status_code=403, detail="API key does not belong to this agent's org")
+    budget_ticket = _budget_gate(agent_id, key_row.get("org_id") or DEFAULT_ORG_ID, reserve=True)
+    settled = False
+    try:
+        with get_db() as conn:
+            agent = conn.execute("SELECT id, org_id FROM agents WHERE id = %s", (agent_id,)).fetchone()
+            if not agent:
+                raise HTTPException(status_code=404, detail=f"Unknown agent: {agent_id}")
+            if agent["org_id"] != key_row.get("org_id"):
+                raise HTTPException(status_code=403, detail="API key does not belong to this agent's org")
 
-        provider = payload.get("provider", "unknown")
-        model = payload.get("model", "unknown")
-        latency = payload.get("latency_ms", 0)
-        # HIGH-002: the system prompt + response are the densest customer PII in the
-        # product. Redact before storing (default-on scrub), then log_audit splits
-        # the column through the encryption-at-rest seam.
-        detail = json.dumps(redaction.redact_value({
-            "provider": provider,
-            "model": model,
-            "system": (payload.get("system") or "")[:8000],
-            "messages_count": len(payload.get("messages") or []),
-            "tools_count": len(payload.get("tools") or []),
-            "max_tokens": payload.get("max_tokens"),
-            "temperature": payload.get("temperature"),
-            "latency_ms": latency,
-            "response": payload.get("response"),
-        }))[:32000]
+            provider = payload.get("provider", "unknown")
+            model = payload.get("model", "unknown")
+            latency = payload.get("latency_ms", 0)
+            # HIGH-002: the system prompt + response are the densest customer PII in the
+            # product. Redact before storing (default-on scrub), then log_audit splits
+            # the column through the encryption-at-rest seam.
+            redacted = redaction.redact_value({
+                "provider": provider,
+                "model": model,
+                "system": (payload.get("system") or "")[:8000],
+                "messages_count": len(payload.get("messages") or []),
+                "tools_count": len(payload.get("tools") or []),
+                "max_tokens": payload.get("max_tokens"),
+                "temperature": payload.get("temperature"),
+                "latency_ms": latency,
+                "response": payload.get("response"),
+            })
+            from analysis.spend_forecast import call_cost_from_detail, load_defaults
+            _budget_settle(budget_ticket, call_cost_from_detail(
+                redacted, defaults=load_defaults(agent["org_id"])))
+            settled = True
 
-        log_audit(conn, None, agent_id, "LLM_CALL", resource=f"{provider}:{model}", detail=detail)
+            log_audit(conn, None, agent_id, "LLM_CALL", resource=f"{provider}:{model}",
+                      detail=json.dumps(redacted)[:32000])
+    finally:
+        if not settled:
+            _budget_settle(budget_ticket, 0.0)  # nothing was recorded — release the hold
 
     _maybe_fire_spend_anomaly_alert(agent_id)
     _maybe_fire_budget_alert(agent_id)
@@ -2954,47 +2986,164 @@ def _maybe_fire_budget_alert(agent_id: str):
         pass  # Never let alerting failures break ingestion
 
 
-def _budget_gate(agent_id: str):
-    """Pre-spend budget enforcement (HIGH-003). When ARCEO_BUDGET_ENFORCE is on and
-    the agent's month-to-date spend has reached its saved monthly budget, reject
-    further LLM calls with 429 BEFORE the spend happens — the counterpart to the
-    after-the-fact `_maybe_fire_budget_alert`. Default is warn-only (flag off) so
-    existing deployments keep their soft-alert behavior and are never surprised by
-    a hard block. Only ever raises the intentional 429; internal errors fall open."""
-    if os.getenv("ARCEO_BUDGET_ENFORCE", "").lower() not in ("1", "true", "yes", "on"):
-        return
-    try:
-        from analysis.spend_forecast import compute_month_to_date_spend, load_defaults
+# ── Pre-spend budget enforcement (HIGH-003 gate, hardened per MED-004) ────────
+# Charged to the counter BEFORE a billable call and corrected to the real cost
+# once that call lands. This is what bounds how far a concurrent burst can push
+# past the cap: worst case is one reservation per in-flight call, not one whole
+# audit-log-read window's worth of spend.
+BUDGET_RESERVE_USD = float(os.getenv("ARCEO_BUDGET_RESERVE_USD", "0.05"))
 
+
+def _budget_enforcement_on() -> bool:
+    """Whether the gate blocks (MED-004: it used to be off unless opted in, which
+    made every stock deployment warn-only). Now on by default and off only where
+    ARCEO_ENV declares a dev/test box; ARCEO_BUDGET_ENFORCE overrides either way."""
+    flag = os.getenv("ARCEO_BUDGET_ENFORCE", "").strip().lower()
+    if flag in ("1", "true", "yes", "on"):
+        return True
+    if flag in ("0", "false", "no", "off"):
+        return False
+    return not _IS_DEV_ENV
+
+
+def _org_default_budget_usd() -> float:
+    """Monthly cap applied to agents with no `agent_budgets` row. The LLM proxy
+    auto-creates an agent per X-Agent-ID, so a per-agent cap alone leaves the
+    highest-volume path uncapped and lets a caller mint a fresh budget by rotating
+    the header. This one is per-ORG, so rotating the id doesn't escape it. Unset
+    (the default) keeps today's behaviour: budgetless agents are uncapped."""
+    try:
+        return float(os.getenv("ARCEO_DEFAULT_MONTHLY_BUDGET_USD", "") or 0)
+    except ValueError:
+        return 0.0
+
+
+def _mtd_spend_from_audit(conn, org_id: str, agent_id: str | None) -> float:
+    """Month-to-date captured LLM spend from the audit log — the system of record
+    the Redis counters are seeded from, and the fallback when Redis is unreachable.
+    `agent_id=None` totals every agent in the org."""
+    from analysis.spend_forecast import compute_month_to_date_spend, load_defaults
+
+    month_start = datetime.utcnow().replace(
+        day=1, hour=0, minute=0, second=0, microsecond=0).isoformat()
+    if agent_id is None:
+        rows = _hydrate_audit_rows(conn.execute(
+            "SELECT l.detail, l.detail_enc, l.timestamp FROM audit_log l "
+            "JOIN agents a ON a.id = l.user_email "
+            "WHERE l.action IN ('LLM_CALL', 'LLM_CALL_PROXY') AND a.org_id = %s "
+            "AND l.timestamp >= %s",
+            (org_id, month_start),
+        ).fetchall())
+    else:
+        rows = _hydrate_audit_rows(conn.execute(
+            "SELECT detail, detail_enc, timestamp FROM audit_log "
+            "WHERE action IN ('LLM_CALL', 'LLM_CALL_PROXY') AND user_email = %s "
+            "AND timestamp >= %s",
+            (agent_id, month_start),
+        ).fetchall())
+    return compute_month_to_date_spend(rows, defaults=load_defaults(org_id))
+
+
+def _budget_caps(conn, agent_id: str, org_id: str) -> list[tuple[str, str | None, float]]:
+    """The caps in force for this call, as (counter_scope, agent_id_or_None, cap).
+
+    The budget row is looked up scoped to the AUTHENTICATED org (MED-004: it used
+    to be keyed on the caller-supplied X-Agent-ID alone, so a caller naming another
+    tenant's agent was measured against — and capped by — that tenant's wallet and
+    price book). An agent outside the caller's org simply matches no row here and
+    falls through to the caller's own org-level cap."""
+    month = datetime.utcnow().strftime("%Y-%m")
+    row = conn.execute(
+        "SELECT monthly_budget_usd FROM agent_budgets WHERE agent_id = %s AND org_id = %s",
+        (agent_id, org_id),
+    ).fetchone()
+    if row and float(row["monthly_budget_usd"]) > 0:
+        return [(f"agent:{agent_id}:{month}", agent_id, float(row["monthly_budget_usd"]))]
+    org_cap = _org_default_budget_usd()
+    if org_cap > 0:
+        return [(f"org:{org_id}:{month}", None, org_cap)]
+    return []
+
+
+def _budget_gate(agent_id: str, org_id: str, *, reserve: bool = False) -> dict | None:
+    """Reject a billable LLM call with 429 when the caller's month-to-date spend has
+    reached its cap — BEFORE the money is spent (the counterpart to the
+    after-the-fact `_maybe_fire_budget_alert`).
+
+    With `reserve=True` the check and the charge happen in one atomic Redis op and
+    the returned ticket MUST be handed to `_budget_settle` in a finally, so the
+    reservation becomes the real cost (or is released). That closes the TOCTOU
+    window on the high-volume capture paths. `reserve=False` is a plain read for
+    the authenticated, low-frequency server-key spenders, which already carry a
+    per-request call ceiling of their own.
+
+    Fails CLOSED: an internal error raises 503 rather than admitting the call
+    (MED-004 — a broken gate used to be an open gate). An unreachable Redis is the
+    one exception: it falls back to summing the audit log, which still enforces the
+    cap and only loses the burst protection.
+    """
+    if not _budget_enforcement_on():
+        return None
+    ticket: dict = {"reserved": 0.0, "scopes": []}
+    try:
         with get_db() as conn:
-            row = conn.execute(
-                "SELECT org_id, monthly_budget_usd FROM agent_budgets WHERE agent_id = %s",
-                (agent_id,),
-            ).fetchone()
-            if not row or float(row["monthly_budget_usd"]) <= 0:
-                return
-            org_id = row["org_id"]
-            budget = float(row["monthly_budget_usd"])
-            month_start = datetime.utcnow().replace(day=1, hour=0, minute=0, second=0, microsecond=0).isoformat()
-            rows = _hydrate_audit_rows(conn.execute(
-                "SELECT detail, detail_enc, timestamp FROM audit_log "
-                "WHERE action IN ('LLM_CALL', 'LLM_CALL_PROXY') AND user_email = %s AND timestamp >= %s",
-                (agent_id, month_start),
-            ).fetchall())
-        mtd = compute_month_to_date_spend(rows, defaults=load_defaults(org_id))
+            caps = _budget_caps(conn, agent_id, org_id)
+            if not caps:
+                return None
+            for scope, scope_agent, cap in caps:
+                amount = BUDGET_RESERVE_USD if reserve else 0.0
+                try:
+                    status, total = shared_state.spend_reserve(scope, cap, amount)
+                    if status == "cold":
+                        shared_state.spend_hydrate(
+                            scope, _mtd_spend_from_audit(conn, org_id, scope_agent))
+                        status, total = shared_state.spend_reserve(scope, cap, amount)
+                except redis.RedisError:
+                    # Chosen fallback: keep enforcing off the audit log rather than
+                    # 503 the whole spend path on a Redis blip. Loses only the
+                    # atomicity — never admits a call that is over its cap.
+                    logger.warning("budget gate: Redis unavailable, falling back to audit-log sum")
+                    total = _mtd_spend_from_audit(conn, org_id, scope_agent)
+                    status = "over" if total >= cap else "ok"
+                if status == "over":
+                    _budget_settle(ticket, 0.0)  # release anything already reserved
+                    raise HTTPException(
+                        status_code=429,
+                        detail=(
+                            f"{'Agent ' + repr(agent_id) if scope_agent else 'This workspace'} "
+                            f"has reached its monthly budget (${total:.2f} of ${cap:.0f}). "
+                            f"Further LLM calls are blocked until the budget is raised "
+                            f"or the month resets."
+                        ),
+                    )
+                if reserve and status == "ok":
+                    ticket["scopes"].append(scope)
+                    ticket["reserved"] = amount
     except HTTPException:
         raise
     except Exception:
-        return  # never block a call because the gate itself hit an internal error
-    if mtd >= budget:
+        logger.exception("budget gate failed; refusing the call")
         raise HTTPException(
-            status_code=429,
-            detail=(
-                f"Agent '{agent_id}' has reached its monthly budget "
-                f"(${mtd:.2f} of ${budget:.0f}). Further LLM calls are blocked until "
-                f"the budget is raised or the month resets."
-            ),
+            status_code=503,
+            detail="Spend control is unavailable; the call was not made. Retry shortly.",
         )
+    return ticket if ticket["scopes"] else None
+
+
+def _budget_settle(ticket: dict | None, actual_usd: float) -> None:
+    """Correct a reservation to what the call actually cost — `actual_usd=0.0`
+    releases it outright (upstream failed, or nothing billable happened). Never
+    raises: the call has already been made, so a bookkeeping failure must not turn
+    into a client error. A dropped correction self-heals when the counter's TTL
+    lapses and the next cold read re-seeds from the audit log."""
+    if not ticket or not ticket.get("scopes"):
+        return
+    delta = actual_usd - ticket["reserved"]
+    for scope in ticket["scopes"]:
+        try:
+            shared_state.spend_adjust(scope, delta)
+        except Exception:
+            logger.warning("budget gate: could not settle reservation on %s", scope)
 
 
 class MCPToolInput(BaseModel):
@@ -4159,8 +4308,8 @@ def generate_llm_scenarios(agent_id: str, user: dict = Depends(get_current_user)
 @app.post("/api/sandbox/simulate")
 def run_sandbox_simulation(req: SimulateRequest, user: dict = Depends(get_current_user)):
     """Run a simulation: agent + scenario + mocks + enforcement + trace."""
-    _budget_gate(req.agent_id)  # HIGH-003: per-org monthly spend gate (one sim is
-                                # already bounded by max_turns)
+    _budget_gate(req.agent_id, _org(user))  # HIGH-003: per-org monthly spend gate
+                                            # (one sim is already bounded by max_turns)
     from sandbox.prompts.scenarios import get_scenario
     from sandbox.analyzer import analyze_trace
     from dataclasses import asdict as _asdict
@@ -6068,8 +6217,9 @@ def run_red_team_endpoint(agent_id: str, req: RedTeamRequest = None, user: dict 
         if not agent:
             raise HTTPException(status_code=404, detail=f"Agent '{agent_id}' not found")
 
-    _budget_gate(agent_id)  # HIGH-003: per-org monthly spend gate (run_red_team also
-                            # bounds itself with a per-request _SimBudget)
+    _budget_gate(agent_id, _org(user))  # HIGH-003: per-org monthly spend gate
+                                        # (run_red_team also bounds itself with a
+                                        # per-request _SimBudget)
     system_prompt = ""
     if req:
         system_prompt = req.system_prompt
@@ -6119,7 +6269,7 @@ class SweepRequest(BaseModel):
 @app.post("/api/sandbox/sweep")
 def run_sweep(req: SweepRequest, user: dict = Depends(get_current_user)):
     """Run every applicable scenario for an agent and produce an aggregate report."""
-    _budget_gate(req.agent_id)  # HIGH-003: per-org monthly spend gate
+    _budget_gate(req.agent_id, _org(user))  # HIGH-003: per-org monthly spend gate
     from sandbox.runner import run_simulation, run_simulation_dry, _SimBudget, MAX_TOTAL_LLM_CALLS
     from sandbox.analyzer import analyze_trace, aggregate_reports
     from sandbox.prompts.scenarios import (
