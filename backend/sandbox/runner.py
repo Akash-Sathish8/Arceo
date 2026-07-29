@@ -205,12 +205,15 @@ def _call_openai(model, system_prompt, messages, tools, base_url=None, api_key=N
     `base_url`/`api_key` let this same code drive OpenAI-compatible providers
     (Gemini's OpenAI endpoint, DeepSeek, xAI/Grok, Together, Groq, …); with both
     omitted it's standard OpenAI."""
+    # MED-008: built through the shared helper so the bounded timeout + retry cap
+    # apply here too — this was the one LLM path with neither. The helper imports
+    # the SDK lazily, so the missing-package message has to be raised from the
+    # construction rather than from an import above.
+    from llm_models import openai_client
     try:
-        from openai import OpenAI
+        client = openai_client(api_key=api_key, base_url=base_url)
     except ImportError:
         raise RuntimeError("openai package required for OpenAI-compatible models. pip install openai")
-
-    client = OpenAI(api_key=api_key or os.getenv("OPENAI_API_KEY"), base_url=base_url)
     openai_tools = _to_openai_tools(tools)
 
     # Convert Anthropic message format to OpenAI format

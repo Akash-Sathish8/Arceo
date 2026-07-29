@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import functools
 import json
 import re
 import secrets
 import uuid
+
+import anyio
+import anyio.to_thread
 from dataclasses import asdict
 from datetime import datetime, timedelta
 from typing import Optional
@@ -186,20 +190,80 @@ MAX_BODY_BYTES = int(os.getenv("ARCEO_MAX_BODY_BYTES", str(12 * 1024 * 1024)))
 WS_MAX_CONNECTIONS_PER_AGENT = int(os.getenv("ARCEO_WS_MAX_CONN_PER_AGENT", "5"))
 
 
-@app.middleware("http")
-async def _body_size_guard(request: Request, call_next):
-    """Reject an oversized request (413) up front, based on Content-Length, before
-    any handler reads or parses the body."""
-    cl = request.headers.get("content-length")
-    if cl:
-        try:
-            if int(cl) > MAX_BODY_BYTES:
-                from fastapi.responses import JSONResponse
-                return JSONResponse(status_code=413, content={
-                    "detail": f"Request body too large (max {MAX_BODY_BYTES} bytes)."})
-        except ValueError:
-            pass
-    return await call_next(request)
+class BodySizeLimitMiddleware:
+    """Reject an oversized request (413) before any handler reads or parses it.
+
+    MED-009: the previous guard checked `Content-Length` and nothing else, so a
+    chunked request (`Transfer-Encoding: chunked`) or one that simply omits the
+    header walked straight past the cap — exactly what a client sending an
+    oversized body would do. The declared length is still checked first because
+    rejecting before a byte arrives is cheaper; the drain below then enforces the
+    same cap on the bytes ACTUALLY received, which is the part nobody can lie
+    about.
+
+    Written as pure ASGI rather than `@app.middleware("http")` for two reasons:
+    raising from inside a receive-wrapper gets swallowed by FastAPI's body parsing
+    and surfaces as a confusing 400, and BaseHTTPMiddleware does not reliably carry
+    a patched `receive` through `call_next`. Here the replay channel is ours.
+
+    Buffering costs nothing in practice — every handler that reads a body (the
+    proxy included) already calls `await request.body()`, and the cap IS the
+    ceiling on what gets held.
+    """
+
+    def __init__(self, app):
+        self.app = app
+
+    async def _reject(self, send):
+        payload = json.dumps(
+            {"detail": f"Request body too large (max {MAX_BODY_BYTES} bytes)."}).encode()
+        await send({"type": "http.response.start", "status": 413,
+                    "headers": [(b"content-type", b"application/json"),
+                                (b"content-length", str(len(payload)).encode())]})
+        await send({"type": "http.response.body", "body": payload})
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            return await self.app(scope, receive, send)
+
+        for name, value in scope.get("headers", []):
+            if name == b"content-length":
+                try:
+                    if int(value) > MAX_BODY_BYTES:
+                        return await self._reject(send)
+                except ValueError:
+                    pass  # unparseable — the drain below still applies
+                break
+
+        body = bytearray()
+        more = True
+        while more:
+            message = await receive()
+            if message["type"] == "http.disconnect":
+                return
+            body += message.get("body", b"") or b""
+            if len(body) > MAX_BODY_BYTES:
+                return await self._reject(send)
+            more = message.get("more_body", False)
+
+        replayed = False
+
+        async def _replay():
+            # After the buffered body is handed over, DELEGATE to the real channel
+            # rather than synthesising a disconnect. StreamingResponse polls
+            # receive() to notice a client hang-up, and a fake disconnect makes it
+            # abandon the response after the first chunk — which is how this broke
+            # the streaming proxy the first time round.
+            nonlocal replayed
+            if replayed:
+                return await receive()
+            replayed = True
+            return {"type": "http.request", "body": bytes(body), "more_body": False}
+
+        await self.app(scope, _replay, send)
+
+
+app.add_middleware(BodySizeLimitMiddleware)
 
 
 # MED-009: derive the caller IP for rate-limit keys. Behind a trusted proxy/ingress
@@ -233,7 +297,16 @@ async def _global_rate_limit(request: Request, call_next):
             caller = "k:" + _h.sha256(key.encode()).hexdigest()[:16]
         else:
             caller = "ip:" + client_ip(request)
-        if not shared_state.rate_limit_ok(f"global:{caller}", RATE_LIMIT_GLOBAL_MAX, RATE_LIMIT_GLOBAL_WINDOW):
+        # MED-007: the Redis client is synchronous, and this is async middleware —
+        # calling it directly ran a blocking socket read ON the event-loop thread,
+        # so a degraded Redis froze every in-flight request on the worker, not just
+        # this one. Off to a thread. fail_open: this broad limit is DoS hygiene, so
+        # a Redis outage should cost rate limiting, not the whole API (the tighter
+        # auth/enforce limiters stay fail-closed).
+        ok = await anyio.to_thread.run_sync(
+            functools.partial(shared_state.rate_limit_ok, f"global:{caller}",
+                              RATE_LIMIT_GLOBAL_MAX, RATE_LIMIT_GLOBAL_WINDOW, fail_open=True))
+        if not ok:
             from fastapi.responses import JSONResponse
             return JSONResponse(status_code=429,
                                 content={"detail": "Rate limit exceeded. Slow down and retry shortly."})
@@ -350,6 +423,50 @@ def _caller_org(request: Request) -> str:
     if key_row:
         return key_row.get("org_id") or DEFAULT_ORG_ID
     return _org(get_current_user(request))  # raises 401 if no valid bearer token
+
+
+# ── Heavy LLM jobs: bounded concurrency off the request path (MED-006) ────────
+# Starlette runs sync `def` handlers in AnyIO's threadpool, which holds a fixed,
+# process-wide 40 tokens. The sandbox/red-team/sweep/prelaunch handlers each drive
+# multi-turn LLM loops for seconds to minutes and held a token the entire time, so
+# ~40 concurrent jobs took every slot — and since nearly every other route is also
+# a sync `def` (login, /api/enforce, the dashboard reads), the whole instance
+# stalled for every tenant. The runtime enforcement this product sells queued
+# behind sweeps.
+#
+# These handlers are now `async def` wrappers that push the work to a thread under
+# a dedicated limiter, so at most ARCEO_HEAVY_JOB_CONCURRENCY of them are ever in
+# flight and the rest await on the loop (holding no thread at all). Callers past
+# the queue window get an explicit 503 rather than joining an invisible queue.
+#
+# This is the audit's stated INTERIM fix. The real one is a background job queue
+# with a job id the client polls — tracked as a follow-up, since it changes the
+# API contract for seven endpoints.
+HEAVY_JOB_CONCURRENCY = int(os.getenv("ARCEO_HEAVY_JOB_CONCURRENCY", "8"))
+HEAVY_JOB_QUEUE_TIMEOUT = float(os.getenv("ARCEO_HEAVY_JOB_QUEUE_TIMEOUT", "30"))
+_heavy_job_limiter = anyio.CapacityLimiter(HEAVY_JOB_CONCURRENCY)
+
+
+async def _run_heavy_job(fn, *args, **kwargs):
+    """Run a long-running LLM handler body in a worker thread, bounded.
+
+    Waits up to HEAVY_JOB_QUEUE_TIMEOUT for a slot, then 503s. The wait happens on
+    the event loop, so queued callers cost a coroutine rather than a thread — which
+    is the whole point: auth and /api/enforce keep their share of the threadpool no
+    matter how many sweeps are queued."""
+    try:
+        with anyio.fail_after(HEAVY_JOB_QUEUE_TIMEOUT):
+            await _heavy_job_limiter.acquire()
+    except TimeoutError:
+        raise HTTPException(
+            status_code=503,
+            detail=("The server is at capacity for long-running jobs. "
+                    "Retry shortly — nothing was started or charged."),
+        )
+    try:
+        return await anyio.to_thread.run_sync(functools.partial(fn, *args, **kwargs))
+    finally:
+        _heavy_job_limiter.release()
 
 
 # MED-017: what an X-Agent-ID may contain. Deliberately wider than the audit's
@@ -577,14 +694,16 @@ async def proxy_llm_request(provider: str, path: str, request: Request):
     Usage (zero code change in your agent):
       ANTHROPIC_BASE_URL=http://localhost:8000/proxy/llm/anthropic
       OPENAI_BASE_URL=http://localhost:8000/proxy/llm/openai
-    Plus default header:
+    Plus default headers:
       X-Agent-ID: <agent-name>
+      X-API-Key:  <org key>   # required outside dev — see _proxy_requires_key
 
     Captures: system prompt, model, params, tools, full message history,
     full response, latency. Auto-creates the agent on first call so no
-    pre-registration is needed. Does NOT block — observation only. For
-    runtime enforcement on tool calls, pair with /proxy/{service}/* or
-    wrap_tools.
+    pre-registration is needed — but only for a keyed caller (MED-005); an
+    unknown agent id without a key is a 404. Does NOT block — observation
+    only. For runtime enforcement on tool calls, pair with /proxy/{service}/*
+    or wrap_tools.
     """
     import time as _time
     import httpx as _httpx
@@ -1525,6 +1644,87 @@ def invite_teammate(req: TeamInviteRequest, user: dict = Depends(get_current_use
     return {"id": uid, "email": req.email, "role": req.role, "org_id": org_id}
 
 
+@app.get("/api/team")
+def list_team(user: dict = Depends(get_current_user)):
+    """Members of the caller's org (MED-001). Invite existed with no way to see the
+    resulting list, so an admin had no view of who holds access — the first thing
+    an access review needs. Admin-only: this is org-level security config."""
+    require_role(user, "admin")
+    with get_db() as conn:
+        rows = conn.execute(
+            "SELECT id, email, name, role, created_at, disabled_at FROM users "
+            "WHERE org_id = %s ORDER BY created_at",
+            (_org(user),),
+        ).fetchall()
+    return {"members": [
+        {"id": r["id"], "email": r["email"], "name": r["name"], "role": r["role"],
+         "created_at": r["created_at"], "disabled_at": r["disabled_at"],
+         "active": not r["disabled_at"], "is_self": r["id"] == user["sub"]}
+        for r in rows
+    ]}
+
+
+@app.post("/api/team/{user_id}/revoke")
+def revoke_teammate(user_id: str, user: dict = Depends(get_current_user)):
+    """Deprovision a teammate (MED-001): kill every live session AND stop new ones.
+
+    Bumping token_version invalidates their outstanding JWTs immediately — REST and
+    WebSocket both check it. `disabled_at` then blocks a fresh login, so revoking
+    isn't undone by the user simply signing in again. The row is kept rather than
+    deleted so audit_log attribution for their past actions survives.
+    """
+    require_role(user, "admin")
+    org_id = _org(user)
+    # An admin who revokes themselves is locked out with no way back in.
+    if user_id == user["sub"]:
+        raise HTTPException(
+            status_code=400,
+            detail="You cannot revoke your own access. Ask another admin to do it.")
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT id, email, role, disabled_at FROM users WHERE id = %s AND org_id = %s",
+            (user_id, org_id),
+        ).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="No such team member")
+        if row["disabled_at"]:
+            return {"ok": True, "already_revoked": True, "email": row["email"]}
+        # No "last admin" guard is needed here, and one would be dead code: the
+        # caller is necessarily an active admin of this org (require_role reads the
+        # role from the DB, and get_current_user rejects a disabled account), and
+        # the self-revoke check above means they are never the target. So an active
+        # admin always survives the operation. The invariant is pinned by
+        # test_an_org_always_keeps_an_active_admin.
+        now = datetime.utcnow().isoformat()
+        conn.execute(
+            "UPDATE users SET disabled_at = %s, token_version = token_version + 1 "
+            "WHERE id = %s AND org_id = %s",
+            (now, user_id, org_id),
+        )
+        log_audit(conn, user["sub"], user["email"], "TEAM_REVOKE", resource=user_id,
+                  detail=f"Revoked access for {row['email']}", org_id=org_id)
+    return {"ok": True, "email": row["email"], "disabled_at": now}
+
+
+@app.post("/api/team/{user_id}/restore")
+def restore_teammate(user_id: str, user: dict = Depends(get_current_user)):
+    """Undo a revoke. Their old tokens stay dead — token_version already moved on,
+    so they sign in fresh."""
+    require_role(user, "admin")
+    org_id = _org(user)
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT id, email FROM users WHERE id = %s AND org_id = %s", (user_id, org_id),
+        ).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="No such team member")
+        conn.execute("UPDATE users SET disabled_at = NULL WHERE id = %s AND org_id = %s",
+                     (user_id, org_id))
+        log_audit(conn, user["sub"], user["email"], "TEAM_RESTORE", resource=user_id,
+                  detail=f"Restored access for {row['email']}", org_id=org_id)
+    return {"ok": True, "email": row["email"]}
+
+
 # ── Authority Engine: READ endpoints ────────────────────────────────────────
 
 @app.get("/api/authority/agents")
@@ -2441,6 +2641,23 @@ def extract_agent_from_code(req: ExtractInput, user: dict = Depends(get_current_
     return _extract_and_register(req.content, req.filename, req.agent_name_hint, org_id=_org(user))
 
 
+# MED-012: a repo scan fetched each candidate with `r.text` and no byte cap, so a
+# single crafted multi-GB blob (or a padded repo) could exhaust the worker's
+# memory. Both a per-file and a whole-scan ceiling, enforced while streaming so
+# the bytes are never buffered in the first place.
+GITHUB_MAX_FILE_BYTES = int(os.getenv("ARCEO_GITHUB_MAX_FILE_BYTES", str(1024 * 1024)))
+GITHUB_MAX_SCAN_BYTES = int(os.getenv("ARCEO_GITHUB_MAX_SCAN_BYTES", str(64 * 1024 * 1024)))
+
+# A branch name lands inside a raw.githubusercontent.com URL. Left unvalidated, a
+# caller-supplied ref could carry path traversal or control characters and steer
+# the fetch somewhere other than the repo they named.
+_GIT_REF_RE = re.compile(r"^[A-Za-z0-9._/-]{1,255}$")
+
+
+def _valid_git_ref(ref: str) -> bool:
+    return bool(_GIT_REF_RE.match(ref)) and ".." not in ref and not ref.startswith("/")
+
+
 class GithubExtractInput(BaseModel):
     url: str
     branch: str = ""
@@ -2482,6 +2699,9 @@ async def extract_agents_from_github(req: GithubExtractInput, user: dict = Depen
 
     async with _httpx.AsyncClient(timeout=30.0, headers=headers, follow_redirects=True) as client:
         # Try requested branch, then main, then master
+        # MED-012: the ref is interpolated into a raw.githubusercontent.com URL.
+        if req.branch and not _valid_git_ref(req.branch):
+            raise HTTPException(status_code=400, detail="Invalid branch name")
         branches_to_try = [req.branch] if req.branch else []
         branches_to_try += ["main", "master"]
         tree_data = None
@@ -2526,18 +2746,44 @@ async def extract_agents_from_github(req: GithubExtractInput, user: dict = Depen
         scanned = 0
         fetch_errors = 0        # files we couldn't fetch (rate limit / transient)
         rate_limited = False
+        oversized_files: list[str] = []   # MED-012: skipped for size, not silently
+        scan_bytes = 0
+        notes_budget_hit = False
         for path in candidates[:CANDIDATE_SCAN_CAP]:
+            if scan_bytes >= GITHUB_MAX_SCAN_BYTES:
+                notes_budget_hit = True
+                break
             scanned += 1
             raw_url = f"https://raw.githubusercontent.com/{owner}/{repo}/{used_branch}/{path}"
-            r = await client.get(raw_url)
-            if r.status_code != 200:
-                # A 403/429 is a rate-limit drop, not "not an agent file" — track it
-                # so a partial scan doesn't silently under-report.
-                if r.status_code in (403, 429):
-                    fetch_errors += 1
-                    rate_limited = True
+            # MED-012: streamed with a running byte count instead of `r.text`, so an
+            # oversized blob is abandoned mid-transfer rather than fully buffered
+            # into the worker and only then measured.
+            try:
+                async with client.stream("GET", raw_url) as r:
+                    if r.status_code != 200:
+                        # A 403/429 is a rate-limit drop, not "not an agent file" —
+                        # track it so a partial scan doesn't silently under-report.
+                        if r.status_code in (403, 429):
+                            fetch_errors += 1
+                            rate_limited = True
+                        continue
+                    chunks: list[bytes] = []
+                    size = 0
+                    over = False
+                    async for chunk in r.aiter_bytes():
+                        size += len(chunk)
+                        if size > GITHUB_MAX_FILE_BYTES:
+                            over = True
+                            break
+                        chunks.append(chunk)
+            except _httpx.HTTPError:
+                fetch_errors += 1
                 continue
-            content = r.text
+            if over:
+                oversized_files.append(path)
+                continue
+            scan_bytes += size
+            content = b"".join(chunks).decode("utf-8", errors="replace")
             if not any(ind.lower() in content.lower() for ind in indicators):
                 continue
             agent_files.append({"path": path, "content": content})
@@ -2571,7 +2817,10 @@ async def extract_agents_from_github(req: GithubExtractInput, user: dict = Depen
     # Disclose when the scan was cut short so the caller knows the result is partial.
     candidates_capped = len(candidates) > CANDIDATE_SCAN_CAP
     max_files_reached = len(agent_files) >= req.max_files
-    truncated = candidates_capped or max_files_reached or fetch_errors > 0
+    # MED-012: a file skipped for size, or a scan stopped at the byte budget, is a
+    # coverage gap — report it rather than letting the result read as complete.
+    truncated = (candidates_capped or max_files_reached or fetch_errors > 0
+                 or bool(oversized_files) or notes_budget_hit)
     notes = []
     if candidates_capped:
         notes.append(f"scanned first {CANDIDATE_SCAN_CAP} of {len(candidates)} candidate files")
@@ -2579,6 +2828,14 @@ async def extract_agents_from_github(req: GithubExtractInput, user: dict = Depen
         notes.append(f"stopped at the {req.max_files}-file limit — more agents may exist")
     if fetch_errors:
         notes.append(f"{fetch_errors} file(s) could not be fetched" + (" (GitHub rate limit — set GITHUB_TOKEN)" if rate_limited else ""))
+    if oversized_files:
+        shown = ", ".join(oversized_files[:3])
+        notes.append(f"{len(oversized_files)} file(s) skipped over the "
+                     f"{GITHUB_MAX_FILE_BYTES // 1024}KB per-file limit: {shown}"
+                     + ("…" if len(oversized_files) > 3 else ""))
+    if notes_budget_hit:
+        notes.append(f"stopped at the {GITHUB_MAX_SCAN_BYTES // (1024 * 1024)}MB "
+                     f"total-download budget — more agents may exist")
 
     return {
         "owner": owner,
@@ -4407,7 +4664,13 @@ def generate_llm_scenarios(agent_id: str, user: dict = Depends(get_current_user)
 
 
 @app.post("/api/sandbox/simulate")
-def run_sandbox_simulation(req: SimulateRequest, user: dict = Depends(get_current_user)):
+async def run_sandbox_simulation(req: SimulateRequest, user: dict = Depends(get_current_user)):
+    # MED-006: bounded off the request path so a burst of these can't take
+    # the whole threadpool and stall auth/enforce for every tenant.
+    return await _run_heavy_job(_run_sandbox_simulation_impl, req, user)
+
+
+def _run_sandbox_simulation_impl(req: SimulateRequest, user: dict):
     """Run a simulation: agent + scenario + mocks + enforcement + trace."""
     _budget_gate(req.agent_id, _org(user))  # HIGH-003: per-org monthly spend gate
                                             # (one sim is already bounded by max_turns)
@@ -4493,7 +4756,13 @@ class MultiSimulateRequest(BaseModel):
 
 
 @app.post("/api/sandbox/simulate/multi")
-def run_multi_agent_simulation(req: MultiSimulateRequest, user: dict = Depends(get_current_user)):
+async def run_multi_agent_simulation(req: MultiSimulateRequest, user: dict = Depends(get_current_user)):
+    # MED-006: bounded off the request path so a burst of these can't take
+    # the whole threadpool and stall auth/enforce for every tenant.
+    return await _run_heavy_job(_run_multi_agent_simulation_impl, req, user)
+
+
+def _run_multi_agent_simulation_impl(req: MultiSimulateRequest, user: dict):
     """Run a multi-agent simulation with dispatch between agents."""
     from sandbox.multi_runner import run_multi_simulation, run_multi_simulation_dry
     from sandbox.analyzer import analyze_multi_trace
@@ -5032,7 +5301,13 @@ class PrelaunchRequest(BaseModel):
 
 
 @app.post("/api/prelaunch/{agent_id}")
-def run_prelaunch_audit_endpoint(agent_id: str, req: PrelaunchRequest = None, user: dict = Depends(get_current_user)):
+async def run_prelaunch_audit_endpoint(agent_id: str, req: PrelaunchRequest = None, user: dict = Depends(get_current_user)):
+    # MED-006: bounded off the request path so a burst of these can't take
+    # the whole threadpool and stall auth/enforce for every tenant.
+    return await _run_heavy_job(_run_prelaunch_audit_impl, agent_id, req, user)
+
+
+def _run_prelaunch_audit_impl(agent_id: str, req: PrelaunchRequest, user: dict):
     """Run every test and return a single prioritized fix list.
 
     Runs: boundary test + regression test + cost model + trace replay.
@@ -5179,12 +5454,38 @@ async def ws_live_traces(websocket: WebSocket, agent_id: str):
         except Exception:
             await websocket.close(code=4401)
             return
-        with get_db() as conn:
-            if not get_agent_from_db(conn, agent_id, org_id=payload.get("org_id", DEFAULT_ORG_ID)):
-                await websocket.close(code=4404)
-                return
-    # MED-008: bound concurrent sockets per agent (each opens a Redis pubsub client).
-    if not shared_state.ws_acquire_slot(agent_id, WS_MAX_CONNECTIONS_PER_AGENT):
+        # MED-001: verify_token only checks signature + expiry. Without this, a
+        # session already invalidated by a password change or an admin revoke still
+        # opened a live-trace socket — the one auth path that skipped the
+        # token_version model entirely.
+        # MED-007: get_db()/psycopg are synchronous and this is an async handler, so
+        # both reads go to a thread — a slow database must not stall the event loop
+        # and with it every other request on this worker. Both checks share one
+        # connection and one thread hop, once per handshake, not per message.
+        def _handshake_check() -> int | None:
+            """None admits the socket; otherwise the WebSocket close code to send."""
+            with get_db() as conn:
+                urow = conn.execute(
+                    "SELECT token_version, disabled_at FROM users WHERE id = %s",
+                    (payload.get("sub"),),
+                ).fetchone()
+                if (urow is None
+                        or int(payload.get("tv", 0)) != int(urow["token_version"] or 0)
+                        or urow["disabled_at"]):
+                    return 4401
+                if not get_agent_from_db(conn, agent_id,
+                                         org_id=payload.get("org_id", DEFAULT_ORG_ID)):
+                    return 4404
+            return None
+
+        close_code = await anyio.to_thread.run_sync(_handshake_check)
+        if close_code is not None:
+            await websocket.close(code=close_code)
+            return
+    # MED-008 (earlier round): bound concurrent sockets per agent — each opens a
+    # Redis pubsub client. MED-007: off the loop, same reason as above.
+    if not await anyio.to_thread.run_sync(
+            functools.partial(shared_state.ws_acquire_slot, agent_id, WS_MAX_CONNECTIONS_PER_AGENT)):
         await websocket.close(code=4429)
         return
     await websocket.accept()
@@ -5211,7 +5512,9 @@ async def ws_live_traces(websocket: WebSocket, agent_id: str):
         pass
     finally:
         # Release the per-agent connection slot (MED-008) before teardown.
-        shared_state.ws_release_slot(agent_id)
+        # MED-007: off the loop like the acquire above.
+        await anyio.to_thread.run_sync(
+            functools.partial(shared_state.ws_release_slot, agent_id))
         # Await the cancelled forward task BEFORE closing the pubsub/client, so
         # its listen() coroutine finishes unwinding and can't race with (or
         # use-after-close) the Redis objects we're about to tear down.
@@ -6212,7 +6515,13 @@ def delete_cost_override(override_id: int, user: dict = Depends(get_current_user
 # ── Regression Testing (CI/CD Safety Gate) ───────────────────────────────
 
 @app.post("/api/regression-test/{agent_id}")
-def run_regression_test_endpoint(agent_id: str, create_baseline: bool = False, user: dict = Depends(get_current_user)):
+async def run_regression_test_endpoint(agent_id: str, create_baseline: bool = False, user: dict = Depends(get_current_user)):
+    # MED-006: bounded off the request path so a burst of these can't take
+    # the whole threadpool and stall auth/enforce for every tenant.
+    return await _run_heavy_job(_run_regression_test_impl, agent_id, create_baseline, user)
+
+
+def _run_regression_test_impl(agent_id: str, create_baseline: bool, user: dict):
     """Run regression test against stored baseline. CI-friendly — returns pass/fail.
 
     First call with ?create_baseline=true to establish the baseline.
@@ -6298,7 +6607,13 @@ class RedTeamRequest(BaseModel):
 
 
 @app.post("/api/red-team/{agent_id}")
-def run_red_team_endpoint(agent_id: str, req: RedTeamRequest = None, user: dict = Depends(get_current_user)):
+async def run_red_team_endpoint(agent_id: str, req: RedTeamRequest = None, user: dict = Depends(get_current_user)):
+    # MED-006: bounded off the request path so a burst of these can't take
+    # the whole threadpool and stall auth/enforce for every tenant.
+    return await _run_heavy_job(_run_red_team_impl, agent_id, req, user)
+
+
+def _run_red_team_impl(agent_id: str, req: RedTeamRequest, user: dict):
     """Run adversarial red team test against an agent.
 
     Generates prompt injections, social engineering, authority escalation,
@@ -6337,7 +6652,13 @@ def run_red_team_endpoint(agent_id: str, req: RedTeamRequest = None, user: dict 
 # ── Boundary Testing (Policy Penetration Test) ───────────────────────────
 
 @app.post("/api/boundary-test/{agent_id}")
-def run_boundary_test_endpoint(agent_id: str, user: dict = Depends(get_current_user)):
+async def run_boundary_test_endpoint(agent_id: str, user: dict = Depends(get_current_user)):
+    # MED-006: bounded off the request path so a burst of these can't take
+    # the whole threadpool and stall auth/enforce for every tenant.
+    return await _run_heavy_job(_run_boundary_test_impl, agent_id, user)
+
+
+def _run_boundary_test_impl(agent_id: str, user: dict):
     """Exhaustively test every dangerous action sequence against policies.
 
     Returns a matrix of {sequence, decision, matched_rule, gap_detected}.
@@ -6368,7 +6689,13 @@ class SweepRequest(BaseModel):
 
 
 @app.post("/api/sandbox/sweep")
-def run_sweep(req: SweepRequest, user: dict = Depends(get_current_user)):
+async def run_sweep(req: SweepRequest, user: dict = Depends(get_current_user)):
+    # MED-006: bounded off the request path so a burst of these can't take
+    # the whole threadpool and stall auth/enforce for every tenant.
+    return await _run_heavy_job(_run_sweep_impl, req, user)
+
+
+def _run_sweep_impl(req: SweepRequest, user: dict):
     """Run every applicable scenario for an agent and produce an aggregate report."""
     _budget_gate(req.agent_id, _org(user))  # HIGH-003: per-org monthly spend gate
     from sandbox.runner import run_simulation, run_simulation_dry, _SimBudget, MAX_TOTAL_LLM_CALLS
