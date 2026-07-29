@@ -12,11 +12,14 @@ a reachable Redis (docker-compose provides one locally and in CI).
 
 from __future__ import annotations
 
+import logging
 import os
 import time
 import uuid
 
 import redis
+
+logger = logging.getLogger(__name__)
 
 REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
 
@@ -61,11 +64,27 @@ _SLIDING_WINDOW = _client.register_script(
 )
 
 
-def rate_limit_ok(key: str, limit: int, window_seconds: int) -> bool:
-    """True if this request is within the limit; False if it should be throttled."""
+def rate_limit_ok(key: str, limit: int, window_seconds: int, *, fail_open: bool = False) -> bool:
+    """True if this request is within the limit; False if it should be throttled.
+
+    MED-007: the posture when Redis itself is unreachable is now explicit rather
+    than an unbounded hang (fixed by the socket timeouts) or a bare 500. Default
+    is fail CLOSED — a limiter that can't count must not wave traffic through,
+    which is what protects login from brute force and /api/enforce from a flood.
+
+    `fail_open=True` is for the broad per-caller limit on every /api/* route: that
+    one is DoS hygiene, not a security control, and failing it closed would take
+    the entire API down with the cache. Losing it during a Redis outage degrades
+    rate limiting; failing it closed would degrade everything.
+    """
     now = time.time()
     member = f"{now}:{uuid.uuid4().hex}"
-    allowed = _SLIDING_WINDOW(keys=[f"rl:{key}"], args=[now, window_seconds, limit, member])
+    try:
+        allowed = _SLIDING_WINDOW(keys=[f"rl:{key}"], args=[now, window_seconds, limit, member])
+    except redis.RedisError:
+        logger.warning("rate limit: Redis unavailable, %s",
+                       "allowing (fail-open limiter)" if fail_open else "refusing (fail-closed limiter)")
+        return fail_open
     return bool(allowed)
 
 
