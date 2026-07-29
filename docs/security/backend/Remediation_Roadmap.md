@@ -43,7 +43,7 @@ This roadmap sequences all 39 findings into four phases by urgency and dependenc
   - **Validation:** a test asserts the gate blocks once a per-org total is exceeded and blocks (not allows) when the store is unreachable.
 - [ ] **MED-010** — `backend/main.py` (3550) + `backend/authority/enforcement.py` (299). Run the stored Slack webhook URL through `validate_external_url`; allowlist `hooks.slack.com`; disable redirects.
   - **Validation:** a test that a webhook pointing at `169.254.169.254`/loopback is rejected at save and at fire time.
-- [ ] **MED-011** — `backend/main.py` (`_extract_and_register` 2268, `_score_in_memory` 2548). Wrap untrusted file content in a data-guard with delimiter escaping; treat an unparseable/empty classifier result as not-safe (fail toward higher risk), not as "no tools."
+- [x] **MED-011** — `backend/main.py` (`_extract_and_register` 2268, `_score_in_memory` 2548). Wrap untrusted file content in a data-guard with delimiter escaping; treat an unparseable/empty classifier result as not-safe (fail toward higher risk), not as "no tools." *(shipped 2026-07-29, PR #129 — random-token fence + data-guard clause; scan now counts unreadable files instead of skipping them, 25% threshold)*
   - **Validation:** an injection regression case (file content attempting to close the fence and null the tool list) still yields a non-empty, correctly-scored inventory.
 - [ ] **MED-001** — `backend/auth.py` (146–151) + `backend/main.py` (WS auth 4916). Fail closed when the user row is missing/deleted; enforce `token_version` on the WebSocket handshake; add an admin deprovision endpoint.
   - **Validation:** `test_rbac.py` asserts a deleted user's token is rejected and a `token_version` bump closes an open WS.
