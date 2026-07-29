@@ -44,15 +44,25 @@ PII_SYSTEM = "Reach me at jane.doe@example.com or SSN 123-45-6789."
 
 
 def test_llm_pii_is_redacted_before_storage(client, roles):
+    """MED-013 moved the prompt body out of audit_log.detail into the purgeable
+    llm_captures table, so this now asserts the stronger pair: the raw PII is in
+    NEITHER place, and the redaction markers are in the store that actually holds
+    the content."""
     admin = roles["admin"]
     aid, key = _agent_and_key(client, admin["headers"], "pii-" + uuid.uuid4().hex[:5])
     assert _llm_call(client, key, aid, system=PII_SYSTEM).status_code == 200
     with get_db() as conn:
         row = conn.execute("SELECT detail FROM audit_log WHERE user_email=%s AND action='LLM_CALL' "
                            "ORDER BY id DESC LIMIT 1", (aid,)).fetchone()
-    assert "jane.doe@example.com" not in row["detail"]
-    assert "123-45-6789" not in row["detail"]
-    assert "[REDACTED_EMAIL]" in row["detail"] and "[REDACTED_SSN]" in row["detail"]
+        cap = conn.execute("SELECT content FROM llm_captures WHERE agent_id=%s "
+                           "ORDER BY created_at DESC LIMIT 1", (aid,)).fetchone()
+
+    for blob in (row["detail"], cap["content"]):
+        assert "jane.doe@example.com" not in blob
+        assert "123-45-6789" not in blob
+    # The prompt itself lives in the capture, redacted — not in the audit chain.
+    assert "[REDACTED_EMAIL]" in cap["content"] and "[REDACTED_SSN]" in cap["content"]
+    assert "system" not in row["detail"]
 
 
 def test_detail_encrypted_at_rest_when_flag_on(client, roles, monkeypatch):
@@ -69,7 +79,16 @@ def test_detail_encrypted_at_rest_when_flag_on(client, roles, monkeypatch):
     entries = client.get("/api/audit", headers=admin["headers"]).json()["entries"]
     llm = next(e for e in entries if e["action"] == "LLM_CALL")
     assert "detail_enc" not in llm
-    assert "model instructions here" in llm["detail"]
+    # MED-013: the prompt is no longer IN the audit row — the row references it.
+    assert "capture_id" in llm["detail"] and "capture_sha256" in llm["detail"]
+    assert "model instructions here" not in llm["detail"]
+
+    # ...and the capture itself goes through the same encryption seam.
+    with get_db() as conn:
+        cap = conn.execute("SELECT content, content_enc FROM llm_captures WHERE agent_id=%s "
+                           "ORDER BY created_at DESC LIMIT 1", (aid,)).fetchone()
+    assert cap["content"] is None and cap["content_enc"] is not None
+    assert b"model instructions" not in bytes(cap["content_enc"])
 
 
 def test_detail_plaintext_when_flag_off(client, roles, monkeypatch):

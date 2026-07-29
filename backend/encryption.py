@@ -32,6 +32,7 @@ ENCRYPTED_COLUMNS = [
     ("pending_requests", "id", "params_json", "params_json_enc"),
     ("execution_log", "id", "params", "params_enc"),
     ("audit_log", "id", "detail", "detail_enc"),
+    ("llm_captures", "id", "content", "content_enc"),
 ]
 
 # audit_log carries an append-only trigger (migration 0007, trg_audit_append_only)

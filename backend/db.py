@@ -296,6 +296,34 @@ def log_audit(conn, user_id: str | None, user_email: str | None, action: str, re
     )
 
 
+def store_llm_capture(conn, org_id: str, agent_id: str | None, content: dict) -> tuple[str, str]:
+    """Persist captured prompt/response content OUTSIDE the audit chain (MED-013).
+
+    Returns (capture_id, content_sha256) for the caller to reference from the audit
+    row. The digest is what keeps a purge provable: long after the content is gone,
+    the audit row still attests to exactly what was captured without retaining it.
+
+    This table has no append-only trigger, so a retention sweep or a subject-erasure
+    request can delete from it freely — which is the whole point. The audit row it
+    references never changes, so the hash chain is untouched either way.
+    """
+    import hashlib
+
+    import encryption
+
+    body = json.dumps(content, sort_keys=True)
+    digest = hashlib.sha256(body.encode()).hexdigest()
+    capture_id = str(uuid.uuid4())
+    content_pt, content_enc = encryption.split(body)
+    conn.execute(
+        "INSERT INTO llm_captures (id, org_id, agent_id, content, content_enc, "
+        "content_sha256, created_at) VALUES (%s, %s, %s, %s, %s, %s, %s)",
+        (capture_id, org_id, agent_id, content_pt, content_enc, digest,
+         datetime.utcnow().isoformat()),
+    )
+    return capture_id, digest
+
+
 def log_execution(conn, agent_id: str, tool: str, action: str, status: str, policy_id: int = None, detail: str = None, org_id: str = None, params: dict = None, source: str = None) -> int:
     """Write an execution log entry; returns the new row id.
 
