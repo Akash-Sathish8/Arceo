@@ -1540,6 +1540,87 @@ def invite_teammate(req: TeamInviteRequest, user: dict = Depends(get_current_use
     return {"id": uid, "email": req.email, "role": req.role, "org_id": org_id}
 
 
+@app.get("/api/team")
+def list_team(user: dict = Depends(get_current_user)):
+    """Members of the caller's org (MED-001). Invite existed with no way to see the
+    resulting list, so an admin had no view of who holds access — the first thing
+    an access review needs. Admin-only: this is org-level security config."""
+    require_role(user, "admin")
+    with get_db() as conn:
+        rows = conn.execute(
+            "SELECT id, email, name, role, created_at, disabled_at FROM users "
+            "WHERE org_id = %s ORDER BY created_at",
+            (_org(user),),
+        ).fetchall()
+    return {"members": [
+        {"id": r["id"], "email": r["email"], "name": r["name"], "role": r["role"],
+         "created_at": r["created_at"], "disabled_at": r["disabled_at"],
+         "active": not r["disabled_at"], "is_self": r["id"] == user["sub"]}
+        for r in rows
+    ]}
+
+
+@app.post("/api/team/{user_id}/revoke")
+def revoke_teammate(user_id: str, user: dict = Depends(get_current_user)):
+    """Deprovision a teammate (MED-001): kill every live session AND stop new ones.
+
+    Bumping token_version invalidates their outstanding JWTs immediately — REST and
+    WebSocket both check it. `disabled_at` then blocks a fresh login, so revoking
+    isn't undone by the user simply signing in again. The row is kept rather than
+    deleted so audit_log attribution for their past actions survives.
+    """
+    require_role(user, "admin")
+    org_id = _org(user)
+    # An admin who revokes themselves is locked out with no way back in.
+    if user_id == user["sub"]:
+        raise HTTPException(
+            status_code=400,
+            detail="You cannot revoke your own access. Ask another admin to do it.")
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT id, email, role, disabled_at FROM users WHERE id = %s AND org_id = %s",
+            (user_id, org_id),
+        ).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="No such team member")
+        if row["disabled_at"]:
+            return {"ok": True, "already_revoked": True, "email": row["email"]}
+        # No "last admin" guard is needed here, and one would be dead code: the
+        # caller is necessarily an active admin of this org (require_role reads the
+        # role from the DB, and get_current_user rejects a disabled account), and
+        # the self-revoke check above means they are never the target. So an active
+        # admin always survives the operation. The invariant is pinned by
+        # test_an_org_always_keeps_an_active_admin.
+        now = datetime.utcnow().isoformat()
+        conn.execute(
+            "UPDATE users SET disabled_at = %s, token_version = token_version + 1 "
+            "WHERE id = %s AND org_id = %s",
+            (now, user_id, org_id),
+        )
+        log_audit(conn, user["sub"], user["email"], "TEAM_REVOKE", resource=user_id,
+                  detail=f"Revoked access for {row['email']}", org_id=org_id)
+    return {"ok": True, "email": row["email"], "disabled_at": now}
+
+
+@app.post("/api/team/{user_id}/restore")
+def restore_teammate(user_id: str, user: dict = Depends(get_current_user)):
+    """Undo a revoke. Their old tokens stay dead — token_version already moved on,
+    so they sign in fresh."""
+    require_role(user, "admin")
+    org_id = _org(user)
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT id, email FROM users WHERE id = %s AND org_id = %s", (user_id, org_id),
+        ).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="No such team member")
+        conn.execute("UPDATE users SET disabled_at = NULL WHERE id = %s AND org_id = %s",
+                     (user_id, org_id))
+        log_audit(conn, user["sub"], user["email"], "TEAM_RESTORE", resource=user_id,
+                  detail=f"Restored access for {row['email']}", org_id=org_id)
+    return {"ok": True, "email": row["email"]}
+
+
 # ── Authority Engine: READ endpoints ────────────────────────────────────────
 
 @app.get("/api/authority/agents")
@@ -5212,16 +5293,33 @@ async def ws_live_traces(websocket: WebSocket, agent_id: str):
         except Exception:
             await websocket.close(code=4401)
             return
-        # MED-007: get_db()/psycopg are synchronous, and this is an async handler —
-        # run the lookup in a thread so a slow database can't stall the event loop
-        # (and with it every other request on this worker).
-        def _agent_visible() -> bool:
+        # MED-001: verify_token only checks signature + expiry. Without this, a
+        # session already invalidated by a password change or an admin revoke still
+        # opened a live-trace socket — the one auth path that skipped the
+        # token_version model entirely.
+        # MED-007: get_db()/psycopg are synchronous and this is an async handler, so
+        # both reads go to a thread — a slow database must not stall the event loop
+        # and with it every other request on this worker. Both checks share one
+        # connection and one thread hop, once per handshake, not per message.
+        def _handshake_check() -> int | None:
+            """None admits the socket; otherwise the WebSocket close code to send."""
             with get_db() as conn:
-                return bool(get_agent_from_db(
-                    conn, agent_id, org_id=payload.get("org_id", DEFAULT_ORG_ID)))
+                urow = conn.execute(
+                    "SELECT token_version, disabled_at FROM users WHERE id = %s",
+                    (payload.get("sub"),),
+                ).fetchone()
+                if (urow is None
+                        or int(payload.get("tv", 0)) != int(urow["token_version"] or 0)
+                        or urow["disabled_at"]):
+                    return 4401
+                if not get_agent_from_db(conn, agent_id,
+                                         org_id=payload.get("org_id", DEFAULT_ORG_ID)):
+                    return 4404
+            return None
 
-        if not await anyio.to_thread.run_sync(_agent_visible):
-            await websocket.close(code=4404)
+        close_code = await anyio.to_thread.run_sync(_handshake_check)
+        if close_code is not None:
+            await websocket.close(code=close_code)
             return
     # MED-008 (earlier round): bound concurrent sockets per agent — each opens a
     # Redis pubsub client. MED-007: off the loop, same reason as above.

@@ -136,10 +136,18 @@ def test_unsupported_provider_rejected(client, two_orgs):
 
 
 def test_viewer_role_gets_403(client, two_orgs):
-    from auth import create_token
-
+    """Uses a REAL viewer account. This used to mint a token for a random UUID that
+    had no `users` row at all — which only reached the role check because
+    get_current_user failed open on a missing row (MED-001). Now that it fails
+    closed, a phantom user is 401 before RBAC is ever consulted, so testing 403
+    requires a user who actually exists."""
     a = two_orgs["org_a"]
-    viewer_token = create_token(str(uuid.uuid4()), "viewer@example.com", "viewer", org_id=a["org_id"])
+    email = f"viewer-{uuid.uuid4().hex[:8]}@example.com"
+    r = client.post("/api/team/invite", headers=a["headers"],
+                    json={"email": email, "password": "pw12345678", "role": "viewer"})
+    assert r.status_code == 200, r.text
+    viewer_token = client.post("/api/auth/login",
+                               json={"email": email, "password": "pw12345678"}).json()["token"]
     vh = {"Authorization": f"Bearer {viewer_token}"}
     assert client.get("/api/credentials", headers=vh).status_code == 403
     assert client.put("/api/credentials/stripe", headers=vh, json={"secret": "s"}).status_code == 403
