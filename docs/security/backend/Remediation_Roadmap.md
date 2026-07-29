@@ -41,7 +41,7 @@ This roadmap sequences all 39 findings into four phases by urgency and dependenc
 
 - [ ] **MED-004** — `backend/main.py` (`_budget_gate`, 2947). Make it enforce-by-default outside dev, fail **closed** on error, resolve the wallet from the authenticated org, and keep a per-org running total in Redis. (Prerequisite for HIGH-003's ceiling to be reliable.)
   - **Validation:** a test asserts the gate blocks once a per-org total is exceeded and blocks (not allows) when the store is unreachable.
-- [ ] **MED-010** — `backend/main.py` (3550) + `backend/authority/enforcement.py` (299). Run the stored Slack webhook URL through `validate_external_url`; allowlist `hooks.slack.com`; disable redirects.
+- [x] **MED-010** — `backend/main.py` (3550) + `backend/authority/enforcement.py` (299). Run the stored Slack webhook URL through `validate_external_url`; allowlist `hooks.slack.com`; disable redirects. *(shipped 2026-07-29, PR #128 — host allowlist defaults to Slack, extensible via `ARCEO_WEBHOOK_ALLOWED_HOSTS`; validated at save AND at fire time)*
   - **Validation:** a test that a webhook pointing at `169.254.169.254`/loopback is rejected at save and at fire time.
 - [ ] **MED-011** — `backend/main.py` (`_extract_and_register` 2268, `_score_in_memory` 2548). Wrap untrusted file content in a data-guard with delimiter escaping; treat an unparseable/empty classifier result as not-safe (fail toward higher risk), not as "no tools."
   - **Validation:** an injection regression case (file content attempting to close the fence and null the tool list) still yields a non-empty, correctly-scored inventory.

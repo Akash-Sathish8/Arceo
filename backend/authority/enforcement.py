@@ -284,7 +284,6 @@ def fire_block_notification(agent_id: str, tool: str, action: str, reason: str):
                 return
         except Exception:
             pass
-        import httpx
         payload = {
             "blocks": [
                 {
@@ -296,7 +295,11 @@ def fire_block_notification(agent_id: str, tool: str, action: str, reason: str):
                 }
             ]
         }
-        httpx.post(slack_url, json=payload, timeout=4)
+        # MED-010: this fires on every BLOCK with a URL an org admin supplied, so it
+        # goes through the guarded egress path — host allowlist, no internal targets,
+        # connection pinned to the vetted IP, redirects refused.
+        import egress
+        egress.post_webhook(slack_url, payload)
     except Exception:
         pass  # Never let notification failures break enforcement
 
