@@ -14,11 +14,13 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import uuid
 from datetime import datetime
 from dataclasses import dataclass
 
+from errors import log_and_ref
 from sandbox.models import SimulationTrace, TraceStep, TurnUsage
 from sandbox.mocks.registry import MockState
 from sandbox.mocks import *  # noqa: F401, F403 — registers all mocks
@@ -30,6 +32,8 @@ from sandbox.agents.executor import (
 from sandbox.prompts.scenarios import Scenario
 from llm_models import SIM_MODEL, anthropic_client
 
+
+logger = logging.getLogger(__name__)
 
 MAX_TURNS = 20  # Safety limit on agent tool-calling loops
 
@@ -426,8 +430,14 @@ def run_simulation(
         try:
             response = _call_llm(model, system_prompt, messages, tool_defs, api_key=api_key)
         except Exception as e:
+            # MED-016: trace.error is returned to the client with the simulation,
+            # so the provider's raw exception text travelled with it. The model
+            # stays — it is the agent's own configured value and the first thing
+            # you need when a sim fails — but the provider internals move to the
+            # log behind a reference.
+            ref = log_and_ref(logger, f"simulation LLM call ({model})", e)
             trace.status = "error"
-            trace.error = f"LLM API error ({model}): {str(e)}"
+            trace.error = f"LLM API error ({model}) — ref: {ref}"
             trace.completed_at = datetime.utcnow().isoformat()
             return trace
 
