@@ -466,6 +466,138 @@ function CostOverridesSection({ inputStyle }: { inputStyle: React.CSSProperties 
 
 // ── Notifications section ───────────────────────────────────────────────────
 
+// ── TeamMembers ───────────────────────────────────────────────────────────────
+// Replaces a hardcoded "it's just you" card. Invite existed with no way to see
+// who actually holds access, and no way to take it away (MED-001) — which is the
+// first thing an access review needs.
+
+interface TeamMember {
+  id: string;
+  email: string;
+  name: string;
+  role: string;
+  disabled_at: string | null;
+  active: boolean;
+  is_self: boolean;
+}
+
+function TeamMembers({ reloadKey }: { reloadKey: number }) {
+  const [members, setMembers] = useState<TeamMember[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [busyId, setBusyId] = useState<string | null>(null);
+
+  const load = useCallback(() => {
+    apiFetch<{ members: TeamMember[] }>("/api/team")
+      .then((d) => setMembers(d.members || []))
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  useEffect(load, [load, reloadKey]);
+
+  const act = async (m: TeamMember, action: "revoke" | "restore") => {
+    if (
+      action === "revoke" &&
+      !window.confirm(
+        `Revoke access for ${m.email}?\n\nThey will be signed out everywhere immediately and ` +
+          `won't be able to sign back in. Their history stays in the audit log.`,
+      )
+    )
+      return;
+    setBusyId(m.id);
+    try {
+      await apiFetch(`/api/team/${m.id}/${action}`, { method: "POST" });
+      toast(action === "revoke" ? `Access revoked for ${m.email}` : `Access restored for ${m.email}`);
+      load();
+    } catch (e) {
+      // Surfaces the server's reason — last-admin and revoke-yourself are refused.
+      toast(e instanceof Error ? e.message : "Could not update access", "error");
+    }
+    setBusyId(null);
+  };
+
+  if (loading) return null;
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+      {members.map((m) => (
+        <div
+          key={m.id}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 12,
+            background: "var(--bg-sunken)",
+            border: "1px solid var(--border)",
+            borderRadius: "var(--radius-lg)",
+            padding: "10px 12px",
+            opacity: m.active ? 1 : 0.6,
+          }}
+        >
+          <div
+            style={{
+              width: 32,
+              height: 32,
+              borderRadius: "50%",
+              background: m.active ? "var(--color-cta)" : "#9ca3af",
+              color: "var(--text-inverse)",
+              fontSize: 13,
+              fontWeight: 600,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              flexShrink: 0,
+            }}
+          >
+            {m.email?.[0]?.toUpperCase() ?? "?"}
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div
+              style={{
+                fontSize: 13,
+                fontWeight: 500,
+                color: "var(--text-primary)",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+                textDecoration: m.active ? "none" : "line-through",
+              }}
+            >
+              {m.email}
+            </div>
+            <div style={{ fontSize: 13, color: "var(--text-secondary)", textTransform: "capitalize" }}>
+              {m.active ? m.role : "Access revoked"}
+            </div>
+          </div>
+          {m.is_self && (
+            <span
+              style={{
+                fontSize: 10,
+                fontWeight: 600,
+                padding: "2px 8px",
+                borderRadius: "var(--radius-full)",
+                background: "#e5e7eb",
+                color: "var(--text-secondary)",
+              }}
+            >
+              You
+            </span>
+          )}
+          {!m.is_self && (
+            <Button
+              variant={m.active ? "destructive" : "secondary"}
+              onClick={() => act(m, m.active ? "revoke" : "restore")}
+              disabled={busyId === m.id}
+            >
+              {busyId === m.id ? "…" : m.active ? "Revoke" : "Restore"}
+            </Button>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function NotificationsSection({ inputStyle }: { inputStyle: React.CSSProperties }) {
   const [slackUrl, setSlackUrl] = useState("");
   const [alertEmail, setAlertEmail] = useState("");
@@ -607,6 +739,8 @@ export default function Settings() {
 
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteSent, setInviteSent] = useState(false);
+  // Bumped after an invite so the members list picks up the new teammate.
+  const [teamReloadKey, setTeamReloadKey] = useState(0);
   const [inviteSending, setInviteSending] = useState(false);
   const [createdEmail, setCreatedEmail] = useState("");
   const [tempPass, setTempPass] = useState("");
@@ -651,6 +785,7 @@ export default function Settings() {
     }
     setInviteEmail("");
     setInviteSent(true);
+    setTeamReloadKey((k) => k + 1);
     setInviteSending(false);
   };
 
@@ -985,66 +1120,12 @@ if (await enforce("Stripe", "create_refund", { amount: 500 })) {
                 </h2>
                 <p style={{ fontSize: 13, color: "var(--text-secondary)", margin: 0 }}>
                   Invite teammates to view agents, run simulations, and manage policies.
+                  Revoking signs someone out everywhere immediately and blocks them from
+                  signing back in.
                 </p>
               </div>
 
-              {/* Current user */}
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 12,
-                  background: "var(--bg-sunken)",
-                  border: "1px solid var(--border)",
-                  borderRadius: "var(--radius-lg)",
-                  padding: "10px 12px",
-                }}
-              >
-                <div
-                  style={{
-                    width: 32,
-                    height: 32,
-                    borderRadius: "50%",
-                    background: "var(--color-cta)",
-                    color: "var(--text-inverse)",
-                    fontSize: 13,
-                    fontWeight: 600,
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    flexShrink: 0,
-                  }}
-                >
-                  {user?.email?.[0]?.toUpperCase() ?? "?"}
-                </div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div
-                    style={{
-                      fontSize: 13,
-                      fontWeight: 500,
-                      color: "var(--text-primary)",
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                      whiteSpace: "nowrap",
-                    }}
-                  >
-                    {user?.email}
-                  </div>
-                  <div style={{ fontSize: 13, color: "var(--text-secondary)" }}>Admin</div>
-                </div>
-                <span
-                  style={{
-                    fontSize: 10,
-                    fontWeight: 600,
-                    padding: "2px 8px",
-                    borderRadius: "var(--radius-full)",
-                    background: "#e5e7eb",
-                    color: "var(--text-secondary)",
-                  }}
-                >
-                  You
-                </span>
-              </div>
+              <TeamMembers reloadKey={teamReloadKey} />
 
               {/* Invite form */}
               <div>

@@ -140,15 +140,37 @@ def get_current_user(request: Request) -> dict:
     if "org_id" not in payload:
         payload["org_id"] = DEFAULT_ORG_ID
     # Instant revocation: a token whose version is behind the user's current
-    # token_version was issued before a password change — reject it.
+    # token_version was issued before a password change or an admin revoke —
+    # reject it.
     with get_db() as conn:
-        row = conn.execute("SELECT token_version, role FROM users WHERE id = %s", (payload.get("sub"),)).fetchone()
-    if row is not None:
-        if int(payload.get("tv", 0)) != int(row["token_version"] or 0):
-            raise HTTPException(status_code=401, detail="Session expired — please log in again")
-        # Trust the DB role over the token's (a role change takes effect without re-login).
-        payload["role"] = row["role"]
+        row = conn.execute(
+            "SELECT token_version, role, disabled_at FROM users WHERE id = %s",
+            (payload.get("sub"),),
+        ).fetchone()
+    # MED-001: fail CLOSED on a missing row. This used to be `if row is not None`,
+    # so a deleted or deprovisioned account skipped the check entirely and its
+    # unexpired JWT kept authenticating — the revocation control failing open on
+    # precisely the event it exists to catch.
+    if row is None:
+        raise HTTPException(status_code=401, detail="Session expired — please log in again")
+    # disabled_at before token_version: a revoke bumps BOTH, and "your account was
+    # deactivated" tells the user what actually happened where "session expired"
+    # would send them to a login screen that will never let them in.
+    if _row_get(row, "disabled_at"):
+        raise HTTPException(status_code=401, detail="This account has been deactivated")
+    if int(payload.get("tv", 0)) != int(row["token_version"] or 0):
+        raise HTTPException(status_code=401, detail="Session expired — please log in again")
+    # Trust the DB role over the token's (a role change takes effect without re-login).
+    payload["role"] = row["role"]
     return payload
+
+
+def _row_get(row, key):
+    """Read an optional column that may not exist on a pre-migration row."""
+    try:
+        return row[key]
+    except (KeyError, IndexError):
+        return None
 
 
 # A fixed bcrypt hash of a value no password will match. When the email is
@@ -175,6 +197,19 @@ def login_user(email: str, password: str) -> dict:
                               org_id=(row["org_id"] if row and "org_id" in row.keys() else DEFAULT_ORG_ID))
             except Exception:
                 pass  # never let audit failure change the auth outcome
+            raise HTTPException(status_code=401, detail="Invalid email or password")
+
+        # MED-001: a deprovisioned account must not be able to start a NEW session.
+        # Checked after the password comparison so a disabled account is not
+        # distinguishable from a wrong password by timing.
+        if _row_get(row, "disabled_at"):
+            try:
+                with get_db() as audit_conn:
+                    log_audit(audit_conn, row["id"], email, "FAILED_LOGIN",
+                              detail="Account deactivated",
+                              org_id=(row["org_id"] if "org_id" in row.keys() else DEFAULT_ORG_ID))
+            except Exception:
+                pass
             raise HTTPException(status_code=401, detail="Invalid email or password")
 
         if not row["password_hash"].startswith("$2b$"):
