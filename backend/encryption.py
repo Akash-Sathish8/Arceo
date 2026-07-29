@@ -14,9 +14,50 @@ preferring the encrypted column and falling back to plaintext.
 
 from __future__ import annotations
 
+import contextlib
 import os
 
 import vault
+
+
+# The single source of truth for envelope-encrypted (`encrypt_value`) columns:
+# (table, id_col, plaintext_col, enc_col). The master-key rotation and backfill
+# scripts BOTH derive their column lists from this, and a CI test asserts every
+# `*_enc` column in the live schema is registered here — so a new `_enc` migration
+# can't silently desync from the ops tooling (HIGH-004: audit_log.detail_enc was
+# added by migration 0011 but never reached the scripts, so a key rotation would
+# have permanently bricked it).
+ENCRYPTED_COLUMNS = [
+    ("pending_requests", "id", "body", "body_enc"),
+    ("pending_requests", "id", "params_json", "params_json_enc"),
+    ("execution_log", "id", "params", "params_enc"),
+    ("audit_log", "id", "detail", "detail_enc"),
+]
+
+# audit_log carries an append-only trigger (migration 0007, trg_audit_append_only)
+# that RAISES on every UPDATE/DELETE for every role, including superuser. The
+# rotation (rewrap the DEK header) and backfill (plaintext -> ciphertext) writes to
+# audit_log.detail_enc are hash-chain-safe — the tamper-evident chain hashes the
+# PLAINTEXT `detail`, which neither operation changes — so the maintenance scripts
+# suspend the trigger for the duration of their audit_log writes. This requires the
+# connecting role to OWN audit_log (or be superuser): acceptable for a privileged
+# maintenance job that already holds the master key. See each script's usage header.
+_APPEND_ONLY_TRIGGER = "trg_audit_append_only"
+
+
+@contextlib.contextmanager
+def suspend_append_only_trigger(conn, table: str, write: bool = True):
+    """Within the caller's transaction, disable audit_log's append-only trigger for
+    the duration of the block, then re-enable it (the committed schema is unchanged).
+    No-op unless `table == "audit_log"` and `write` is true (dry-runs make no writes)."""
+    active = write and table == "audit_log"
+    if active:
+        conn.execute(f"ALTER TABLE audit_log DISABLE TRIGGER {_APPEND_ONLY_TRIGGER}")
+    try:
+        yield
+    finally:
+        if active:
+            conn.execute(f"ALTER TABLE audit_log ENABLE TRIGGER {_APPEND_ONLY_TRIGGER}")
 
 
 def encrypt_at_rest_enabled() -> bool:
