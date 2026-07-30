@@ -93,34 +93,44 @@ _TRACE_MAX = 500          # bound the poll buffer per agent
 _TRACE_TTL = 300          # seconds; matches the old in-memory 5-min window
 
 
-def _trace_key(agent_id: str) -> str:
-    return f"trace:list:{agent_id}"
+# LOW-005: every live-trace key is namespaced by org. Today two tenants cannot
+# collide here anyway — `agents.id` is a GLOBAL primary key with collision-retry,
+# so one agent id belongs to exactly one org — but that makes tenant separation in
+# the cache a property of a table constraint somewhere else, rather than of the
+# cache. If agent ids ever became per-org (the obvious future change), traces
+# would silently cross tenants with nothing in this file to stop it.
+#
+# `org_id` is the caller's authenticated org at every call site, never a value the
+# caller supplies.
+
+def _trace_key(agent_id: str, org_id: str) -> str:
+    return f"{org_id}:trace:list:{agent_id}"
 
 
-def channel(agent_id: str) -> str:
-    return f"trace:chan:{agent_id}"
+def channel(agent_id: str, org_id: str) -> str:
+    return f"{org_id}:trace:chan:{agent_id}"
 
 
-def push_trace(agent_id: str, entry_json: str) -> None:
+def push_trace(agent_id: str, entry_json: str, org_id: str) -> None:
     """Append to the agent's recent buffer AND publish for live subscribers.
 
     entry_json is a JSON string (already serialized by the caller). Publishing
     is what makes a trace pushed on any worker reach a WS subscriber on any
     other worker.
     """
-    key = _trace_key(agent_id)
+    key = _trace_key(agent_id, org_id)
     pipe = _client.pipeline()
     pipe.lpush(key, entry_json)
     pipe.ltrim(key, 0, _TRACE_MAX - 1)
     pipe.expire(key, _TRACE_TTL)
     pipe.execute()
-    _client.publish(channel(agent_id), entry_json)
+    _client.publish(channel(agent_id, org_id), entry_json)
 
 
-def drain_traces(agent_id: str) -> list[str]:
+def drain_traces(agent_id: str, org_id: str) -> list[str]:
     """Return the recent buffer (newest-last) and clear it — the poll endpoint's
     read-and-clear semantics, now atomic across workers."""
-    key = _trace_key(agent_id)
+    key = _trace_key(agent_id, org_id)
     pipe = _client.pipeline()
     pipe.lrange(key, 0, -1)
     pipe.delete(key)
@@ -247,11 +257,11 @@ def spend_total(scope: str) -> float | None:
 _WS_CONN_TTL = 3600  # safety expiry so a crashed worker's slot count self-heals
 
 
-def ws_acquire_slot(agent_id: str, limit: int) -> bool:
+def ws_acquire_slot(agent_id: str, limit: int, org_id: str) -> bool:
     """Claim one live-trace WS slot for an agent (MED-008). INCR-then-check so the
     count is correct across workers; on overflow, DECR back and refuse. A TTL on
     the counter means a worker that dies without releasing can't leak slots."""
-    key = f"ws:conns:{agent_id}"
+    key = f"{org_id}:ws:conns:{agent_id}"  # LOW-005
     n = _client.incr(key)
     if n == 1:
         _client.expire(key, _WS_CONN_TTL)
@@ -261,10 +271,10 @@ def ws_acquire_slot(agent_id: str, limit: int) -> bool:
     return True
 
 
-def ws_release_slot(agent_id: str) -> None:
+def ws_release_slot(agent_id: str, org_id: str) -> None:
     """Release a slot claimed by ws_acquire_slot; floors at 0 so a stale/expired
     counter can't go negative."""
-    key = f"ws:conns:{agent_id}"
+    key = f"{org_id}:ws:conns:{agent_id}"  # LOW-005
     if _client.decr(key) < 0:
         _client.set(key, 0)
 
