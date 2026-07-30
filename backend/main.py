@@ -3028,9 +3028,10 @@ def _maybe_fire_spend_anomaly_alert(agent_id: str):
             ).fetchone()
             agent_org = org_row["org_id"] if org_row else None
             row = conn.execute(
-                "SELECT slack_webhook_url FROM workspace_settings WHERE org_id = %s", (agent_org,)
+                "SELECT slack_webhook_url, slack_webhook_url_enc FROM workspace_settings WHERE org_id = %s",
+                (agent_org,),
             ).fetchone()
-            slack_url = (row["slack_webhook_url"] or "") if row else ""
+            slack_url = (encryption.read(row, "slack_webhook_url") or "") if row else ""  # MED-014
             if not slack_url:
                 return
             eight_days_ago = (datetime.utcnow() - timedelta(days=8)).isoformat()
@@ -3159,8 +3160,11 @@ def _maybe_fire_budget_alert(agent_id: str):
             if not row:
                 return
             org_id = row["org_id"]
-            ws = conn.execute("SELECT slack_webhook_url FROM workspace_settings WHERE org_id = %s", (org_id,)).fetchone()
-            slack_url = (ws["slack_webhook_url"] or "") if ws else ""
+            ws = conn.execute(
+                "SELECT slack_webhook_url, slack_webhook_url_enc FROM workspace_settings WHERE org_id = %s",
+                (org_id,),
+            ).fetchone()
+            slack_url = (encryption.read(ws, "slack_webhook_url") or "") if ws else ""  # MED-014
             if not slack_url:
                 return
             budget = float(row["monthly_budget_usd"])
@@ -3884,6 +3888,35 @@ class NotificationSettingsRequest(BaseModel):
     notify_on_block: bool = True
 
 
+# MED-014: a Slack incoming-webhook URL is a bearer credential — the path segment
+# IS the token, and whoever holds it can post into that workspace as the
+# integration. It was the last secret in the schema kept in cleartext, and the
+# settings GET handed the whole thing back to any admin session (so an XSS or a
+# borrowed token exfiltrates it, and it lands in browser history and logs).
+#
+# The read path now returns a MASK: enough to confirm which webhook is configured,
+# not enough to use. The unmasked value never leaves the server after it is stored.
+_WEBHOOK_MASK_TAIL = 4
+
+
+def _mask_webhook(url: str | None) -> str:
+    """`https://hooks.slack.com/services/…aB3x` — host kept, token elided.
+
+    Deliberately NOT a fixed string like "********": an admin needs to tell
+    whether the configured webhook is the one they think it is, and the host plus
+    a 4-char tail does that without handing over anything usable.
+    """
+    if not url:
+        return ""
+    from urllib.parse import urlparse as _urlparse
+    try:
+        host = _urlparse(url).netloc or "?"
+    except ValueError:
+        host = "?"
+    tail = url[-_WEBHOOK_MASK_TAIL:] if len(url) > _WEBHOOK_MASK_TAIL else ""
+    return f"https://{host}/…{tail}"
+
+
 @app.get("/api/notifications/settings")
 def get_notification_settings(user: dict = Depends(get_current_user)):
     """Get this org's notification settings."""
@@ -3895,9 +3928,14 @@ def get_notification_settings(user: dict = Depends(get_current_user)):
     with get_db() as conn:
         row = conn.execute("SELECT * FROM workspace_settings WHERE org_id = %s", (org_id,)).fetchone()
     if not row:
-        return {"slack_webhook_url": "", "alert_email": "", "notify_on_block": True}
+        return {"slack_webhook_url": "", "slack_webhook_configured": False,
+                "alert_email": "", "notify_on_block": True}
+    stored = encryption.read(row, "slack_webhook_url")  # MED-014
     return {
-        "slack_webhook_url": row["slack_webhook_url"] or "",
+        # Masked, never the live credential. POSTing this value back means
+        # "leave it alone" — see save_notification_settings.
+        "slack_webhook_url": _mask_webhook(stored),
+        "slack_webhook_configured": bool(stored),
         "alert_email": row["alert_email"] or "",
         "notify_on_block": bool(row["notify_on_block"]),
     }
@@ -3907,26 +3945,51 @@ def get_notification_settings(user: dict = Depends(get_current_user)):
 def save_notification_settings(req: NotificationSettingsRequest, user: dict = Depends(get_current_user)):
     """Save this org's notification settings."""
     org_id = _org(user)
-    # MED-010: the webhook URL is fired server-side on every BLOCK and spend alert,
-    # so an unvalidated value here is an SSRF primitive pointed at anything the
-    # server can reach. Reject it at the point it's typed; the fire sites re-check
-    # too (URLs stored before this guard existed, and DNS rebinding after it).
-    if req.slack_webhook_url:
-        egress.validate_webhook_url(req.slack_webhook_url)
+
+    # MED-014: the GET hands back a MASK, and Settings.tsx posts the form straight
+    # back — so an untouched save arrives carrying the mask string. Writing that
+    # verbatim would replace the real credential with "https://hooks.slack.com/…aB3x"
+    # and silently break every alert. Read the stored value first so the mask can be
+    # recognised as "unchanged". Empty still means "turn alerts off" — that is the
+    # pre-existing contract and the page says so.
+    with get_db() as conn:
+        prior = conn.execute(
+            "SELECT slack_webhook_url, slack_webhook_url_enc FROM workspace_settings WHERE org_id = %s",
+            (org_id,),
+        ).fetchone()
+    stored_url = encryption.read(prior, "slack_webhook_url") if prior else None
+
+    incoming = req.slack_webhook_url
+    if stored_url and incoming == _mask_webhook(stored_url):
+        webhook_url = stored_url  # unchanged: already validated when it was set
+    else:
+        # MED-010: the webhook URL is fired server-side on every BLOCK and spend
+        # alert, so an unvalidated value here is an SSRF primitive pointed at
+        # anything the server can reach. Reject it at the point it's typed; the fire
+        # sites re-check too (URLs stored before this guard existed, and DNS
+        # rebinding after it). Deliberately outside the `with get_db()` blocks: this
+        # resolves DNS, and a pool connection must not be held across a network call.
+        if incoming:
+            egress.validate_webhook_url(incoming)
+        webhook_url = incoming
+
+    url_pt, url_enc = encryption.split(webhook_url or None)  # MED-014
     now = datetime.utcnow().isoformat()
     with get_db() as conn:
         existing = conn.execute("SELECT id FROM workspace_settings WHERE org_id = %s", (org_id,)).fetchone()
         if existing:
             conn.execute(
-                "UPDATE workspace_settings SET slack_webhook_url=%s, alert_email=%s, notify_on_block=%s, updated_at=%s WHERE org_id=%s",
-                (req.slack_webhook_url, req.alert_email, 1 if req.notify_on_block else 0, now, org_id),
+                "UPDATE workspace_settings SET slack_webhook_url=%s, slack_webhook_url_enc=%s, "
+                "alert_email=%s, notify_on_block=%s, updated_at=%s WHERE org_id=%s",
+                (url_pt, url_enc, req.alert_email, 1 if req.notify_on_block else 0, now, org_id),
             )
         else:
             # id=NULL lets SQLite assign a fresh rowid per org (the column DEFAULT 1
             # would otherwise collide across orgs).
             conn.execute(
-                "INSERT INTO workspace_settings (slack_webhook_url, alert_email, notify_on_block, org_id, updated_at) VALUES (%s, %s, %s, %s, %s)",
-                (req.slack_webhook_url, req.alert_email, 1 if req.notify_on_block else 0, org_id, now),
+                "INSERT INTO workspace_settings (slack_webhook_url, slack_webhook_url_enc, alert_email, notify_on_block, org_id, updated_at) "
+                "VALUES (%s, %s, %s, %s, %s, %s)",
+                (url_pt, url_enc, req.alert_email, 1 if req.notify_on_block else 0, org_id, now),
             )
         log_audit(conn, user["sub"], user["email"], "UPDATE_NOTIFICATIONS", detail="Notification settings updated", org_id=org_id)
     return {"message": "Saved"}

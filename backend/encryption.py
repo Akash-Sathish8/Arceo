@@ -33,6 +33,11 @@ ENCRYPTED_COLUMNS = [
     ("execution_log", "id", "params", "params_enc"),
     ("audit_log", "id", "detail", "detail_enc"),
     ("llm_captures", "id", "content", "content_enc"),
+    # MED-014: a Slack incoming-webhook URL is a bearer credential in a URL. Keyed
+    # on `id` (the SERIAL PK) like every entry above — backfill/rotation paginate
+    # with ORDER BY <id_col> ... WHERE <id_col> = %s, so this must be the real PK,
+    # not org_id (which carries no uniqueness constraint of its own).
+    ("workspace_settings", "id", "slack_webhook_url", "slack_webhook_url_enc"),
 ]
 
 # audit_log carries an append-only trigger (migration 0007, trg_audit_append_only)
