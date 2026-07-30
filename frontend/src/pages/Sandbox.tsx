@@ -276,10 +276,11 @@ export default function Sandbox() {
       setScenarios((prev) => [...prev.filter((s) => !s.id.includes('-gen-')), ...fresh])
       toast(`Claude wrote ${fresh.length} scenario${fresh.length !== 1 ? 's' : ''} for this agent`)
     } catch (err: unknown) {
-      toast(
-        'Scenario generation failed: ' + (err instanceof Error ? err.message : 'Unknown error'),
-        'error',
-      )
+      // The server's detail is already a complete sentence and now carries a
+      // correlation ref (MED-016) — prefixing it here printed the failure twice
+      // and pushed the ref, the one thing worth quoting in a bug report, to the
+      // end of a doubled message.
+      toast(err instanceof Error ? err.message : 'Scenario generation failed', 'error')
     }
     setGeneratingScenarios(false)
   }

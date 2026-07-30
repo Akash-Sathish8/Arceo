@@ -35,6 +35,7 @@ from db import (
 import vault
 import encryption
 import redaction
+import errors
 import egress
 from authority.chain_detector import detect_chains as _detect_chains
 from authority.enforcement import enforce_check, safe_enforce_check, match_policy as _match_policy
@@ -927,7 +928,13 @@ async def _stream_upstream(method: str, url: str, headers: dict, content: bytes,
         raise HTTPException(status_code=504, detail=f"Upstream {service} timed out")
     except _httpx.HTTPError as e:
         await client.aclose()
-        raise HTTPException(status_code=502, detail=f"Upstream {service} error: {str(e)}")
+        # MED-016: the httpx error text carried the resolved upstream URL and the
+        # transport's own diagnostics back to the caller — and this path logged
+        # nothing, so the response WAS the only record. `service` is safe to name:
+        # it is a SERVICE_BASE_URLS key, validated above.
+        ref = errors.log_and_ref(logger, f"proxy upstream {service}", e)
+        raise HTTPException(status_code=502,
+                            detail=f"Upstream {service} request failed (ref: {ref})")
 
     status = resp.status_code
     resp_headers = {k: v for k, v in resp.headers.items()
@@ -1514,6 +1521,22 @@ def signup(req: SignupRequest, request: Request):
     with get_db() as conn:
         existing = conn.execute("SELECT id FROM users WHERE email = %s", (req.email,)).fetchone()
         if existing:
+            # MED-015 (timing half): bcrypt dominates the cost of this handler and
+            # used to run ONLY on the create path, so "already registered" came back
+            # in a fraction of the time a real signup took. The response body was
+            # never the only tell — anyone could distinguish the two cases with a
+            # stopwatch and no need to read the status code. Hash and throw the
+            # result away so both paths pay the same.
+            #
+            # This does NOT make the endpoint non-enumerable: the 409-vs-200 status
+            # is still an account-existence signal, which for a security vendor also
+            # hints at who its customers are (org_name is the email domain, below).
+            # Closing that needs a uniform response, which needs out-of-band
+            # confirmation for the legitimate new user — and email_utils.send_email
+            # is a no-op unless SMTP_HOST is set, with no verification flow to hang
+            # it on. Tracked as MED-015-b rather than half-built here; a "uniform"
+            # response today would just mean nobody can sign up.
+            hash_password(req.password)
             raise HTTPException(status_code=409, detail="Email already registered")
 
         user_id = str(uuid.uuid4())
@@ -2564,7 +2587,10 @@ def _extract_and_register(content: str, filename: str = "", agent_name_hint: str
     except json.JSONDecodeError:
         raise HTTPException(status_code=502, detail="Extraction returned invalid JSON — the file may not be a recognizable agent definition.")
     except Exception as e:
-        raise HTTPException(status_code=502, detail=f"Extraction failed: {str(e)}")
+        # MED-016: this caught anything the Anthropic SDK raised — auth failures,
+        # rate-limit bodies, internal request ids — and handed it to the caller.
+        ref = errors.log_and_ref(logger, "agent extraction", e)
+        raise HTTPException(status_code=502, detail=f"Extraction failed (ref: {ref})")
 
     name = (parsed.get("name") or agent_name_hint or "extracted-agent").strip()
     agent_id = name.lower().replace(" ", "-").replace("_", "-")
@@ -3610,7 +3636,15 @@ def connect_mcp_server(req: MCPConnectInput, user: dict = Depends(get_current_us
                 resp.raise_for_status()
                 data = _mcp_parse(resp)
             except Exception as e:
-                raise HTTPException(status_code=502, detail=f"Could not connect to MCP server at {url}: {str(e)}")
+                # MED-016, the worst of the set: this echoed the caller's own URL
+                # AND what happened when the server dialled it. validate_external_url
+                # already refuses loopback/private/link-local/metadata targets, but a
+                # distinguishable failure message for everything else still reports
+                # reachability of whatever got past it. The caller knows the URL they
+                # submitted; they do not need ours to describe the attempt.
+                ref = errors.log_and_ref(logger, "MCP connect", e)
+                raise HTTPException(status_code=502,
+                                    detail=f"Could not connect to the MCP server (ref: {ref})")
 
     # Parse response — handle JSON-RPC envelope or plain response
     if "result" in data:
@@ -4620,7 +4654,9 @@ def generate_llm_scenarios(agent_id: str, user: dict = Depends(get_current_user)
             messages=[{"role": "user", "content": user_block}],
         )
     except Exception as e:
-        raise HTTPException(status_code=502, detail=f"Scenario generation failed: {e}")
+        ref = errors.log_and_ref(logger, "scenario generation", e)  # MED-016
+        raise HTTPException(status_code=502,
+                            detail=f"Scenario generation failed (ref: {ref})")
 
     text = next((b.text for b in msg.content if b.type == "text"), "").strip()
     if "[" in text and "]" in text:
