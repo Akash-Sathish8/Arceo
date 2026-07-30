@@ -66,18 +66,34 @@ def hash_password(password: str) -> str:
 
 
 def verify_password(password: str, hashed: str) -> bool:
+    """True only for a real bcrypt hash. Anything else fails CLOSED.
+
+    MED-003: there used to be a fallback branch here that accepted an unsalted
+    SHA-256 digest compared with `==`. Two problems, either one sufficient:
+    unsalted SHA-256 is GPU-brute-forceable at billions of guesses/second, so a
+    stolen `users` table is effectively plaintext for any password in a wordlist;
+    and `==` on a secret-derived value short-circuits on the first differing byte.
+
+    It was reachable — `verify_password` is called with whatever the row holds —
+    but nothing in the codebase WRITES such a hash: `hash_password` is bcrypt-only.
+    So the branch was a door left open for an attacker who could already write to
+    the users table, and a liability if a customer ever imported legacy rows.
+    Verified empty before removal (2026-07-29):
+
+        SELECT count(*) FROM users WHERE password_hash NOT LIKE '$2%'  -> 0
+
+    across `arceo` and `arceo_test`. Failing closed means a legacy row cannot
+    authenticate at all and needs an admin password reset — which is the correct
+    outcome, and the warning below is what makes it diagnosable instead of an
+    unexplained "invalid password".
+    """
     if hashed.startswith("$2b$") or hashed.startswith("$2a$"):
         return bcrypt.checkpw(password.encode(), hashed.encode())
-    else:
-        # LOW-003: legacy unsalted SHA-256 fallback. login_user re-hashes to bcrypt
-        # on the next successful login, so this branch is transitional — log it so
-        # any remaining legacy rows are visible and can be aged out.
-        import hashlib
-        ok = hashlib.sha256(password.encode()).hexdigest() == hashed
-        if ok:
-            _logger.warning("Verified a login against a legacy unsalted SHA-256 hash "
-                            "(deprecated) — it will be upgraded to bcrypt on this login.")
-        return ok
+    _logger.warning(
+        "Refused a login against a non-bcrypt password hash (MED-003). This "
+        "account cannot authenticate until an admin resets its password."
+    )
+    return False
 
 
 def create_token(user_id: str, email: str, role: str, org_id: str = DEFAULT_ORG_ID,
@@ -212,6 +228,11 @@ def login_user(email: str, password: str) -> dict:
                 pass
             raise HTTPException(status_code=401, detail="Invalid email or password")
 
+        # Opportunistic hash upgrade. Since MED-003 removed the SHA-256 fallback,
+        # verify_password only returns True for bcrypt — so reaching here with a
+        # non-`$2b$` hash now means exactly one thing, an older `$2a$` variant, and
+        # this re-hashes it to `$2b$`. It is no longer a legacy-format migration
+        # path: a non-bcrypt row can never authenticate to get here at all.
         if not row["password_hash"].startswith("$2b$"):
             new_hash = hash_password(password)
             conn.execute("UPDATE users SET password_hash = %s WHERE id = %s", (new_hash, row["id"]))
