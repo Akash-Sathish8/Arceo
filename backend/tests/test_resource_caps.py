@@ -89,10 +89,10 @@ def test_run_red_team_stops_when_budget_exhausted(monkeypatch):
 
 def test_ws_connection_slot_cap():
     aid = "cap-agent"
-    assert all(shared_state.ws_acquire_slot(aid, 3) for _ in range(3))
-    assert shared_state.ws_acquire_slot(aid, 3) is False  # 4th over the cap
-    shared_state.ws_release_slot(aid)
-    assert shared_state.ws_acquire_slot(aid, 3) is True   # freed slot reusable
+    assert all(shared_state.ws_acquire_slot(aid, 3, "org-x") for _ in range(3))
+    assert shared_state.ws_acquire_slot(aid, 3, "org-x") is False  # 4th over the cap
+    shared_state.ws_release_slot(aid, "org-x")
+    assert shared_state.ws_acquire_slot(aid, 3, "org-x") is True   # freed slot reusable
 
 
 # ── MED-005: transaction-local statement/lock timeouts ─────────────────────────

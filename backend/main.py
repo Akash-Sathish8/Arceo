@@ -105,8 +105,22 @@ async def _tenant_context(request: Request, call_next):
                 from auth import verify_token
                 payload = verify_token(auth[7:])
                 org = payload.get("org_id") or "system"
-    except Exception:
+    except Exception as e:
+        # LOW-014 (second half): this used to swallow the failure silently, so a
+        # request whose credential could not be resolved ran with FULL RLS access
+        # and left no trace of why. It is still best-effort — per-endpoint auth is
+        # the real gate — but a resolution failure is now visible.
+        logger.warning("tenant context: could not resolve caller org (%s: %s) — "
+                       "falling back to 'system' RLS context",
+                       type(e).__name__, redaction.log_safe(e))
         org = "system"
+
+    # LOW-004: stash the resolved org where a LATER middleware can still read it.
+    # _access_log wraps this one, so by the time it logs, the `finally` below has
+    # already reset the ContextVar — which is why every privileged event was being
+    # attributed to org "system" regardless of who made it. request.state is backed
+    # by the ASGI scope, which the two middlewares share.
+    request.state.org_id = org
 
     token = _db.current_org.set(org)
     try:
@@ -378,7 +392,9 @@ async def _access_log(request: Request, call_next):
                 "method": request.method,
                 "path": path,
                 "status": response.status_code,
-                "org_id": _db.current_org.get(),
+                # LOW-004: read the org stashed by _tenant_context, not the
+                # ContextVar — that has already been reset by the time this runs.
+                "org_id": getattr(request.state, "org_id", None) or _db.current_org.get(),
                 "actor": actor,
                 "latency_ms": int((time.time() - t0) * 1000),
             }))
@@ -399,9 +415,35 @@ _ROLE_RANK = {"viewer": 0, "editor": 1, "admin": 2}
 
 
 def require_role(user: dict, min_role: str) -> None:
-    """403 unless the caller's role is at least min_role."""
+    """403 unless the caller's role is at least min_role.
+
+    LOW-014: a denial is an audited event. Successful privileged actions were
+    written to audit_log while REFUSED ones vanished — which is backwards for
+    detection: a burst of 403s from one account is the signal that someone is
+    probing what their role can reach, and it was the one thing the trail could
+    not show.
+    """
     if _ROLE_RANK.get(user.get("role") or "viewer", 0) < _ROLE_RANK[min_role]:
+        _audit_authz_denied(user, min_role)
         raise HTTPException(status_code=403, detail=f"{min_role.capitalize()} role required")
+
+
+def _audit_authz_denied(user: dict, min_role: str) -> None:
+    """Record a refused privileged action, in its OWN transaction.
+
+    Same shape as login_user's FAILED_LOGIN write (LOW-004 of the prior round):
+    the caller is about to raise, which rolls back whatever transaction it is in,
+    so the audit row has to be committed separately or it would disappear with the
+    denial it exists to record. Never let an audit failure change the outcome.
+    """
+    try:
+        with get_db() as conn:
+            log_audit(conn, user.get("sub"), user.get("email") or "", "AUTHZ_DENIED",
+                      detail=f"Role '{user.get('role') or 'viewer'}' is below required '{min_role}'",
+                      org_id=user.get("org_id") or DEFAULT_ORG_ID)
+    except Exception:
+        logger.warning("could not record AUTHZ_DENIED for %s",
+                       redaction.log_safe(user.get("email")))
 
 
 def require_admin(user: dict) -> None:
@@ -5465,7 +5507,7 @@ async def push_live_trace(event: LiveTraceEvent, request: Request):
         "timestamp": event.timestamp or datetime.utcnow().isoformat(),
     }
     # Buffer + publish in one shot: any worker's WS subscriber receives it.
-    shared_state.push_trace(event.agent_id, json.dumps(entry))
+    shared_state.push_trace(event.agent_id, json.dumps(entry), caller_org)  # LOW-005
     return {"status": "ok"}
 
 
@@ -5475,7 +5517,7 @@ def get_live_traces(agent_id: str, user: dict = Depends(get_current_user)):
     with get_db() as conn:
         if not get_agent_from_db(conn, agent_id, org_id=_org(user)):
             raise HTTPException(status_code=404, detail=f"Agent '{agent_id}' not found")
-    events = [json.loads(e) for e in shared_state.drain_traces(agent_id)]
+    events = [json.loads(e) for e in shared_state.drain_traces(agent_id, _org(user))]  # LOW-005
     return {"agent_id": agent_id, "events": events, "count": len(events)}
 
 
@@ -5530,6 +5572,9 @@ async def ws_live_traces(websocket: WebSocket, agent_id: str):
     JWT is NO LONGER accepted here — passing a full session token in a URL was the
     finding, so continuing to honour it would leave the finding open.
     """
+    # LOW-005: the org that owns this socket. Every Redis key it touches is
+    # namespaced by it, and it comes from the redeemed ticket — never the URL.
+    ws_org = DEFAULT_ORG_ID
     # ID2: authenticate before accepting. DEMO_MODE keeps the demo open.
     if not demo_mode_enabled():
         try:
@@ -5584,53 +5629,77 @@ async def ws_live_traces(websocket: WebSocket, agent_id: str):
         if close_code is not None:
             await websocket.close(code=close_code)
             return
+        ws_org = payload.get("org_id") or DEFAULT_ORG_ID  # LOW-005
     # MED-008 (earlier round): bound concurrent sockets per agent — each opens a
     # Redis pubsub client. MED-007: off the loop, same reason as above.
     if not await anyio.to_thread.run_sync(
-            functools.partial(shared_state.ws_acquire_slot, agent_id, WS_MAX_CONNECTIONS_PER_AGENT)):
+            functools.partial(shared_state.ws_acquire_slot, agent_id,
+                              WS_MAX_CONNECTIONS_PER_AGENT, ws_org)):
         await websocket.close(code=4429)
         return
-    await websocket.accept()
 
-    # Subscribe to this agent's Redis channel — events published by ANY worker
-    # (push_live_trace above) arrive here, so a subscriber connected to worker B
-    # sees a trace pushed to worker A.
-    aclient, pubsub = shared_state.subscribe_channel(agent_id)
-    await pubsub.subscribe(shared_state.channel(agent_id))
-
+    # LOW-016: everything from here to the message loop is inside the try, because
+    # the slot is already HELD. accept() and subscribe_channel() can both fail —
+    # a client that hangs up mid-handshake, Redis refusing a new connection — and
+    # when they did, the `finally` that releases the slot had not been entered yet.
+    # Each failure permanently consumed one of the agent's connection slots until
+    # the counter's 1h TTL healed it, so a client reconnecting in a loop could lock
+    # every tenant out of its own live traces without ever authenticating twice.
     import asyncio
 
-    async def _forward():
-        async for message in pubsub.listen():
-            if message.get("type") == "message":
-                await websocket.send_text(message["data"])
-
-    forward_task = asyncio.create_task(_forward())
+    pubsub = aclient = forward_task = None
     try:
+        await websocket.accept()
+
+        # Subscribe to this agent's Redis channel — events published by ANY worker
+        # (push_live_trace above) arrive here, so a subscriber connected to worker B
+        # sees a trace pushed to worker A.
+        aclient, pubsub = shared_state.subscribe_channel(agent_id)
+        await pubsub.subscribe(shared_state.channel(agent_id, ws_org))
+
+        async def _forward():
+            async for message in pubsub.listen():
+                if message.get("type") == "message":
+                    await websocket.send_text(message["data"])
+
+        forward_task = asyncio.create_task(_forward())
         while True:
             # Keep connection alive, wait for client messages (ping/close)
             await websocket.receive_text()
     except WebSocketDisconnect:
         pass
+    except Exception as e:
+        # LOW-016: anything else that goes wrong while the slot is held — the
+        # accept() failing, Redis refusing the pubsub connection — now unwinds
+        # through the finally below instead of abandoning the slot.
+        errors.log_and_ref(logger, f"live-trace socket for agent {redaction.log_safe(agent_id)}", e)
     finally:
         # Release the per-agent connection slot (MED-008) before teardown.
         # MED-007: off the loop like the acquire above.
         await anyio.to_thread.run_sync(
-            functools.partial(shared_state.ws_release_slot, agent_id))
+            functools.partial(shared_state.ws_release_slot, agent_id, ws_org))
         # Await the cancelled forward task BEFORE closing the pubsub/client, so
         # its listen() coroutine finishes unwinding and can't race with (or
         # use-after-close) the Redis objects we're about to tear down.
-        forward_task.cancel()
-        try:
-            await forward_task
-        except (asyncio.CancelledError, Exception):
-            pass
-        try:
-            await pubsub.unsubscribe(shared_state.channel(agent_id))
-            await pubsub.aclose()
-            await aclient.aclose()
-        except Exception:
-            pass
+        # Each guarded on its own: teardown now runs for handshakes that failed
+        # before these existed.
+        if forward_task is not None:
+            forward_task.cancel()
+            try:
+                await forward_task
+            except (asyncio.CancelledError, Exception):
+                pass
+        if pubsub is not None:
+            try:
+                await pubsub.unsubscribe(shared_state.channel(agent_id, ws_org))
+                await pubsub.aclose()
+            except Exception:
+                pass
+        if aclient is not None:
+            try:
+                await aclient.aclose()
+            except Exception:
+                pass
 
 
 # ── Cost-of-Breach Report ─────────────────────────────────────────────────
