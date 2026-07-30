@@ -42,10 +42,11 @@ runs:
       with:
         python-version: '3.11'
 
-    - name: Install dependencies
-      shell: bash
-      run: pip install --quiet httpx
-
+    # MED-018: there is deliberately no dependency-install step. run.py uses only
+    # the standard library, so nothing is fetched from PyPI inside the customer's
+    # CI — where their ARCEO_API_KEY and a GITHUB_TOKEN are both in scope. The
+    # previous `pip install --quiet httpx` was unpinned and unhashed, i.e. it ran
+    # whatever the index served at that moment, in someone else's pipeline.
     - name: Run Arceo scan
       shell: bash
       env:

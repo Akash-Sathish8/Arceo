@@ -59,19 +59,77 @@ def test_failed_login_unknown_email_is_audited_and_401(client):
     assert n >= 1
 
 
-# ── LOW-003: legacy SHA-256 hash verifies then upgrades to bcrypt ───────────────
+# ── MED-003: a legacy SHA-256 hash is REFUSED, not verified-then-upgraded ──────
+#
+# This test previously asserted the opposite: that a SHA-256 digest authenticated
+# successfully and was then re-hashed to bcrypt. That behaviour WAS the finding —
+# unsalted SHA-256 is GPU-brute-forceable, so the "upgrade on next login" path
+# only helps an account whose password an attacker has already had every
+# opportunity to recover offline, and the branch compared with `==`. Inverted to
+# pin the fail-closed contract, rather than deleted, so the regression it guards
+# against stays named.
 
-def test_legacy_sha256_hash_upgraded_on_login(client):
+def test_legacy_sha256_hash_is_refused(client):
     email = f"legacy-{uuid.uuid4().hex[:6]}@e.com"
     pw = "legacypw12"
     assert _signup(client, email).status_code == 200
     with get_db() as conn:
         conn.execute("UPDATE users SET password_hash=%s WHERE email=%s",
                      (hashlib.sha256(pw.encode()).hexdigest(), email))
+
+    r = client.post("/api/auth/login", json={"email": email, "password": pw})
+    assert r.status_code == 401, "an unsalted SHA-256 hash must not authenticate"
+    # Indistinguishable from any other bad login — no oracle for "this account is
+    # on a legacy hash".
+    assert r.json()["detail"] == "Invalid email or password"
+
+    # And the row is untouched: no silent upgrade, so an operator resetting the
+    # password is the only way back in.
+    with get_db() as conn:
+        h = conn.execute("SELECT password_hash FROM users WHERE email=%s",
+                         (email,)).fetchone()["password_hash"]
+    assert not h.startswith("$2b$")
+
+
+def test_verify_password_fails_closed_on_every_non_bcrypt_shape(client):
+    """The unit-level contract behind the endpoint test above."""
+    from auth import verify_password, hash_password
+
+    pw = "legacypw12"
+    for bogus in (
+        hashlib.sha256(pw.encode()).hexdigest(),   # the removed branch
+        hashlib.md5(pw.encode()).hexdigest(),
+        pw,                                        # plaintext in the column
+        "",
+        "x",                                       # the old migration fixture
+        "$1$salt$abc",                             # md5-crypt
+    ):
+        assert verify_password(pw, bogus) is False, f"accepted {bogus!r}"
+
+    # ...while real bcrypt still works, both variants.
+    assert verify_password(pw, hash_password(pw)) is True
+    assert verify_password("wrong", hash_password(pw)) is False
+
+
+def test_bcrypt_2a_variant_still_verifies_and_upgrades(client):
+    """`$2a$` is genuine bcrypt, so it must keep working — the fail-closed change
+    must not have swept it up with the legacy digests. It still re-hashes to
+    `$2b$` on login, which is now the ONLY thing that upgrade path does."""
+    import bcrypt as _bcrypt
+
+    email = f"bcrypt2a-{uuid.uuid4().hex[:6]}@e.com"
+    pw = "legacypw12"
+    assert _signup(client, email).status_code == 200
+    old = _bcrypt.hashpw(pw.encode(), _bcrypt.gensalt(prefix=b"2a")).decode()
+    assert old.startswith("$2a$")
+    with get_db() as conn:
+        conn.execute("UPDATE users SET password_hash=%s WHERE email=%s", (old, email))
+
     assert client.post("/api/auth/login", json={"email": email, "password": pw}).status_code == 200
     with get_db() as conn:
-        h = conn.execute("SELECT password_hash FROM users WHERE email=%s", (email,)).fetchone()["password_hash"]
-    assert h.startswith("$2b$")  # re-hashed to bcrypt
+        h = conn.execute("SELECT password_hash FROM users WHERE email=%s",
+                         (email,)).fetchone()["password_hash"]
+    assert h.startswith("$2b$")
 
 
 # ── Configurable per-org JWT expiry ────────────────────────────────────────────
