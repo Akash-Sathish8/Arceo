@@ -5479,21 +5479,87 @@ def get_live_traces(agent_id: str, user: dict = Depends(get_current_user)):
     return {"agent_id": agent_id, "events": events, "count": len(events)}
 
 
+class WsTicketRequest(BaseModel):
+    agent_id: str
+
+
+@app.post("/api/ws-ticket")
+def mint_ws_ticket(req: WsTicketRequest, user: dict = Depends(get_current_user)):
+    """Mint a short-lived, single-use ticket for the live-trace WebSocket (MED-002).
+
+    A browser cannot set headers on a WebSocket handshake, so the socket's
+    credential has to travel in the URL — and the socket used to take the full
+    session JWT there. URLs are the least private part of a request: access logs,
+    proxy and load-balancer logs, `Referer`, browser history. None of those are
+    secret stores, all of them outlive the request, and the value being written
+    into them was a 24-hour bearer token for the entire API.
+
+    A ticket is worth ~30 seconds, one connection, one agent. Leaking the URL after
+    the socket opens leaks nothing, because redeeming consumed it.
+
+    Authenticated by the normal Bearer header, which never enters a URL.
+    """
+    org_id = _org(user)
+    with get_db() as conn:
+        if not get_agent_from_db(conn, req.agent_id, org_id=org_id):
+            raise HTTPException(status_code=404, detail=f"Agent '{req.agent_id}' not found")
+
+    ticket = secrets.token_urlsafe(32)
+    # Bound to the agent as well as the caller: a ticket minted for one agent must
+    # not open another agent's stream, even inside the same org.
+    payload = json.dumps({
+        "sub": user["sub"],
+        "org_id": org_id,
+        "tv": int(user.get("tv") or 0),
+        "agent_id": req.agent_id,
+    })
+    try:
+        shared_state.ws_ticket_store(ticket, payload)
+    except Exception as e:
+        ref = errors.log_and_ref(logger, "ws ticket mint", e)
+        raise HTTPException(status_code=503,
+                            detail=f"Live streaming is temporarily unavailable (ref: {ref})")
+    return {"ticket": ticket, "expires_in": shared_state.WS_TICKET_TTL_SECONDS}
+
+
 @app.websocket("/ws/traces/{agent_id}")
 async def ws_live_traces(websocket: WebSocket, agent_id: str):
-    """WebSocket: subscribe to live trace events for an agent (auth via ?token=<JWT>)."""
-    # ID2: authenticate before accepting. Browsers can't set headers on a WS
-    # handshake, so the JWT comes in as a query param; DEMO_MODE keeps the demo open.
+    """WebSocket: subscribe to live trace events for an agent.
+
+    Auth is `?ticket=<single-use ticket>` from POST /api/ws-ticket. MED-002: the
+    JWT is NO LONGER accepted here — passing a full session token in a URL was the
+    finding, so continuing to honour it would leave the finding open.
+    """
+    # ID2: authenticate before accepting. DEMO_MODE keeps the demo open.
     if not demo_mode_enabled():
         try:
-            payload = verify_token(websocket.query_params.get("token", ""))
-        except Exception:
+            raw = await anyio.to_thread.run_sync(
+                shared_state.ws_ticket_redeem, websocket.query_params.get("ticket", ""))
+        except Exception as e:
+            # Redis unreachable. Fail CLOSED — same posture as rate_limit_ok's
+            # default (MED-007): a credential check that cannot run must not
+            # wave the connection through.
+            errors.log_and_ref(logger, "ws ticket redeem", e)
             await websocket.close(code=4401)
             return
-        # MED-001: verify_token only checks signature + expiry. Without this, a
-        # session already invalidated by a password change or an admin revoke still
-        # opened a live-trace socket — the one auth path that skipped the
-        # token_version model entirely.
+        if not raw:
+            # Unknown, expired, or already redeemed.
+            await websocket.close(code=4401)
+            return
+        try:
+            payload = json.loads(raw)
+        except json.JSONDecodeError:
+            await websocket.close(code=4401)
+            return
+        # The ticket names the agent it was minted for; the URL names the agent
+        # being opened. They must agree.
+        if payload.get("agent_id") != agent_id:
+            await websocket.close(code=4401)
+            return
+        # MED-001: re-check the user row at redeem time rather than trusting what
+        # was true at mint time. The ticket window is short but not zero, and this
+        # is the control that a password change or an admin revoke has to be able
+        # to close — a ticket must not become a way around it.
         # MED-007: get_db()/psycopg are synchronous and this is an async handler, so
         # both reads go to a thread — a slow database must not stall the event loop
         # and with it every other request on this worker. Both checks share one
