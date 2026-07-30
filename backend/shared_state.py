@@ -269,6 +269,42 @@ def ws_release_slot(agent_id: str) -> None:
         _client.set(key, 0)
 
 
+# ── MED-002: single-use WebSocket tickets ─────────────────────────────────────
+# A browser cannot set headers on a WebSocket handshake, which is why the JWT was
+# passed as `?token=`. That put a full-session bearer credential into a URL, and
+# URLs are the least private part of a request: they land in access logs, proxy
+# and load-balancer logs, `Referer` headers, and browser history — none of which
+# are treated as secret stores, and all of which outlive the request.
+#
+# A ticket is the standard answer: opaque, short-lived, single-use, and worthless
+# once redeemed. Redis rather than a table because it is exactly a TTL cache, and
+# because it keeps this off the migration chain entirely.
+
+WS_TICKET_TTL_SECONDS = int(os.getenv("ARCEO_WS_TICKET_TTL_SECONDS", "30"))
+
+
+def ws_ticket_store(ticket: str, payload: str, ttl_seconds: int = WS_TICKET_TTL_SECONDS) -> None:
+    """Persist a minted ticket. SETEX so an unredeemed ticket cannot outlive its
+    window even if nothing ever connects."""
+    _client.setex(f"ws:ticket:{ticket}", ttl_seconds, payload)
+
+
+def ws_ticket_redeem(ticket: str) -> str | None:
+    """Return the ticket's payload and consume it, atomically. None if unknown,
+    already used, or expired.
+
+    GETDEL (Redis 6.2+) is what makes this single-use: a GET followed by a DEL
+    would let two concurrent handshakes both read the same live ticket before
+    either deleted it, so a leaked URL could be replayed in the moment it mattered.
+    """
+    if not ticket:
+        return None
+    raw = _client.getdel(f"ws:ticket:{ticket}")
+    if raw is None:
+        return None
+    return raw.decode() if isinstance(raw, bytes) else raw
+
+
 # ── Test support ──────────────────────────────────────────────────────────────
 
 def _flush_for_tests() -> None:

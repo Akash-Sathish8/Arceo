@@ -169,7 +169,8 @@ All endpoints under `/api/*` require a Bearer JWT in `Authorization` unless flag
 - `POST /api/replay` — Replay historical trace against current policies
 - `POST /api/traces/live` — Live trace ingestion
 - `GET /api/traces/live/{agent_id}`
-- `WS /ws/traces/{agent_id}` — Live trace WebSocket
+- `POST /api/ws-ticket` — Mint a single-use, ~30s ticket for the live-trace socket (body `{agent_id}`; normal Bearer auth)
+- `WS /ws/traces/{agent_id}?ticket=<ticket>` — Live trace WebSocket. **Auth is the ticket, not the JWT** — passing `?token=<JWT>` was MED-002 and no longer works
 
 ### Proxy (transparent enforcement)
 - `ANY /proxy/{service}/{path}` — Set `X-Agent-ID` header. Enforces policies then forwards. Supports stripe, zendesk, salesforce, sendgrid, github, slack, pagerduty, hubspot, gmail, calendly
