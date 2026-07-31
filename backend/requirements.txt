@@ -18,4 +18,4 @@ sqlalchemy>=2.0
 # scheduler leader lock, notification dedup.
 redis>=5.0
 # Credential vault (Phase 2): AES-256-GCM envelope encryption.
-cryptography>=42
+cryptography>=49.0.0
