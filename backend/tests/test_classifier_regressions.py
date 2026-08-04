@@ -250,3 +250,66 @@ def test_destructive_action_is_not_scored_at_the_read_floor():
         reversible=False,
     )
     assert score_action(destructive) > score_action(benign_read)
+
+
+# ── Audit failure #10: plain action verbs left real writes unclassified ──────
+# KEYWORD_RULES is tuned for SaaS vocabulary (deploy, refund, provision), so the
+# ordinary verbs a connected agent exposes — git_commit, create_team,
+# apply_migration, fork_repository — matched nothing and scored 0. The generic
+# verb baseline is a FLOOR: it only fires when no tuned rule matched, and lands
+# as weak_kw so the LLM still adjudicates it.
+
+from authority.risk_classifier import _classify_keywords, DESTROY_VERBS, WRITE_VERBS
+
+
+@pytest.mark.parametrize("action", ["git_commit", "create_team", "apply_migration",
+                                    "fork_repository", "register_webhook"])
+def test_plain_write_verbs_are_no_longer_unclassified(action):
+    kw = _classify_keywords(action)
+    assert "changes_production" in kw["labels"]
+    assert kw["sources"]["changes_production"] == "weak_kw"  # vetoable, not locked
+
+
+@pytest.mark.parametrize("action", ["scrub_dataset", "expunge_records"])
+def test_unmatched_destroy_verbs_fall_through(action):
+    """The baseline is a floor, not a catch-all: unknown verbs still reach the LLM."""
+    assert _classify_keywords(action)["labels"] == []
+
+
+def test_baseline_does_not_second_guess_a_tuned_match():
+    """Gated on `not labels`, so calibrated classifications are untouched."""
+    kw = _classify_keywords("create_refund")
+    assert kw["sources"]["moves_money"] == "strong_kw"
+
+
+def test_baseline_never_fires_on_a_read():
+    for action in ("get_customer", "list_charges", "describe_instances"):
+        kw = _classify_keywords(action)
+        assert "changes_production" not in kw["labels"]
+        assert "deletes_data" not in kw["labels"]
+
+
+def test_destroy_and_write_verbs_are_disjoint():
+    assert not (DESTROY_VERBS & WRITE_VERBS)
+
+
+# ── Catalog: actions real agents expose that had no entry ────────────────────
+
+def test_force_push_is_destructive_not_just_a_production_change():
+    """No keyword in the name says a force-push destroys the commits it overwrites."""
+    from authority.action_mapper import ACTION_CATALOG
+
+    m = ACTION_CATALOG["github"]["force_push"]
+    assert set(m.risk_labels) == {"changes_production", "deletes_data"}
+    assert m.reversible is False
+
+
+@pytest.mark.parametrize("tool,action", [
+    ("stripe", "list_charges"), ("salesforce", "update_account"),
+    ("salesforce", "create_opportunity"), ("github", "create_pull_request"),
+    ("aws", "describe_instances"), ("pagerduty", "get_incident"),
+])
+def test_new_catalog_entries_resolve_exactly(tool, action):
+    """Catalog hits are locked — they must not depend on keywords or the LLM."""
+    m = classify_with_fallback(tool, action)
+    assert m.action == action
