@@ -21,7 +21,7 @@ import psycopg
 from dotenv import load_dotenv
 load_dotenv()
 
-from fastapi import FastAPI, HTTPException, Depends, Request, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Depends, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -5258,14 +5258,27 @@ def workflow_top_pairings(user: dict = Depends(get_current_user)):
 
 
 @app.get("/api/sandbox/simulations")
-def list_simulations(user: dict = Depends(get_current_user)):
-    """List past simulation runs."""
+def list_simulations(
+    limit: int = Query(50, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+    user: dict = Depends(get_current_user),
+):
+    """List past simulation runs, newest first.
+
+    Paginated: `total` is the org-wide count, so the caller can tell a full page
+    from the end of the list. Defaults reproduce the previous fixed page of 50.
+    """
     with get_db() as conn:
+        total = conn.execute(
+            "SELECT COUNT(*) AS n FROM simulations WHERE org_id = %s", (_org(user),)
+        ).fetchone()["n"]
         rows = conn.execute(
             "SELECT s.id, s.agent_id, s.scenario_id, s.status, s.created_at, s.report_json, a.name AS agent_name "
             "FROM simulations s LEFT JOIN agents a ON a.id = s.agent_id AND a.org_id = s.org_id "
-            "WHERE s.org_id = %s ORDER BY s.created_at DESC LIMIT 50",
-            (_org(user),)
+            # s.id breaks ties: a sweep stamps its whole batch with one created_at,
+            # and without a total order OFFSET paging can repeat or skip rows.
+            "WHERE s.org_id = %s ORDER BY s.created_at DESC, s.id DESC LIMIT %s OFFSET %s",
+            (_org(user), limit, offset)
         ).fetchall()
     simulations = []
     for r in rows:
@@ -5276,7 +5289,7 @@ def list_simulations(user: dict = Depends(get_current_user)):
         sim["actions_blocked"] = report.get("actions_blocked", 0)
         sim["total_steps"] = report.get("total_steps", 0)
         simulations.append(sim)
-    return {"simulations": simulations}
+    return {"simulations": simulations, "total": total, "limit": limit, "offset": offset}
 
 
 @app.get("/api/sandbox/simulation/{simulation_id}")
