@@ -193,3 +193,60 @@ def test_low_coverage_caps_confidence():
     out = app_main._attach_coverage(br, tools)
     assert out["confidence"] == "low"  # 2/3 unclassified > 25%
     assert out["coverage"]["unclassifiedActions"] == 2
+
+# ── Audit failure #9: read verb in a LATER token scored writes at the read floor ──
+# _is_read_only fell back to scanning every "_" boundary for an unknown service
+# prefix, so any name whose tail began with a read verb was treated as a read:
+# delete_search_index matched "search_", scored at the 0.15x floor, and dropped
+# out of the danger-density bonus. The most destructive actions were the ones
+# most likely to be understated.
+
+import pytest
+
+from authority.graph import _is_read_only, score_action
+from authority.action_mapper import MappedAction
+
+
+@pytest.mark.parametrize("action", [
+    "delete_search_index",
+    "purge_query_cache",
+    "drop_search_table",
+    "terminate_query_engine",
+    "remove_list_entry",
+    "overwrite_get_config",
+])
+def test_write_verb_before_a_read_verb_is_not_a_read(action):
+    assert not _is_read_only(action)
+
+
+@pytest.mark.parametrize("action", [
+    "get_customer",
+    "stripe_get_customer",
+    "aws_ec2_describe_instances",
+    "foo_bar_describe_instances",  # the unknown-prefix case the fallback exists for
+    "list_charges",
+    "get_blog_posts",
+])
+def test_genuine_reads_still_read(action):
+    assert _is_read_only(action)
+
+
+@pytest.mark.parametrize("action", ["get_or_create_user", "search_and_email_results"])
+def test_write_verb_after_a_read_verb_still_wins(action):
+    """The pre-existing suffix override must survive the new prefix check."""
+    assert not _is_read_only(action)
+
+
+def test_destructive_action_is_not_scored_at_the_read_floor():
+    """The consequence the boolean exists for: a 0.15x floor on a delete."""
+    destructive = MappedAction(
+        tool="search", service="Search", action="delete_search_index",
+        description="Delete a search index", risk_labels=["deletes_data"],
+        reversible=False,
+    )
+    benign_read = MappedAction(
+        tool="search", service="Search", action="get_search_index",
+        description="Read a search index", risk_labels=["deletes_data"],
+        reversible=False,
+    )
+    assert score_action(destructive) > score_action(benign_read)

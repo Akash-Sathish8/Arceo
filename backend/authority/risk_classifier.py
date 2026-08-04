@@ -152,6 +152,25 @@ WRITE_OVERRIDE_TOKENS = {
     "push", "put",
 }
 
+# The mirror of the above, for tokens appearing BEFORE a read verb. An unknown
+# leading segment is normally a service/namespace (foo_bar_describe_instances),
+# but when it is an action verb the name is a write with a read verb merely
+# sitting in a later token: delete_search_index, purge_query_cache,
+# drop_search_table. Those were scored at the 0.15x read floor and excluded from
+# the danger-density bonus, understating blast radius on the most destructive
+# actions we have.
+#
+# Deliberately narrower than WRITE_OVERRIDE_TOKENS: the noun-ish members there
+# (post, put, set, add, share, email) are plausible namespace segments, and a
+# false "write" here inflates a score. A false "read" hides one, so the
+# unambiguous verbs are worth catching and the ambiguous ones are not.
+LEADING_WRITE_TOKENS = {
+    "create", "update", "delete", "remove", "write", "insert", "upload",
+    "publish", "purge", "drop", "truncate", "destroy", "erase", "wipe",
+    "overwrite", "terminate", "revoke", "disable", "deprovision",
+    "decommission", "rotate", "reset", "modify", "patch", "rename", "move",
+}
+
 # "remove" is deliberately absent: remove_user_from_group / remove_org_member
 # are restorable membership changes, unlike delete/purge. File removals are
 # covered by the FILE_DELETE primitives, which set irreversible themselves.
