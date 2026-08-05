@@ -11,7 +11,7 @@
   "dependencies": {
     "cal-sans": "^1.0.1",
     "next": "^16.2.1",
-    "react": "^19.0.0",
+    "react": "^19.2.8",
     "react-dom": "^19.0.0"
   },
   "devDependencies": {
