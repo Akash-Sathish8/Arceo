@@ -25,9 +25,9 @@ import json
 import os
 import subprocess
 import sys
+import urllib.error
+import urllib.request
 from pathlib import Path
-
-import httpx
 
 # ── Config ────────────────────────────────────────────────────────────────
 
@@ -138,19 +138,26 @@ def call_scan(files: list[dict]) -> dict:
     url = f"{API_URL}/api/scan"
 
     try:
-        with httpx.Client(timeout=120.0) as client:
-            resp = client.post(url, headers=headers, json=body)
-    except httpx.HTTPError as e:
-        print(f"::error::Failed to reach Arceo at {url}: {e}", file=sys.stderr)
+        status, text = _post_json(url, headers, body, timeout=120.0)
+    except TransportError as e:
+        print(f"::error::Failed to reach Arceo at {url}: {_clean_cmd(e)}", file=sys.stderr)
         sys.exit(1)
 
-    if resp.status_code == 401:
+    if status == 401:
         print("::error::API key rejected by Arceo (401). Check ARCEO_API_KEY secret.", file=sys.stderr)
         sys.exit(1)
-    if resp.status_code != 200:
-        print(f"::error::Arceo returned {resp.status_code}: {_clean_cmd(resp.text[:500])}", file=sys.stderr)
+    if status != 200:
+        print(f"::error::Arceo returned {status}: {_clean_cmd(text[:500])}", file=sys.stderr)
         sys.exit(1)
-    return resp.json()
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        # httpx's resp.json() raised here too, but as an unhandled traceback in the
+        # customer's log. A 200 carrying non-JSON means something sits in front of
+        # the API (proxy, captive portal, error page) — say so plainly.
+        print(f"::error::Arceo returned a non-JSON 200 response: {_clean_cmd(text[:300])}",
+              file=sys.stderr)
+        sys.exit(1)
 
 
 # ── Markdown report ───────────────────────────────────────────────────────
@@ -173,6 +180,46 @@ def _clean_cmd(s) -> str:
     """Strip CR/LF so untrusted text (a response body, a scanned agent name) in a
     ::error::/::warning:: line can't inject a second workflow command (LOW-012)."""
     return str(s).replace("\r", " ").replace("\n", " ")
+
+
+class TransportError(Exception):
+    """The request never got an HTTP response (DNS, TCP, TLS, timeout)."""
+
+
+def _post_json(url: str, headers: dict, payload: dict, timeout: float) -> tuple[int, str]:
+    """POST JSON and return `(status_code, body_text)`.
+
+    MED-018: this replaces httpx so the action has ZERO third-party dependencies.
+    It runs inside the CUSTOMER's CI, holding their Arceo API key and a
+    GITHUB_TOKEN, and `pip install httpx` there resolved whatever the index served
+    at that moment — an unpinned, unhashed install is a supply-chain foothold in
+    someone else's pipeline, for a package we use to make two JSON POSTs. Stdlib
+    removes the install step entirely rather than pinning a transitive tree that
+    someone then has to keep refreshing.
+
+    urllib raises HTTPError on 4xx/5xx where httpx returns a response, so that is
+    normalised back here — every existing call site branches on the status code and
+    should not have to care. Genuine transport failures raise TransportError, which
+    is the case the callers already handle separately. TLS verification is urllib's
+    default (`ssl.create_default_context`); it is not weakened anywhere.
+    """
+    body = json.dumps(payload).encode()
+    # httpx set Content-Type automatically for `json=`; urllib does not. Defaulting
+    # it here (rather than at each call site) is what keeps the GitHub API call
+    # correct — that one never set the header explicitly because it never had to.
+    req = urllib.request.Request(
+        url, data=body, method="POST",
+        headers={"Content-Type": "application/json", **headers,
+                 "Content-Length": str(len(body))},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return resp.status, resp.read().decode("utf-8", "replace")
+    except urllib.error.HTTPError as e:
+        # A real HTTP response that happened to be an error status.
+        return e.code, e.read().decode("utf-8", "replace")
+    except Exception as e:  # URLError, socket.timeout, ssl.SSLError, ...
+        raise TransportError(str(e)) from e
 
 
 def _md(s) -> str:
@@ -297,19 +344,19 @@ def post_pr_comment(body: str) -> None:
         return
     url = f"{GITHUB_API_URL}/repos/{GITHUB_REPOSITORY}/issues/{pr}/comments"
     try:
-        with httpx.Client(timeout=30.0) as client:
-            resp = client.post(
-                url,
-                headers={
-                    "Authorization": f"Bearer {GITHUB_TOKEN}",
-                    "Accept": "application/vnd.github+json",
-                },
-                json={"body": body},
-            )
-        if resp.status_code not in (200, 201):
-            print(f"::warning::PR comment failed ({resp.status_code}): {_clean_cmd(resp.text[:300])}", file=sys.stderr)
-    except httpx.HTTPError as e:
-        print(f"::warning::PR comment request failed: {e}", file=sys.stderr)
+        status, text = _post_json(
+            url,
+            {
+                "Authorization": f"Bearer {GITHUB_TOKEN}",
+                "Accept": "application/vnd.github+json",
+            },
+            {"body": body},
+            timeout=30.0,
+        )
+        if status not in (200, 201):
+            print(f"::warning::PR comment failed ({status}): {_clean_cmd(text[:300])}", file=sys.stderr)
+    except TransportError as e:
+        print(f"::warning::PR comment request failed: {_clean_cmd(e)}", file=sys.stderr)
 
 
 # ── Main ──────────────────────────────────────────────────────────────────

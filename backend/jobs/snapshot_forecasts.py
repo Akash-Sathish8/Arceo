@@ -19,7 +19,7 @@ import uuid
 from datetime import datetime, timedelta
 
 from analysis.spend_forecast import forecast_spend
-from db import get_db, get_all_agents_from_db
+from db import get_db, get_all_agents_from_db, current_org
 
 
 def _load_sandbox_traces(conn, agent_id: str, org_id: str) -> list:
@@ -45,10 +45,18 @@ def _live_trace_count_7d(conn, agent_id: str) -> int:
     # provider:model). Both capture paths (SDK wrap_llm + transparent proxy) count.
     seven_days_ago = (datetime.utcnow() - timedelta(days=7)).isoformat()
     row = conn.execute(
-        "SELECT COUNT(*) FROM audit_log WHERE action IN ('LLM_CALL', 'LLM_CALL_PROXY') AND user_email = %s AND timestamp > %s",
+        "SELECT COUNT(*) AS n FROM audit_log WHERE action IN ('LLM_CALL', 'LLM_CALL_PROXY') "
+        "AND user_email = %s AND timestamp > %s",
         (agent_id, seven_days_ago),
     ).fetchone()
-    return int(row[0]) if row else 0
+    # Positional indexing here (`row[0]`) raised KeyError: 0 under psycopg3's
+    # dict_row factory, which every connection uses. The whole per-agent body is
+    # wrapped in `except Exception: failed += 1`, so the job had been failing on
+    # EVERY agent and writing zero snapshots since the Postgres migration — quietly,
+    # because nothing polls its exit code. Found while restructuring for LOW-015;
+    # not a security finding, but it silently emptied the table that feeds the
+    # vs-last-time delta.
+    return int(row["n"]) if row else 0
 
 
 def snapshot_all_agents() -> dict:
@@ -61,12 +69,48 @@ def snapshot_all_agents() -> dict:
     skipped = 0
     failed = 0
 
+    # LOW-015: this used to be ONE transaction wrapping the whole fleet, run at
+    # the scheduler's default 'system' RLS context. Two problems. A pooled
+    # connection was held open for as long as the slowest agent's forecast took,
+    # across every tenant — on a real fleet that is a long-lived transaction
+    # blocking vacuum and holding a pool slot the request path needs. And the RLS
+    # backstop was inert for the one job that touches every tenant's rows: the
+    # queries are explicitly org-scoped in SQL, so nothing leaked, but the
+    # defence-in-depth layer was doing nothing precisely where it would matter
+    # most.
+    #
+    # Now: one short read to list the fleet, then a separate transaction PER ORG
+    # with current_org set to that tenant, so each org's writes are checked by RLS
+    # as if a member of that org had made them.
     with get_db() as conn:
-        agents = get_all_agents_from_db(conn)
+        all_agents = get_all_agents_from_db(conn)
+
+    by_org: dict[str, list] = {}
+    for agent in all_agents:
+        if not agent:
+            skipped += 1
+            continue
+        by_org.setdefault(agent.get("org_id") or "default", []).append(agent)
+
+    for org_id_ctx, agents in by_org.items():
+        token = current_org.set(org_id_ctx)
+        try:
+            w, sk, f = _snapshot_one_org(agents, snapshot_date, captured_at)
+            written += w
+            skipped += sk
+            failed += f
+        finally:
+            current_org.reset(token)
+
+    return {"snapshot_date": snapshot_date, "written": written, "skipped": skipped, "failed": failed}
+
+
+def _snapshot_one_org(agents: list, snapshot_date: str, captured_at: str) -> tuple[int, int, int]:
+    """Snapshot one org's agents in its own transaction, at its own RLS context."""
+    written = skipped = failed = 0
+    with get_db() as conn:
         for agent in agents:
-            if not agent:
-                skipped += 1
-                continue
+            # (falsy rows are filtered by the caller before grouping)
             agent_id = agent["id"]
             org_id = agent.get("org_id") or "default"
             # Idempotent per day — safe to re-run (and lets the in-process
@@ -126,8 +170,7 @@ def snapshot_all_agents() -> dict:
             except Exception as e:  # noqa: BLE001 — job must keep going past one bad agent
                 print(f"  ✗ {agent_id}: {e}", file=sys.stderr)
                 failed += 1
-
-    return {"snapshot_date": snapshot_date, "written": written, "skipped": skipped, "failed": failed}
+    return written, skipped, failed
 
 
 def main() -> int:

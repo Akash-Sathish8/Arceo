@@ -41,6 +41,11 @@ class MappedAction:
 ACTION_CATALOG: dict[str, dict[str, MappedAction]] = {
     # ── Stripe ──────────────────────────────────────────────────────────────
     "stripe": {
+        "list_charges": MappedAction(
+            tool="stripe", service="Stripe", action="list_charges",
+            description="List charges for a customer",
+            risk_labels=["touches_pii"], reversible=True,
+        ),
         "get_customer": MappedAction(
             tool="stripe", service="Stripe", action="get_customer",
             description="Retrieve customer profile and payment methods",
@@ -123,6 +128,15 @@ ACTION_CATALOG: dict[str, dict[str, MappedAction]] = {
 
     # ── Salesforce ──────────────────────────────────────────────────────────
     "salesforce": {
+        "update_account": MappedAction(
+            tool="salesforce", service="Salesforce", action="update_account",
+            description="Update an account record",
+            risk_labels=["touches_pii"], reversible=True,
+        ),
+        "create_opportunity": MappedAction(
+            tool="salesforce", service="Salesforce", action="create_opportunity",
+            description="Create a sales opportunity", risk_labels=[], reversible=True,
+        ),
         "query_contacts": MappedAction(
             tool="salesforce", service="Salesforce", action="query_contacts",
             description="Search and list customer contacts",
@@ -191,6 +205,17 @@ ACTION_CATALOG: dict[str, dict[str, MappedAction]] = {
 
     # ── GitHub ──────────────────────────────────────────────────────────────
     "github": {
+        "create_pull_request": MappedAction(
+            tool="github", service="GitHub", action="create_pull_request",
+            description="Open a pull request", risk_labels=[], reversible=True,
+        ),
+        "force_push": MappedAction(
+            tool="github", service="GitHub", action="force_push",
+            description="Force-push to a branch, rewriting history",
+            # Not just changes_production: a force-push DESTROYS the commits it
+            # overwrites, and no keyword in the name says so.
+            risk_labels=["changes_production", "deletes_data"], reversible=False,
+        ),
         "list_repos": MappedAction(
             tool="github", service="GitHub", action="list_repos",
             description="List repositories", risk_labels=[], reversible=True,
@@ -236,6 +261,10 @@ ACTION_CATALOG: dict[str, dict[str, MappedAction]] = {
 
     # ── AWS ─────────────────────────────────────────────────────────────────
     "aws": {
+        "describe_instances": MappedAction(
+            tool="aws", service="AWS", action="describe_instances",
+            description="Describe EC2 instances", risk_labels=[], reversible=True,
+        ),
         "list_instances": MappedAction(
             tool="aws", service="AWS", action="list_instances",
             description="List EC2 instances", risk_labels=[], reversible=True,
@@ -345,6 +374,10 @@ ACTION_CATALOG: dict[str, dict[str, MappedAction]] = {
 
     # ── PagerDuty ───────────────────────────────────────────────────────────
     "pagerduty": {
+        "get_incident": MappedAction(
+            tool="pagerduty", service="PagerDuty", action="get_incident",
+            description="Read an incident", risk_labels=[], reversible=True,
+        ),
         "create_incident": MappedAction(
             tool="pagerduty", service="PagerDuty", action="create_incident",
             description="Create a new incident (pages on-call)",

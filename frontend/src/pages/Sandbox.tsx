@@ -96,6 +96,9 @@ interface SimulationListItem {
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
+// Past Runs pages through /api/sandbox/simulations; the backend caps limit at 500.
+const SIM_PAGE_SIZE = 50
+
 const CATEGORY_TOOLTIPS: Partial<Record<ScenarioCategory, string>> = {
   edge_case:
     'Unusual or boundary situations the agent might encounter — tests whether it behaves safely in uncommon scenarios.',
@@ -200,6 +203,8 @@ export default function Sandbox() {
   const [scenarios, setScenarios] = useState<Scenario[]>([])
   const [agents, setAgents] = useState<AgentListItem[]>([])
   const [simulations, setSimulations] = useState<SimulationListItem[]>([])
+  const [simTotal, setSimTotal] = useState(0)
+  const [loadingMoreSims, setLoadingMoreSims] = useState(false)
   const [simSearch, setSimSearch] = useState('')
   const [simSort, setSimSort] = useState('newest')
   const [loading, setLoading] = useState(true)
@@ -239,11 +244,14 @@ export default function Sandbox() {
   useEffect(() => {
     Promise.all([
       apiFetch<{ agents: AgentListItem[] }>('/api/authority/agents'),
-      apiFetch<{ simulations: SimulationListItem[] }>('/api/sandbox/simulations'),
+      apiFetch<{ simulations: SimulationListItem[]; total: number }>(
+        `/api/sandbox/simulations?limit=${SIM_PAGE_SIZE}&offset=0`,
+      ),
     ])
       .then(([agentData, simData]) => {
         setAgents(agentData.agents)
         setSimulations(simData.simulations)
+        setSimTotal(simData.total)
         // URL intent beats the saved session beats the first agent.
         const defaultAgent =
           preselectedAgent && agentData.agents.find((a) => a.id === preselectedAgent)
@@ -259,6 +267,23 @@ export default function Sandbox() {
         setLoading(false)
       })
   }, [])
+
+  const loadMoreSims = () => {
+    setLoadingMoreSims(true)
+    apiFetch<{ simulations: SimulationListItem[]; total: number }>(
+      `/api/sandbox/simulations?limit=${SIM_PAGE_SIZE}&offset=${simulations.length}`,
+    )
+      .then((d) => {
+        // De-dupe: a run recorded since the first page shifts the offset window.
+        setSimulations((prev) => {
+          const seen = new Set(prev.map((s) => s.id))
+          return [...prev, ...d.simulations.filter((s) => !seen.has(s.id))]
+        })
+        setSimTotal(d.total)
+      })
+      .catch((err: Error) => toast(err.message, 'error'))
+      .finally(() => setLoadingMoreSims(false))
+  }
 
   const [loadingScenarios, setLoadingScenarios] = useState(false)
   const [generatingScenarios, setGeneratingScenarios] = useState(false)
@@ -276,10 +301,11 @@ export default function Sandbox() {
       setScenarios((prev) => [...prev.filter((s) => !s.id.includes('-gen-')), ...fresh])
       toast(`Claude wrote ${fresh.length} scenario${fresh.length !== 1 ? 's' : ''} for this agent`)
     } catch (err: unknown) {
-      toast(
-        'Scenario generation failed: ' + (err instanceof Error ? err.message : 'Unknown error'),
-        'error',
-      )
+      // The server's detail is already a complete sentence and now carries a
+      // correlation ref (MED-016) — prefixing it here printed the failure twice
+      // and pushed the ref, the one thing worth quoting in a bug report, to the
+      // end of a doubled message.
+      toast(err instanceof Error ? err.message : 'Scenario generation failed', 'error')
     }
     setGeneratingScenarios(false)
   }
@@ -487,7 +513,7 @@ export default function Sandbox() {
         <div className="flex mt-6">
           {([
             { id: 'run' as const, label: 'Run Simulation' },
-            { id: 'past' as const, label: `Past Runs${simulations.length > 0 ? ` (${simulations.length})` : ''}` },
+            { id: 'past' as const, label: `Past Runs${simTotal > 0 ? ` (${simTotal})` : ''}` },
           ]).map((t) => (
             <button
               key={t.id}
@@ -962,7 +988,11 @@ export default function Sandbox() {
         <div className="flex items-center justify-between mb-5">
           <div>
             <h2 className="text-xl font-bold text-gray-900">Past Runs</h2>
-            <p className="text-sm text-gray-500 mt-1">{simulations.length} simulation{simulations.length !== 1 ? 's' : ''} recorded</p>
+            <p className="text-sm text-gray-500 mt-1">
+              {simulations.length < simTotal
+                ? `Showing ${simulations.length} of ${simTotal} simulations`
+                : `${simTotal} simulation${simTotal !== 1 ? 's' : ''} recorded`}
+            </p>
           </div>
         </div>
 
@@ -1074,6 +1104,17 @@ export default function Sandbox() {
                 )
               })}
           </div>
+
+          {simulations.length < simTotal && (
+            <div className="flex flex-col items-center gap-1.5 mt-4">
+              <Button variant="secondary" onClick={loadMoreSims} disabled={loadingMoreSims}>
+                {loadingMoreSims ? 'Loading…' : `Load ${Math.min(SIM_PAGE_SIZE, simTotal - simulations.length)} more`}
+              </Button>
+              <p className="text-xs text-gray-400">
+                Search and sort apply to the {simulations.length} runs loaded so far
+              </p>
+            </div>
+          )}
         </section>
       )}
 

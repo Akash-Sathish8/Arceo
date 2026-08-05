@@ -1477,8 +1477,18 @@ def forecast_spend(
     )
     if observed_llm_calls is not None and explicit_runs is None and explicit_turns is None:
         # Live tier, no manual what-if → trust observed total LLM calls.
+        #
+        # Same P1 contract as declared volume: a MEASURED total carries no run
+        # split either. Dividing it by the *default* runs/day published a
+        # fabricated ratio (20 observed / 100 assumed = 0.2 turns per run) that
+        # the API then refused as an input — turns are floored at 1 both here
+        # and in _clamp_forecast_overrides, so the value we emitted could never
+        # be sent back. The UI echoes this field on every what-if, so the whole
+        # slider panel 422'd on any live-tier agent. Report the measured total
+        # as the volume and leave the split unclaimed.
         llm_calls_per_day = int(observed_llm_calls)
-        turns_per_run = round(llm_calls_per_day / runs_per_day, 1) if runs_per_day else turns_per_run
+        runs_per_day = llm_calls_per_day
+        turns_per_run = 1
     elif volume_is_total:
         llm_calls_per_day = int(agent_config["expected_calls_per_day"])
         runs_per_day = max(1, int(round(llm_calls_per_day / turns_per_run)))

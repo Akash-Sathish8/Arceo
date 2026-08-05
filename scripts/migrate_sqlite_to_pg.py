@@ -201,7 +201,12 @@ CREATE TABLE workspace_settings (id INTEGER PRIMARY KEY DEFAULT 1, slack_webhook
 _REHEARSAL_SEED = """
 INSERT INTO organizations VALUES ('default', 'Default Organization', '2026-01-01T00:00:00');
 INSERT INTO organizations VALUES ('org-b', 'Org B', '2026-02-01T00:00:00');
-INSERT INTO users VALUES ('u1', 'admin@actiongate.io', 'x', 'Admin', 'admin', 'default', '2026-01-01T00:00:00');
+-- The password_hash is a bcrypt-SHAPED dummy, not a real hash and not loginable.
+-- It used to be 'x', which made the MED-003 legacy-hash audit query
+--   SELECT count(*) FROM users WHERE password_hash NOT LIKE '$2%'
+-- report a hit in the rehearsal database and read as a genuine unsalted-SHA-256
+-- row. Shaped like bcrypt so that check stays honest; the rehearsal never logs in.
+INSERT INTO users VALUES ('u1', 'admin@actiongate.io', '$2b$12$rehearsalFixtureNotARealHashXXXXXXXXXXXXXXXXXXXXXXXXX', 'Admin', 'admin', 'default', '2026-01-01T00:00:00');
 INSERT INTO agents (id, name, org_id, human_in_loop) VALUES ('agent-1', 'Support Bot', 'default', 1);
 INSERT INTO agent_tools (agent_id, name, service) VALUES ('agent-1', 'stripe', 'Stripe');
 INSERT INTO tool_actions (tool_id, action, risk_labels, reversible) VALUES (1, 'create_refund', '["moves_money"]', 0);

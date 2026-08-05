@@ -193,3 +193,123 @@ def test_low_coverage_caps_confidence():
     out = app_main._attach_coverage(br, tools)
     assert out["confidence"] == "low"  # 2/3 unclassified > 25%
     assert out["coverage"]["unclassifiedActions"] == 2
+
+# ── Audit failure #9: read verb in a LATER token scored writes at the read floor ──
+# _is_read_only fell back to scanning every "_" boundary for an unknown service
+# prefix, so any name whose tail began with a read verb was treated as a read:
+# delete_search_index matched "search_", scored at the 0.15x floor, and dropped
+# out of the danger-density bonus. The most destructive actions were the ones
+# most likely to be understated.
+
+import pytest
+
+from authority.graph import _is_read_only, score_action
+from authority.action_mapper import MappedAction
+
+
+@pytest.mark.parametrize("action", [
+    "delete_search_index",
+    "purge_query_cache",
+    "drop_search_table",
+    "terminate_query_engine",
+    "remove_list_entry",
+    "overwrite_get_config",
+])
+def test_write_verb_before_a_read_verb_is_not_a_read(action):
+    assert not _is_read_only(action)
+
+
+@pytest.mark.parametrize("action", [
+    "get_customer",
+    "stripe_get_customer",
+    "aws_ec2_describe_instances",
+    "foo_bar_describe_instances",  # the unknown-prefix case the fallback exists for
+    "list_charges",
+    "get_blog_posts",
+])
+def test_genuine_reads_still_read(action):
+    assert _is_read_only(action)
+
+
+@pytest.mark.parametrize("action", ["get_or_create_user", "search_and_email_results"])
+def test_write_verb_after_a_read_verb_still_wins(action):
+    """The pre-existing suffix override must survive the new prefix check."""
+    assert not _is_read_only(action)
+
+
+def test_destructive_action_is_not_scored_at_the_read_floor():
+    """The consequence the boolean exists for: a 0.15x floor on a delete."""
+    destructive = MappedAction(
+        tool="search", service="Search", action="delete_search_index",
+        description="Delete a search index", risk_labels=["deletes_data"],
+        reversible=False,
+    )
+    benign_read = MappedAction(
+        tool="search", service="Search", action="get_search_index",
+        description="Read a search index", risk_labels=["deletes_data"],
+        reversible=False,
+    )
+    assert score_action(destructive) > score_action(benign_read)
+
+
+# ── Audit failure #10: plain action verbs left real writes unclassified ──────
+# KEYWORD_RULES is tuned for SaaS vocabulary (deploy, refund, provision), so the
+# ordinary verbs a connected agent exposes — git_commit, create_team,
+# apply_migration, fork_repository — matched nothing and scored 0. The generic
+# verb baseline is a FLOOR: it only fires when no tuned rule matched, and lands
+# as weak_kw so the LLM still adjudicates it.
+
+from authority.risk_classifier import _classify_keywords, DESTROY_VERBS, WRITE_VERBS
+
+
+@pytest.mark.parametrize("action", ["git_commit", "create_team", "apply_migration",
+                                    "fork_repository", "register_webhook"])
+def test_plain_write_verbs_are_no_longer_unclassified(action):
+    kw = _classify_keywords(action)
+    assert "changes_production" in kw["labels"]
+    assert kw["sources"]["changes_production"] == "weak_kw"  # vetoable, not locked
+
+
+@pytest.mark.parametrize("action", ["scrub_dataset", "expunge_records"])
+def test_unmatched_destroy_verbs_fall_through(action):
+    """The baseline is a floor, not a catch-all: unknown verbs still reach the LLM."""
+    assert _classify_keywords(action)["labels"] == []
+
+
+def test_baseline_does_not_second_guess_a_tuned_match():
+    """Gated on `not labels`, so calibrated classifications are untouched."""
+    kw = _classify_keywords("create_refund")
+    assert kw["sources"]["moves_money"] == "strong_kw"
+
+
+def test_baseline_never_fires_on_a_read():
+    for action in ("get_customer", "list_charges", "describe_instances"):
+        kw = _classify_keywords(action)
+        assert "changes_production" not in kw["labels"]
+        assert "deletes_data" not in kw["labels"]
+
+
+def test_destroy_and_write_verbs_are_disjoint():
+    assert not (DESTROY_VERBS & WRITE_VERBS)
+
+
+# ── Catalog: actions real agents expose that had no entry ────────────────────
+
+def test_force_push_is_destructive_not_just_a_production_change():
+    """No keyword in the name says a force-push destroys the commits it overwrites."""
+    from authority.action_mapper import ACTION_CATALOG
+
+    m = ACTION_CATALOG["github"]["force_push"]
+    assert set(m.risk_labels) == {"changes_production", "deletes_data"}
+    assert m.reversible is False
+
+
+@pytest.mark.parametrize("tool,action", [
+    ("stripe", "list_charges"), ("salesforce", "update_account"),
+    ("salesforce", "create_opportunity"), ("github", "create_pull_request"),
+    ("aws", "describe_instances"), ("pagerduty", "get_incident"),
+])
+def test_new_catalog_entries_resolve_exactly(tool, action):
+    """Catalog hits are locked — they must not depend on keywords or the LLM."""
+    m = classify_with_fallback(tool, action)
+    assert m.action == action

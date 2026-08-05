@@ -88,3 +88,30 @@ def redact_value(value):
     if isinstance(value, list):
         return [redact_value(v) for v in value]
     return value
+
+
+# ── Log-safe values (MED-017) ─────────────────────────────────────────────────
+# Caller-supplied identifiers — X-Agent-ID, tool/action names from customer
+# manifests — reached the plain-text application logger through f-strings with no
+# neutralisation. `.strip()` only trims the ENDS, so an interior "\n" let a caller
+# forge whole log lines: fabricating events, attributing actions to another
+# tenant's agent, or breaking a SIEM that assumes one event per line.
+#
+# The audit_log sink was never the problem — log_audit writes through a fully
+# parameterised INSERT, so values are stored as column data and the hash chain
+# stays intact. The unstructured logger is the real injectable sink.
+_LOG_UNSAFE = re.compile(r"[\x00-\x1f\x7f-\x9f]")
+
+
+def log_safe(value, max_length: int = 200) -> str:
+    """Neutralise a caller-derived value for a log line.
+
+    Strips CR/LF and every other C0/C1 control character (escaping them rather
+    than dropping them would still let a reader be misled), and caps the length so
+    an oversized field can't push the real content off the line.
+    """
+    text = "" if value is None else str(value)
+    cleaned = _LOG_UNSAFE.sub("", text)
+    if len(cleaned) > max_length:
+        cleaned = cleaned[:max_length] + "…"
+    return cleaned
