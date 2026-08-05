@@ -30,7 +30,7 @@ from pydantic import BaseModel, Field
 from auth import get_current_user, login_user, verify_token, demo_mode_enabled
 from db import (
     get_db, init_db, get_agent_from_db, get_all_agents_from_db,
-    log_audit, log_execution, DEFAULT_ORG_ID,
+    log_audit, log_execution, store_llm_capture, DEFAULT_ORG_ID,
 )
 import vault
 import encryption
@@ -642,6 +642,17 @@ def _snapshot_scheduler_loop():
                 logger.info(f"weekly digests sent: {d['sent']} (due {d.get('due')})")
         except Exception as e:  # noqa: BLE001 — scheduler must never die
             logger.warning(f"weekly digest run failed: {e}")
+        try:
+            # MED-013: retention sweep over captured prompt/response bodies. Cheap
+            # and idempotent — a run with nothing expired deletes nothing.
+            from jobs.purge_llm_captures import purge_expired_captures
+            with get_db() as conn:
+                p = purge_expired_captures(conn)
+            if p.get("purged"):
+                logger.info(f"purged {p['purged']} LLM capture(s) older than "
+                            f"{p['retention_days']}d")
+        except Exception as e:  # noqa: BLE001 — scheduler must never die
+            logger.warning(f"capture retention run failed: {e}")
         time.sleep(_SNAPSHOT_POLL_SECONDS)
 
 
@@ -859,9 +870,9 @@ async def proxy_llm_request(provider: str, path: str, request: Request):
         _budget_settle(budget_ticket, call_cost_from_detail(
             payload, defaults=load_defaults(proxy_org)))
         with get_db() as conn:
-            detail = json.dumps(payload)[:32000]
-            log_audit(conn, None, agent_id, "LLM_CALL_PROXY",
-                      resource=f"{provider}:{captured.get('model') or 'unknown'}", detail=detail)
+            # MED-013: bodies to the purgeable store, metadata + usage to the chain.
+            _capture_llm_call(conn, proxy_org, agent_id, "LLM_CALL_PROXY",
+                              f"{provider}:{captured.get('model') or 'unknown'}", payload)
 
     try:
         # On overflow (>8MB captured) _stream_upstream skips on_complete, so the
@@ -874,6 +885,65 @@ async def proxy_llm_request(provider: str, path: str, request: Request):
     except Exception:
         _budget_settle(budget_ticket, 0.0)  # never reached upstream — release the hold
         raise
+
+
+# ── MED-013: captured content lives OUTSIDE the audit chain ───────────────────
+# Both capture paths used to put the system prompt and the whole response body
+# into audit_log.detail. audit_log is append-only by trigger (0007) for every role
+# including superuser, so that content could never be deleted: no TTL, no purge,
+# no answer to a GDPR erasure request, by construction.
+#
+# The split below is deliberate about what stays chained. `response.usage` is the
+# token counts the cost engine prices from (spend_forecast._extract_usage reads
+# exactly detail["response"]["usage"]) — those are counts, not content, and they
+# must remain permanent or historical spend would evaporate when a capture is
+# purged. The prompt text and the response body are what move.
+_CAPTURE_CONTENT_KEYS = ("system", "messages", "response_content")
+
+
+def _split_capture(payload: dict) -> tuple[dict, dict]:
+    """Return (audit_detail, capture_content).
+
+    audit_detail keeps metadata + response.usage and is safe to retain forever;
+    capture_content holds the prompt/response bodies and goes to the purgeable
+    llm_captures table."""
+    content: dict = {}
+    detail = dict(payload)
+
+    for key in ("system", "messages"):
+        if detail.get(key):
+            content[key] = detail.pop(key)
+        else:
+            detail.pop(key, None)
+
+    response = detail.get("response")
+    if isinstance(response, dict):
+        usage_only = {k: v for k, v in response.items()
+                      if k in ("usage", "usageMetadata", "model", "stop_reason", "id")}
+        body = {k: v for k, v in response.items() if k not in usage_only}
+        if body:
+            content["response"] = body
+        # Keep the usage block (and the cheap identifiers around it) in the audit
+        # row so pricing, reconciliation and the month-to-date sum are unaffected.
+        detail["response"] = usage_only
+    elif response is not None:
+        content["response"] = response
+        detail["response"] = None
+
+    return detail, content
+
+
+def _capture_llm_call(conn, org_id: str, agent_id: str, action: str, resource: str,
+                      payload: dict) -> None:
+    """Write one captured LLM call: bodies to llm_captures, metadata + usage to the
+    audit chain with a reference and a digest of what was captured."""
+    detail, content = _split_capture(payload)
+    if content:
+        capture_id, digest = store_llm_capture(conn, org_id, agent_id, content)
+        detail["capture_id"] = capture_id
+        detail["capture_sha256"] = digest
+    log_audit(conn, None, agent_id, action, resource=resource,
+              detail=json.dumps(detail)[:32000])
 
 
 class _VaultForwardBlocked(Exception):
@@ -3339,8 +3409,9 @@ def ingest_llm_call(agent_id: str, payload: dict, request: Request):
                 redacted, defaults=load_defaults(agent["org_id"])))
             settled = True
 
-            log_audit(conn, None, agent_id, "LLM_CALL", resource=f"{provider}:{model}",
-                      detail=json.dumps(redacted)[:32000])
+            # MED-013: bodies to the purgeable store, metadata + usage to the chain.
+            _capture_llm_call(conn, agent["org_id"], agent_id, "LLM_CALL",
+                              f"{provider}:{model}", redacted)
     finally:
         if not settled:
             _budget_settle(budget_ticket, 0.0)  # nothing was recorded — release the hold
