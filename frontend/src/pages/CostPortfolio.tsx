@@ -1179,7 +1179,12 @@ function CostPortfolioContent({
             </div>
           )}
 
-          {budgetFit && (
+          {budgetFit && budgetFit.available === false ? (
+            <div className="text-xs text-gray-500 px-3 py-2.5 rounded-lg" style={{ background: "var(--bg-sunken)" }}>
+              Needs a forecast before a budget can be fitted — declare this agent's
+              volume above, or run a sandbox sweep.
+            </div>
+          ) : budgetFit && (
             <>
               {budgetFit.status === "under" ? (
                 <div

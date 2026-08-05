@@ -105,11 +105,18 @@ export interface BudgetRecommendation {
 }
 
 export interface BudgetFit {
+  // The backend returns a refusal variant when there's no forecast to fit a
+  // budget to: {available:false, reason:"no_data", forecastPoint:null} with NO
+  // `gap` and NO `status`. Modelling those as required lied to every caller and
+  // crashed the panel on undefined.gap — check `available` before reading them.
+  available?: boolean
+  reason?: string
+  needs?: string[]
   budget: number
-  forecastPoint: number
-  gap: number
-  status: "under" | "over"
-  currentModel: string
+  forecastPoint: number | null
+  gap?: number
+  status?: "under" | "over"
+  currentModel?: string
   recommendations: BudgetRecommendation[]
 }
 
