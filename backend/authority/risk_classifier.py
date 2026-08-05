@@ -152,6 +152,39 @@ WRITE_OVERRIDE_TOKENS = {
     "push", "put",
 }
 
+# Plain action verbs, split by what they do. KEYWORD_RULES above is tuned for
+# SaaS vocabulary (deploy, refund, provision) and misses the ordinary verbs a
+# connected agent actually exposes — write_file, git_commit, create_team,
+# apply_migration, fork_repository — leaving them with no label at all.
+DESTROY_VERBS = {
+    "delete", "remove", "drop", "purge", "truncate", "destroy", "erase",
+    "wipe", "overwrite",
+}
+WRITE_VERBS = {
+    "write", "create", "update", "edit", "modify", "patch", "move", "rename",
+    "push", "commit", "merge", "apply", "deploy", "publish", "provision",
+    "restart", "reboot", "rollback", "scale", "terminate", "fork", "checkout",
+    "insert", "upload", "replace", "set", "enable", "disable", "register",
+}
+
+# The mirror of the above, for tokens appearing BEFORE a read verb. An unknown
+# leading segment is normally a service/namespace (foo_bar_describe_instances),
+# but when it is an action verb the name is a write with a read verb merely
+# sitting in a later token: delete_search_index, purge_query_cache,
+# drop_search_table. Those were scored at the 0.15x read floor and excluded from
+# the danger-density bonus, understating blast radius on the most destructive
+# actions we have.
+#
+# Deliberately narrower than WRITE_OVERRIDE_TOKENS: the noun-ish members there
+# (post, put, set, add, share, email) are plausible namespace segments, and a
+# false "write" here inflates a score. A false "read" hides one, so the
+# unambiguous verbs are worth catching and the ambiguous ones are not.
+LEADING_WRITE_TOKENS = DESTROY_VERBS | {
+    "create", "update", "write", "insert", "upload", "publish", "terminate",
+    "revoke", "disable", "deprovision", "decommission", "rotate", "reset",
+    "modify", "patch", "rename", "move",
+}
+
 # "remove" is deliberately absent: remove_user_from_group / remove_org_member
 # are restorable membership changes, unlike delete/purge. File removals are
 # covered by the FILE_DELETE primitives, which set irreversible themselves.
@@ -430,6 +463,21 @@ def _classify_keywords(action_name: str, description: str = "") -> dict:
             sources[lbl] = prim_sources.get(lbl, "weak_kw")
         elif prim_sources.get(lbl) == "primitive":
             sources[lbl] = "primitive"  # primitive signal upgrades a keyword match
+
+    # Generic verb baseline. Anchored on the leading/trailing token so a verb
+    # buried mid-name can't fire it, and gated on `not labels` so it is a FLOOR
+    # for otherwise-unclassified writes rather than a second opinion on actions
+    # the tuned rules already handled — that keeps it off the calibrated fleet.
+    # Lands as weak_kw, so Haiku still adjudicates it like any other soft match.
+    if not labels and not is_read:
+        tokens = stripped.split("_")
+        verbs = {tokens[0], tokens[-1]} if tokens else set()
+        if verbs & DESTROY_VERBS:
+            labels.append("deletes_data")
+            sources["deletes_data"] = "weak_kw"
+        elif verbs & WRITE_VERBS:
+            labels.append("changes_production")
+            sources["changes_production"] = "weak_kw"
 
     kw_irreversible = (not is_read) and any(kw in combined for kw in IRREVERSIBLE_KEYWORDS)
     reversible = not (kw_irreversible or prim_irreversible)
@@ -753,7 +801,10 @@ def classify_with_llm(action_name: str, description: str = "", schema_props: dic
             labels = [l for l in result.get("risk_labels", []) if l in VALID_LABELS]
             votes.append((labels, bool(result.get("reversible", True))))
         except Exception as e:
-            logger.warning(f"LLM classification vote failed for {action_name}: {e}")
+            # MED-017: action_name is customer-supplied.
+            import redaction
+            logger.warning(
+                f"LLM classification vote failed for {redaction.log_safe(action_name)}: {e}")
 
     if not votes:
         return None

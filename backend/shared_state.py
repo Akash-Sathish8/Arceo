@@ -12,11 +12,14 @@ a reachable Redis (docker-compose provides one locally and in CI).
 
 from __future__ import annotations
 
+import logging
 import os
 import time
 import uuid
 
 import redis
+
+logger = logging.getLogger(__name__)
 
 REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
 
@@ -61,11 +64,27 @@ _SLIDING_WINDOW = _client.register_script(
 )
 
 
-def rate_limit_ok(key: str, limit: int, window_seconds: int) -> bool:
-    """True if this request is within the limit; False if it should be throttled."""
+def rate_limit_ok(key: str, limit: int, window_seconds: int, *, fail_open: bool = False) -> bool:
+    """True if this request is within the limit; False if it should be throttled.
+
+    MED-007: the posture when Redis itself is unreachable is now explicit rather
+    than an unbounded hang (fixed by the socket timeouts) or a bare 500. Default
+    is fail CLOSED — a limiter that can't count must not wave traffic through,
+    which is what protects login from brute force and /api/enforce from a flood.
+
+    `fail_open=True` is for the broad per-caller limit on every /api/* route: that
+    one is DoS hygiene, not a security control, and failing it closed would take
+    the entire API down with the cache. Losing it during a Redis outage degrades
+    rate limiting; failing it closed would degrade everything.
+    """
     now = time.time()
     member = f"{now}:{uuid.uuid4().hex}"
-    allowed = _SLIDING_WINDOW(keys=[f"rl:{key}"], args=[now, window_seconds, limit, member])
+    try:
+        allowed = _SLIDING_WINDOW(keys=[f"rl:{key}"], args=[now, window_seconds, limit, member])
+    except redis.RedisError:
+        logger.warning("rate limit: Redis unavailable, %s",
+                       "allowing (fail-open limiter)" if fail_open else "refusing (fail-closed limiter)")
+        return fail_open
     return bool(allowed)
 
 
@@ -74,34 +93,44 @@ _TRACE_MAX = 500          # bound the poll buffer per agent
 _TRACE_TTL = 300          # seconds; matches the old in-memory 5-min window
 
 
-def _trace_key(agent_id: str) -> str:
-    return f"trace:list:{agent_id}"
+# LOW-005: every live-trace key is namespaced by org. Today two tenants cannot
+# collide here anyway — `agents.id` is a GLOBAL primary key with collision-retry,
+# so one agent id belongs to exactly one org — but that makes tenant separation in
+# the cache a property of a table constraint somewhere else, rather than of the
+# cache. If agent ids ever became per-org (the obvious future change), traces
+# would silently cross tenants with nothing in this file to stop it.
+#
+# `org_id` is the caller's authenticated org at every call site, never a value the
+# caller supplies.
+
+def _trace_key(agent_id: str, org_id: str) -> str:
+    return f"{org_id}:trace:list:{agent_id}"
 
 
-def channel(agent_id: str) -> str:
-    return f"trace:chan:{agent_id}"
+def channel(agent_id: str, org_id: str) -> str:
+    return f"{org_id}:trace:chan:{agent_id}"
 
 
-def push_trace(agent_id: str, entry_json: str) -> None:
+def push_trace(agent_id: str, entry_json: str, org_id: str) -> None:
     """Append to the agent's recent buffer AND publish for live subscribers.
 
     entry_json is a JSON string (already serialized by the caller). Publishing
     is what makes a trace pushed on any worker reach a WS subscriber on any
     other worker.
     """
-    key = _trace_key(agent_id)
+    key = _trace_key(agent_id, org_id)
     pipe = _client.pipeline()
     pipe.lpush(key, entry_json)
     pipe.ltrim(key, 0, _TRACE_MAX - 1)
     pipe.expire(key, _TRACE_TTL)
     pipe.execute()
-    _client.publish(channel(agent_id), entry_json)
+    _client.publish(channel(agent_id, org_id), entry_json)
 
 
-def drain_traces(agent_id: str) -> list[str]:
+def drain_traces(agent_id: str, org_id: str) -> list[str]:
     """Return the recent buffer (newest-last) and clear it — the poll endpoint's
     read-and-clear semantics, now atomic across workers."""
-    key = _trace_key(agent_id)
+    key = _trace_key(agent_id, org_id)
     pipe = _client.pipeline()
     pipe.lrange(key, 0, -1)
     pipe.delete(key)
@@ -228,11 +257,11 @@ def spend_total(scope: str) -> float | None:
 _WS_CONN_TTL = 3600  # safety expiry so a crashed worker's slot count self-heals
 
 
-def ws_acquire_slot(agent_id: str, limit: int) -> bool:
+def ws_acquire_slot(agent_id: str, limit: int, org_id: str) -> bool:
     """Claim one live-trace WS slot for an agent (MED-008). INCR-then-check so the
     count is correct across workers; on overflow, DECR back and refuse. A TTL on
     the counter means a worker that dies without releasing can't leak slots."""
-    key = f"ws:conns:{agent_id}"
+    key = f"{org_id}:ws:conns:{agent_id}"  # LOW-005
     n = _client.incr(key)
     if n == 1:
         _client.expire(key, _WS_CONN_TTL)
@@ -242,12 +271,48 @@ def ws_acquire_slot(agent_id: str, limit: int) -> bool:
     return True
 
 
-def ws_release_slot(agent_id: str) -> None:
+def ws_release_slot(agent_id: str, org_id: str) -> None:
     """Release a slot claimed by ws_acquire_slot; floors at 0 so a stale/expired
     counter can't go negative."""
-    key = f"ws:conns:{agent_id}"
+    key = f"{org_id}:ws:conns:{agent_id}"  # LOW-005
     if _client.decr(key) < 0:
         _client.set(key, 0)
+
+
+# ── MED-002: single-use WebSocket tickets ─────────────────────────────────────
+# A browser cannot set headers on a WebSocket handshake, which is why the JWT was
+# passed as `?token=`. That put a full-session bearer credential into a URL, and
+# URLs are the least private part of a request: they land in access logs, proxy
+# and load-balancer logs, `Referer` headers, and browser history — none of which
+# are treated as secret stores, and all of which outlive the request.
+#
+# A ticket is the standard answer: opaque, short-lived, single-use, and worthless
+# once redeemed. Redis rather than a table because it is exactly a TTL cache, and
+# because it keeps this off the migration chain entirely.
+
+WS_TICKET_TTL_SECONDS = int(os.getenv("ARCEO_WS_TICKET_TTL_SECONDS", "30"))
+
+
+def ws_ticket_store(ticket: str, payload: str, ttl_seconds: int = WS_TICKET_TTL_SECONDS) -> None:
+    """Persist a minted ticket. SETEX so an unredeemed ticket cannot outlive its
+    window even if nothing ever connects."""
+    _client.setex(f"ws:ticket:{ticket}", ttl_seconds, payload)
+
+
+def ws_ticket_redeem(ticket: str) -> str | None:
+    """Return the ticket's payload and consume it, atomically. None if unknown,
+    already used, or expired.
+
+    GETDEL (Redis 6.2+) is what makes this single-use: a GET followed by a DEL
+    would let two concurrent handshakes both read the same live ticket before
+    either deleted it, so a leaked URL could be replayed in the moment it mattered.
+    """
+    if not ticket:
+        return None
+    raw = _client.getdel(f"ws:ticket:{ticket}")
+    if raw is None:
+        return None
+    return raw.decode() if isinstance(raw, bytes) else raw
 
 
 # ── Test support ──────────────────────────────────────────────────────────────

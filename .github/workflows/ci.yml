@@ -118,7 +118,15 @@ jobs:
         continue-on-error: true
         working-directory: backend
         run: |
-          pip install pip-audit
+          # Version-pinned for the same reason MED-018 pinned the customer action:
+          # an unpinned install runs whatever the index serves at that moment. This
+          # one is Arceo's own CI rather than a customer's, so the blast radius is
+          # smaller — but it sits directly above a --require-hashes install, and the
+          # inconsistency was the gap, not the risk level.
+          # Pinned to the current release (verified on PyPI 2026-07-30), not an
+          # older "safe" one: this tool's job is knowing about recent CVEs, so the
+          # pin should be refreshed forward, never left to rot.
+          pip install pip-audit==2.10.1
           pip-audit -r requirements.lock
       - name: Set up Node 22
         uses: actions/setup-node@cdca7365b2dadb8aad0a33bc7601856ffabcc48e  # v4.3.0

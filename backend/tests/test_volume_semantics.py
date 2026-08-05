@@ -267,3 +267,43 @@ def test_observed_days_surfaces_on_live_path_only():
                    "llm_cost_per_call": 0.008, "observed_days": 3.2},
     )
     assert fc_live["observedDays"] == 3.2
+
+
+def test_live_measured_volume_reports_no_run_split():
+    """P1 applies to MEASURED totals too: never divide by an assumed runs/day.
+
+    The live path used to publish turns = observed_calls / DEFAULT runs_per_day
+    (e.g. 20/100 = 0.2). Turns are floored at 1 on the way in, so that value was
+    un-sendable: the UI echoes turnsPerRun on every what-if, so every slider move
+    on a live-tier agent 422'd. Emit only what was measured.
+    """
+    fc = forecast_spend(
+        _agent([_github_tool(1)]),
+        live_trace_count_7d=60,
+        overrides={"llm_calls_per_day": 20, "input_tokens": 2000,
+                   "output_tokens": 200, "llm_cost_per_call": 0.008},
+    )
+    assert fc["callsPerDay"] == 20
+    assert fc["turnsPerRun"] == 1        # not 0.2
+    assert fc["runsPerDay"] == 20        # not the untouched default of 100
+    # Whatever the API emits as an input, the API must accept back.
+    assert float(fc["turnsPerRun"]) == int(fc["turnsPerRun"]) >= 1
+
+
+def test_live_what_if_on_volume_still_scales():
+    """An explicit runs/day what-if overrides the measured total (slider path)."""
+    base = forecast_spend(
+        _agent([_github_tool(1)]),
+        live_trace_count_7d=60,
+        overrides={"llm_calls_per_day": 20, "input_tokens": 2000,
+                   "output_tokens": 200, "llm_cost_per_call": 0.008},
+    )
+    scaled = forecast_spend(
+        _agent([_github_tool(1)]),
+        live_trace_count_7d=60,
+        overrides={"llm_calls_per_day": 20, "input_tokens": 2000,
+                   "output_tokens": 200, "llm_cost_per_call": 0.008,
+                   "runs_per_day": 200},
+    )
+    assert scaled["callsPerDay"] == 200
+    assert scaled["pointExact"] > base["pointExact"]

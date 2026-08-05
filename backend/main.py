@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import functools
 import json
 import re
 import secrets
 import uuid
+
+import anyio
+import anyio.to_thread
 from dataclasses import asdict
 from datetime import datetime, timedelta
 from typing import Optional
@@ -17,7 +21,7 @@ import psycopg
 from dotenv import load_dotenv
 load_dotenv()
 
-from fastapi import FastAPI, HTTPException, Depends, Request, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Depends, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -31,6 +35,7 @@ from db import (
 import vault
 import encryption
 import redaction
+import errors
 import egress
 from authority.chain_detector import detect_chains as _detect_chains
 from authority.enforcement import enforce_check, safe_enforce_check, match_policy as _match_policy
@@ -100,8 +105,22 @@ async def _tenant_context(request: Request, call_next):
                 from auth import verify_token
                 payload = verify_token(auth[7:])
                 org = payload.get("org_id") or "system"
-    except Exception:
+    except Exception as e:
+        # LOW-014 (second half): this used to swallow the failure silently, so a
+        # request whose credential could not be resolved ran with FULL RLS access
+        # and left no trace of why. It is still best-effort — per-endpoint auth is
+        # the real gate — but a resolution failure is now visible.
+        logger.warning("tenant context: could not resolve caller org (%s: %s) — "
+                       "falling back to 'system' RLS context",
+                       type(e).__name__, redaction.log_safe(e))
         org = "system"
+
+    # LOW-004: stash the resolved org where a LATER middleware can still read it.
+    # _access_log wraps this one, so by the time it logs, the `finally` below has
+    # already reset the ContextVar — which is why every privileged event was being
+    # attributed to org "system" regardless of who made it. request.state is backed
+    # by the ASGI scope, which the two middlewares share.
+    request.state.org_id = org
 
     token = _db.current_org.set(org)
     try:
@@ -186,20 +205,80 @@ MAX_BODY_BYTES = int(os.getenv("ARCEO_MAX_BODY_BYTES", str(12 * 1024 * 1024)))
 WS_MAX_CONNECTIONS_PER_AGENT = int(os.getenv("ARCEO_WS_MAX_CONN_PER_AGENT", "5"))
 
 
-@app.middleware("http")
-async def _body_size_guard(request: Request, call_next):
-    """Reject an oversized request (413) up front, based on Content-Length, before
-    any handler reads or parses the body."""
-    cl = request.headers.get("content-length")
-    if cl:
-        try:
-            if int(cl) > MAX_BODY_BYTES:
-                from fastapi.responses import JSONResponse
-                return JSONResponse(status_code=413, content={
-                    "detail": f"Request body too large (max {MAX_BODY_BYTES} bytes)."})
-        except ValueError:
-            pass
-    return await call_next(request)
+class BodySizeLimitMiddleware:
+    """Reject an oversized request (413) before any handler reads or parses it.
+
+    MED-009: the previous guard checked `Content-Length` and nothing else, so a
+    chunked request (`Transfer-Encoding: chunked`) or one that simply omits the
+    header walked straight past the cap — exactly what a client sending an
+    oversized body would do. The declared length is still checked first because
+    rejecting before a byte arrives is cheaper; the drain below then enforces the
+    same cap on the bytes ACTUALLY received, which is the part nobody can lie
+    about.
+
+    Written as pure ASGI rather than `@app.middleware("http")` for two reasons:
+    raising from inside a receive-wrapper gets swallowed by FastAPI's body parsing
+    and surfaces as a confusing 400, and BaseHTTPMiddleware does not reliably carry
+    a patched `receive` through `call_next`. Here the replay channel is ours.
+
+    Buffering costs nothing in practice — every handler that reads a body (the
+    proxy included) already calls `await request.body()`, and the cap IS the
+    ceiling on what gets held.
+    """
+
+    def __init__(self, app):
+        self.app = app
+
+    async def _reject(self, send):
+        payload = json.dumps(
+            {"detail": f"Request body too large (max {MAX_BODY_BYTES} bytes)."}).encode()
+        await send({"type": "http.response.start", "status": 413,
+                    "headers": [(b"content-type", b"application/json"),
+                                (b"content-length", str(len(payload)).encode())]})
+        await send({"type": "http.response.body", "body": payload})
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            return await self.app(scope, receive, send)
+
+        for name, value in scope.get("headers", []):
+            if name == b"content-length":
+                try:
+                    if int(value) > MAX_BODY_BYTES:
+                        return await self._reject(send)
+                except ValueError:
+                    pass  # unparseable — the drain below still applies
+                break
+
+        body = bytearray()
+        more = True
+        while more:
+            message = await receive()
+            if message["type"] == "http.disconnect":
+                return
+            body += message.get("body", b"") or b""
+            if len(body) > MAX_BODY_BYTES:
+                return await self._reject(send)
+            more = message.get("more_body", False)
+
+        replayed = False
+
+        async def _replay():
+            # After the buffered body is handed over, DELEGATE to the real channel
+            # rather than synthesising a disconnect. StreamingResponse polls
+            # receive() to notice a client hang-up, and a fake disconnect makes it
+            # abandon the response after the first chunk — which is how this broke
+            # the streaming proxy the first time round.
+            nonlocal replayed
+            if replayed:
+                return await receive()
+            replayed = True
+            return {"type": "http.request", "body": bytes(body), "more_body": False}
+
+        await self.app(scope, _replay, send)
+
+
+app.add_middleware(BodySizeLimitMiddleware)
 
 
 # MED-009: derive the caller IP for rate-limit keys. Behind a trusted proxy/ingress
@@ -233,7 +312,16 @@ async def _global_rate_limit(request: Request, call_next):
             caller = "k:" + _h.sha256(key.encode()).hexdigest()[:16]
         else:
             caller = "ip:" + client_ip(request)
-        if not shared_state.rate_limit_ok(f"global:{caller}", RATE_LIMIT_GLOBAL_MAX, RATE_LIMIT_GLOBAL_WINDOW):
+        # MED-007: the Redis client is synchronous, and this is async middleware —
+        # calling it directly ran a blocking socket read ON the event-loop thread,
+        # so a degraded Redis froze every in-flight request on the worker, not just
+        # this one. Off to a thread. fail_open: this broad limit is DoS hygiene, so
+        # a Redis outage should cost rate limiting, not the whole API (the tighter
+        # auth/enforce limiters stay fail-closed).
+        ok = await anyio.to_thread.run_sync(
+            functools.partial(shared_state.rate_limit_ok, f"global:{caller}",
+                              RATE_LIMIT_GLOBAL_MAX, RATE_LIMIT_GLOBAL_WINDOW, fail_open=True))
+        if not ok:
             from fastapi.responses import JSONResponse
             return JSONResponse(status_code=429,
                                 content={"detail": "Rate limit exceeded. Slow down and retry shortly."})
@@ -304,7 +392,9 @@ async def _access_log(request: Request, call_next):
                 "method": request.method,
                 "path": path,
                 "status": response.status_code,
-                "org_id": _db.current_org.get(),
+                # LOW-004: read the org stashed by _tenant_context, not the
+                # ContextVar — that has already been reset by the time this runs.
+                "org_id": getattr(request.state, "org_id", None) or _db.current_org.get(),
                 "actor": actor,
                 "latency_ms": int((time.time() - t0) * 1000),
             }))
@@ -325,9 +415,35 @@ _ROLE_RANK = {"viewer": 0, "editor": 1, "admin": 2}
 
 
 def require_role(user: dict, min_role: str) -> None:
-    """403 unless the caller's role is at least min_role."""
+    """403 unless the caller's role is at least min_role.
+
+    LOW-014: a denial is an audited event. Successful privileged actions were
+    written to audit_log while REFUSED ones vanished — which is backwards for
+    detection: a burst of 403s from one account is the signal that someone is
+    probing what their role can reach, and it was the one thing the trail could
+    not show.
+    """
     if _ROLE_RANK.get(user.get("role") or "viewer", 0) < _ROLE_RANK[min_role]:
+        _audit_authz_denied(user, min_role)
         raise HTTPException(status_code=403, detail=f"{min_role.capitalize()} role required")
+
+
+def _audit_authz_denied(user: dict, min_role: str) -> None:
+    """Record a refused privileged action, in its OWN transaction.
+
+    Same shape as login_user's FAILED_LOGIN write (LOW-004 of the prior round):
+    the caller is about to raise, which rolls back whatever transaction it is in,
+    so the audit row has to be committed separately or it would disappear with the
+    denial it exists to record. Never let an audit failure change the outcome.
+    """
+    try:
+        with get_db() as conn:
+            log_audit(conn, user.get("sub"), user.get("email") or "", "AUTHZ_DENIED",
+                      detail=f"Role '{user.get('role') or 'viewer'}' is below required '{min_role}'",
+                      org_id=user.get("org_id") or DEFAULT_ORG_ID)
+    except Exception:
+        logger.warning("could not record AUTHZ_DENIED for %s",
+                       redaction.log_safe(user.get("email")))
 
 
 def require_admin(user: dict) -> None:
@@ -350,6 +466,70 @@ def _caller_org(request: Request) -> str:
     if key_row:
         return key_row.get("org_id") or DEFAULT_ORG_ID
     return _org(get_current_user(request))  # raises 401 if no valid bearer token
+
+
+# ── Heavy LLM jobs: bounded concurrency off the request path (MED-006) ────────
+# Starlette runs sync `def` handlers in AnyIO's threadpool, which holds a fixed,
+# process-wide 40 tokens. The sandbox/red-team/sweep/prelaunch handlers each drive
+# multi-turn LLM loops for seconds to minutes and held a token the entire time, so
+# ~40 concurrent jobs took every slot — and since nearly every other route is also
+# a sync `def` (login, /api/enforce, the dashboard reads), the whole instance
+# stalled for every tenant. The runtime enforcement this product sells queued
+# behind sweeps.
+#
+# These handlers are now `async def` wrappers that push the work to a thread under
+# a dedicated limiter, so at most ARCEO_HEAVY_JOB_CONCURRENCY of them are ever in
+# flight and the rest await on the loop (holding no thread at all). Callers past
+# the queue window get an explicit 503 rather than joining an invisible queue.
+#
+# This is the audit's stated INTERIM fix. The real one is a background job queue
+# with a job id the client polls — tracked as a follow-up, since it changes the
+# API contract for seven endpoints.
+HEAVY_JOB_CONCURRENCY = int(os.getenv("ARCEO_HEAVY_JOB_CONCURRENCY", "8"))
+HEAVY_JOB_QUEUE_TIMEOUT = float(os.getenv("ARCEO_HEAVY_JOB_QUEUE_TIMEOUT", "30"))
+_heavy_job_limiter = anyio.CapacityLimiter(HEAVY_JOB_CONCURRENCY)
+
+
+async def _run_heavy_job(fn, *args, **kwargs):
+    """Run a long-running LLM handler body in a worker thread, bounded.
+
+    Waits up to HEAVY_JOB_QUEUE_TIMEOUT for a slot, then 503s. The wait happens on
+    the event loop, so queued callers cost a coroutine rather than a thread — which
+    is the whole point: auth and /api/enforce keep their share of the threadpool no
+    matter how many sweeps are queued."""
+    try:
+        with anyio.fail_after(HEAVY_JOB_QUEUE_TIMEOUT):
+            await _heavy_job_limiter.acquire()
+    except TimeoutError:
+        raise HTTPException(
+            status_code=503,
+            detail=("The server is at capacity for long-running jobs. "
+                    "Retry shortly — nothing was started or charged."),
+        )
+    try:
+        return await anyio.to_thread.run_sync(functools.partial(fn, *args, **kwargs))
+    finally:
+        _heavy_job_limiter.release()
+
+
+# MED-017: what an X-Agent-ID may contain. Deliberately wider than the audit's
+# suggested `[a-z0-9-]`, which would reject ids the product itself already mints
+# (extraction lowercases names but agents registered via SDK/MCP carry dots and
+# colons). The security property is the same — no CR/LF, no control bytes, no
+# whitespace — without breaking existing callers over cosmetics.
+_AGENT_ID_RE = re.compile(r"^[A-Za-z0-9._:-]{1,200}$")
+
+
+def _proxy_requires_key() -> bool:
+    """Whether /proxy/llm demands an X-API-Key (MED-005). On outside dev; the
+    ARCEO_PROXY_REQUIRE_KEY env var overrides in both directions. Same convention
+    as the budget gate."""
+    flag = os.getenv("ARCEO_PROXY_REQUIRE_KEY", "").strip().lower()
+    if flag in ("1", "true", "yes", "on"):
+        return True
+    if flag in ("0", "false", "no", "off"):
+        return False
+    return not _IS_DEV_ENV
 
 
 def check_rate_limit(key: str, max_requests: int = RATE_LIMIT_MAX, window: int = RATE_LIMIT_WINDOW):
@@ -568,14 +748,16 @@ async def proxy_llm_request(provider: str, path: str, request: Request):
     Usage (zero code change in your agent):
       ANTHROPIC_BASE_URL=http://localhost:8000/proxy/llm/anthropic
       OPENAI_BASE_URL=http://localhost:8000/proxy/llm/openai
-    Plus default header:
+    Plus default headers:
       X-Agent-ID: <agent-name>
+      X-API-Key:  <org key>   # required outside dev — see _proxy_requires_key
 
     Captures: system prompt, model, params, tools, full message history,
     full response, latency. Auto-creates the agent on first call so no
-    pre-registration is needed. Does NOT block — observation only. For
-    runtime enforcement on tool calls, pair with /proxy/{service}/* or
-    wrap_tools.
+    pre-registration is needed — but only for a keyed caller (MED-005); an
+    unknown agent id without a key is a 404. Does NOT block — observation
+    only. For runtime enforcement on tool calls, pair with /proxy/{service}/*
+    or wrap_tools.
     """
     import time as _time
     import httpx as _httpx
@@ -587,32 +769,54 @@ async def proxy_llm_request(provider: str, path: str, request: Request):
     agent_id = (request.headers.get("X-Agent-ID") or "").strip()
     if not agent_id:
         raise HTTPException(status_code=400, detail="X-Agent-ID header required")
+    # MED-017: .strip() only trims the ENDS, so an interior \n survived and this
+    # value reaches the application logger. Constrain the charset at ingest rather
+    # than sanitising at every downstream sink.
+    if not _AGENT_ID_RE.match(agent_id):
+        raise HTTPException(
+            status_code=400,
+            detail="X-Agent-ID may contain only letters, digits, '.', '_', ':' and '-' (max 200)")
 
     # M1 soft-bind: if an API key is sent, derive the org from it and require the
-    # agent matches the key's scope. No key -> open (unchanged), lands in the
-    # default org. Closes cross-tenant agent creation for keyed callers.
+    # agent matches the key's scope.
     key_info = verify_api_key(request)
     if key_info and (key_info.get("agent_id") or "") and key_info["agent_id"] != agent_id:
         raise HTTPException(status_code=403, detail="API key is scoped to a different agent")
-    # MED-007: the proxy is open by default (the SDK wrap_llm flow sends only
-    # X-Agent-ID). Deployments that want it locked down set ARCEO_PROXY_REQUIRE_KEY
-    # to demand a valid X-API-Key here without breaking existing keyless callers.
-    if os.getenv("ARCEO_PROXY_REQUIRE_KEY", "").lower() in ("1", "true", "yes", "on") and not key_info:
+    # MED-005: the proxy used to be open unless ARCEO_PROXY_REQUIRE_KEY was set, so
+    # a keyless caller could spend through the shared provider key and drop
+    # attacker-named agents into the default org. Now key-required outside dev,
+    # matching /api/agent/{id}/llm-call — which HIGH-003 already made
+    # key-required UNCONDITIONALLY, so the SDK's capture flow needs a key either
+    # way. ARCEO_PROXY_REQUIRE_KEY still overrides in both directions.
+    if _proxy_requires_key() and not key_info:
         raise HTTPException(status_code=401, detail="X-API-Key required for the LLM proxy")
     proxy_org = key_info["org_id"] if key_info else DEFAULT_ORG_ID
 
     # HIGH-003: the LLM proxy sits outside the /api/* rate-limit middleware, so cap
-    # it per-agent here and enforce the budget before forwarding the (billable) call.
-    check_rate_limit(f"llmproxy:{agent_id}", RATE_LIMIT_LLM_MAX, RATE_LIMIT_LLM_WINDOW)
+    # it here and enforce the budget before forwarding the (billable) call.
+    # MED-005: keyed on an identity the caller CANNOT rotate. It used to be the
+    # X-Agent-ID they supplied, so changing the header landed every request in a
+    # fresh sliding window and the ceiling counted per fabricated identity rather
+    # than per caller — i.e. no ceiling at all.
+    check_rate_limit(f"llmproxy:{proxy_org}:{client_ip(request)}",
+                     RATE_LIMIT_LLM_MAX, RATE_LIMIT_LLM_WINDOW)
     # MED-004: reserve against the caller's OWN org (proxy_org, derived from the key
     # — not from the agent named in the header) and settle to the real cost in the
     # capture callback below, which runs whether or not upstream succeeded.
     budget_ticket = _budget_gate(agent_id, proxy_org, reserve=True)
 
-    # Auto-create agent on first call
+    # Auto-create agent on first call — MED-005: only for an authenticated caller.
+    # Unkeyed auto-create let a header-rotating client flood `agents` and
+    # `audit_log` with junk rows, and land attacker-named agents in a real tenant's
+    # namespace (they defaulted to DEFAULT_ORG_ID).
     with get_db() as conn:
         existing = conn.execute("SELECT id FROM agents WHERE id = %s", (agent_id,)).fetchone()
         if not existing:
+            if not key_info:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Unknown agent '{agent_id}'. Send a valid X-API-Key to register "
+                           f"it on first call, or create it from the dashboard.")
             now = datetime.utcnow().isoformat()
             conn.execute(
                 "INSERT INTO agents (id, name, description, org_id, created_at, updated_at) VALUES (%s, %s, %s, %s, %s, %s)",
@@ -836,7 +1040,13 @@ async def _stream_upstream(method: str, url: str, headers: dict, content: bytes,
         raise HTTPException(status_code=504, detail=f"Upstream {service} timed out")
     except _httpx.HTTPError as e:
         await client.aclose()
-        raise HTTPException(status_code=502, detail=f"Upstream {service} error: {str(e)}")
+        # MED-016: the httpx error text carried the resolved upstream URL and the
+        # transport's own diagnostics back to the caller — and this path logged
+        # nothing, so the response WAS the only record. `service` is safe to name:
+        # it is a SERVICE_BASE_URLS key, validated above.
+        ref = errors.log_and_ref(logger, f"proxy upstream {service}", e)
+        raise HTTPException(status_code=502,
+                            detail=f"Upstream {service} request failed (ref: {ref})")
 
     status = resp.status_code
     resp_headers = {k: v for k, v in resp.headers.items()
@@ -1423,6 +1633,22 @@ def signup(req: SignupRequest, request: Request):
     with get_db() as conn:
         existing = conn.execute("SELECT id FROM users WHERE email = %s", (req.email,)).fetchone()
         if existing:
+            # MED-015 (timing half): bcrypt dominates the cost of this handler and
+            # used to run ONLY on the create path, so "already registered" came back
+            # in a fraction of the time a real signup took. The response body was
+            # never the only tell — anyone could distinguish the two cases with a
+            # stopwatch and no need to read the status code. Hash and throw the
+            # result away so both paths pay the same.
+            #
+            # This does NOT make the endpoint non-enumerable: the 409-vs-200 status
+            # is still an account-existence signal, which for a security vendor also
+            # hints at who its customers are (org_name is the email domain, below).
+            # Closing that needs a uniform response, which needs out-of-band
+            # confirmation for the legitimate new user — and email_utils.send_email
+            # is a no-op unless SMTP_HOST is set, with no verification flow to hang
+            # it on. Tracked as MED-015-b rather than half-built here; a "uniform"
+            # response today would just mean nobody can sign up.
+            hash_password(req.password)
             raise HTTPException(status_code=409, detail="Email already registered")
 
         user_id = str(uuid.uuid4())
@@ -2473,7 +2699,10 @@ def _extract_and_register(content: str, filename: str = "", agent_name_hint: str
     except json.JSONDecodeError:
         raise HTTPException(status_code=502, detail="Extraction returned invalid JSON — the file may not be a recognizable agent definition.")
     except Exception as e:
-        raise HTTPException(status_code=502, detail=f"Extraction failed: {str(e)}")
+        # MED-016: this caught anything the Anthropic SDK raised — auth failures,
+        # rate-limit bodies, internal request ids — and handed it to the caller.
+        ref = errors.log_and_ref(logger, "agent extraction", e)
+        raise HTTPException(status_code=502, detail=f"Extraction failed (ref: {ref})")
 
     name = (parsed.get("name") or agent_name_hint or "extracted-agent").strip()
     agent_id = name.lower().replace(" ", "-").replace("_", "-")
@@ -2550,6 +2779,23 @@ def extract_agent_from_code(req: ExtractInput, user: dict = Depends(get_current_
     return _extract_and_register(req.content, req.filename, req.agent_name_hint, org_id=_org(user))
 
 
+# MED-012: a repo scan fetched each candidate with `r.text` and no byte cap, so a
+# single crafted multi-GB blob (or a padded repo) could exhaust the worker's
+# memory. Both a per-file and a whole-scan ceiling, enforced while streaming so
+# the bytes are never buffered in the first place.
+GITHUB_MAX_FILE_BYTES = int(os.getenv("ARCEO_GITHUB_MAX_FILE_BYTES", str(1024 * 1024)))
+GITHUB_MAX_SCAN_BYTES = int(os.getenv("ARCEO_GITHUB_MAX_SCAN_BYTES", str(64 * 1024 * 1024)))
+
+# A branch name lands inside a raw.githubusercontent.com URL. Left unvalidated, a
+# caller-supplied ref could carry path traversal or control characters and steer
+# the fetch somewhere other than the repo they named.
+_GIT_REF_RE = re.compile(r"^[A-Za-z0-9._/-]{1,255}$")
+
+
+def _valid_git_ref(ref: str) -> bool:
+    return bool(_GIT_REF_RE.match(ref)) and ".." not in ref and not ref.startswith("/")
+
+
 class GithubExtractInput(BaseModel):
     url: str
     branch: str = ""
@@ -2591,6 +2837,9 @@ async def extract_agents_from_github(req: GithubExtractInput, user: dict = Depen
 
     async with _httpx.AsyncClient(timeout=30.0, headers=headers, follow_redirects=True) as client:
         # Try requested branch, then main, then master
+        # MED-012: the ref is interpolated into a raw.githubusercontent.com URL.
+        if req.branch and not _valid_git_ref(req.branch):
+            raise HTTPException(status_code=400, detail="Invalid branch name")
         branches_to_try = [req.branch] if req.branch else []
         branches_to_try += ["main", "master"]
         tree_data = None
@@ -2635,18 +2884,44 @@ async def extract_agents_from_github(req: GithubExtractInput, user: dict = Depen
         scanned = 0
         fetch_errors = 0        # files we couldn't fetch (rate limit / transient)
         rate_limited = False
+        oversized_files: list[str] = []   # MED-012: skipped for size, not silently
+        scan_bytes = 0
+        notes_budget_hit = False
         for path in candidates[:CANDIDATE_SCAN_CAP]:
+            if scan_bytes >= GITHUB_MAX_SCAN_BYTES:
+                notes_budget_hit = True
+                break
             scanned += 1
             raw_url = f"https://raw.githubusercontent.com/{owner}/{repo}/{used_branch}/{path}"
-            r = await client.get(raw_url)
-            if r.status_code != 200:
-                # A 403/429 is a rate-limit drop, not "not an agent file" — track it
-                # so a partial scan doesn't silently under-report.
-                if r.status_code in (403, 429):
-                    fetch_errors += 1
-                    rate_limited = True
+            # MED-012: streamed with a running byte count instead of `r.text`, so an
+            # oversized blob is abandoned mid-transfer rather than fully buffered
+            # into the worker and only then measured.
+            try:
+                async with client.stream("GET", raw_url) as r:
+                    if r.status_code != 200:
+                        # A 403/429 is a rate-limit drop, not "not an agent file" —
+                        # track it so a partial scan doesn't silently under-report.
+                        if r.status_code in (403, 429):
+                            fetch_errors += 1
+                            rate_limited = True
+                        continue
+                    chunks: list[bytes] = []
+                    size = 0
+                    over = False
+                    async for chunk in r.aiter_bytes():
+                        size += len(chunk)
+                        if size > GITHUB_MAX_FILE_BYTES:
+                            over = True
+                            break
+                        chunks.append(chunk)
+            except _httpx.HTTPError:
+                fetch_errors += 1
                 continue
-            content = r.text
+            if over:
+                oversized_files.append(path)
+                continue
+            scan_bytes += size
+            content = b"".join(chunks).decode("utf-8", errors="replace")
             if not any(ind.lower() in content.lower() for ind in indicators):
                 continue
             agent_files.append({"path": path, "content": content})
@@ -2680,7 +2955,10 @@ async def extract_agents_from_github(req: GithubExtractInput, user: dict = Depen
     # Disclose when the scan was cut short so the caller knows the result is partial.
     candidates_capped = len(candidates) > CANDIDATE_SCAN_CAP
     max_files_reached = len(agent_files) >= req.max_files
-    truncated = candidates_capped or max_files_reached or fetch_errors > 0
+    # MED-012: a file skipped for size, or a scan stopped at the byte budget, is a
+    # coverage gap — report it rather than letting the result read as complete.
+    truncated = (candidates_capped or max_files_reached or fetch_errors > 0
+                 or bool(oversized_files) or notes_budget_hit)
     notes = []
     if candidates_capped:
         notes.append(f"scanned first {CANDIDATE_SCAN_CAP} of {len(candidates)} candidate files")
@@ -2688,6 +2966,14 @@ async def extract_agents_from_github(req: GithubExtractInput, user: dict = Depen
         notes.append(f"stopped at the {req.max_files}-file limit — more agents may exist")
     if fetch_errors:
         notes.append(f"{fetch_errors} file(s) could not be fetched" + (" (GitHub rate limit — set GITHUB_TOKEN)" if rate_limited else ""))
+    if oversized_files:
+        shown = ", ".join(oversized_files[:3])
+        notes.append(f"{len(oversized_files)} file(s) skipped over the "
+                     f"{GITHUB_MAX_FILE_BYTES // 1024}KB per-file limit: {shown}"
+                     + ("…" if len(oversized_files) > 3 else ""))
+    if notes_budget_hit:
+        notes.append(f"stopped at the {GITHUB_MAX_SCAN_BYTES // (1024 * 1024)}MB "
+                     f"total-download budget — more agents may exist")
 
     return {
         "owner": owner,
@@ -3463,7 +3749,15 @@ def connect_mcp_server(req: MCPConnectInput, user: dict = Depends(get_current_us
                 resp.raise_for_status()
                 data = _mcp_parse(resp)
             except Exception as e:
-                raise HTTPException(status_code=502, detail=f"Could not connect to MCP server at {url}: {str(e)}")
+                # MED-016, the worst of the set: this echoed the caller's own URL
+                # AND what happened when the server dialled it. validate_external_url
+                # already refuses loopback/private/link-local/metadata targets, but a
+                # distinguishable failure message for everything else still reports
+                # reachability of whatever got past it. The caller knows the URL they
+                # submitted; they do not need ours to describe the attempt.
+                ref = errors.log_and_ref(logger, "MCP connect", e)
+                raise HTTPException(status_code=502,
+                                    detail=f"Could not connect to the MCP server (ref: {ref})")
 
     # Parse response — handle JSON-RPC envelope or plain response
     if "result" in data:
@@ -4473,7 +4767,9 @@ def generate_llm_scenarios(agent_id: str, user: dict = Depends(get_current_user)
             messages=[{"role": "user", "content": user_block}],
         )
     except Exception as e:
-        raise HTTPException(status_code=502, detail=f"Scenario generation failed: {e}")
+        ref = errors.log_and_ref(logger, "scenario generation", e)  # MED-016
+        raise HTTPException(status_code=502,
+                            detail=f"Scenario generation failed (ref: {ref})")
 
     text = next((b.text for b in msg.content if b.type == "text"), "").strip()
     if "[" in text and "]" in text:
@@ -4517,7 +4813,13 @@ def generate_llm_scenarios(agent_id: str, user: dict = Depends(get_current_user)
 
 
 @app.post("/api/sandbox/simulate")
-def run_sandbox_simulation(req: SimulateRequest, user: dict = Depends(get_current_user)):
+async def run_sandbox_simulation(req: SimulateRequest, user: dict = Depends(get_current_user)):
+    # MED-006: bounded off the request path so a burst of these can't take
+    # the whole threadpool and stall auth/enforce for every tenant.
+    return await _run_heavy_job(_run_sandbox_simulation_impl, req, user)
+
+
+def _run_sandbox_simulation_impl(req: SimulateRequest, user: dict):
     """Run a simulation: agent + scenario + mocks + enforcement + trace."""
     _budget_gate(req.agent_id, _org(user))  # HIGH-003: per-org monthly spend gate
                                             # (one sim is already bounded by max_turns)
@@ -4603,7 +4905,13 @@ class MultiSimulateRequest(BaseModel):
 
 
 @app.post("/api/sandbox/simulate/multi")
-def run_multi_agent_simulation(req: MultiSimulateRequest, user: dict = Depends(get_current_user)):
+async def run_multi_agent_simulation(req: MultiSimulateRequest, user: dict = Depends(get_current_user)):
+    # MED-006: bounded off the request path so a burst of these can't take
+    # the whole threadpool and stall auth/enforce for every tenant.
+    return await _run_heavy_job(_run_multi_agent_simulation_impl, req, user)
+
+
+def _run_multi_agent_simulation_impl(req: MultiSimulateRequest, user: dict):
     """Run a multi-agent simulation with dispatch between agents."""
     from sandbox.multi_runner import run_multi_simulation, run_multi_simulation_dry
     from sandbox.analyzer import analyze_multi_trace
@@ -5021,14 +5329,27 @@ def workflow_top_pairings(user: dict = Depends(get_current_user)):
 
 
 @app.get("/api/sandbox/simulations")
-def list_simulations(user: dict = Depends(get_current_user)):
-    """List past simulation runs."""
+def list_simulations(
+    limit: int = Query(50, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+    user: dict = Depends(get_current_user),
+):
+    """List past simulation runs, newest first.
+
+    Paginated: `total` is the org-wide count, so the caller can tell a full page
+    from the end of the list. Defaults reproduce the previous fixed page of 50.
+    """
     with get_db() as conn:
+        total = conn.execute(
+            "SELECT COUNT(*) AS n FROM simulations WHERE org_id = %s", (_org(user),)
+        ).fetchone()["n"]
         rows = conn.execute(
             "SELECT s.id, s.agent_id, s.scenario_id, s.status, s.created_at, s.report_json, a.name AS agent_name "
             "FROM simulations s LEFT JOIN agents a ON a.id = s.agent_id AND a.org_id = s.org_id "
-            "WHERE s.org_id = %s ORDER BY s.created_at DESC LIMIT 50",
-            (_org(user),)
+            # s.id breaks ties: a sweep stamps its whole batch with one created_at,
+            # and without a total order OFFSET paging can repeat or skip rows.
+            "WHERE s.org_id = %s ORDER BY s.created_at DESC, s.id DESC LIMIT %s OFFSET %s",
+            (_org(user), limit, offset)
         ).fetchall()
     simulations = []
     for r in rows:
@@ -5039,7 +5360,7 @@ def list_simulations(user: dict = Depends(get_current_user)):
         sim["actions_blocked"] = report.get("actions_blocked", 0)
         sim["total_steps"] = report.get("total_steps", 0)
         simulations.append(sim)
-    return {"simulations": simulations}
+    return {"simulations": simulations, "total": total, "limit": limit, "offset": offset}
 
 
 @app.get("/api/sandbox/simulation/{simulation_id}")
@@ -5142,7 +5463,13 @@ class PrelaunchRequest(BaseModel):
 
 
 @app.post("/api/prelaunch/{agent_id}")
-def run_prelaunch_audit_endpoint(agent_id: str, req: PrelaunchRequest = None, user: dict = Depends(get_current_user)):
+async def run_prelaunch_audit_endpoint(agent_id: str, req: PrelaunchRequest = None, user: dict = Depends(get_current_user)):
+    # MED-006: bounded off the request path so a burst of these can't take
+    # the whole threadpool and stall auth/enforce for every tenant.
+    return await _run_heavy_job(_run_prelaunch_audit_impl, agent_id, req, user)
+
+
+def _run_prelaunch_audit_impl(agent_id: str, req: PrelaunchRequest, user: dict):
     """Run every test and return a single prioritized fix list.
 
     Runs: boundary test + regression test + cost model + trace replay.
@@ -5264,7 +5591,7 @@ async def push_live_trace(event: LiveTraceEvent, request: Request):
         "timestamp": event.timestamp or datetime.utcnow().isoformat(),
     }
     # Buffer + publish in one shot: any worker's WS subscriber receives it.
-    shared_state.push_trace(event.agent_id, json.dumps(entry))
+    shared_state.push_trace(event.agent_id, json.dumps(entry), caller_org)  # LOW-005
     return {"status": "ok"}
 
 
@@ -5274,81 +5601,189 @@ def get_live_traces(agent_id: str, user: dict = Depends(get_current_user)):
     with get_db() as conn:
         if not get_agent_from_db(conn, agent_id, org_id=_org(user)):
             raise HTTPException(status_code=404, detail=f"Agent '{agent_id}' not found")
-    events = [json.loads(e) for e in shared_state.drain_traces(agent_id)]
+    events = [json.loads(e) for e in shared_state.drain_traces(agent_id, _org(user))]  # LOW-005
     return {"agent_id": agent_id, "events": events, "count": len(events)}
+
+
+class WsTicketRequest(BaseModel):
+    agent_id: str
+
+
+@app.post("/api/ws-ticket")
+def mint_ws_ticket(req: WsTicketRequest, user: dict = Depends(get_current_user)):
+    """Mint a short-lived, single-use ticket for the live-trace WebSocket (MED-002).
+
+    A browser cannot set headers on a WebSocket handshake, so the socket's
+    credential has to travel in the URL — and the socket used to take the full
+    session JWT there. URLs are the least private part of a request: access logs,
+    proxy and load-balancer logs, `Referer`, browser history. None of those are
+    secret stores, all of them outlive the request, and the value being written
+    into them was a 24-hour bearer token for the entire API.
+
+    A ticket is worth ~30 seconds, one connection, one agent. Leaking the URL after
+    the socket opens leaks nothing, because redeeming consumed it.
+
+    Authenticated by the normal Bearer header, which never enters a URL.
+    """
+    org_id = _org(user)
+    with get_db() as conn:
+        if not get_agent_from_db(conn, req.agent_id, org_id=org_id):
+            raise HTTPException(status_code=404, detail=f"Agent '{req.agent_id}' not found")
+
+    ticket = secrets.token_urlsafe(32)
+    # Bound to the agent as well as the caller: a ticket minted for one agent must
+    # not open another agent's stream, even inside the same org.
+    payload = json.dumps({
+        "sub": user["sub"],
+        "org_id": org_id,
+        "tv": int(user.get("tv") or 0),
+        "agent_id": req.agent_id,
+    })
+    try:
+        shared_state.ws_ticket_store(ticket, payload)
+    except Exception as e:
+        ref = errors.log_and_ref(logger, "ws ticket mint", e)
+        raise HTTPException(status_code=503,
+                            detail=f"Live streaming is temporarily unavailable (ref: {ref})")
+    return {"ticket": ticket, "expires_in": shared_state.WS_TICKET_TTL_SECONDS}
 
 
 @app.websocket("/ws/traces/{agent_id}")
 async def ws_live_traces(websocket: WebSocket, agent_id: str):
-    """WebSocket: subscribe to live trace events for an agent (auth via ?token=<JWT>)."""
-    # ID2: authenticate before accepting. Browsers can't set headers on a WS
-    # handshake, so the JWT comes in as a query param; DEMO_MODE keeps the demo open.
+    """WebSocket: subscribe to live trace events for an agent.
+
+    Auth is `?ticket=<single-use ticket>` from POST /api/ws-ticket. MED-002: the
+    JWT is NO LONGER accepted here — passing a full session token in a URL was the
+    finding, so continuing to honour it would leave the finding open.
+    """
+    # LOW-005: the org that owns this socket. Every Redis key it touches is
+    # namespaced by it, and it comes from the redeemed ticket — never the URL.
+    ws_org = DEFAULT_ORG_ID
+    # ID2: authenticate before accepting. DEMO_MODE keeps the demo open.
     if not demo_mode_enabled():
         try:
-            payload = verify_token(websocket.query_params.get("token", ""))
-        except Exception:
+            raw = await anyio.to_thread.run_sync(
+                shared_state.ws_ticket_redeem, websocket.query_params.get("ticket", ""))
+        except Exception as e:
+            # Redis unreachable. Fail CLOSED — same posture as rate_limit_ok's
+            # default (MED-007): a credential check that cannot run must not
+            # wave the connection through.
+            errors.log_and_ref(logger, "ws ticket redeem", e)
             await websocket.close(code=4401)
             return
-        # MED-001: verify_token only checks signature + expiry. Without this, a
-        # session already invalidated by a password change or an admin revoke still
-        # opened a live-trace socket — the one auth path that skipped the
-        # token_version model entirely. One read per handshake, not per message.
-        with get_db() as conn:
-            urow = conn.execute(
-                "SELECT token_version, disabled_at FROM users WHERE id = %s",
-                (payload.get("sub"),),
-            ).fetchone()
-            if (urow is None
-                    or int(payload.get("tv", 0)) != int(urow["token_version"] or 0)
-                    or urow["disabled_at"]):
-                await websocket.close(code=4401)
-                return
-            if not get_agent_from_db(conn, agent_id, org_id=payload.get("org_id", DEFAULT_ORG_ID)):
-                await websocket.close(code=4404)
-                return
-    # MED-008: bound concurrent sockets per agent (each opens a Redis pubsub client).
-    if not shared_state.ws_acquire_slot(agent_id, WS_MAX_CONNECTIONS_PER_AGENT):
+        if not raw:
+            # Unknown, expired, or already redeemed.
+            await websocket.close(code=4401)
+            return
+        try:
+            payload = json.loads(raw)
+        except json.JSONDecodeError:
+            await websocket.close(code=4401)
+            return
+        # The ticket names the agent it was minted for; the URL names the agent
+        # being opened. They must agree.
+        if payload.get("agent_id") != agent_id:
+            await websocket.close(code=4401)
+            return
+        # MED-001: re-check the user row at redeem time rather than trusting what
+        # was true at mint time. The ticket window is short but not zero, and this
+        # is the control that a password change or an admin revoke has to be able
+        # to close — a ticket must not become a way around it.
+        # MED-007: get_db()/psycopg are synchronous and this is an async handler, so
+        # both reads go to a thread — a slow database must not stall the event loop
+        # and with it every other request on this worker. Both checks share one
+        # connection and one thread hop, once per handshake, not per message.
+        def _handshake_check() -> int | None:
+            """None admits the socket; otherwise the WebSocket close code to send."""
+            with get_db() as conn:
+                urow = conn.execute(
+                    "SELECT token_version, disabled_at FROM users WHERE id = %s",
+                    (payload.get("sub"),),
+                ).fetchone()
+                if (urow is None
+                        or int(payload.get("tv", 0)) != int(urow["token_version"] or 0)
+                        or urow["disabled_at"]):
+                    return 4401
+                if not get_agent_from_db(conn, agent_id,
+                                         org_id=payload.get("org_id", DEFAULT_ORG_ID)):
+                    return 4404
+            return None
+
+        close_code = await anyio.to_thread.run_sync(_handshake_check)
+        if close_code is not None:
+            await websocket.close(code=close_code)
+            return
+        ws_org = payload.get("org_id") or DEFAULT_ORG_ID  # LOW-005
+    # MED-008 (earlier round): bound concurrent sockets per agent — each opens a
+    # Redis pubsub client. MED-007: off the loop, same reason as above.
+    if not await anyio.to_thread.run_sync(
+            functools.partial(shared_state.ws_acquire_slot, agent_id,
+                              WS_MAX_CONNECTIONS_PER_AGENT, ws_org)):
         await websocket.close(code=4429)
         return
-    await websocket.accept()
 
-    # Subscribe to this agent's Redis channel — events published by ANY worker
-    # (push_live_trace above) arrive here, so a subscriber connected to worker B
-    # sees a trace pushed to worker A.
-    aclient, pubsub = shared_state.subscribe_channel(agent_id)
-    await pubsub.subscribe(shared_state.channel(agent_id))
-
+    # LOW-016: everything from here to the message loop is inside the try, because
+    # the slot is already HELD. accept() and subscribe_channel() can both fail —
+    # a client that hangs up mid-handshake, Redis refusing a new connection — and
+    # when they did, the `finally` that releases the slot had not been entered yet.
+    # Each failure permanently consumed one of the agent's connection slots until
+    # the counter's 1h TTL healed it, so a client reconnecting in a loop could lock
+    # every tenant out of its own live traces without ever authenticating twice.
     import asyncio
 
-    async def _forward():
-        async for message in pubsub.listen():
-            if message.get("type") == "message":
-                await websocket.send_text(message["data"])
-
-    forward_task = asyncio.create_task(_forward())
+    pubsub = aclient = forward_task = None
     try:
+        await websocket.accept()
+
+        # Subscribe to this agent's Redis channel — events published by ANY worker
+        # (push_live_trace above) arrive here, so a subscriber connected to worker B
+        # sees a trace pushed to worker A.
+        aclient, pubsub = shared_state.subscribe_channel(agent_id)
+        await pubsub.subscribe(shared_state.channel(agent_id, ws_org))
+
+        async def _forward():
+            async for message in pubsub.listen():
+                if message.get("type") == "message":
+                    await websocket.send_text(message["data"])
+
+        forward_task = asyncio.create_task(_forward())
         while True:
             # Keep connection alive, wait for client messages (ping/close)
             await websocket.receive_text()
     except WebSocketDisconnect:
         pass
+    except Exception as e:
+        # LOW-016: anything else that goes wrong while the slot is held — the
+        # accept() failing, Redis refusing the pubsub connection — now unwinds
+        # through the finally below instead of abandoning the slot.
+        errors.log_and_ref(logger, f"live-trace socket for agent {redaction.log_safe(agent_id)}", e)
     finally:
         # Release the per-agent connection slot (MED-008) before teardown.
-        shared_state.ws_release_slot(agent_id)
+        # MED-007: off the loop like the acquire above.
+        await anyio.to_thread.run_sync(
+            functools.partial(shared_state.ws_release_slot, agent_id, ws_org))
         # Await the cancelled forward task BEFORE closing the pubsub/client, so
         # its listen() coroutine finishes unwinding and can't race with (or
         # use-after-close) the Redis objects we're about to tear down.
-        forward_task.cancel()
-        try:
-            await forward_task
-        except (asyncio.CancelledError, Exception):
-            pass
-        try:
-            await pubsub.unsubscribe(shared_state.channel(agent_id))
-            await pubsub.aclose()
-            await aclient.aclose()
-        except Exception:
-            pass
+        # Each guarded on its own: teardown now runs for handshakes that failed
+        # before these existed.
+        if forward_task is not None:
+            forward_task.cancel()
+            try:
+                await forward_task
+            except (asyncio.CancelledError, Exception):
+                pass
+        if pubsub is not None:
+            try:
+                await pubsub.unsubscribe(shared_state.channel(agent_id, ws_org))
+                await pubsub.aclose()
+            except Exception:
+                pass
+        if aclient is not None:
+            try:
+                await aclient.aclose()
+            except Exception:
+                pass
 
 
 # ── Cost-of-Breach Report ─────────────────────────────────────────────────
@@ -5838,7 +6273,7 @@ def get_spend_forecasts_batch(user: dict = Depends(get_current_user)):
                 forecasts[aid] = forecast
                 _BATCH_FORECAST_CACHE[cache_key] = (now, forecast)
             except Exception as e:
-                logger.warning(f"Forecast failed for agent {aid}: {e}")
+                logger.warning(f"Forecast failed for agent {redaction.log_safe(aid)}: {e}")  # MED-017
                 forecasts[aid] = None
 
     return {"forecasts": forecasts}
@@ -6335,7 +6770,13 @@ def delete_cost_override(override_id: int, user: dict = Depends(get_current_user
 # ── Regression Testing (CI/CD Safety Gate) ───────────────────────────────
 
 @app.post("/api/regression-test/{agent_id}")
-def run_regression_test_endpoint(agent_id: str, create_baseline: bool = False, user: dict = Depends(get_current_user)):
+async def run_regression_test_endpoint(agent_id: str, create_baseline: bool = False, user: dict = Depends(get_current_user)):
+    # MED-006: bounded off the request path so a burst of these can't take
+    # the whole threadpool and stall auth/enforce for every tenant.
+    return await _run_heavy_job(_run_regression_test_impl, agent_id, create_baseline, user)
+
+
+def _run_regression_test_impl(agent_id: str, create_baseline: bool, user: dict):
     """Run regression test against stored baseline. CI-friendly — returns pass/fail.
 
     First call with ?create_baseline=true to establish the baseline.
@@ -6421,7 +6862,13 @@ class RedTeamRequest(BaseModel):
 
 
 @app.post("/api/red-team/{agent_id}")
-def run_red_team_endpoint(agent_id: str, req: RedTeamRequest = None, user: dict = Depends(get_current_user)):
+async def run_red_team_endpoint(agent_id: str, req: RedTeamRequest = None, user: dict = Depends(get_current_user)):
+    # MED-006: bounded off the request path so a burst of these can't take
+    # the whole threadpool and stall auth/enforce for every tenant.
+    return await _run_heavy_job(_run_red_team_impl, agent_id, req, user)
+
+
+def _run_red_team_impl(agent_id: str, req: RedTeamRequest, user: dict):
     """Run adversarial red team test against an agent.
 
     Generates prompt injections, social engineering, authority escalation,
@@ -6460,7 +6907,13 @@ def run_red_team_endpoint(agent_id: str, req: RedTeamRequest = None, user: dict 
 # ── Boundary Testing (Policy Penetration Test) ───────────────────────────
 
 @app.post("/api/boundary-test/{agent_id}")
-def run_boundary_test_endpoint(agent_id: str, user: dict = Depends(get_current_user)):
+async def run_boundary_test_endpoint(agent_id: str, user: dict = Depends(get_current_user)):
+    # MED-006: bounded off the request path so a burst of these can't take
+    # the whole threadpool and stall auth/enforce for every tenant.
+    return await _run_heavy_job(_run_boundary_test_impl, agent_id, user)
+
+
+def _run_boundary_test_impl(agent_id: str, user: dict):
     """Exhaustively test every dangerous action sequence against policies.
 
     Returns a matrix of {sequence, decision, matched_rule, gap_detected}.
@@ -6491,7 +6944,13 @@ class SweepRequest(BaseModel):
 
 
 @app.post("/api/sandbox/sweep")
-def run_sweep(req: SweepRequest, user: dict = Depends(get_current_user)):
+async def run_sweep(req: SweepRequest, user: dict = Depends(get_current_user)):
+    # MED-006: bounded off the request path so a burst of these can't take
+    # the whole threadpool and stall auth/enforce for every tenant.
+    return await _run_heavy_job(_run_sweep_impl, req, user)
+
+
+def _run_sweep_impl(req: SweepRequest, user: dict):
     """Run every applicable scenario for an agent and produce an aggregate report."""
     _budget_gate(req.agent_id, _org(user))  # HIGH-003: per-org monthly spend gate
     from sandbox.runner import run_simulation, run_simulation_dry, _SimBudget, MAX_TOTAL_LLM_CALLS

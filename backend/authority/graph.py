@@ -167,17 +167,23 @@ def _is_read_only(action_name: str) -> bool:
     (stripe_get_customer, aws_ec2_describe_instances) and write-verb overrides
     (get_or_create_*, search_and_email_*).
     """
-    from authority.risk_classifier import is_effectively_read
+    from authority.risk_classifier import is_effectively_read, LEADING_WRITE_TOKENS
     lower = action_name.lower()
     if is_effectively_read(lower):
         return True
     # Deeper unknown prefixes the classifier's service list misses:
     # foo_bar_describe_instances — still delegate the suffix so write-verb
-    # overrides apply.
+    # overrides apply. Only when the skipped segment is a namespace, though: if
+    # it contains an action verb the read prefix is just a later token, and
+    # delete_search_index / purge_query_cache would otherwise score at the 0.15x
+    # read floor and drop out of the danger-density bonus.
     for i in range(len(lower)):
         if lower[i] == "_":
             rest = lower[i + 1:]
             if rest.startswith(READ_PREFIXES):
+                head = set(re.split(r"[^a-z0-9]+", lower[:i]))
+                if head & LEADING_WRITE_TOKENS:
+                    return False
                 return is_effectively_read(rest)
     return False
 

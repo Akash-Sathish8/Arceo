@@ -23,7 +23,6 @@ import uuid
 import pytest
 
 import main
-from auth import create_token
 from db import get_db
 
 
@@ -102,25 +101,39 @@ def _agent(client, headers):
     return r.json()["id"]
 
 
-def test_ws_accepts_a_valid_token(client, roles):
+def _ws_ticket(client, headers, agent_id: str) -> str:
+    """MED-002: the socket takes a single-use ticket now, not the session JWT."""
+    r = client.post("/api/ws-ticket", headers=headers, json={"agent_id": agent_id})
+    assert r.status_code == 200, r.text
+    return r.json()["ticket"]
+
+
+def test_ws_accepts_a_valid_ticket(client, roles):
     admin = roles["admin"]
     aid = _agent(client, admin["headers"])
-    with client.websocket_connect(f"/ws/traces/{aid}?token={admin['token']}") as ws:
+    with client.websocket_connect(f"/ws/traces/{aid}?ticket={_ws_ticket(client, admin['headers'], aid)}") as ws:
         assert ws is not None
 
 
-def test_ws_rejects_a_token_whose_version_is_stale(client, roles):
-    """verify_token checks signature + expiry only, so this handshake used to
-    succeed with a session that had already been revoked."""
+def test_ws_rejects_a_ticket_whose_token_version_went_stale(client, roles):
+    """The handshake used to call verify_token only (signature + expiry), so a
+    session already revoked still opened a socket.
+
+    Stronger than the pre-MED-002 version of this test: the ticket is minted while
+    the session is still valid, and the revoke lands afterwards. That is precisely
+    the window a ticket could have opened — it proves the user row is re-checked at
+    REDEEM time, not merely at mint time.
+    """
     admin = roles["admin"]
     aid = _agent(client, admin["headers"])
     m = _member(client, admin)
+    ticket = _ws_ticket(client, m["headers"], aid)
 
     with get_db() as conn:  # simulate a password change / admin revoke
         conn.execute("UPDATE users SET token_version = token_version + 1 WHERE id = %s", (m["id"],))
 
     with pytest.raises(Exception):
-        with client.websocket_connect(f"/ws/traces/{aid}?token={m['token']}"):
+        with client.websocket_connect(f"/ws/traces/{aid}?ticket={ticket}"):
             pass
 
 
@@ -128,21 +141,32 @@ def test_ws_rejects_a_disabled_user(client, roles):
     admin = roles["admin"]
     aid = _agent(client, admin["headers"])
     m = _member(client, admin)
+    ticket = _ws_ticket(client, m["headers"], aid)
     # Disable WITHOUT bumping token_version, so only the disabled_at check can catch it.
     with get_db() as conn:
         conn.execute("UPDATE users SET disabled_at = %s WHERE id = %s", ("2026-07-29", m["id"]))
 
     with pytest.raises(Exception):
-        with client.websocket_connect(f"/ws/traces/{aid}?token={m['token']}"):
+        with client.websocket_connect(f"/ws/traces/{aid}?ticket={ticket}"):
             pass
 
 
-def test_ws_rejects_a_token_for_a_user_that_no_longer_exists(client, roles):
+def test_ws_rejects_a_ticket_for_a_user_that_no_longer_exists(client, roles):
+    """Minted straight into Redis: a deleted user cannot reach the mint endpoint
+    at all (auth.py fails closed on a missing row), so the only way to exercise the
+    socket's own row check is to hand it a well-formed ticket for a ghost."""
+    import json as _json
+
+    import shared_state
+
     admin = roles["admin"]
     aid = _agent(client, admin["headers"])
-    ghost = create_token("no-such-user", "ghost@example.com", "admin", admin["org_id"])
+    ticket = "ghost-" + uuid.uuid4().hex
+    shared_state.ws_ticket_store(ticket, _json.dumps(
+        {"sub": "no-such-user", "org_id": admin["org_id"], "tv": 0, "agent_id": aid}))
+
     with pytest.raises(Exception):
-        with client.websocket_connect(f"/ws/traces/{aid}?token={ghost}"):
+        with client.websocket_connect(f"/ws/traces/{aid}?ticket={ticket}"):
             pass
 
 

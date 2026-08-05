@@ -43,13 +43,13 @@ def test_pubsub_fanout_crosses_workers():
     # A subscriber "on worker B": its own connection, subscribed to the channel.
     sub = _redis.Redis.from_url(shared_state.REDIS_URL, decode_responses=True)
     pubsub = sub.pubsub()
-    pubsub.subscribe(shared_state.channel(agent_id))
+    pubsub.subscribe(shared_state.channel(agent_id, "org-x"))
     # Drain the subscribe-confirmation message.
     assert pubsub.get_message(timeout=1)["type"] == "subscribe"
 
     # "Worker A" publishes via the normal push path.
     entry = {"agent_id": agent_id, "tool": "stripe", "action": "create_refund"}
-    shared_state.push_trace(agent_id, json.dumps(entry))
+    shared_state.push_trace(agent_id, json.dumps(entry), "org-x")
 
     # Worker B's subscriber receives it.
     got = None
@@ -66,10 +66,10 @@ def test_pubsub_fanout_crosses_workers():
 def test_buffer_drain_is_read_and_clear():
     agent_id = "agent-" + uuid.uuid4().hex[:6]
     for i in range(3):
-        shared_state.push_trace(agent_id, json.dumps({"i": i}))
-    drained = [json.loads(e) for e in shared_state.drain_traces(agent_id)]
+        shared_state.push_trace(agent_id, json.dumps({"i": i}), "org-x")
+    drained = [json.loads(e) for e in shared_state.drain_traces(agent_id, "org-x")]
     assert [d["i"] for d in drained] == [0, 1, 2]  # oldest-first
-    assert shared_state.drain_traces(agent_id) == []  # cleared
+    assert shared_state.drain_traces(agent_id, "org-x") == []  # cleared
 
 
 def test_leader_lock_admits_one():
