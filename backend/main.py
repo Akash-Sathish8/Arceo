@@ -2828,6 +2828,12 @@ async def extract_agents_from_github(req: GithubExtractInput, user: dict = Depen
         # one of these was filtered out and never extracted.
         "bedrock", "vertex", "vertexai", "litellm", "gemini", "google.generativeai",
         "genai", "crewai", "autogen", "llama_index", "llamaindex",
+        # OpenAI Agents SDK. Its tool files import `from agents import
+        # function_tool` and decorate with `@function_tool` — neither string
+        # matches anything above ("@tool" is not a substring of
+        # "@function_tool"), so every tool-defining file in an Agents SDK repo
+        # was filtered out and the scan registered only the plumbing around it.
+        "function_tool", "from agents import",
     )
 
     headers = {"Accept": "application/vnd.github+json", "User-Agent": "arceo-scanner"}

@@ -128,3 +128,46 @@ def test_oversized_repo_files_are_skipped_and_reported(client, roles, monkeypatc
     assert any("per-file limit" in n for n in body["scan_notes"]), body["scan_notes"]
     # The oversized file was never registered as an agent.
     assert all(res["path"] != "huge_agent.py" for res in body["results"])
+
+
+def test_openai_agents_sdk_files_are_detected(client, roles, monkeypatch):
+    """An OpenAI Agents SDK tool file must reach extraction.
+
+    Its only framework markers are `from agents import function_tool` and the
+    `@function_tool` decorator. "@tool" is NOT a substring of "@function_tool",
+    so before the indicator list carried these two strings every tool-defining
+    file in an Agents SDK repo was filtered out and the scan registered only the
+    plumbing around it.
+    """
+    import httpx
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+
+    tree = {"tree": [{"type": "blob", "path": "airline/tools.py"},
+                     {"type": "blob", "path": "airline/demo_data.py"}]}
+
+    def _handler(request: httpx.Request) -> httpx.Response:
+        url = str(request.url)
+        if "api.github.com" in url:
+            return httpx.Response(200, json=tree)
+        if "tools.py" in url:
+            return httpx.Response(200, text=(
+                "from agents import RunContextWrapper, function_tool\n\n"
+                "@function_tool(name_override='issue_compensation')\n"
+                "async def issue_compensation(amount: int) -> str:\n"
+                "    return 'issued'\n"))
+        # No LLM-SDK marker anywhere — must stay filtered out.
+        return httpx.Response(200, text="SEAT_MAP = {'12A': 'window'}\n")
+
+    real = httpx.AsyncClient
+    monkeypatch.setattr(
+        httpx, "AsyncClient",
+        lambda *a, **k: real(transport=httpx.MockTransport(_handler), timeout=k.get("timeout")))
+
+    r = client.post("/api/authority/agents/extract-github", headers=roles["admin"]["headers"],
+                    json={"url": "https://github.com/openai/openai-cs-agents-demo"})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    scanned = {res["path"] for res in body["results"]}
+    assert "airline/tools.py" in scanned, body
+    assert "airline/demo_data.py" not in scanned, body
