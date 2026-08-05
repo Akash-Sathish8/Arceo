@@ -605,13 +605,22 @@ function NotificationsSection({ inputStyle }: { inputStyle: React.CSSProperties 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [sendingTest, setSendingTest] = useState(false);
+  // MED-014: the webhook URL is a bearer credential, so the server returns a mask
+  // ("https://hooks.slack.com/…aB3x") rather than the value. Posting the mask back
+  // unchanged is understood server-side as "leave it alone", so saving other fields
+  // is safe; typing over it replaces the secret, and clearing it turns alerts off.
+  const [webhookConfigured, setWebhookConfigured] = useState(false);
 
   useEffect(() => {
-    apiFetch<{ slack_webhook_url: string; alert_email: string; notify_on_block: boolean }>(
-      "/api/notifications/settings",
-    )
+    apiFetch<{
+      slack_webhook_url: string;
+      slack_webhook_configured?: boolean;
+      alert_email: string;
+      notify_on_block: boolean;
+    }>("/api/notifications/settings")
       .then((d) => {
         setSlackUrl(d.slack_webhook_url || "");
+        setWebhookConfigured(Boolean(d.slack_webhook_configured));
         setAlertEmail(d.alert_email || "");
         setNotifyOnBlock(d.notify_on_block);
       })
@@ -687,8 +696,18 @@ function NotificationsSection({ inputStyle }: { inputStyle: React.CSSProperties 
           placeholder="https://hooks.slack.com/services/…"
         />
         <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 5 }}>
-          Spend spikes, budget-cap breaches, and blocked actions post here. Create one under Slack →
-          Incoming Webhooks.
+          {webhookConfigured ? (
+            <>
+              Saved and hidden — a webhook URL is a password, so only the host and last few
+              characters are shown. Leave it as-is to keep it, type a new URL to replace it, or
+              clear the field to turn alerts off.
+            </>
+          ) : (
+            <>
+              Spend spikes, budget-cap breaches, and blocked actions post here. Create one under
+              Slack → Incoming Webhooks.
+            </>
+          )}
         </div>
       </div>
 

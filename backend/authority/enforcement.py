@@ -271,7 +271,11 @@ def fire_block_notification(agent_id: str, tool: str, action: str, reason: str):
             row = conn.execute("SELECT * FROM workspace_settings WHERE org_id = %s", (org_id,)).fetchone()
         if not row or not row["notify_on_block"]:
             return
-        slack_url = row["slack_webhook_url"] or ""
+        # MED-014: the column may hold ciphertext in slack_webhook_url_enc now
+        # (SELECT * above already fetches both). encryption.read prefers the enc
+        # column and falls back to plaintext, so this works either way.
+        import encryption
+        slack_url = encryption.read(row, "slack_webhook_url") or ""
         if not slack_url:
             return
         # Cross-worker dedup: the same BLOCK evaluated on two workers should
