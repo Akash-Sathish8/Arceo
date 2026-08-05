@@ -34,6 +34,13 @@ const CONSUMER_DOMAINS = new Set([
   "me", "aol", "proton", "protonmail", "pm",
 ]);
 
+// Our own domains, current and retired. The seed demo account is
+// admin@actiongate.io, so deriving an org name from its domain rendered the
+// retired product name — "Actiongate" — in the chrome of every screen, demos
+// included. Only the display is mapped: the seed email and the actiongate.db
+// filename stay as they are while the rename is mid-flight.
+const OWN_DOMAINS = new Set(["arceo", "actiongate"]);
+
 function isDemoSession(): boolean {
   try { return localStorage.getItem("arceo_demo_session") === "1"; } catch { return false; }
 }
@@ -45,6 +52,7 @@ function deriveOrgName(email: string | undefined): string {
   const root = domain.split(".")[0] ?? "";
   // A personal inbox has no meaningful org name — showing "Gmail" reads as a bug.
   if (!root || CONSUMER_DOMAINS.has(root.toLowerCase())) return "Personal workspace";
+  if (OWN_DOMAINS.has(root.toLowerCase())) return "Arceo";
   return root.charAt(0).toUpperCase() + root.slice(1);
 }
 
