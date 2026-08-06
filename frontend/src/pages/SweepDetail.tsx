@@ -3,6 +3,7 @@ import { useParams, Link } from "react-router-dom";
 import { ArrowLeft, Shield, CheckCircle, XCircle, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { apiFetch } from "@/lib/api";
+import { toast } from "@/components/shared/Toast";
 import { timeAgo, scoreBand } from "@/lib/utils";
 import ErrorState from "@/components/shared/ErrorState";
 
@@ -112,6 +113,51 @@ export default function SweepDetail() {
   const [sweep, setSweep] = useState<SweepReportData | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [applyingAll, setApplyingAll] = useState(false);
+
+  /** Gate every actionable recommendation this sweep produced, in one call.
+   *
+   * Uses /api/sandbox/apply-all-policies rather than looping the per-agent
+   * policies endpoint (what SimulationDetail does): it de-dupes against
+   * policies that already exist, so a second click reports "skipped" instead
+   * of stacking duplicates, and it sets the effect-derived priority server-side.
+   * Each item must carry agent_id — the request model requires it per policy,
+   * not just at the top level. */
+  async function applyAllRecommendations() {
+    if (!sweep) return;
+    const seen = new Set<string>();
+    const policies = [];
+    for (const rec of sweep.recommendations ?? []) {
+      if (typeof rec === "string") continue;
+      if (!rec.actionable || !rec.action_pattern || !rec.effect) continue;
+      const key = `${rec.action_pattern}|${rec.effect}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      policies.push({
+        agent_id: sweep.agent_id,
+        action_pattern: rec.action_pattern,
+        effect: rec.effect,
+        reason: rec.reason ?? rec.message ?? "Applied from sweep recommendation",
+      });
+    }
+    if (policies.length === 0) {
+      toast("No actionable recommendations to apply");
+      return;
+    }
+    setApplyingAll(true);
+    try {
+      const res = await apiFetch<{ created: number; skipped: number }>(
+        "/api/sandbox/apply-all-policies",
+        { method: "POST", body: JSON.stringify({ agent_id: sweep.agent_id, policies }) },
+      );
+      const skipped = res.skipped ? `, ${res.skipped} already in place` : "";
+      toast(`Applied ${res.created} polic${res.created === 1 ? "y" : "ies"}${skipped} — re-run the sweep to see the effect`);
+    } catch (err) {
+      toast("Couldn't apply recommendations: " + (err as Error).message, "error");
+    } finally {
+      setApplyingAll(false);
+    }
+  }
 
   const load = useCallback(() => {
     if (!sweepId) return;
@@ -358,21 +404,27 @@ export default function SweepDetail() {
       {/* Recommendations */}
       {recommendations.length > 0 && (
         <div style={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: "var(--radius-lg)", padding: 24 }}>
-          <h3
-            style={{
-              fontWeight: 600,
-              color: "var(--text-primary)",
-              marginBottom: 12,
-              fontSize: 15,
-              marginTop: 0,
-              display: "flex",
-              alignItems: "center",
-              gap: 8,
-            }}
-          >
-            <Shield size={16} style={{ color: "var(--color-accent)" }} />
-            Recommendations ({recommendations.length})
-          </h3>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12, gap: 12 }}>
+            <h3
+              style={{
+                fontWeight: 600,
+                color: "var(--text-primary)",
+                margin: 0,
+                fontSize: 15,
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+              }}
+            >
+              <Shield size={16} style={{ color: "var(--color-accent)" }} />
+              Recommendations ({recommendations.length})
+            </h3>
+            {recommendations.some((r) => typeof r !== "string" && r.actionable && r.action_pattern && r.effect) && (
+              <Button size="sm" onClick={applyAllRecommendations} disabled={applyingAll} loading={applyingAll}>
+                {applyingAll ? "Applying..." : "Apply All"}
+              </Button>
+            )}
+          </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
             {recommendations.map((rec, i) => {
               const text = typeof rec === "string" ? rec : (rec.message ?? rec.reason ?? "");
