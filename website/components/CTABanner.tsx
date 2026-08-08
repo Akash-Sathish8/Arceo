@@ -7,7 +7,12 @@ export default function CTABanner() {
   const { ref, className } = useFadeInOnScroll(0);
 
   return (
-    <section style={{ background: "linear-gradient(160deg, #3A86B8 0%, #245E86 100%)", padding: "112px 0" }}>
+    <section style={{
+      // Uses the brand tokens rather than a one-off pair of blues, so the band
+      // reads as the same system as the buttons and accents.
+      background: "linear-gradient(160deg, var(--clay-brand) 0%, var(--clay-brand-strong) 100%)",
+      padding: "112px 0",
+    }}>
       <div ref={ref} className={`container ${className}`} style={{ textAlign: "center" }}>
         <h2 style={{ fontSize: 52, fontWeight: 800, color: "#FAF6F0", letterSpacing: "-0.4px", marginBottom: 14, lineHeight: 1.1 }}>
           Ship your AI agents with a<br />number you can defend.

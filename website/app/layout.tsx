@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Poppins } from "next/font/google";
 import "./globals.css";
+import { SITE_URL, SITE_NAME, SITE_TAGLINE, SITE_DESCRIPTION } from "@/lib/site";
 
 const poppins = Poppins({
   subsets: ["latin"],
@@ -9,20 +10,70 @@ const poppins = Poppins({
   weight: ["400", "500", "600", "700", "800"],
 });
 
+const TITLE = `${SITE_NAME} · ${SITE_TAGLINE}`;
+
 export const metadata: Metadata = {
-  title: "Arceo · Cost and risk forecasting for AI agents",
-  description: "Arceo tells you what your AI agent will cost to run, and what happens if it goes wrong, before you put it in production. One report your finance team can read. Works with Anthropic, OpenAI, MCP, and GitHub.",
-  openGraph: {
-    title: "Arceo · Cost and risk forecasting for AI agents",
-    description: "Know what an agent costs to run and what it could break, before it goes live. One report your finance team can read.",
-    type: "website",
+  // Required for OG/twitter image URLs and canonicals to resolve absolutely.
+  metadataBase: new URL(SITE_URL),
+  title: {
+    default: TITLE,
+    template: `%s · ${SITE_NAME}`,
   },
+  description: SITE_DESCRIPTION,
+  applicationName: SITE_NAME,
+  alternates: { canonical: "/" },
+  keywords: [
+    "AI agent governance",
+    "AI agent cost forecasting",
+    "LLM spend management",
+    "pre-deployment risk assessment",
+    "agent blast radius",
+    "AI budget forecasting",
+    "FinOps for AI",
+  ],
+  openGraph: {
+    title: TITLE,
+    description:
+      "Know what an agent costs to run and what it could break, before it goes live. One report your finance team can read.",
+    url: SITE_URL,
+    siteName: SITE_NAME,
+    type: "website",
+    locale: "en_US",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: TITLE,
+    description:
+      "Know what an agent costs to run and what it could break, before it goes live. One report your finance team can read.",
+  },
+  robots: {
+    index: true,
+    follow: true,
+    googleBot: { index: true, follow: true, "max-image-preview": "large" },
+  },
+};
+
+// Organization markup so search engines resolve the brand rather than guessing.
+const JSON_LD = {
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  name: SITE_NAME,
+  applicationCategory: "BusinessApplication",
+  operatingSystem: "Web",
+  url: SITE_URL,
+  description: SITE_DESCRIPTION,
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" className={poppins.variable}>
-      <body>{children}</body>
+      <body>
+        {children}
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(JSON_LD) }}
+        />
+      </body>
     </html>
   );
 }
