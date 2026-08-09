@@ -1124,6 +1124,7 @@ export default function Authority() {
             description: a.description,
             tools: a.tools,
             score: br.score,
+            residual: br.residual_score,
             band: br.band,
             unclassified: br.coverage?.unclassifiedActions,
             caps: {
@@ -1474,6 +1475,7 @@ export default function Authority() {
                 description: a.description,
                 tools: a.tools,
                 score: br.score,
+                residual: br.residual_score,
                 band: br.band,
                 unclassified: br.coverage?.unclassifiedActions,
                 caps: {
@@ -1532,6 +1534,7 @@ export default function Authority() {
             description: target.description,
             tools: target.tools,
             score: br.score,
+            residual: br.residual_score,
             band: br.band,
             unclassified: br.coverage?.unclassifiedActions,
             caps: {

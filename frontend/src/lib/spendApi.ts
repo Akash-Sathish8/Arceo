@@ -104,14 +104,33 @@ export interface BudgetRecommendation {
   riskReductionUsd?: number
 }
 
-export interface BudgetFit {
-  budget: number
-  forecastPoint: number
-  gap: number
-  status: "under" | "over"
-  currentModel: string
-  recommendations: BudgetRecommendation[]
-}
+/** The backend has two distinct shapes here, and conflating them crashed the
+ * Cost Portfolio: when there's no forecast to fit a budget to it returns
+ * {available:false, reason:"no_data", forecastPoint:null} with NO `gap` and NO
+ * `status`. Declaring those as always-present lied to every caller and the
+ * panel read `undefined.gap`.
+ *
+ * Modelled as a discriminated union so `budgetFit.available === false` narrows
+ * and TypeScript refuses to compile a read of `gap`/`status` on the refusal
+ * branch. The success shape carries no `available` key at all. */
+export type BudgetFit =
+  | {
+      available: false
+      reason: string
+      needs?: string[]
+      budget: number
+      forecastPoint: null
+      recommendations: BudgetRecommendation[]
+    }
+  | {
+      available?: undefined
+      budget: number
+      forecastPoint: number
+      gap: number
+      status: "under" | "over"
+      currentModel: string
+      recommendations: BudgetRecommendation[]
+    }
 
 export async function fetchBudgetFit(agentId: string, budget: number): Promise<BudgetFit | null> {
   try {
