@@ -32,8 +32,15 @@ export interface AgentCardData {
   name: string;
   description: string;
   tools: string[];
-  /** 0-100, higher = riskier. */
+  /** 0-100, higher = riskier. The INHERENT score — the capability ceiling.
+   *  Policy-blind by design (graph.py), so it never moves when gates are added. */
   score: number;
+  /** What's left after the agent's policies gate its actions. Only rendered
+   *  when the agent actually has policies: an agent with none can still report
+   *  residual < score, because `score` is floored to its band minimum
+   *  (graph.py display_score) and residual isn't — a 2-point display artifact,
+   *  not mitigation. */
+  residual?: number;
   /** Backend-authoritative band (low|medium|high|critical); local fallback if absent. */
   band?: string;
   /** Actions with no classifiable risk signal (score 0, true risk unknown). */
@@ -201,6 +208,9 @@ export default function AgentCard({ agent, onOpen }: AgentCardProps): React.Reac
   const byEffect = agent.policiesByEffect ?? {};
   const enforcedCount = (byEffect.BLOCK ?? 0) + (byEffect.ALLOW ?? 0);
   const approvalOnly = !unguarded && enforcedCount === 0;
+  // "Exposed now" only means something once gates exist — see AgentCardData.residual.
+  const residual = Math.round(agent.residual ?? agent.score);
+  const showResidual = !unguarded && residual < Math.round(agent.score);
 
   return (
     <div
@@ -283,6 +293,27 @@ export default function AgentCard({ agent, onOpen }: AgentCardProps): React.Reac
             }}
           >
             {b.label}
+          </span>
+          {/* Always rendered, hidden when there's nothing to say: the cards sit in
+              a 2-up grid and each row's height is set by its tallest card, so a
+              conditionally-present line knocks the neighbouring card's rows out
+              of alignment. */}
+          <span
+            aria-hidden={!showResidual}
+            title={
+              showResidual
+                ? `The ring shows what this agent could do if nothing stopped it (${Math.round(agent.score)}). Your policies hold ${Math.round(agent.score) - residual} of that back, leaving ${residual} still exposed.`
+                : undefined
+            }
+            style={{
+              fontSize: "var(--fs-micro)",
+              fontWeight: 600,
+              color: "var(--safe)",
+              whiteSpace: "nowrap",
+              visibility: showResidual ? "visible" : "hidden",
+            }}
+          >
+            {showResidual ? `↓ ${residual} exposed now` : " "}
           </span>
         </div>
       </div>
