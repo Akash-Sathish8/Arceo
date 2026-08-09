@@ -99,24 +99,6 @@ const styles = StyleSheet.create({
   barTrack: { flex: 1, height: 6, backgroundColor: SECTION_BG, borderRadius: 1, overflow: "hidden" },
   barFill: { height: "100%", backgroundColor: ACCENT },
 
-  // Worst case
-  worstCaseBox: {
-    backgroundColor: WARN_BG,
-    borderLeftWidth: 3,
-    borderLeftColor: WARN,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    marginTop: 4,
-  },
-  worstUsd: { fontSize: 22, fontWeight: 700, fontFamily: "Courier", color: WARN },
-  worstScenario: { fontSize: 10, color: INK, marginTop: 4, lineHeight: 1.5 },
-  worstStatus: { fontSize: 9, color: WARN, fontWeight: 700, marginTop: 6, letterSpacing: 0.5 },
-  worstStatusEnforced: { fontSize: 9, color: SAFE, fontWeight: 700, marginTop: 6, letterSpacing: 0.5 },
-  otherRiskRow: { flexDirection: "row", paddingVertical: 3, alignItems: "flex-start" },
-  otherRiskBullet: { fontSize: 10, color: INK_MUTED, width: 12 },
-  otherRiskText: { flex: 1, fontSize: 10, color: INK_MUTED, lineHeight: 1.5 },
-  otherRiskStatus: { fontSize: 8, fontWeight: 700, marginLeft: 4 },
-
   // Recommendations
   recRow: { flexDirection: "row", paddingVertical: 4, alignItems: "flex-start" },
   recNum: {
@@ -230,52 +212,10 @@ export function CFOReport({ data }: { data: CFOReportData }) {
           )}
         </View>
 
-        {/* Worst-case exposure */}
-        {data.worstCase && (
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>WORST-CASE EXPOSURE</Text>
-            <Text style={[styles.numberLabel, { marginBottom: 6 }]}>
-              The largest single-incident loss we've identified:
-            </Text>
-            <View style={styles.worstCaseBox}>
-              <Text style={styles.worstUsd}>{fmtUsd(data.worstCase.usd)}</Text>
-              <Text style={styles.worstScenario}>{data.worstCase.scenario}</Text>
-              <Text style={data.worstCase.enforced ? styles.worstStatusEnforced : styles.worstStatus}>
-                {data.worstCase.enforced
-                  ? "STATUS: BLOCKED today by an existing rule."
-                  : "STATUS: NOT yet blocked. See recommendations below."}
-              </Text>
-            </View>
-
-            {data.otherRisks.length > 0 && (
-              <View style={{ marginTop: 10 }}>
-                <Text style={[styles.numberLabel, { marginBottom: 4 }]}>Other risks identified:</Text>
-                {data.otherRisks.map((r, i) => (
-                  <View key={i} style={styles.otherRiskRow}>
-                    <Text style={styles.otherRiskBullet}>•</Text>
-                    <Text style={styles.otherRiskText}>
-                      {r.description} Worst case: {fmtUsd(r.maxUsd)}.{" "}
-                      <Text style={[styles.otherRiskStatus, { color: r.enforced ? SAFE : WARN }]}>
-                        {r.enforced ? "BLOCKED" : "NOT BLOCKED"}
-                      </Text>
-                    </Text>
-                  </View>
-                ))}
-              </View>
-            )}
-
-            {data.riskAssumptions.length > 0 && (
-              <View style={{ marginTop: 8 }}>
-                <Text style={[styles.numberLabel, { marginBottom: 3 }]}>How these dollar figures are computed:</Text>
-                {data.riskAssumptions.map((a, i) => (
-                  <Text key={i} style={{ fontSize: 7, color: "#6b7280", lineHeight: 1.5, marginBottom: 2 }}>
-                    · {a}
-                  </Text>
-                ))}
-              </View>
-            )}
-          </View>
-        )}
+        {/* WORST-CASE EXPOSURE section retired 2026-08-09 — the per-incident
+            breach dollars behind it were not trustworthy enough to ship in a
+            downloadable CFO artifact. The recommendations below still name the
+            riskiest unguarded action; they just no longer price it. */}
 
         {/* Recommended actions */}
         {data.recommendedActions.length > 0 && (

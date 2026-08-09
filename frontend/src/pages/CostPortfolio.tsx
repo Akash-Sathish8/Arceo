@@ -19,7 +19,6 @@ import type { SpendTimeseries, SpendAnomaly, BudgetFit, SavedBudget } from "@/li
 import { ExportCFOReportButton } from "@/components/ExportCFOReportButton"
 import { apiFetch } from "@/lib/api"
 import { toast } from "@/components/shared/Toast"
-import { pickWorstCase, type CostReportResponse } from "@/lib/cfoReport"
 
 type SourceStatus = "calibrated" | "active" | "partial" | "disconnected"
 
@@ -225,7 +224,6 @@ function downloadForecastCsv(
   displayName: string,
   m: MockSpend,
   timeseries: SpendTimeseries | null,
-  costReport: CostReportResponse | null,
 ) {
   const rows: Array<Array<string | number>> = [
     ["Arceo cost forecast", displayName],
@@ -251,14 +249,6 @@ function downloadForecastCsv(
   if (m.topTools?.length) {
     rows.push([], ["Top tool calls", "Calls per month", "Cost per call (USD)", "Monthly (USD)"])
     for (const t of m.topTools) rows.push([t.tool, t.callsPerMonth, t.costPer, t.monthly])
-  }
-  if (costReport) {
-    rows.push(
-      [],
-      ["Worst-case exposure", "Value"],
-      ["Worst single incident (USD, up to)", costReport.per_incident.max_usd],
-      ["Risky actions without a guarding rule", `${costReport.total_unprotected} of ${costReport.total_risky_actions}`],
-    )
   }
   if (timeseries?.hasData) {
     rows.push([], ["Observed daily LLM spend", "", ""], ["Date", "USD", "Calls"])
@@ -591,7 +581,6 @@ function CostPortfolioContent({
   const [recalculating, setRecalculating] = useState(false)
   const [timeseries, setTimeseries] = useState<SpendTimeseries | null>(null)
   const [anomaly, setAnomaly] = useState<SpendAnomaly | null>(null)
-  const [costReport, setCostReport] = useState<CostReportResponse | null>(null)
 
   useEffect(() => {
     if (!agentId) return
@@ -599,11 +588,6 @@ function CostPortfolioContent({
     fetchSpendAnomalies().then((list) => {
       setAnomaly(list.find((a) => a.agentId === agentId) ?? null)
     })
-    // Worst-case exposure beside the spend forecast — the wedge in one view.
-    // daily_runs aligns annualized exposure with the forecast's volume.
-    apiFetch<CostReportResponse>(`/api/agents/${agentId}/cost-report?daily_runs=${forecast.runsPerDay ?? forecast.callsPerDay}`)
-      .then(setCostReport)
-      .catch(() => {})
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [agentId])
 
@@ -632,7 +616,6 @@ function CostPortfolioContent({
 
   const m = forecast
   const conf = CONFIDENCE_CHIP[m.confidence] ?? CONFIDENCE_CHIP.low
-  const riskCost = costReport ? pickWorstCase(costReport.items) : null
   // Budget-fit: CFO types a monthly number; we say whether it fits and, if not,
   // the honest levers to close the gap. Default to a round number near forecast.
   const budgetDefault = Math.max(1, Math.round(((m.point ?? 0) * 1.2) / 50) * 50)
@@ -686,7 +669,6 @@ function CostPortfolioContent({
       // Re-run budget-fit — the action is protected, so the gate rec drops.
       const f = await fetchBudgetFit(agentId, budget)
       setBudgetFit(f)
-      apiFetch<CostReportResponse>(`/api/agents/${agentId}/cost-report?daily_runs=${m.callsPerDay}`).then(setCostReport).catch(() => {})
     } else {
       toast("Couldn't apply the rule", "error")
     }
@@ -876,15 +858,6 @@ function CostPortfolioContent({
             </div>
           )}
         </div>
-        {riskCost?.worst && (
-          <div className="text-right pl-6 border-l border-gray-100 self-center">
-            <div className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Worst case if it goes wrong</div>
-            <div className="text-base font-semibold mono mt-1" style={{ color: "var(--severity-critical, #dc2626)" }}>
-              up to ${riskCost.worst.usd.toLocaleString()}
-            </div>
-            <div className="text-[10px] text-gray-400 mt-1">single incident · details below</div>
-          </div>
-        )}
         <div className="text-right pl-6 border-l border-gray-100 self-center">
           <div className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Annual run rate</div>
           <div className="text-base font-semibold mono text-gray-700 mt-1">${m.annual.toLocaleString()}</div>
@@ -943,81 +916,6 @@ function CostPortfolioContent({
             </div>
             <div className="text-2xl font-semibold mono text-gray-900">${m.low.toLocaleString()} – ${m.high.toLocaleString()}</div>
           </div>
-        </PanelCard>
-
-        <PanelCard
-          title="If something goes wrong — worst case in dollars"
-          icon={<AlertTriangle size={14} />}
-          help="From the same engine that maps this agent's risky actions. Dollar figures are worst-case single incidents from configured breach costs."
-        >
-          {!riskCost?.worst ? (
-            <div className="text-sm text-gray-500 py-4">
-              No risky actions detected for this agent — nothing it can do has a meaningful dollar downside.
-            </div>
-          ) : (
-            <>
-              <div className="flex items-baseline gap-3">
-                <div className="mono font-bold tracking-tight leading-none" style={{ fontSize: 32, color: "var(--severity-critical, #dc2626)" }}>
-                  up to ${riskCost.worst.usd.toLocaleString()}
-                </div>
-                <div className="text-xs text-gray-500">in a single incident</div>
-              </div>
-              <div className="mt-3 text-sm text-gray-700 leading-relaxed">{riskCost.worst.scenario}</div>
-              <div className="mt-2">
-                <span
-                  className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full"
-                  style={riskCost.worst.enforced
-                    ? { background: "var(--severity-safe-bg)", color: "var(--severity-safe)", border: "1px solid var(--severity-safe-border)" }
-                    : { background: "var(--severity-critical-bg)", color: "var(--severity-critical)", border: "1px solid var(--severity-critical-border, var(--border))" }}
-                >
-                  {riskCost.worst.enforced ? "A rule already guards this" : "Nothing stops this today"}
-                </span>
-              </div>
-              {riskCost.others.length > 0 && (
-                <div className="mt-4 border-t border-dashed border-gray-100 pt-3 space-y-2">
-                  {riskCost.others.map((o, i) => (
-                    <div key={i} className="grid grid-cols-[1fr_auto] gap-3 text-xs text-gray-600 items-start">
-                      <span>{o.description}</span>
-                      <span className="mono font-semibold text-gray-900 whitespace-nowrap">up to ${o.maxUsd.toLocaleString()}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-              {costReport && (
-                <div className="mt-4 px-4 py-3 rounded-lg text-xs text-gray-600 flex items-center justify-between gap-3"
-                  style={{ background: "var(--bg-sunken)", border: "1px solid var(--border)" }}>
-                  <span>
-                    <strong className="text-gray-900">{costReport.total_unprotected} of {costReport.total_risky_actions}</strong> risky
-                    actions have no rule stopping them yet
-                    {costReport.per_incident.max_usd > 0 && (
-                      <> · combined worst case <strong className="mono text-gray-900">up to ${costReport.per_incident.max_usd.toLocaleString()}</strong> per incident</>
-                    )}
-                  </span>
-                  <Link
-                    to={`/agent/${agentId}`}
-                    className="font-medium whitespace-nowrap underline underline-offset-2"
-                    style={{ color: "var(--text-link)" }}
-                  >
-                    Review guardrails
-                  </Link>
-                </div>
-              )}
-              {(costReport?.assumptions?.length ?? 0) > 0 && (
-                <div className="mt-3 pt-3 border-t border-dashed border-gray-100">
-                  <div className="text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1.5">
-                    How these dollars are computed
-                  </div>
-                  <ul className="space-y-1">
-                    {costReport!.assumptions!.map((a, i) => (
-                      <li key={i} className="text-[11px] text-gray-500 leading-relaxed pl-3 relative">
-                        <span className="absolute left-0">·</span>{a}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-            </>
-          )}
         </PanelCard>
 
         <PanelCard title="Where the money goes" icon={<PieChart size={14} />} help="Per-call cost breakdown, rolled up to a monthly total.">
@@ -1093,7 +991,7 @@ function CostPortfolioContent({
           if (!top || top.pct <= 0) return "Each bar shows how much that input changes your forecast. Improving the top driver has the biggest accuracy payoff."
           const dollarImpact = Math.round((m.point * top.pct) / 100)
           return `Each bar shows how much that input changes your forecast. A swing in ${top.label.toLowerCase()} moves cost by ~$${dollarImpact.toLocaleString()}/mo — improving this input has the biggest accuracy payoff.`
-        })()}>
+        })()} fullWidth>
           {m.sensitivity.length === 0 ? (
             <div className="text-xs text-gray-400 py-2">
               Needs data. Sensitivity is computed by re-running this agent's forecast at ±20% per input — it appears once there's a real baseline (declare volume or run a sweep).
@@ -1289,7 +1187,7 @@ function CostPortfolioContent({
             <button
               className="text-sm px-4 py-2 rounded-lg border bg-white text-gray-900 font-medium cursor-pointer"
               style={{ borderColor: "var(--border)" }}
-              onClick={() => downloadForecastCsv(displayName, m, timeseries, costReport)}
+              onClick={() => downloadForecastCsv(displayName, m, timeseries)}
             >
               Export to CSV
             </button>

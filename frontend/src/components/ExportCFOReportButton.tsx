@@ -55,7 +55,8 @@ export function ExportCFOReportButton({
     setLoading(true)
     apiFetch<CostReportResponse>(`/api/agents/${agentId}/cost-report`)
       .then(r => { if (!cancelled) setCostReport(r) })
-      .catch(() => { /* cost-report missing is acceptable — PDF still renders without worst-case */ })
+      .catch(() => { /* cost-report missing is acceptable — it only names the riskiest
+                        unguarded action for recommendation #1; the PDF renders without it */ })
       .finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
   }, [agentId])
