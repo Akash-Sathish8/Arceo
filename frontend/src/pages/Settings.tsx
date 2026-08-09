@@ -165,19 +165,6 @@ interface CostDefaultsCatalog {
   breach?: Record<string, Record<string, number>>;
 }
 
-// CFO-facing plain labels for the breach categories (no jargon).
-const BREACH_LABELS: Record<string, { label: string; help: string }> = {
-  direct_financial_loss: { label: "Money lost directly", help: "A wrong refund, charge, or transfer the agent could make." },
-  regulatory_fine: { label: "Regulatory fines", help: "Penalties if private customer data is mishandled (GDPR, HIPAA, CCPA)." },
-  operational_disruption: { label: "Downtime & disruption", help: "Cost of an outage or broken process the agent could cause." },
-  reputation_damage: { label: "Reputation damage", help: "PR / crisis-response cost of a public incident." },
-};
-const BREACH_ORDER = ["direct_financial_loss", "regulatory_fine", "operational_disruption", "reputation_damage"];
-const BREACH_COLUMNS: Array<{ sub: string; label: string }> = [
-  { sub: "per_incident_min_usd", label: "Typical incident ($)" },
-  { sub: "per_incident_max_usd", label: "Worst case ($)" },
-];
-
 const MODEL_PRICE_COLUMNS: Array<{ sub: string; label: string }> = [
   { sub: "input_per_mtok", label: "Input $ / MTok" },
   { sub: "output_per_mtok", label: "Output $ / MTok" },
@@ -352,65 +339,12 @@ function CostOverridesSection({ inputStyle }: { inputStyle: React.CSSProperties 
         </table>
       </div>
 
-      {defaults.breach && Object.keys(defaults.breach).length > 0 && (
-        <div style={cardStyle}>
-          <h2 style={{ fontSize: 15, fontWeight: 600, color: "var(--text-primary)", margin: "0 0 4px" }}>
-            What a breach could cost you
-          </h2>
-          <p style={{ fontSize: 13, color: "var(--text-secondary)", marginBottom: 16 }}>
-            These drive the "worst case if it goes wrong" figure on each agent's cost portfolio.
-            The defaults are industry estimates — put in your own numbers and the worst-case
-            exposure becomes specific to your business.
-          </p>
-          <table style={{ borderCollapse: "collapse" }}>
-            <thead>
-              <tr>
-                <th style={thStyle}>Kind of damage</th>
-                {BREACH_COLUMNS.map((c) => <th key={c.sub} style={thStyle}>{c.label}</th>)}
-              </tr>
-            </thead>
-            <tbody>
-              {BREACH_ORDER.filter((cat) => defaults.breach?.[cat]).map((cat) => {
-                const meta = BREACH_LABELS[cat] ?? { label: cat, help: "" };
-                const ranges = defaults.breach![cat];
-                return (
-                  <tr key={cat}>
-                    <td style={{ fontSize: 13, color: "var(--text-primary)", padding: "8px 24px 8px 0" }} title={meta.help}>
-                      <div style={{ fontWeight: 500 }}>{meta.label}</div>
-                      <div style={{ fontSize: 11, color: "var(--text-muted)" }}>{meta.help}</div>
-                    </td>
-                    {BREACH_COLUMNS.map(({ sub }) => {
-                      const def = Number(ranges[sub] ?? 0);
-                      const ov = findOverride("breach", cat, sub);
-                      const draftKey = `breach|${cat}|${sub}`;
-                      const shown = drafts[draftKey] ?? String(ov?.value ?? def);
-                      return (
-                        <td key={sub} style={{ padding: "8px 12px 8px 0", verticalAlign: "top" }}>
-                          <div style={{ position: "relative", display: "inline-block" }}>
-                            <input
-                              style={{ ...cellInputStyle, border: ov ? "2px solid var(--severity-safe, #16a34a)" : cellInputStyle.border }}
-                              value={shown}
-                              onChange={(e) => setDrafts((d) => ({ ...d, [draftKey]: e.target.value }))}
-                              onBlur={(e) => commitCell("breach", cat, sub, def, e.target.value)}
-                              onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
-                              title={ov ? `Your number (default: $${def.toLocaleString()})` : `Default $${def.toLocaleString()}`}
-                            />
-                            {ov && (
-                              <span style={{ position: "absolute", top: -7, right: -6, fontSize: 9, fontWeight: 700, background: "var(--severity-safe-bg, #dcfce7)", color: "var(--severity-safe, #16a34a)", borderRadius: 6, padding: "1px 5px" }}>
-                                CUSTOM
-                              </span>
-                            )}
-                          </div>
-                        </td>
-                      );
-                    })}
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
+      {/* The "What a breach could cost you" override table lived here. It existed
+          only to feed the "worst case if it goes wrong" dollar figure, which was
+          retired on 2026-08-09 — offering a control whose numbers no longer reach
+          any surface is worse than not offering it. The `breach` override scope is
+          untouched on the API and still feeds blast-radius magnitudes; reverting
+          this commit brings the table back. */}
 
       <div style={cardStyle}>
         <h2 style={{ fontSize: 15, fontWeight: 600, color: "var(--text-primary)", margin: "0 0 4px" }}>

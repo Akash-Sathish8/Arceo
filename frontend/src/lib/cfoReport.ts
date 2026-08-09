@@ -3,7 +3,13 @@
  *
  * Everything here runs on data already fetched from the backend:
  *   GET /api/agents/{id}/spend-forecast  (forecast point + range + composition)
- *   GET /api/agents/{id}/cost-report     (worst-case $ + breach_scenario items)
+ *   GET /api/agents/{id}/cost-report     (breach_scenario items — names only)
+ *
+ * The dollarized worst-case exposure this file used to shape was retired on
+ * 2026-08-09 (see `pickWorstCase`'s removal): the per-incident figures were not
+ * trustworthy enough to put in front of a CFO. The cost-report is still read,
+ * but only for the *name* of the riskiest unguarded action, which drives
+ * recommendation #1 and does not depend on the dollar being right.
  *
  * Output (CFOReportData) is the only shape the PDF component reads.
  * If a CFO can't parse a string, it does not belong in this file.
@@ -64,17 +70,6 @@ export interface CFOReportData {
   topDriverLabel: string
   topDriverMonthly: number
   topUnitCost: { label: string; value: string } | null
-
-  // Worst-case exposure
-  worstCase: {
-    usd: number
-    scenario: string
-    enforced: boolean
-  } | null
-  otherRisks: { description: string; maxUsd: number; enforced: boolean }[]
-  // Plain-English basis for the dollar figures (from the cost engine) —
-  // a CFO artifact must disclose its assumptions or it won't survive review.
-  riskAssumptions: string[]
 
   // Recommendations
   recommendedActions: string[]
@@ -200,7 +195,7 @@ function buildTopDriver(forecast: MockSpend): { label: string; monthly: number }
   return { label: friendlyToolName(toolKey), monthly: top.monthly }
 }
 
-// ── Worst-case exposure ─────────────────────────────────────────────────────
+// ── Breach scenario phrasing ────────────────────────────────────────────────
 
 // CFO surfaces must not use jargon — translate the risk engine's terms into
 // plain scenario language before they reach a screen or a PDF.
@@ -226,41 +221,6 @@ function rephraseBreachScenario(item: CostReportItem): string {
   return scenario.endsWith(".") ? scenario : `${scenario}.`
 }
 
-// Exported: the Cost Portfolio's Risk × Cost panel reuses the same headline
-// pick + plain-English rephrasing as the PDF, so screen and export agree.
-export function pickWorstCase(items: CostReportItem[]): {
-  worst: CFOReportData["worstCase"]
-  others: CFOReportData["otherRisks"]
-} {
-  if (!items || items.length === 0) {
-    return { worst: null, others: [] }
-  }
-  // Prefer the highest-$ unmitigated item as the headline worst case.
-  const sorted = [...items].sort((a, b) => b.per_incident_max_usd - a.per_incident_max_usd)
-  const unmitigated = sorted.filter(i => !i.has_policy)
-  const headline = unmitigated[0] ?? sorted[0]
-
-  const others: CFOReportData["otherRisks"] = sorted
-    .filter(i => i !== headline)
-    .slice(0, 2)
-    .map(i => ({
-      description: rephraseBreachScenario(i),
-      maxUsd: i.per_incident_max_usd,
-      enforced: i.has_policy,
-    }))
-
-  return {
-    worst: headline
-      ? {
-          usd: headline.per_incident_max_usd,
-          scenario: rephraseBreachScenario(headline),
-          enforced: headline.has_policy,
-        }
-      : null,
-    others,
-  }
-}
-
 // ── Recommendations ─────────────────────────────────────────────────────────
 
 function generateRecommendations(
@@ -270,7 +230,8 @@ function generateRecommendations(
 ): string[] {
   const recs: string[] = []
 
-  // 1. Top unmitigated risk → add a rule.
+  // 1. Top unmitigated risk → add a rule. Ranked by per-incident $ purely to
+  // order the list; the figure itself is never published (retired 2026-08-09).
   const items = costReport?.items ?? []
   const unmitigated = [...items]
     .filter(i => !i.has_policy)
@@ -309,7 +270,6 @@ export function buildCFOReportData(args: {
 
   const composition = buildComposition(forecast)
   const topDriver = buildTopDriver(forecast)
-  const { worst, others } = pickWorstCase(costReport?.items ?? [])
 
   // Round budget cap to nearest $100, with at least 30% margin over the point estimate.
   const budgetCap = Math.max(100, Math.round((forecast.point * 1.35) / 100) * 100)
@@ -336,10 +296,6 @@ export function buildCFOReportData(args: {
       const u = forecast.unitEcon?.find((x) => x.value != null)
       return u && u.value != null ? { label: u.label, value: u.value } : null
     })(),
-
-    worstCase: worst,
-    otherRisks: others,
-    riskAssumptions: costReport?.assumptions ?? [],
 
     recommendedActions: generateRecommendations(forecast, costReport, budgetCap),
     reviewBudgetCap: budgetCap,

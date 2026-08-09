@@ -1743,11 +1743,12 @@ def compute_budget_fit(
     This is an *options engine*, not an optimizer: the cost model knows cost,
     not quality, so every quality-affecting lever carries a plain-English
     tradeoff and the human decides. `cost_report_items` (from /cost-report)
-    powers the risk-reduction crossover on the action-gating lever.
+    picks WHICH action the gating lever targets — the riskiest unprotected one.
+    It no longer publishes that action's dollar exposure (see the gate lever).
 
     Returns {budget, forecastPoint, gap, status ("under"|"over"),
              currentModel, recommendations: [{lever, label, projectedSaving,
-             newPoint, tradeoff, riskReductionUsd?}]}.
+             newPoint, tradeoff}]}.
     """
     base_overrides = dict(base_overrides or {})
 
@@ -1850,15 +1851,19 @@ def compute_budget_fit(
                 if t.get("tool") == action_key:
                     tool_saving = t.get("monthly", 0)
                     break
-            risk_usd = round(worst.get("per_incident_max_usd", 0) or 0)
-            if risk_usd > 0:
+            # The per-incident $ still RANKS the candidates (it is the only
+            # ordering we have), but is no longer published: the worst-case
+            # exposure figures were retired on 2026-08-09 as untrustworthy, and
+            # a number we won't show on the Cost Portfolio must not leak out of
+            # the budget-fit response either. Which action to gate does not
+            # depend on the dollar being right; the dollar itself did.
+            if round(worst.get("per_incident_max_usd", 0) or 0) > 0:
                 gate_rec = {
                     "lever": "gate",
                     "label": f"Require approval on {action_key}",
                     "projectedSaving": round(tool_saving),
                     "newPoint": round(base_point - tool_saving),
                     "tradeoff": "Adds a human check on that action — small cost impact, large risk cut.",
-                    "riskReductionUsd": risk_usd,
                 }
 
     recs = cost_recs[:3]
