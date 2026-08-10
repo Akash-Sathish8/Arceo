@@ -12,8 +12,11 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 from pathlib import Path
 from typing import Any, Optional
+
+logger = logging.getLogger("arceo")
 
 try:
     import yaml
@@ -27,6 +30,20 @@ _DEFAULTS_PATH = Path(__file__).parent / "cost_defaults_operational.yaml"
 # sync by tests/test_price_hygiene.py. Never edit by hand.
 _FALLBACK_JSON_PATH = Path(__file__).parent / "cost_defaults_operational.fallback.json"
 _DEFAULTS_CACHE: Optional[dict] = None
+
+# Stamped on the org-merged copy (never on the shared cache) so the forecast can
+# disclose WHY it priced at list: the org has no negotiated rates, or we could
+# not read them. An absent key means no per-org read was attempted -> "none".
+_OVERRIDES_STATUS_KEY = "_org_overrides_status"
+
+
+def overrides_status(defaults: dict) -> str:
+    """'applied' | 'none' | 'unavailable' — how this catalog got its rates.
+
+    'none' and 'unavailable' are deliberately distinct: both price at list, but
+    only one of them is a fault. Collapsing them is the bug this exists to fix.
+    """
+    return defaults.get(_OVERRIDES_STATUS_KEY, "none")
 
 
 def load_defaults(org_id: Optional[str] = None) -> dict:
@@ -52,12 +69,18 @@ def load_defaults(org_id: Optional[str] = None) -> dict:
                 _DEFAULTS_CACHE = yaml.safe_load(f)
     if not org_id:
         return _DEFAULTS_CACHE
-    rows = _fetch_org_overrides(org_id)
+    rows, read_ok = _fetch_org_overrides(org_id)
     org_default_model = _fetch_org_default_model(org_id)
-    if not rows and not org_default_model:
+    # Only the no-op case may return the SHARED cache object. A failed read has
+    # to be recorded, and recording it means taking a copy — mutating the shared
+    # dict would leak one org's status into every other org's forecast.
+    if read_ok and not rows and not org_default_model:
         return _DEFAULTS_CACHE
     import copy
     merged = copy.deepcopy(_DEFAULTS_CACHE)
+    # Keyed off `rows`, not off whether we copied: an org that set only a default
+    # model has no rate overrides applied.
+    merged[_OVERRIDES_STATUS_KEY] = ("applied" if rows else "none") if read_ok else "unavailable"
     for scope, key, sub_key, value in rows:
         if scope == "model":
             # Only patch models that exist — a partial model dict (an override
@@ -89,9 +112,14 @@ def _fetch_org_default_model(org_id: str) -> Optional[str]:
         return None
 
 
-def _fetch_org_overrides(org_id: str) -> list[tuple]:
-    """Read an org's cost_overrides rows. Returns [] on any failure (missing
-    table, no DB) so the forecaster degrades to pristine defaults."""
+def _fetch_org_overrides(org_id: str) -> tuple[list[tuple], bool]:
+    """Read an org's cost_overrides rows as `(rows, read_ok)`.
+
+    Still degrades to pristine defaults on failure (missing table, no DB), but
+    says so. `([], True)` is an org with no negotiated rates; `([], False)` is a
+    read we could not complete — the caller prices at list either way, and only
+    the second one is a fault worth surfacing.
+    """
     try:
         from db import get_db
         with get_db() as conn:
@@ -99,9 +127,13 @@ def _fetch_org_overrides(org_id: str) -> list[tuple]:
                 "SELECT scope, key, sub_key, value FROM cost_overrides WHERE org_id = %s",
                 (org_id,),
             ).fetchall()
-        return [(r["scope"], r["key"], r["sub_key"], float(r["value"])) for r in rows]
+        return [(r["scope"], r["key"], r["sub_key"], float(r["value"])) for r in rows], True
     except Exception:
-        return []
+        logger.warning(
+            "cost_overrides read failed for org %s — forecasting at list prices; "
+            "any negotiated rates for this org are NOT applied", org_id, exc_info=True,
+        )
+        return [], False
 
 
 def clear_override_caches() -> None:
@@ -1456,6 +1488,7 @@ def forecast_spend(
                 "pricedModel": model_name,
                 "toolsPriced": sum(1 for n in _tn if _tool_is_priced(_tc, n)),
                 "toolsTotal": len(_tn),
+                "overridesApplied": overrides_status(defaults),
                 # Nothing captured on this path — an empty list means "not
                 # observed", which the UI renders as such rather than implying
                 # the declared model was measured.
@@ -1772,6 +1805,7 @@ def forecast_spend(
             "pricedModel": model_name,
             "toolsPriced": tools_priced,
             "toolsTotal": tools_total,
+            "overridesApplied": overrides_status(defaults),
             # What the agent ACTUALLY ran, by share of observed cost. Empty until
             # there is captured traffic — `declaredModel` above is the assumption,
             # this is the measurement, and the UI must not conflate them.
