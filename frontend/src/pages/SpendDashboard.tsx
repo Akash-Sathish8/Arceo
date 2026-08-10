@@ -205,7 +205,10 @@ export default function SpendDashboard() {
   const byModel = Array.from(byModelMap.entries())
     .map(([name, amount]) => ({
       name,
-      amount,
+      // Splitting a whole-agent figure by share yields fractions; the rest of
+      // this page reports whole dollars, so round for display. The percentage
+      // comes off the unrounded value so it stays accurate.
+      amount: Math.round(amount),
       pctOfLlm: llmTotal > 0 ? Math.round((amount / llmTotal) * 100) : 0,
       color: MODEL_COLORS[name] ?? "var(--text-muted)",
     }))
