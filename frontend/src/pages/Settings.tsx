@@ -691,6 +691,8 @@ export default function Settings() {
   const [showToken, setShowToken] = useState(false);
 
   const [inviteEmail, setInviteEmail] = useState("");
+  const [inviteRole, setInviteRole] = useState("editor");
+  const [inviteError, setInviteError] = useState("");
   const [inviteSent, setInviteSent] = useState(false);
   // Bumped after an invite so the members list picks up the new teammate.
   const [teamReloadKey, setTeamReloadKey] = useState(0);
@@ -712,33 +714,55 @@ export default function Settings() {
       .catch(() => {});
   }, []);
 
+  // A single-use temp password the admin hands over. crypto.getRandomValues,
+  // not Math.random — this is a credential, and Math.random is a predictable
+  // PRNG. 16 chars from a 32-symbol alphabet, comfortably over the API's
+  // 8-character floor.
+  const generateTempPassword = (): string => {
+    const alphabet = "abcdefghijkmnopqrstuvwxyz23456789";
+    const bytes = new Uint8Array(16);
+    crypto.getRandomValues(bytes);
+    return Array.from(bytes, (b) => alphabet[b % alphabet.length]).join("");
+  };
+
   const sendInvite = async (e: React.FormEvent) => {
     e.preventDefault();
     setInviteSending(true);
+    setInviteError("");
     const emailToCreate = inviteEmail.trim();
-    const tempPassword =
-      Math.random().toString(36).slice(2, 8) +
-      Math.random().toString(36).slice(2, 6).toUpperCase();
+    const tempPassword = generateTempPassword();
     try {
-      await apiFetch("/api/auth/signup", {
+      // POST /api/team/invite — NOT /api/auth/signup. Signup mints a brand-new
+      // organization and hardcodes role "admin" (main.py:1655-1676), so the
+      // "invited" teammate landed in their own empty tenant and saw none of
+      // this org's data. team/invite inserts into the CALLER's org_id with the
+      // chosen role, and is itself admin-gated.
+      await apiFetch("/api/team/invite", {
         method: "POST",
         body: JSON.stringify({
           email: emailToCreate,
           password: tempPassword,
           name: emailToCreate.split("@")[0],
+          role: inviteRole,
         }),
-        skipLogoutOn401: true,
       });
       setCreatedEmail(emailToCreate);
       setTempPass(tempPassword);
-    } catch {
-      // User may already exist — still show as "invited"
-      setCreatedEmail(emailToCreate);
-      setTempPass("");
+      setInviteEmail("");
+      setInviteSent(true);
+      setTeamReloadKey((k) => k + 1);
+    } catch (err) {
+      // Previously this swallowed every failure and still rendered "invited",
+      // so a duplicate email or a permission error looked like success.
+      const msg = err instanceof Error ? err.message : "";
+      setInviteError(
+        /409|already/i.test(msg)
+          ? "That email already has an account."
+          : /403|admin/i.test(msg)
+          ? "Only an admin can invite teammates."
+          : msg || "Couldn't send the invite. Please try again.",
+      );
     }
-    setInviteEmail("");
-    setInviteSent(true);
-    setTeamReloadKey((k) => k + 1);
     setInviteSending(false);
   };
 
@@ -1093,8 +1117,8 @@ if (await enforce("Stripe", "create_refund", { amount: 500 })) {
                   Invite a teammate
                 </h3>
                 <p style={{ fontSize: 13, color: "var(--text-secondary)", marginBottom: 12 }}>
-                  Create an account for a teammate so they can view agents, run simulations, and
-                  manage policies.
+                  Add someone to this workspace. They'll see the same agents, spend, and
+                  simulations you do — what they can change depends on the role you pick.
                 </p>
 
                 {inviteSent ? (
@@ -1110,7 +1134,7 @@ if (await enforce("Stripe", "create_refund", { amount: 500 })) {
                     }}
                   >
                     <div style={{ fontSize: 13, fontWeight: 600, color: "#166534" }}>
-                      Account created for {createdEmail}
+                      {createdEmail} added to your workspace
                     </div>
                     {tempPass ? (
                       <>
@@ -1171,47 +1195,79 @@ if (await enforce("Stripe", "create_refund", { amount: 500 })) {
                           They can change their password after signing in.
                         </p>
                       </>
-                    ) : (
-                      <p style={{ fontSize: 12, color: "#15803d", margin: 0 }}>
-                        This email already has an account — they can sign in directly.
-                      </p>
-                    )}
+                    ) : null}
                     <Button
                       style={{ marginTop: 8 }}
                       onClick={() => {
                         setInviteSent(false);
                         setCreatedEmail("");
                         setTempPass("");
+                        setInviteError("");
                       }}
                     >
                       Invite another
                     </Button>
                   </div>
                 ) : (
-                  <form onSubmit={sendInvite} style={{ display: "flex", gap: 8 }}>
-                    <input
-                      type="email"
-                      placeholder="teammate@company.com"
-                      value={inviteEmail}
-                      onChange={(e) => setInviteEmail(e.target.value)}
-                      required
-                      style={{ ...inputStyle, flex: 1, width: "auto" }}
-                      onFocus={(e) => {
-                        (e.target as HTMLInputElement).style.borderColor = "var(--border-focus)";
-                      }}
-                      onBlur={(e) => {
-                        (e.target as HTMLInputElement).style.borderColor = "transparent";
-                      }}
-                    />
-                    <Button
-                      type="submit"
-                      disabled={inviteSending}
-                      loading={inviteSending}
-                      style={{ whiteSpace: "nowrap" }}
-                    >
-                      {inviteSending ? "Creating..." : "Create Account"}
-                    </Button>
-                  </form>
+                  <>
+                    <form onSubmit={sendInvite} style={{ display: "flex", gap: 8 }}>
+                      <input
+                        type="email"
+                        placeholder="teammate@company.com"
+                        value={inviteEmail}
+                        onChange={(e) => setInviteEmail(e.target.value)}
+                        required
+                        style={{ ...inputStyle, flex: 1, width: "auto" }}
+                        onFocus={(e) => {
+                          (e.target as HTMLInputElement).style.borderColor = "var(--border-focus)";
+                        }}
+                        onBlur={(e) => {
+                          (e.target as HTMLInputElement).style.borderColor = "transparent";
+                        }}
+                      />
+                      <select
+                        value={inviteRole}
+                        onChange={(e) => setInviteRole(e.target.value)}
+                        aria-label="Role"
+                        style={{ ...inputStyle, width: "auto" }}
+                      >
+                        <option value="viewer">Viewer</option>
+                        <option value="editor">Editor</option>
+                        <option value="admin">Admin</option>
+                      </select>
+                      <Button
+                        type="submit"
+                        disabled={inviteSending}
+                        loading={inviteSending}
+                        style={{ whiteSpace: "nowrap" }}
+                      >
+                        {inviteSending ? "Inviting..." : "Send Invite"}
+                      </Button>
+                    </form>
+                    <p style={{ fontSize: 12, color: "var(--text-muted)", margin: "8px 0 0" }}>
+                      {inviteRole === "viewer"
+                        ? "Can look at agents, spend, and simulation results, but not change anything."
+                        : inviteRole === "editor"
+                        ? "Can register agents, run simulations, and set policies — but not manage API keys, cost settings, or teammates."
+                        : "Full access, including API keys, cost settings, and inviting other people."}
+                    </p>
+                    {inviteError && (
+                      <div
+                        role="alert"
+                        style={{
+                          marginTop: 10,
+                          border: "1px solid var(--severity-critical-border, #fecaca)",
+                          background: "var(--severity-critical-bg, #fef2f2)",
+                          color: "var(--severity-critical, #b91c1c)",
+                          borderRadius: "var(--radius-lg)",
+                          padding: "10px 12px",
+                          fontSize: 13,
+                        }}
+                      >
+                        {inviteError}
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
             </div>
