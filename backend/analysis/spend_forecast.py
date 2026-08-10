@@ -520,7 +520,7 @@ def _row_get(row: Any, key: str) -> Any:
         return None
 
 
-def compute_live_rolling_averages(audit_rows: list) -> dict:
+def compute_live_rolling_averages(audit_rows: list, defaults: Optional[dict] = None) -> dict:
     """Per-agent rolling averages from captured LLM calls.
 
     `audit_rows` are LLM_CALL audit entries (row dicts) exposing
@@ -530,8 +530,17 @@ def compute_live_rolling_averages(audit_rows: list) -> dict:
     call's REAL $ (its own model + tokens + cache) — so the high tier prices the
     actual model mix, not a single reconstructed model. Returns {} when no rows
     carry usable token usage.
+
+    `defaults` MUST be the caller's org-merged catalog (`load_defaults(org_id)`)
+    on any request serving a real org. Omitting it prices every captured call at
+    published list rates, and because `llm_cost_per_call` then short-circuits the
+    org-merged model pricing at :1541-1545, that list price wins outright — an
+    org's negotiated rate stops applying the moment the agent crosses
+    LIVE_TRACE_MIN_CALLS_FORECAST (5) captured calls, silently and while the
+    badge still reads LOW/MEDIUM. Takes the catalog rather than an `org_id` so
+    callers that already hold one don't pay a second DB round trip.
     """
-    defaults = load_defaults()
+    defaults = defaults if defaults is not None else load_defaults()
     usages: list[tuple[int, int, int]] = []
     per_call_costs: list[float] = []
     times = []

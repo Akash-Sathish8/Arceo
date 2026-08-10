@@ -5971,7 +5971,8 @@ def get_spend_forecast(
     See brain/Signals/Cost calculation methodology.md
     """
     from analysis.spend_forecast import (
-        forecast_spend, compute_live_rolling_averages, LIVE_TRACE_MIN_CALLS_FORECAST,
+        forecast_spend, compute_live_rolling_averages, load_defaults,
+        LIVE_TRACE_MIN_CALLS_FORECAST,
     )
 
     with get_db() as conn:
@@ -6031,8 +6032,11 @@ def get_spend_forecast(
             continue
 
     # Live rolling averages form the baseline; explicit query params (slider
-    # what-ifs) still win on top.
-    overrides = compute_live_rolling_averages(live_rows) if live_rows else {}
+    # what-ifs) still win on top. Priced at the ORG's rates — see the note on
+    # compute_live_rolling_averages: the list-price default would override the
+    # org-merged model pricing downstream.
+    overrides = compute_live_rolling_averages(
+        live_rows, defaults=load_defaults(_org(user))) if live_rows else {}
     if calls_per_day is not None:
         overrides["calls_per_day"] = calls_per_day   # legacy alias = runs/day
     if runs_per_day is not None:
@@ -6093,7 +6097,8 @@ def get_budget_fit(
     recommendation can show the worst-case risk it removes.
     """
     from analysis.spend_forecast import (
-        compute_budget_fit, compute_live_rolling_averages, LIVE_TRACE_MIN_CALLS_FORECAST,
+        compute_budget_fit, compute_live_rolling_averages, load_defaults,
+        LIVE_TRACE_MIN_CALLS_FORECAST,
     )
     from analysis.cost_model import generate_cost_report, report_to_dict
 
@@ -6119,8 +6124,10 @@ def get_budget_fit(
         policies = conn.execute("SELECT * FROM policies WHERE agent_id = %s", (agent_id,)).fetchall()
         severity_overrides = _fetch_breach_overrides(conn, org_id)
 
-    # Same baseline as the forecast: live averages, then explicit slider params.
-    base_overrides = compute_live_rolling_averages(live_rows) if live_rows else {}
+    # Same baseline as the forecast: live averages at the org's rates, then
+    # explicit slider params.
+    base_overrides = compute_live_rolling_averages(
+        live_rows, defaults=load_defaults(org_id)) if live_rows else {}
     if calls_per_day is not None:
         base_overrides["calls_per_day"] = calls_per_day   # legacy alias = runs/day
     if runs_per_day is not None:
@@ -6248,11 +6255,16 @@ def get_spend_forecasts_batch(user: dict = Depends(get_current_user)):
       {"forecasts": {agent_id: <forecast or null>, ...}}
     """
     from analysis.spend_forecast import (
-        forecast_spend, compute_live_rolling_averages, LIVE_TRACE_MIN_CALLS_FORECAST,
+        forecast_spend, compute_live_rolling_averages, load_defaults,
+        LIVE_TRACE_MIN_CALLS_FORECAST,
     )
 
     org_id = _org(user)
     now = datetime.utcnow().timestamp()
+    # Hoisted: same org for every agent in the loop below, and load_defaults
+    # opens its own pooled connection — leaving it inside would cost two extra
+    # queries per agent and nest a connection inside the one we hold.
+    org_defaults = load_defaults(org_id)
 
     with get_db() as conn:
         agent_rows = conn.execute(
@@ -6307,7 +6319,7 @@ def get_spend_forecasts_batch(user: dict = Depends(get_current_user)):
                     "WHERE action IN ('LLM_CALL', 'LLM_CALL_PROXY') AND user_email = %s AND timestamp > %s",
                     (aid, seven_days_ago),
                 ).fetchall())
-                live_overrides = compute_live_rolling_averages(live_rows)
+                live_overrides = compute_live_rolling_averages(live_rows, defaults=org_defaults)
             snap_stats = conn.execute(
                 "SELECT COUNT(*) AS n, MIN(captured_at) AS oldest FROM forecast_snapshots WHERE agent_id = %s AND org_id = %s",
                 (aid, org_id),
@@ -6396,7 +6408,11 @@ def get_spend_timeseries(agent_id: str, user: dict = Depends(get_current_user)):
     series = compute_spend_timeseries(rows, days=30, defaults=org_defaults)
     total_calls = sum(p["calls"] for p in series)
 
-    overrides = compute_live_rolling_averages(live_rows) if live_count >= LIVE_TRACE_MIN_CALLS_FORECAST else {}
+    # Same org_defaults the observed chart above is priced at — the two used to
+    # disagree, so one response showed the chart at negotiated rates and the
+    # forecast beneath it at list.
+    overrides = compute_live_rolling_averages(
+        live_rows, defaults=org_defaults) if live_count >= LIVE_TRACE_MIN_CALLS_FORECAST else {}
     forecast = forecast_spend(
         agent,
         live_trace_count_7d=live_count,

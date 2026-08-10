@@ -13,11 +13,13 @@ Pins three behaviors:
 
 from __future__ import annotations
 
+import copy
 import json
 from datetime import datetime, timedelta
 
 from analysis.spend_forecast import (
     LIVE_TRACE_MIN_CALLS,
+    LIVE_TRACE_MIN_CALLS_FORECAST,
     LIVE_TRACE_MIN_ACTIVE_DAYS,
     _call_cost_usd,
     _detect_tier,
@@ -142,3 +144,71 @@ def test_rolling_averages_count_distinct_active_days():
     # Same call count spread over 3 calendar days → 3 active days.
     spread_rows = [row(base + timedelta(days=i % 3, minutes=i)) for i in range(6)]
     assert compute_live_rolling_averages(spread_rows)["active_days"] == 3
+
+
+# ── 4. An org's negotiated rate survives the live tier (2026-08-09) ───────────
+#
+# The bug: compute_live_rolling_averages called load_defaults() with no org, so
+# it priced every captured call at published list rates. That average is emitted
+# as llm_cost_per_call, which short-circuits the org-merged model pricing in
+# forecast_spend — so a customer's negotiated rate silently stopped applying the
+# moment an agent crossed LIVE_TRACE_MIN_CALLS_FORECAST (5) captured calls, while
+# the confidence badge still read LOW or MEDIUM. Both gates are pinned below
+# because the silent half of the bug lives between 5 and 49 calls.
+
+_NEGOTIATED_IN_RATE = 1.50   # half of claude-sonnet-4-6's $3.00 list input rate
+
+
+def _org_catalog_at_half_rate() -> dict:
+    """What load_defaults(org_id) returns for an org that negotiated 50% off —
+    a deep copy of the catalog with the model row patched. Built here rather
+    than read through load_defaults(org_id) so the test needs no DB."""
+    merged = copy.deepcopy(load_defaults())
+    merged["models"]["claude-sonnet-4-6"]["input_per_mtok"] = _NEGOTIATED_IN_RATE
+    return merged
+
+
+def _million_token_rows(n: int) -> list[dict]:
+    """n captured calls, each exactly 1M uncached input tokens and no output —
+    so the expected per-call cost is the input rate, in dollars, exactly."""
+    base = datetime(2026, 8, 1, 9, 0, 0)
+    return [{
+        "timestamp": (base + timedelta(days=i % 5, minutes=i)).isoformat(),
+        "detail": json.dumps({
+            "model": "claude-sonnet-4-6",
+            "response": {"usage": {"input_tokens": 1_000_000, "output_tokens": 0,
+                                   "cache_read_input_tokens": 0,
+                                   "cache_creation_input_tokens": 0}},
+        }),
+    } for i in range(n)]
+
+
+def test_live_averages_price_at_the_catalog_they_are_handed():
+    rows = _million_token_rows(10)
+    # No catalog → list price. This is the pre-fix behavior, kept as the contrast.
+    assert compute_live_rolling_averages(rows)["llm_cost_per_call"] == 3.00
+    # Org catalog → the org's negotiated rate.
+    org = compute_live_rolling_averages(rows, defaults=_org_catalog_at_half_rate())
+    assert org["llm_cost_per_call"] == _NEGOTIATED_IN_RATE
+
+
+def test_negotiated_rate_reaches_the_forecast_at_both_live_gates():
+    agent = {"id": "x", "name": "X", "expected_calls_per_day": 100,
+             "simulation_model": "claude-sonnet-4-6", "tools": []}
+    org_catalog = _org_catalog_at_half_rate()
+
+    # 5 = the silent gate (badge still reads LOW/MEDIUM); 50 = HIGH.
+    for n_calls in (LIVE_TRACE_MIN_CALLS_FORECAST, LIVE_TRACE_MIN_CALLS):
+        rows = _million_token_rows(n_calls)
+        overrides = compute_live_rolling_averages(rows, defaults=org_catalog)
+        assert overrides["llm_cost_per_call"] == _NEGOTIATED_IN_RATE, n_calls
+
+        f = forecast_spend(agent, live_trace_count_7d=n_calls,
+                           overrides=overrides, _skip_sensitivity=True)
+        # monthly_llm = per-call $ x calls/day x 30. Assert the ratio rather than
+        # an absolute so this doesn't re-pin the days-per-month convention.
+        list_overrides = compute_live_rolling_averages(rows)
+        f_list = forecast_spend(agent, live_trace_count_7d=n_calls,
+                                overrides=list_overrides, _skip_sensitivity=True)
+        assert f["tokensUsd"] == round(f_list["tokensUsd"] / 2), n_calls
+        assert f["point"] < f_list["point"], n_calls

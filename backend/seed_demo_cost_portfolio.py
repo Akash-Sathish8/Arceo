@@ -112,9 +112,13 @@ def seed_prior_snapshot(agent_org: str):
     # Derive the prior point from a local forecast (no HTTP/auth needed).
     from db import get_agent_from_db
     from analysis.spend_forecast import (
-        forecast_spend, compute_live_rolling_averages, LIVE_TRACE_MIN_CALLS,
-        FORECAST_FORMULA_VERSION,
+        forecast_spend, compute_live_rolling_averages, load_defaults,
+        LIVE_TRACE_MIN_CALLS, FORECAST_FORMULA_VERSION,
     )
+    # Loaded before the connection below: load_defaults opens its own pooled
+    # connection. The demo runs off seeded data, so it needs the org's rates
+    # here too or the demo reproduces the list-price bug.
+    org_defaults = load_defaults(agent_org)
     with get_db() as conn:
         agent = get_agent_from_db(conn, AGENT_ID, org_id=agent_org)
         seven_days_ago = (datetime.utcnow() - timedelta(days=7)).isoformat()
@@ -134,7 +138,7 @@ def seed_prior_snapshot(agent_org: str):
                 "WHERE action='LLM_CALL' AND user_email=%s AND timestamp > %s",
                 (AGENT_ID, seven_days_ago),
             ).fetchall()
-            overrides = compute_live_rolling_averages(live_rows) or None
+            overrides = compute_live_rolling_averages(live_rows, defaults=org_defaults) or None
         current = forecast_spend(agent, live_trace_count_7d=live_count,
                                  overrides=overrides, org_id=agent_org,
                                  _skip_sensitivity=True)
