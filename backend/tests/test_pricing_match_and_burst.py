@@ -28,6 +28,7 @@ from analysis.spend_forecast import (
     compute_live_rolling_averages,
     forecast_spend,
     load_defaults,
+    overrides_status,
 )
 
 HEAVY_TRAFFIC = LIVE_TRACE_MIN_CALLS * 10
@@ -212,3 +213,77 @@ def test_negotiated_rate_reaches_the_forecast_at_both_live_gates():
                                 overrides=list_overrides, _skip_sensitivity=True)
         assert f["tokensUsd"] == round(f_list["tokensUsd"] / 2), n_calls
         assert f["point"] < f_list["point"], n_calls
+
+
+# ── 5. A failed override read is not the same as having no overrides ─────────
+# Both price at list. Only one is a fault. Before this, `_fetch_org_overrides`
+# returned [] for both and nothing — no log, no field — recorded the difference.
+
+class _FakeCursor:
+    def __init__(self, rows): self._rows = rows
+    def fetchall(self): return self._rows
+    def fetchone(self): return self._rows[0] if self._rows else None
+
+
+class _FakeConn:
+    def __init__(self, rows): self._rows = rows
+    def execute(self, *_a, **_k): return _FakeCursor(self._rows)
+    def __enter__(self): return self
+    def __exit__(self, *_a): return False
+
+
+def _patch_db(monkeypatch, *, rows=None, raises=False):
+    """Point spend_forecast's lazily-imported `db.get_db` at a fake."""
+    import db
+
+    def fake_get_db():
+        if raises:
+            raise RuntimeError("connection pool exhausted")
+        return _FakeConn(rows or [])
+
+    monkeypatch.setattr(db, "get_db", fake_get_db)
+
+
+def test_healthy_org_with_no_negotiated_rates_reads_as_none(monkeypatch):
+    _patch_db(monkeypatch, rows=[])
+    assert overrides_status(load_defaults("org-with-nothing")) == "none"
+
+
+def test_failed_override_read_is_distinguishable_from_no_overrides(monkeypatch):
+    _patch_db(monkeypatch, raises=True)
+    # Pre-fix this returned the pristine catalog, indistinguishable from an org
+    # that simply never negotiated a rate.
+    assert overrides_status(load_defaults("org-whose-db-is-down")) == "unavailable"
+
+
+def test_failed_override_read_does_not_poison_the_shared_cache(monkeypatch):
+    """The failure path takes a copy. If it ever mutates the module cache
+    instead, every other org inherits one org's outage."""
+    _patch_db(monkeypatch, raises=True)
+    load_defaults("org-whose-db-is-down")
+    monkeypatch.undo()
+    assert overrides_status(load_defaults()) == "none"
+
+
+def test_failed_override_read_is_logged(monkeypatch, caplog):
+    _patch_db(monkeypatch, raises=True)
+    with caplog.at_level("WARNING", logger="arceo"):
+        load_defaults("org-whose-db-is-down")
+    assert "cost_overrides read failed" in caplog.text
+    assert "org-whose-db-is-down" in caplog.text
+
+
+def test_forecast_coverage_discloses_a_failed_override_read(monkeypatch):
+    agent = {"id": "x", "name": "X", "expected_calls_per_day": 100,
+             "simulation_model": "claude-sonnet-4-6", "tools": []}
+    _patch_db(monkeypatch, raises=True)
+    f = forecast_spend(agent, org_id="org-whose-db-is-down", _skip_sensitivity=True)
+    assert f["coverage"]["overridesApplied"] == "unavailable"
+
+
+def test_forecast_coverage_reads_none_for_an_org_with_no_rates(monkeypatch):
+    agent = {"id": "x", "name": "X", "expected_calls_per_day": 100,
+             "simulation_model": "claude-sonnet-4-6", "tools": []}
+    _patch_db(monkeypatch, rows=[])
+    f = forecast_spend(agent, org_id="org-with-nothing", _skip_sensitivity=True)
+    assert f["coverage"]["overridesApplied"] == "none"

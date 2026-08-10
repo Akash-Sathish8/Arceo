@@ -74,6 +74,10 @@ export interface MockSpend {
     pricedModel: string
     toolsPriced: number
     toolsTotal: number
+    /** Whether this org's negotiated rates reached the forecast. "none" and
+     * "unavailable" both price at list, but only "unavailable" is a fault —
+     * the rates exist and we could not read them. */
+    overridesApplied?: "applied" | "none" | "unavailable"
   }
   lastCalibrated?: string
   capturedAt?: string
