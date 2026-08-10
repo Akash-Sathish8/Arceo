@@ -1,30 +1,49 @@
 version: 2
+
+# target-branch: dev on every ecosystem.
+#
+# Without it dependabot opens against the repo's DEFAULT branch, which is Prod.
+# All human work lands on dev (CLAUDE.md: "all active work lands here via
+# feature-branch PRs"), and Prod sits far behind it — 147 commits when this was
+# written. So every dependabot PR was born against a branch nobody develops on:
+# it merged cleanly into Prod, conflicted with dev, and merging it would have
+# pushed Prod ahead of dev and made the next promote conflict too. PR #169
+# (eslint 9 -> 10) is the instance that surfaced this.
+#
+# This holds regardless of how the Prod/main branch question settles, because
+# dev is the integration branch either way. Dep bumps reach Prod the same way
+# everything else does — through the normal dev -> Prod promote.
 updates:
   - package-ecosystem: pip
     directory: /backend
+    target-branch: dev
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
 
   - package-ecosystem: pip
     directory: /sdk
+    target-branch: dev
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
 
   - package-ecosystem: npm
     directory: /frontend
+    target-branch: dev
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
 
   - package-ecosystem: npm
     directory: /website
+    target-branch: dev
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
 
   - package-ecosystem: github-actions
     directory: /
+    target-branch: dev
     schedule:
       interval: weekly
