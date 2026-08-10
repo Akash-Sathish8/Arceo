@@ -91,7 +91,15 @@ const STEPS = [
     desc: "You get the monthly cost with a confidence range, the worst case in dollars if a risky chain fires, and a budget cap you can actually enforce. It's one report, written so a CFO can sign it.",
     mockup: (
       <div className="card" style={{ padding: "18px 20px" }}>
-        <div style={{ fontSize: 10.5, fontWeight: 700, color: "#87786A", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 12 }}>Monthly forecast</div>
+        <div style={{ fontSize: 10.5, fontWeight: 700, color: "#87786A", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 12, display: "flex", alignItems: "center", gap: 6 }}>
+          <span>Monthly forecast</span>
+          <span style={{
+            fontSize: 8, fontWeight: 700, letterSpacing: "0.06em", color: "#A99880",
+            background: "#F3EDE4", border: "1px solid #E0D7C9", borderRadius: 999, padding: "1px 6px",
+          }}>
+            Example
+          </span>
+        </div>
         <div style={{ display: "flex", alignItems: "baseline", gap: 5, marginBottom: 5 }}>
           <span style={{ fontSize: 52, fontWeight: 800, color: "#2C6E9E", fontFamily: "var(--font-poppins), system-ui", letterSpacing: "-2px", lineHeight: 1 }}>$20</span>
           <span style={{ fontSize: 16, color: "#C9BBA8" }}>/mo</span>
@@ -171,7 +179,7 @@ function StepCard({ step, i }: { step: typeof STEPS[0]; i: number }) {
 
 export default function HowItWorks() {
   return (
-    <section style={{ padding: "112px 0", background: "#FAF6F0", borderTop: "1px solid #E0D7C9" }}>
+    <section id="how-it-works" style={{ padding: "112px 0", background: "#FAF6F0", borderTop: "1px solid #E0D7C9" }}>
       <div className="container">
         <div style={{ textAlign: "center", marginBottom: 56 }}>
           <span className="eyebrow">How It Works</span>

@@ -1,8 +1,41 @@
 import Link from "next/link";
 
+const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:5173";
+const CONTACT_EMAIL = "akakash.sathish@gmail.com";
+
+// Only destinations that actually exist. A footer link to a 404 costs more
+// trust than a missing link does.
+const COLUMNS: { heading: string; links: { label: string; href: string; external?: boolean }[] }[] = [
+  {
+    heading: "Product",
+    links: [
+      { label: "How it works", href: "/#how-it-works" },
+      { label: "What it does", href: "/#features" },
+      { label: "Why Arceo", href: "/#positioning" },
+      { label: "Proof", href: "/#proof" },
+    ],
+  },
+  {
+    heading: "Trust",
+    links: [
+      { label: "Security", href: "/security" },
+      { label: "What we haven't done yet", href: "/security#honest" },
+    ],
+  },
+  {
+    heading: "Get started",
+    links: [
+      { label: "Book a demo", href: "/book-demo" },
+      { label: "Sign in", href: `${APP_URL}/login`, external: true },
+      { label: "Contact us", href: `mailto:${CONTACT_EMAIL}`, external: true },
+    ],
+  },
+];
+
 export default function Footer() {
   return (
     <footer style={{ background: "#FAF6F0", borderTop: "1px solid #E0D7C9", position: "relative" }}>
+      {/* Oversized wordmark */}
       <div style={{
         overflow: "hidden",
         textAlign: "center",
@@ -35,28 +68,73 @@ export default function Footer() {
         </span>
       </div>
 
+      {/* Link columns */}
+      <div className="container" style={{ paddingTop: 8, paddingBottom: 40 }}>
+        <div style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+          gap: 32,
+          maxWidth: 720,
+          margin: "0 auto",
+        }} className="footer-cols">
+          {COLUMNS.map((col) => (
+            <div key={col.heading}>
+              <div style={{
+                fontSize: 11.5,
+                fontWeight: 700,
+                letterSpacing: "0.09em",
+                textTransform: "uppercase",
+                color: "#87786A",
+                marginBottom: 14,
+              }}>
+                {col.heading}
+              </div>
+              <ul style={{ listStyle: "none", display: "flex", flexDirection: "column", gap: 9 }}>
+                {col.links.map((l) => (
+                  <li key={l.href + l.label}>
+                    {l.external ? (
+                      <a href={l.href} className="footer-link">{l.label}</a>
+                    ) : (
+                      <Link href={l.href} className="footer-link">{l.label}</Link>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Baseline */}
       <div className="container" style={{
-        paddingBottom: 28,
+        borderTop: "1px solid #EBE4D8",
         paddingTop: 20,
+        paddingBottom: 28,
         display: "flex",
         flexDirection: "column",
         alignItems: "center",
-        gap: 12,
+        gap: 8,
       }}>
-        {/* Credibility line */}
         <p style={{ fontSize: 13, fontWeight: 600, color: "#2C2215", textAlign: "center", letterSpacing: "0.01em" }}>
           Cost and risk for AI agents, before they go live
         </p>
-
-        {/* Footer links */}
-        <div style={{ display: "flex", alignItems: "center", gap: 20, flexWrap: "wrap", justifyContent: "center" }}>
-          <Link href="/book-demo" style={{ fontSize: 12, color: "#87786A", textDecoration: "none" }}>Book a demo</Link>
-        </div>
-
         <span style={{ fontSize: 12, color: "#C9BBA8" }}>
           © {new Date().getFullYear()} Arceo. All rights reserved.
         </span>
       </div>
+
+      <style>{`
+        .footer-link {
+          font-size: 13.5px;
+          color: #6B5C4A;
+          text-decoration: none;
+          transition: color 0.12s;
+        }
+        .footer-link:hover { color: #2C2215; }
+        @media (max-width: 640px) {
+          .footer-cols { grid-template-columns: 1fr 1fr !important; gap: 28px !important; }
+        }
+      `}</style>
     </footer>
   );
 }

@@ -14,10 +14,17 @@ const FEATURES = [
         minHeight: 240,
         fontFamily: '"SF Mono", "Fira Code", "Cascadia Code", monospace',
       }}>
-        <div style={{ display: "flex", gap: 6, marginBottom: 20 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 20 }}>
           {["#ff5f56", "#ffbd2e", "#27c93f"].map(c => (
             <div key={c} style={{ width: 10, height: 10, borderRadius: "50%", background: c, flexShrink: 0 }} />
           ))}
+          <span style={{
+            marginLeft: "auto", fontSize: 8, fontWeight: 700, letterSpacing: "0.06em",
+            color: "rgba(250,246,240,0.45)", border: "1px solid rgba(250,246,240,0.18)",
+            borderRadius: 999, padding: "1px 6px", textTransform: "uppercase",
+          }}>
+            Example
+          </span>
         </div>
 
         {[
@@ -83,11 +90,17 @@ const FEATURES = [
   {
     tag: "Chain Detection",
     headline: "Catch the multi-step risks a single-action scan misses",
-    body: "Most scanners look at one action at a time. Arceo watches for dangerous sequences instead, like an agent that reads customer records and then emails them out, or deletes data right after a query, and tells you what each one could cost. It runs 15 of these rules before the agent ever handles a real request.",
+    body: "Most scanners look at one action at a time. Arceo watches for dangerous sequences instead, like an agent that reads customer records and then emails them out, or deletes data right after a query, and tells you what each one could cost. It runs 32 of these rules before the agent ever handles a real request.",
     mockup: (
       <div className="card" style={{ padding: "24px", overflow: "hidden", minHeight: 240 }}>
         <div style={{ fontSize: 10, fontWeight: 700, color: "#87786A", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 18 }}>
           Detected Chain · PII Exfiltration
+          <span style={{
+            marginLeft: 6, fontSize: 8, fontWeight: 700, letterSpacing: "0.06em", color: "#A99880",
+            background: "#F3EDE4", border: "1px solid #E0D7C9", borderRadius: 999, padding: "1px 6px",
+          }}>
+            Example
+          </span>
         </div>
 
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 16 }}>
@@ -139,7 +152,7 @@ const FEATURES = [
         </div>
 
         <div style={{ marginTop: 14, paddingTop: 12, borderTop: "1px solid #EBE4D8", display: "flex", gap: 24 }}>
-          {[{ n: "15", l: "Chain rules" }, { n: "5", l: "Risk labels" }, { n: "$50k", l: "Worst case" }].map(s => (
+          {[{ n: "32", l: "Chain rules" }, { n: "10", l: "Risk labels" }, { n: "$50k", l: "Worst case" }].map(s => (
             <div key={s.l}>
               <div style={{ fontSize: 18, fontWeight: 700, color: "#2C2215", lineHeight: 1, letterSpacing: "-0.02em" }}>{s.n}</div>
               <div style={{ fontSize: 10, color: "#87786A", marginTop: 3 }}>{s.l}</div>

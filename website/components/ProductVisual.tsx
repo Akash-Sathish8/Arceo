@@ -243,8 +243,14 @@ export default function ProductVisual() {
 
             {/* Fleet-level total */}
             <div style={{ position: "absolute", top: 20, right: 24, textAlign: "right", zIndex: 2 }}>
-              <div style={{ fontSize: 10, fontWeight: 600, color: "var(--clay-body-subtle)", textTransform: "uppercase", letterSpacing: "0.08em" }}>
-                Total worst-case exposure
+              <div style={{ fontSize: 10, fontWeight: 600, color: "var(--clay-body-subtle)", textTransform: "uppercase", letterSpacing: "0.08em", display: "flex", alignItems: "center", gap: 6, justifyContent: "flex-end" }}>
+                <span>Total worst-case exposure</span>
+                <span style={{
+                  fontSize: 8, fontWeight: 700, letterSpacing: "0.06em", color: "#A99880",
+                  background: "#F3EDE4", border: "1px solid #E0D7C9", borderRadius: 999, padding: "1px 6px",
+                }}>
+                  Example
+                </span>
               </div>
               <div style={{ fontSize: 24, fontWeight: 800, color: "var(--clay-heading)", letterSpacing: "-0.5px", lineHeight: 1.1 }}>
                 {formatUSD(totalBlast)}

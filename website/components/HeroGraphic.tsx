@@ -69,11 +69,31 @@ const labelStyle: React.CSSProperties = {
   marginBottom: 12,
 };
 
+/**
+ * Marks sample figures as illustrative. Every number in these mockups is a
+ * worked example, not a live reading — saying so up front is cheaper than
+ * being asked "whose numbers are these?" in an evaluation call.
+ */
+const exampleTagStyle: React.CSSProperties = {
+  fontSize: 8,
+  fontWeight: 700,
+  letterSpacing: "0.06em",
+  color: "#A99880",
+  background: "#F3EDE4",
+  border: "1px solid #E0D7C9",
+  borderRadius: 999,
+  padding: "1px 6px",
+  textTransform: "uppercase",
+};
+
 /* ── Panel 1: Cost forecast (the money shot) ───────────────────── */
 function CostScreen() {
   return (
     <>
-      <div style={labelStyle}>Cost Portfolio</div>
+      <div style={{ ...labelStyle, display: "flex", alignItems: "center", gap: 6 }}>
+        <span>Cost Portfolio</span>
+        <span style={exampleTagStyle}>Example</span>
+      </div>
       <div style={{ display: "flex", alignItems: "baseline", gap: 5, marginBottom: 5 }}>
         <span style={{ fontSize: 42, fontWeight: 800, color: "#2C6E9E", letterSpacing: "-1.5px", lineHeight: 1 }}>$20</span>
         <span style={{ fontSize: 14, color: "#C9BBA8" }}>/mo</span>

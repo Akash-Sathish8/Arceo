@@ -91,7 +91,7 @@ export default function ProblemStatement() {
   const { ref: headRef, className: headClass } = useFadeInOnScroll();
 
   return (
-    <section id="features" style={{ padding: "112px 0", background: "#F3EDE4" }}>
+    <section id="problem" style={{ padding: "112px 0", background: "#F3EDE4" }}>
       <div className="container">
         <div ref={headRef} className={headClass} style={{ textAlign: "center", marginBottom: 56 }}>
           <span className="eyebrow">The Problem</span>

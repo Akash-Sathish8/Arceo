@@ -7,6 +7,14 @@ import Logo from "./Logo";
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:5173";
 const BOOK_DEMO_HREF = "/book-demo";
 
+// Root-relative so they resolve from /security and /book-demo too, not just "/".
+const NAV_LINKS = [
+  { label: "How it works", href: "/#how-it-works" },
+  { label: "Product",      href: "/#features" },
+  { label: "Why Arceo",    href: "/#positioning" },
+  { label: "Security",     href: "/security" },
+];
+
 export default function Navbar() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [scrolled, setScrolled]     = useState(false);
@@ -60,6 +68,9 @@ export default function Navbar() {
           position: "absolute", left: "50%", top: "50%",
           transform: "translate(-50%, -50%)",
         }} className="desktop-nav">
+          {NAV_LINKS.map((l) => (
+            <Link key={l.href} href={l.href} className="nav-link">{l.label}</Link>
+          ))}
         </nav>
 
         {/* Right actions */}
@@ -89,6 +100,17 @@ export default function Navbar() {
           padding: "12px 24px 20px",
           display: "flex", flexDirection: "column", gap: 2,
         }}>
+          {NAV_LINKS.map((l) => (
+            <Link
+              key={l.href}
+              href={l.href}
+              onClick={() => setMobileOpen(false)}
+              style={{ fontSize: 15, fontWeight: 500, color: "#2C2215", padding: "10px 4px", textDecoration: "none" }}
+            >
+              {l.label}
+            </Link>
+          ))}
+          <div style={{ height: 1, background: "#E0D7C9", margin: "8px 0" }} />
           <a href={`${APP_URL}/login`}
             style={{ fontSize: 15, fontWeight: 500, color: "#2C2215", padding: "10px 4px" }}>
             Sign In
