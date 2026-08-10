@@ -5979,9 +5979,12 @@ def get_spend_forecast(
         agent = get_agent_from_db(conn, agent_id, org_id=_org(user))
         if not agent:
             raise HTTPException(status_code=404, detail=f"Agent '{agent_id}' not found")
-        # Pull any sandbox traces (for medium tier upgrade)
+        # Pull any sandbox traces (for medium tier upgrade). Live runs only —
+        # a dry run never records turn_usage, so it measures nothing and must
+        # not promote the tier. Mirrors the risk path's run_mode filter.
         sims = conn.execute(
-            "SELECT trace_json FROM simulations WHERE agent_id = %s AND status = 'completed' AND org_id = %s ORDER BY created_at DESC LIMIT 10",
+            "SELECT trace_json FROM simulations WHERE agent_id = %s AND status = 'completed' "
+            "AND run_mode = 'live' AND org_id = %s ORDER BY created_at DESC LIMIT 10",
             (agent_id, _org(user)),
         ).fetchall()
         # Count live traces in last 7 days (for high tier)
@@ -6006,7 +6009,8 @@ def get_spend_forecast(
         previous_snapshot_point = _prev_snapshot_point(conn, agent_id, _org(user), thirty_days_ago)
         # Data sources panel inputs
         sandbox_sim_count = int(conn.execute(
-            "SELECT COUNT(*) AS n FROM simulations WHERE agent_id = %s AND status = 'completed' AND org_id = %s",
+            "SELECT COUNT(*) AS n FROM simulations WHERE agent_id = %s AND status = 'completed' "
+            "AND run_mode = 'live' AND org_id = %s",
             (agent_id, _org(user)),
         ).fetchone()["n"])
         snap_stats = conn.execute(
@@ -6285,9 +6289,10 @@ def get_spend_forecasts_batch(user: dict = Depends(get_current_user)):
                 forecasts[aid] = None
                 continue
 
-            # Sandbox traces for tier
+            # Sandbox traces for tier — live runs only (see the per-agent path)
             sims = conn.execute(
-                "SELECT trace_json FROM simulations WHERE agent_id = %s AND status = 'completed' AND org_id = %s LIMIT 10",
+                "SELECT trace_json FROM simulations WHERE agent_id = %s AND status = 'completed' "
+                "AND run_mode = 'live' AND org_id = %s LIMIT 10",
                 (aid, org_id),
             ).fetchall()
             sandbox_traces = []
@@ -6304,7 +6309,8 @@ def get_spend_forecasts_batch(user: dict = Depends(get_current_user)):
 
             # Data sources inputs
             sandbox_sim_count = int(conn.execute(
-                "SELECT COUNT(*) AS n FROM simulations WHERE agent_id = %s AND status = 'completed' AND org_id = %s",
+                "SELECT COUNT(*) AS n FROM simulations WHERE agent_id = %s AND status = 'completed' "
+                "AND run_mode = 'live' AND org_id = %s",
                 (aid, org_id),
             ).fetchone()["n"])
             seven_days_ago = (datetime.utcnow() - timedelta(days=7)).isoformat()
