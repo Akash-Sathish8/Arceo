@@ -575,6 +575,11 @@ def compute_live_rolling_averages(audit_rows: list, defaults: Optional[dict] = N
     defaults = defaults if defaults is not None else load_defaults()
     usages: list[tuple[int, int, int]] = []
     per_call_costs: list[float] = []
+    # Per-model cost + call counts. The per-call model is resolved below anyway to
+    # price the call; keeping it is what lets a multi-model agent be reported as a
+    # mix instead of collapsing to whichever single model it declared.
+    model_cost: dict[str, float] = {}
+    model_calls: dict[str, int] = {}
     times = []
     for row in audit_rows:
         raw = _row_get(row, "detail")
@@ -591,7 +596,10 @@ def compute_live_rolling_averages(audit_rows: list, defaults: Optional[dict] = N
         # Real per-call $ using THIS call's own model (blends a mixed-model fleet).
         _tin, _cached, _cc, _out = u
         _mk = _resolve_model_key(detail.get("model"), defaults)
-        per_call_costs.append(_call_cost_usd(_tin, _cached, _out, _mk, defaults, cache_creation=_cc))
+        _cost = _call_cost_usd(_tin, _cached, _out, _mk, defaults, cache_creation=_cc)
+        per_call_costs.append(_cost)
+        model_cost[_mk] = model_cost.get(_mk, 0.0) + _cost
+        model_calls[_mk] = model_calls.get(_mk, 0) + 1
         t = _parse_iso(_row_get(row, "timestamp"))
         if t is not None:
             times.append(t)
@@ -631,7 +639,36 @@ def compute_live_rolling_averages(audit_rows: list, defaults: Optional[dict] = N
         # the clamped span above, this can't be inflated by two calls far apart
         # in one day. None when rows carry no timestamps (guard stays out).
         "active_days": len({t.date() for t in times}) if times else None,
+        # The models this agent ACTUALLY ran, by share of observed cost. An agent
+        # declares one model; a real one may route across several. Share is of
+        # dollars (not calls) because the consumer splits a dollar figure by it.
+        "by_model": _model_mix(model_cost, model_calls),
     }
+
+
+def _model_mix(model_cost: dict[str, float], model_calls: dict[str, int]) -> list[dict]:
+    """[{model, calls, costShare}] sorted by share desc, shares summing to ~1.0.
+
+    Empty when nothing was observed — callers must treat that as "not measured",
+    never as "one model at 100%".
+    """
+    total = sum(model_cost.values())
+    if not model_cost or total <= 0:
+        # No cost signal (e.g. every call priced at 0). Fall back to call share so
+        # a mix is still reported rather than silently collapsing to one model.
+        total_calls = sum(model_calls.values())
+        if not total_calls:
+            return []
+        return sorted(
+            [{"model": m, "calls": c, "costShare": round(c / total_calls, 4)}
+             for m, c in model_calls.items()],
+            key=lambda x: -x["costShare"],
+        )
+    return sorted(
+        [{"model": m, "calls": model_calls.get(m, 0), "costShare": round(usd / total, 4)}
+         for m, usd in model_cost.items()],
+        key=lambda x: -x["costShare"],
+    )
 
 
 def compute_sandbox_averages(traces: list) -> dict:
@@ -1452,6 +1489,10 @@ def forecast_spend(
                 "toolsPriced": sum(1 for n in _tn if _tool_is_priced(_tc, n)),
                 "toolsTotal": len(_tn),
                 "overridesApplied": overrides_status(defaults),
+                # Nothing captured on this path — an empty list means "not
+                # observed", which the UI renders as such rather than implying
+                # the declared model was measured.
+                "observedModels": [],
             },
             "lastCalibrated": defaults.get("last_calibrated"),
         }
@@ -1765,6 +1806,10 @@ def forecast_spend(
             "toolsPriced": tools_priced,
             "toolsTotal": tools_total,
             "overridesApplied": overrides_status(defaults),
+            # What the agent ACTUALLY ran, by share of observed cost. Empty until
+            # there is captured traffic — `declaredModel` above is the assumption,
+            # this is the measurement, and the UI must not conflate them.
+            "observedModels": overrides.get("by_model") or [],
         },
         "lastCalibrated": defaults.get("last_calibrated"),
     }

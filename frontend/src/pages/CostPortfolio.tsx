@@ -857,6 +857,46 @@ function CostPortfolioContent({
               <span>Tool mix<SourceBadge source={m.inputSources.toolMix} /></span>
             </div>
           )}
+          {m.coverage?.declaredModel && (
+            <div className="mt-3 text-[11px] text-gray-500">
+              <span className="font-semibold text-gray-400 uppercase tracking-wider text-[9px]">
+                Which AI models this agent uses
+              </span>
+              <div className="mt-1.5 flex gap-6">
+                <div>
+                  <div className="text-gray-400">Set up as</div>
+                  <div className="mono text-gray-700 mt-0.5">{m.coverage.declaredModel}</div>
+                </div>
+                <div>
+                  <div className="text-gray-400">Actually ran</div>
+                  {(m.coverage.observedModels?.length ?? 0) === 0 ? (
+                    <div className="mt-0.5 text-gray-500">
+                      Not measured yet. We report this once the agent has run enough
+                      real calls for us to see which models it picks.
+                    </div>
+                  ) : (
+                    <>
+                      {m.coverage.observedModels!.map((om) => (
+                        <div key={om.model} className="mono text-gray-700 mt-0.5">
+                          {om.model}{" "}
+                          <span className="text-gray-500">{Math.round(om.costShare * 100)}% of cost</span>
+                        </div>
+                      ))}
+                      <div className="text-gray-400 mt-1">
+                        from {m.coverage.observedModels!.reduce((n, om) => n + om.calls, 0).toLocaleString()} captured calls
+                      </div>
+                    </>
+                  )}
+                </div>
+              </div>
+              {(m.coverage.observedModels?.length ?? 0) > 1 && (
+                <div className="mt-1.5 text-gray-500">
+                  This agent uses more than one model. The forecast is priced across
+                  the mix above, not on the single model it was set up with.
+                </div>
+              )}
+            </div>
+          )}
         </div>
         <div className="text-right pl-6 border-l border-gray-100 self-center">
           <div className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Annual run rate</div>

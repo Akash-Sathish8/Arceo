@@ -78,6 +78,11 @@ export interface MockSpend {
      * "unavailable" both price at list, but only "unavailable" is a fault —
      * the rates exist and we could not read them. */
     overridesApplied?: "applied" | "none" | "unavailable"
+    /** The models the agent ACTUALLY ran, by share of observed cost, from
+     * captured calls. `declaredModel` is the assumption; this is the
+     * measurement. Empty = nothing captured yet — render "not yet observed",
+     * never as the declared model at 100%. */
+    observedModels?: { model: string; calls: number; costShare: number }[]
   }
   lastCalibrated?: string
   capturedAt?: string

@@ -174,9 +174,13 @@ export default function SpendDashboard() {
     { label: "Infrastructure", amount: infraTotal, pct: pctOf(infraTotal), color: "var(--text-secondary)" },
   ]
 
-  // By model — group by each agent's primary model, sum its LLM-token spend.
-  // An agent that only reports a `point` total without a model lands in
-  // "Unspecified" so we don't silently double-count.
+  // By model — split each agent's LLM-token spend across the models it ACTUALLY
+  // ran, using the observed cost shares from its captured calls. An agent
+  // declares one model but a real one may route across several; attributing its
+  // whole spend to the declared model overstated that model and hid the others,
+  // and this figure also feeds the fleet CFO PDF. Agents with nothing captured
+  // fall back to their declared model, and an agent reporting no model at all
+  // lands in "Unspecified" so we never silently double-count.
   const MODEL_COLORS: Record<string, string> = {
     "claude-opus-4-8":   "var(--severity-critical)",
     "claude-sonnet-4-6": "var(--chart-tokens)",
@@ -187,8 +191,16 @@ export default function SpendDashboard() {
   }
   const byModelMap = new Map<string, number>()
   for (const r of withForecast) {
-    const key = r.forecast?.model ?? "Unspecified"
-    byModelMap.set(key, (byModelMap.get(key) ?? 0) + (r.forecast?.tokensUsd ?? 0))
+    const spend = r.forecast?.tokensUsd ?? 0
+    const observed = r.forecast?.coverage?.observedModels ?? []
+    if (observed.length > 0) {
+      for (const om of observed) {
+        byModelMap.set(om.model, (byModelMap.get(om.model) ?? 0) + spend * om.costShare)
+      }
+    } else {
+      const key = r.forecast?.model ?? "Unspecified"
+      byModelMap.set(key, (byModelMap.get(key) ?? 0) + spend)
+    }
   }
   const byModel = Array.from(byModelMap.entries())
     .map(([name, amount]) => ({
