@@ -10,7 +10,7 @@
 # Surfaced in forecast responses so the UI can show an accurate
 # "last calibrated" date instead of a hardcoded string. Update when the
 # YAML body is materially recalibrated.
-last_calibrated: "2026-07-12"
+last_calibrated: "2026-08-09"
 
 # ──────────────────────────────────────────────────────────────────────────
 # 1. LLM model pricing (USD per million tokens)
@@ -18,7 +18,29 @@ last_calibrated: "2026-07-12"
 # Anthropic prices verified against the live model catalog on 2026-07-03
 # (opus-4-8 $5/$25, sonnet-4-6 $3/$15, haiku-4-5 $1/$5) — do not "fix" the
 # Opus ratio to the historical 5x-of-Sonnet; the 4.8 repricing is real.
+# Re-verified 2026-08-09 against every vendor's own pricing page: all eight
+# Anthropic rows were correct; seven non-Anthropic rows were not (see their
+# inline notes) and six missing models were added.
+#
+# ⚠️ KNOWN MODELLING GAP — flat rates, no context-length tiers.
+# Several vendors price by prompt length and we carry only the low tier:
+#   gemini-2-5-pro          $1.25/$10.00  ≤200k  →  $2.50/$15.00  >200k
+#   gemini-3-1-pro-preview  $2.00/$12.00  ≤200k  →  $4.00/$18.00  >200k
+#   grok-4-5 / grok-4-3 / grok-build-0-1   tiered by prompt length, ~2x at the top
+# Long-context agents on those models are therefore UNDER-forecast by up to 2x,
+# and no row edit fixes it — the schema has no tier dimension. Tracked as the
+# time/tier dimension work in the post-demo plan (Tier 1.5).
 models:
+  # Added 2026-08-09: Opus 5 is the current Opus and was absent entirely, so an
+  # agent declaring it fell through to family-matching.
+  claude-opus-5:
+    input_per_mtok: 5.00
+    output_per_mtok: 25.00
+    cache_discount: 0.90
+    # Same static-tier assumption as opus-4-8 — see the note on that row.
+    tokenizer_inflation: 1.35
+    source_url: https://platform.claude.com/docs/en/pricing
+    verified_on: "2026-08-09"
   claude-opus-4-8:
     input_per_mtok: 5.00
     output_per_mtok: 25.00
@@ -99,6 +121,34 @@ models:
     tokenizer_inflation: 1.0
     source_url: https://developers.openai.com/api/docs/models/gpt-5
     verified_on: "2026-07-12"
+  # Added 2026-08-09. These three previously had no row, so they longest-prefix
+  # matched bare `gpt-5` ($1.25/$10) and were priced 12x UNDER (-pro), 5x over
+  # (-mini) and 25x over (-nano) — at HIGH confidence, since a prefix match
+  # counts as recognized. Rates are read from OpenAI's pricing page, NOT
+  # inferred from the gpt-5.4/5.5 siblings: the sibling -pro rows are
+  # $30/$180, and gpt-5-pro is $15/$120, so inference would have been 2x wrong.
+  gpt-5-pro:
+    input_per_mtok: 15.00
+    output_per_mtok: 120.00
+    # No cached-input rate published for the -pro tier.
+    cache_discount: 0.0
+    tokenizer_inflation: 1.0
+    source_url: https://developers.openai.com/api/docs/pricing
+    verified_on: "2026-08-09"
+  gpt-5-mini:
+    input_per_mtok: 0.25
+    output_per_mtok: 2.00
+    cache_discount: 0.90
+    tokenizer_inflation: 1.0
+    source_url: https://developers.openai.com/api/docs/pricing
+    verified_on: "2026-08-09"
+  gpt-5-nano:
+    input_per_mtok: 0.05
+    output_per_mtok: 0.40
+    cache_discount: 0.90
+    tokenizer_inflation: 1.0
+    source_url: https://developers.openai.com/api/docs/pricing
+    verified_on: "2026-08-09"
   # gpt-5.x flagships (added 2026-07-12; cached input bills at 10% → 0.90).
   gpt-5-6-sol:
     input_per_mtok: 5.00
@@ -108,19 +158,21 @@ models:
     source_url: https://developers.openai.com/api/docs/pricing
     verified_on: "2026-07-12"
   gpt-5-6-terra:
-    input_per_mtok: 2.50
-    output_per_mtok: 15.00
+    # Was 2.50/15.00 (25% over) until re-verified 2026-08-09.
+    input_per_mtok: 2.00
+    output_per_mtok: 12.00
     cache_discount: 0.90
     tokenizer_inflation: 1.0
     source_url: https://developers.openai.com/api/docs/pricing
-    verified_on: "2026-07-12"
+    verified_on: "2026-08-09"
   gpt-5-6-luna:
-    input_per_mtok: 1.00
-    output_per_mtok: 6.00
+    # Was 1.00/6.00 — 5x over — until re-verified 2026-08-09.
+    input_per_mtok: 0.20
+    output_per_mtok: 1.20
     cache_discount: 0.90
     tokenizer_inflation: 1.0
     source_url: https://developers.openai.com/api/docs/pricing
-    verified_on: "2026-07-12"
+    verified_on: "2026-08-09"
   gpt-5-5:
     input_per_mtok: 5.00
     output_per_mtok: 30.00
@@ -131,10 +183,12 @@ models:
   gpt-5-5-pro:
     input_per_mtok: 30.00
     output_per_mtok: 180.00
-    cache_discount: 0.90
+    # OpenAI publishes NO cached-input rate for the -pro tier (verified
+    # 2026-08-09); the previous 0.90 assumed a 90% discount that isn't offered.
+    cache_discount: 0.0
     tokenizer_inflation: 1.0
     source_url: https://developers.openai.com/api/docs/pricing
-    verified_on: "2026-07-12"
+    verified_on: "2026-08-09"
   gpt-5-4:
     input_per_mtok: 2.50
     output_per_mtok: 15.00
@@ -159,10 +213,11 @@ models:
   gpt-5-4-pro:
     input_per_mtok: 30.00
     output_per_mtok: 180.00
-    cache_discount: 0.90
+    # No cached-input rate on the -pro tier — see gpt-5-5-pro.
+    cache_discount: 0.0
     tokenizer_inflation: 1.0
     source_url: https://developers.openai.com/api/docs/pricing
-    verified_on: "2026-07-12"
+    verified_on: "2026-08-09"
   gpt-4o:
     input_per_mtok: 2.50
     output_per_mtok: 10.00
@@ -199,6 +254,18 @@ models:
     source_url: https://ai.google.dev/gemini-api/docs/pricing
     verified_on: "2026-07-12"
   # Gemini 3.x generation (added 2026-07-12).
+  # Added 2026-08-09. Previously prefix-matched gemini-3-5-flash ($1.50/$9.00)
+  # and was priced 5x over on input, 3.6x over on output. Rates read from
+  # Google's pricing page, NOT inferred from the other -lite rows — those
+  # disagree with each other ($0.10/$0.40 for 2.5, $0.25/$1.50 for 3.1) and
+  # neither matches this model, so there was no sibling pattern to infer from.
+  gemini-3-5-flash-lite:
+    input_per_mtok: 0.30
+    output_per_mtok: 2.50
+    cache_discount: 0.90
+    tokenizer_inflation: 1.0
+    source_url: https://ai.google.dev/gemini-api/docs/pricing
+    verified_on: "2026-08-09"
   gemini-3-5-flash:
     input_per_mtok: 1.50
     output_per_mtok: 9.00
@@ -214,13 +281,15 @@ models:
     source_url: https://ai.google.dev/gemini-api/docs/pricing
     verified_on: "2026-07-12"
   gemini-3-1-flash-lite:
-    # Google lists no caching for this model → no cache discount.
+    # Correction 2026-08-09: Google DOES list context caching for this model —
+    # cache read $0.025/MTok against $0.25 input = 10%. The prior "no caching"
+    # note was wrong and billed every cached token at full input price.
     input_per_mtok: 0.25
     output_per_mtok: 1.50
-    cache_discount: 0.0
+    cache_discount: 0.90
     tokenizer_inflation: 1.0
     source_url: https://ai.google.dev/gemini-api/docs/pricing
-    verified_on: "2026-07-12"
+    verified_on: "2026-08-09"
   gemini-3-flash-preview:
     input_per_mtok: 0.50
     output_per_mtok: 3.00
@@ -232,10 +301,13 @@ models:
   gemini-2-0-flash:
     input_per_mtok: 0.10
     output_per_mtok: 0.40
-    cache_discount: 0.90
+    # Cache read is $0.025/MTok against $0.10 input = 25%, not the 10% the
+    # prior 0.90 assumed. Matters because this row exists to price historical
+    # captured calls, and those calls were cached at the real rate.
+    cache_discount: 0.75
     tokenizer_inflation: 1.0
     source_url: https://ai.google.dev/gemini-api/docs/pricing
-    verified_on: "2026-07-12"
+    verified_on: "2026-08-09"
   # RETIRED — unlisted on Google's pricing page (2026-07-12); last-known rates kept for historical calls.
   gemini-1-5-pro:
     input_per_mtok: 1.25
@@ -354,7 +426,18 @@ models:
     cache_discount: 0.98
     tokenizer_inflation: 1.0
     source_url: https://api-docs.deepseek.com/quick_start/pricing
-    verified_on: "2026-07-12"
+    verified_on: "2026-08-09"
+  # Added 2026-08-09. ⚠️ DeepSeek's pricing page states they "plan to raise the
+  # overall pricing for DeepSeek API services in the near future, with a
+  # significant increase expected" — re-verify this vendor before quoting it.
+  deepseek-v4-pro:
+    input_per_mtok: 0.435
+    output_per_mtok: 0.87
+    # Cache hit $0.003625 against $0.435 input = 0.83% of input.
+    cache_discount: 0.99
+    tokenizer_inflation: 1.0
+    source_url: https://api-docs.deepseek.com/quick_start/pricing
+    verified_on: "2026-08-09"
   deepseek-v3:                   # deepseek-chat
     input_per_mtok: 0.14
     output_per_mtok: 0.28
@@ -385,9 +468,18 @@ models:
     source_url: https://cohere.com/pricing
     verified_on: "2026-07-12"
   # xAI
-  # Current xAI models (added 2026-07-12). grok-4-20-0309 is a base row that
-  # prefix-matches its -reasoning / -non-reasoning / -multi-agent variants,
-  # which all share this price.
+  # Current xAI models (added 2026-07-12). grok-4-20-0309 is a synthetic base
+  # row — xAI publishes no bare `grok-4.20-0309`, only the variants below, and
+  # all of them do share this price (verified 2026-08-09).
+  #
+  # Correction 2026-08-09: only TWO of the three variants actually prefix-match.
+  # xAI's real ids are grok-4.20-0309-reasoning and -non-reasoning (suffix after
+  # the date → prefix match), but grok-4.20-MULTI-AGENT-0309 puts the suffix
+  # BEFORE the date, so it does not start with grok-4-20-0309 and resolves as a
+  # "family" match instead — capped at LOW confidence with the coverage banner.
+  # That is the safe outcome and needs no code change; the number is right and
+  # the confidence is honest. Do not "fix" it by adding a bare multi-agent row
+  # without re-checking xAI's id format first.
   grok-4-3:
     # Cached input $0.20/MTok vs $1.25 → 16% of input.
     input_per_mtok: 1.25
@@ -397,13 +489,17 @@ models:
     source_url: https://docs.x.ai/developers/models
     verified_on: "2026-07-12"
   grok-4-5:
-    # Cached input $0.50/MTok vs $2.00 → 25% of input.
+    # Cached input is $0.30/MTok vs $2.00 → 15% of input (re-verified
+    # 2026-08-09; the prior comment's $0.50 / 25% was wrong).
+    # Base tier only: xAI tiers by prompt length ($2.00–$4.00 in,
+    # $6.00–$12.00 out). We price the low tier — see the tiering note at the
+    # head of this file.
     input_per_mtok: 2.00
     output_per_mtok: 6.00
-    cache_discount: 0.75
+    cache_discount: 0.85
     tokenizer_inflation: 1.0
     source_url: https://docs.x.ai/developers/models
-    verified_on: "2026-07-12"
+    verified_on: "2026-08-09"
   grok-4-20-0309:
     input_per_mtok: 1.25
     output_per_mtok: 2.50
