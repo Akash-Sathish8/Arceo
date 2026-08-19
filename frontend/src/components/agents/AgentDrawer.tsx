@@ -105,7 +105,7 @@ function ChainRow({ chain }: ChainRowProps): React.ReactElement {
     : [chain.from_label, chain.to_label].filter(Boolean) as string[];
   const title =
     chain.description ||
-    chainNarrative(chain.chain_name) ||
+    chainNarrative(chain.id ?? chain.chain_name) ||
     chain.name ||
     "Risk chain";
 

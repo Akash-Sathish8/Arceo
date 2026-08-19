@@ -63,6 +63,7 @@ interface AgentListItem {
 
 interface ChainItem {
   severity: 'critical' | 'high' | 'medium'
+  chain_id?: string
   chain_name: string
   agent_id: string
   agent_name: string
@@ -1620,7 +1621,7 @@ export default function Authority() {
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                         <span style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--ink-800)' }}>
-                          {chainShortLabel(c.chain_name)}
+                          {chainShortLabel(c.chain_id ?? c.chain_name)}
                         </span>
                         <span style={{ fontSize: 12, color: 'var(--ink-400)' }}>· {c.agent_name}</span>
                       </div>
