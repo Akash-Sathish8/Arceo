@@ -16,6 +16,7 @@ import {
 import type { LucideIcon } from "lucide-react";
 import LogoMark from "@/components/shared/LogoMark";
 import { apiFetch, isLoggedIn, getUser, logout } from "@/lib/api";
+import { deriveOrgName } from "@/lib/orgName";
 import { useSidebarStore } from "@/store/sidebar";
 
 interface NavItem {
@@ -29,32 +30,8 @@ interface NavItem {
 
 const ACCENT = "var(--accent)";
 
-const CONSUMER_DOMAINS = new Set([
-  "gmail", "googlemail", "yahoo", "outlook", "hotmail", "live", "icloud",
-  "me", "aol", "proton", "protonmail", "pm",
-]);
-
-// Our own domains, current and retired. The seed demo account is
-// admin@actiongate.io, so deriving an org name from its domain rendered the
-// retired product name — "Actiongate" — in the chrome of every screen, demos
-// included. Only the display is mapped: the seed email and the actiongate.db
-// filename stay as they are while the rename is mid-flight.
-const OWN_DOMAINS = new Set(["arceo", "actiongate"]);
-
-function isDemoSession(): boolean {
-  try { return localStorage.getItem("arceo_demo_session") === "1"; } catch { return false; }
-}
-
-function deriveOrgName(email: string | undefined): string {
-  if (isDemoSession()) return "Shared demo account";
-  if (!email) return "Arceo";
-  const domain = email.split("@")[1] ?? "";
-  const root = domain.split(".")[0] ?? "";
-  // A personal inbox has no meaningful org name — showing "Gmail" reads as a bug.
-  if (!root || CONSUMER_DOMAINS.has(root.toLowerCase())) return "Personal workspace";
-  if (OWN_DOMAINS.has(root.toLowerCase())) return "Arceo";
-  return root.charAt(0).toUpperCase() + root.slice(1);
-}
+// deriveOrgName (with its demo-session / consumer-domain rules) lives in
+// @/lib/orgName so the CFO PDF exports print the same org name as the chrome.
 
 function getUserInitial(email: string | undefined): string {
   if (!email) return "A";

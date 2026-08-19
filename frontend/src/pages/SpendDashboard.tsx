@@ -23,6 +23,7 @@ import type { MockSpend } from "@/lib/mockSpend"
 import { fetchBatchSpendForecasts } from "@/lib/spendApi"
 import InvoiceReconciliationPanel from "@/components/InvoiceReconciliation"
 import { pluralize } from "@/lib/strings"
+import { currentOrgName } from "@/lib/orgName"
 import { type FleetReportData } from "@/components/FleetCFOReport"
 
 // @react-pdf/renderer (~1MB) loads only when a user opens the fleet export.
@@ -241,8 +242,20 @@ export default function SpendDashboard() {
     ? `−${Math.max(0, Math.round((1 - fleetLow / totalSpend) * 100))}% / +${Math.max(0, Math.round((fleetHigh / totalSpend - 1) * 100))}%`
     : "n/a"
 
+  // Per-agent confidence tier counts for the PDF's band sentence — it used to
+  // assert "medium-confidence" regardless of the actual mix.
+  const tierMix = withForecast.reduce(
+    (acc, r) => {
+      const tier = r.forecast?.confidence
+      if (tier === "high" || tier === "medium" || tier === "low") acc[tier] += 1
+      return acc
+    },
+    { high: 0, medium: 0, low: 0 },
+  )
+
   const fleetReportData: FleetReportData = {
-    org: "your organization",
+    org: currentOrgName(),
+    tierMix,
     dateString: new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" }),
     agentCount: withForecast.length,
     uncalibrated: noForecast.length,

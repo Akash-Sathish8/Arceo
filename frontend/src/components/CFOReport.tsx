@@ -73,6 +73,22 @@ const styles = StyleSheet.create({
   numberLabel: { fontSize: 10, color: INK_MUTED },
   numberValue: { fontSize: 10, fontFamily: "Courier", color: INK },
   confidenceLine: { fontSize: 9, color: INK_MUTED, marginTop: 8, lineHeight: 1.5 },
+
+  // Basis and limitations
+  basisLine: { fontSize: 9, color: INK_MUTED, lineHeight: 1.6 },
+  basisProvenanceRow: { flexDirection: "row", marginTop: 2 },
+  basisProvenanceLabel: { fontSize: 9, color: INK, width: 110 },
+  basisProvenanceSource: { fontSize: 9, color: INK_MUTED, flex: 1 },
+
+  // Demo watermark banner
+  demoBanner: {
+    marginTop: 12,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    backgroundColor: WARN_BG,
+    borderRadius: 3,
+  },
+  demoBannerText: { fontSize: 10, fontWeight: 700, letterSpacing: 1, color: WARN },
   badge: {
     fontSize: 8,
     fontWeight: 700,
@@ -152,6 +168,16 @@ export function CFOReport({ data }: { data: CFOReportData }) {
           </View>
         </View>
 
+        {/* Demo watermark — seeded demo traffic must never pass as measured
+            in a downloadable artifact. */}
+        {data.isDemo && (
+          <View style={styles.demoBanner}>
+            <Text style={styles.demoBannerText}>
+              DEMO DATA — the traffic behind these numbers is illustrative, not measured
+            </Text>
+          </View>
+        )}
+
         {/* Agent intro */}
         <View style={styles.agentBlock}>
           <Text style={styles.agentLabel}>AGENT</Text>
@@ -229,6 +255,32 @@ export function CFOReport({ data }: { data: CFOReportData }) {
             ))}
           </View>
         )}
+
+        {/* Basis and limitations — always renders; the provenance the screen
+            shows must survive into the artifact that leaves the building. */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>BASIS AND LIMITATIONS</Text>
+          <Text style={styles.basisLine}>{data.basis.observedDaysLine}</Text>
+          {data.basis.pricedModelLine && (
+            <Text style={styles.basisLine}>{data.basis.pricedModelLine}</Text>
+          )}
+          {data.basis.toolsPricedLine && (
+            <Text style={styles.basisLine}>{data.basis.toolsPricedLine}</Text>
+          )}
+          {data.basis.lastCalibrated && (
+            <Text style={styles.basisLine}>Price catalog last calibrated {data.basis.lastCalibrated}.</Text>
+          )}
+          {data.basis.inputProvenance.length > 0 && (
+            <View style={{ marginTop: 6 }}>
+              {data.basis.inputProvenance.map(p => (
+                <View key={p.label} style={styles.basisProvenanceRow}>
+                  <Text style={styles.basisProvenanceLabel}>{p.label}</Text>
+                  <Text style={styles.basisProvenanceSource}>{p.source}</Text>
+                </View>
+              ))}
+            </View>
+          )}
+        </View>
 
         {/* Footer */}
         <View style={styles.footer}>

@@ -15,6 +15,9 @@ export interface FleetReportData {
   dateString: string
   agentCount: number
   uncalibrated: number
+  /** Per-agent confidence tier counts — the band sentence must reflect the
+   * real mix, not assert "medium-confidence" for every fleet. */
+  tierMix: { high: number; medium: number; low: number }
   totalMonthly: number
   monthlyLow: number
   monthlyHigh: number
@@ -172,9 +175,9 @@ export function FleetCFOReport({ data }: { data: FleetReportData }) {
             <Text style={styles.numberValue}>{fmtUsd(data.annualRunRate)}</Text>
           </View>
           <Text style={styles.confidenceLine}>
-            The {data.confidenceBand} band is a medium-confidence estimate based on how much data
-            backs these forecasts, not measured run-to-run variance. It tightens as agents
-            accumulate live production data.
+            The {data.confidenceBand} band reflects how much data backs each agent's forecast
+            ({data.tierMix.high} high-, {data.tierMix.medium} medium-, {data.tierMix.low} low-confidence),
+            not measured run-to-run variance. It tightens as agents accumulate live production data.
           </Text>
         </View>
 

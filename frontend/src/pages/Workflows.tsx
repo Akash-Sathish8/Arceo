@@ -64,6 +64,7 @@ interface PermissionGapItem {
 }
 
 interface ApprovalGate {
+  chain_id?: string;
   chain_name: string;
   severity?: string;
   to_agent?: string;
@@ -475,7 +476,7 @@ function OptimizeResult({ result, onApply, applying, appliedCount }: OptimizeRes
                   </span>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <span style={{ fontSize: 12, fontWeight: 500, color: "#1f2937" }}>
-                      {chainShortLabel(chain.chain_name)}
+                      {chainShortLabel(chain.chain_id ?? chain.chain_name)}
                     </span>
                     <span style={{ fontSize: 12, color: "#6b7280", marginLeft: 8 }}>
                       {agent.agent_name} → {chain.to_agent} — a person approves before this handoff runs
@@ -709,7 +710,7 @@ function WorkflowResult({ result, agentNames, agentColors, mode }: WorkflowResul
               </span>
               <div style={{ display: "flex", flexDirection: "column" }}>
                 <span style={{ fontSize: 12, fontWeight: 500, color: "#1f2937" }}>
-                  {chainShortLabel(c.chain_name)}
+                  {chainShortLabel(c.chain_id ?? c.chain_name)}
                   {c.from_agent && c.to_agent && (
                     <span style={{ fontWeight: 400, color: "#6b7280" }}>
                       {" "}· {c.from_agent} → {c.to_agent}
@@ -717,7 +718,7 @@ function WorkflowResult({ result, agentNames, agentColors, mode }: WorkflowResul
                   )}
                 </span>
                 <span style={{ fontSize: 12, color: "#6b7280" }}>
-                  {chainNarrative(c.chain_name)}
+                  {chainNarrative(c.chain_id ?? c.chain_name)}
                 </span>
               </div>
             </div>

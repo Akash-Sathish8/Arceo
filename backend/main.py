@@ -5177,6 +5177,7 @@ def optimize_workflow_permissions(req: WorkflowOptimizeRequest, user: dict = Dep
                 if t.to_label not in agent_labels.get(to_id, set()):
                     continue
                 cross_chains.append({
+                    "chain_id": t.id,
                     "chain_name": t.name, "severity": t.severity,
                     "from_agent_id": from_id, "from_agent": agent_configs[from_id]["name"],
                     "to_agent_id": to_id, "to_agent": agent_configs[to_id]["name"],
