@@ -182,8 +182,13 @@ export default function Authority() {
     owner: string; repo: string; branch: string;
     files_scanned: number; agents_detected: number; agents_registered: number;
     results: { path: string; status: string; agent_id?: string; tools_count?: number; model?: string; error?: string }[]
+    // Coverage disclosure the backend already sends (candidate cap, max_files
+    // stop, rate-limited fetches, size skips) — apiFetch is a bare res.json(),
+    // so these are in the response at runtime; the type just didn't admit it.
+    truncated?: boolean; scan_notes?: string[]; fetch_errors?: number;
+    candidates_total?: number; candidates_scanned?: number;
   } | null>(null)
-  const [bundledFiles, setBundledFiles] = useState<{ path: string; chars: number }[]>([])
+  const [bundledFiles, setBundledFiles] = useState<{ path: string; chars: number; truncated?: boolean }[]>([])
   const [bundling, setBundling] = useState(false)
   const [proxyName, setProxyName] = useState('')
   const connectFormRef = useRef<HTMLDivElement>(null)
@@ -269,12 +274,18 @@ export default function Authority() {
   const BUNDLE_CODE_EXT = /\.(py|ts|tsx|js|jsx|mjs|cjs|json|ya?ml|toml|txt|md)$/i
   const BUNDLE_SKIP_DIR = /(^|\/)(node_modules|\.git|__pycache__|dist|build|\.next|\.venv|venv|\.turbo|coverage|\.mypy_cache|\.pytest_cache)(\/|$)/
   const BUNDLE_SKIP_FILE = /(package-lock\.json|yarn\.lock|pnpm-lock\.yaml|poetry\.lock|Cargo\.lock|\.min\.js)$/i
-  const BUNDLE_MAX_CHARS = 150_000 // backend extractor only reads the first 150KB
+  const BUNDLE_MAX_CHARS = 200_000 // mirrors backend Field(max_length=200_000) (main.py extract endpoints)
 
   const handleFileUpload = async (file: File) => {
     setBundledFiles([])
     setUploadFilename(file.name)
     const text = await file.text()
+    // The backend rejects >200K bodies outright (422); send what fits and say so.
+    if (text.length > BUNDLE_MAX_CHARS) {
+      setUploadFileContent(text.slice(0, BUNDLE_MAX_CHARS))
+      toast(`${file.name} exceeds the 200KB extractor limit — only the first 200KB will be analyzed`, 'error')
+      return
+    }
     setUploadFileContent(text)
   }
 
@@ -316,14 +327,18 @@ export default function Authority() {
   // code/text file under a `# FILE:` header so the extractor sees the complete
   // agent in a single pass, instead of registering one agent per file.
   const bundlePickedFiles = async (picked: PickedFile[]) => {
-    const usable = picked.filter(({ file, path }) =>
+    // No zip support exists (deliberately — it needs a binary endpoint plus a
+    // dependency we pin out). The fix is the message, not the feature.
+    const hasArchive = picked.some(({ path }) => /\.(zip|tar|tar\.gz|tgz|rar|7z)$/i.test(path))
+    const usable = picked.filter(({ path }) =>
       BUNDLE_CODE_EXT.test(path) &&
       !BUNDLE_SKIP_DIR.test(path) &&
-      !BUNDLE_SKIP_FILE.test(path) &&
-      file.size < 100_000,
+      !BUNDLE_SKIP_FILE.test(path),
     )
     if (usable.length === 0) {
-      toast('No code files found to bundle', 'error')
+      toast(hasArchive
+        ? "Zip archives aren't supported — drag the unzipped folder in instead"
+        : 'No code files found to bundle', 'error')
       return
     }
     if (usable.length === 1) {
@@ -334,24 +349,35 @@ export default function Authority() {
     try {
       usable.sort((a, b) => a.path.localeCompare(b.path))
       const parts: string[] = []
-      const meta: { path: string; chars: number }[] = []
+      const meta: { path: string; chars: number; truncated?: boolean }[] = []
       let total = 0
       let skipped = 0
       for (const { file, path } of usable) {
-        if (total >= BUNDLE_MAX_CHARS) { skipped++; continue }
-        const text = await file.text()
         const header = `# ===================================================================\n# FILE: ${path}\n# ===================================================================\n\n`
-        parts.push(header + text)
-        meta.push({ path, chars: text.length })
-        total += header.length + text.length + 2
+        // Check the budget BEFORE reading: the old loop tested after, so it
+        // always overshot and then hard-sliced the last file mid-body while
+        // recording its full length — a green "included" dot over truncated
+        // source.
+        const remaining = BUNDLE_MAX_CHARS - total - header.length - 2
+        if (remaining <= 0) { skipped++; continue }
+        const text = await file.text()
+        const body = text.length > remaining ? text.slice(0, remaining) : text
+        parts.push(header + body)
+        meta.push({ path, chars: body.length, truncated: body.length < text.length })
+        total += header.length + body.length + 2
       }
-      let content = parts.join('\n\n')
-      if (content.length > BUNDLE_MAX_CHARS) content = content.slice(0, BUNDLE_MAX_CHARS)
+      const content = parts.join('\n\n')
       const top = usable[0].path.includes('/') ? usable[0].path.split('/')[0] : ''
       setUploadFilename(top ? `${top} (${meta.length} files bundled)` : `bundle (${meta.length} files)`)
       setUploadFileContent(content)
       setBundledFiles(meta)
-      if (skipped > 0) toast(`Bundled ${meta.length} files — ${skipped} skipped (150KB extractor limit)`, 'error')
+      const truncatedCount = meta.filter((m) => m.truncated).length
+      if (skipped > 0 || truncatedCount > 0) {
+        const bits: string[] = []
+        if (skipped > 0) bits.push(`${skipped} didn't fit`)
+        if (truncatedCount > 0) bits.push(`${truncatedCount} truncated`)
+        toast(`Bundled ${meta.length} files — ${bits.join(', ')} (200KB extractor limit)`, 'error')
+      }
     } finally {
       setBundling(false)
     }
@@ -371,8 +397,12 @@ export default function Authority() {
         body: JSON.stringify({ url: githubUrl }),
       })
       setGithubResult(data)
+      // Branch on what was DETECTED, not what registered: 25 detected /
+      // 25 failed used to read "no agent files detected" and blame the repo.
       if (data && data.agents_registered > 0) {
         toast(`Registered ${data.agents_registered} agent${data.agents_registered !== 1 ? 's' : ''} from ${data.owner}/${data.repo}`)
+      } else if (data && data.agents_detected > 0) {
+        toast(`Detected ${data.agents_detected} agent file${data.agents_detected !== 1 ? 's' : ''} but registration failed — see per-file results`, 'error')
       } else {
         toast('Scan complete — no agent files detected', 'error')
       }
@@ -386,7 +416,7 @@ export default function Authority() {
   const handleUploadSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!uploadFileContent.trim()) {
-      toast('Paste or upload some agent code first', 'error')
+      toast('Upload a file or drop a folder first', 'error')
       return
     }
     setUploadSubmitting(true)
@@ -855,9 +885,9 @@ export default function Authority() {
                     </div>
                     {bundledFiles.map((b, i) => (
                       <div key={i} className="flex items-center gap-2 text-[11px]">
-                        <span style={{ width: 8, height: 8, borderRadius: 4, flexShrink: 0, background: '#16a34a' }} />
+                        <span style={{ width: 8, height: 8, borderRadius: 4, flexShrink: 0, background: b.truncated ? '#d97706' : '#16a34a' }} />
                         <code className="font-mono text-gray-700 truncate flex-1">{b.path}</code>
-                        <span className="text-gray-500">{b.chars.toLocaleString()} chars</span>
+                        <span className="text-gray-500">{b.chars.toLocaleString()} chars{b.truncated ? ' (truncated to fit)' : ''}</span>
                       </div>
                     ))}
                   </div>
@@ -954,28 +984,52 @@ export default function Authority() {
                 <Button type="submit" loading={githubScanning} disabled={githubScanning || !githubUrl.trim()} style={{ width: '100%', marginTop: 16 }}>
                   {githubScanning ? 'Scanning repo…' : 'Scan and register all agents'}
                 </Button>
-                {githubResult && (
-                  <div className="mt-2 bg-green-50 border border-green-200 rounded-lg p-4 space-y-2 text-xs">
-                    <div className="font-semibold text-green-900">✓ {githubResult.owner}/{githubResult.repo} <span className="font-normal text-green-700">({githubResult.branch})</span></div>
-                    <div className="text-green-800">
+                {githubResult && (() => {
+                  // Tone follows the outcome. This panel used to be green with
+                  // a hardcoded ✓ even when every detected file failed.
+                  const failedCount = githubResult.results.filter((r) => r.status !== 'registered' && r.status !== 'skipped').length
+                  const allFailed = githubResult.agents_detected > 0 && githubResult.agents_registered === 0
+                  const tone = allFailed ? 'red' : failedCount > 0 ? 'amber' : 'green'
+                  const paneClass = tone === 'red'
+                    ? 'mt-2 bg-red-50 border border-red-200 rounded-lg p-4 space-y-2 text-xs'
+                    : tone === 'amber'
+                    ? 'mt-2 bg-amber-50 border border-amber-200 rounded-lg p-4 space-y-2 text-xs'
+                    : 'mt-2 bg-green-50 border border-green-200 rounded-lg p-4 space-y-2 text-xs'
+                  const headClass = tone === 'red' ? 'font-semibold text-red-900' : tone === 'amber' ? 'font-semibold text-amber-900' : 'font-semibold text-green-900'
+                  const bodyClass = tone === 'red' ? 'text-red-800' : tone === 'amber' ? 'text-amber-800' : 'text-green-800'
+                  const scannedShort = (githubResult.candidates_scanned ?? 0) < (githubResult.candidates_total ?? 0)
+                  const showCoverage = Boolean(githubResult.truncated || scannedShort || (githubResult.fetch_errors ?? 0) > 0)
+                  return (
+                  <div className={paneClass}>
+                    <div className={headClass}>{allFailed ? '✗' : '✓'} {githubResult.owner}/{githubResult.repo} <span className="font-normal opacity-75">({githubResult.branch})</span></div>
+                    <div className={bodyClass}>
                       Scanned <strong>{githubResult.files_scanned}</strong> files → detected <strong>{githubResult.agents_detected}</strong> with LLM SDK usage → registered <strong>{githubResult.agents_registered}</strong> agents.
                     </div>
+                    {showCoverage && (
+                      <div className="bg-amber-50 border border-amber-200 rounded p-2 text-amber-900">
+                        Scanned {githubResult.candidates_scanned ?? githubResult.files_scanned} of {githubResult.candidates_total ?? githubResult.files_scanned} candidate files{(githubResult.fetch_errors ?? 0) > 0 ? `, ${githubResult.fetch_errors} fetches failed` : ''}. Results cover only what was scanned.
+                        {(githubResult.scan_notes ?? []).map((n, i) => (
+                          <div key={i} className="mt-1 text-[11px]">{n}</div>
+                        ))}
+                      </div>
+                    )}
                     {githubResult.results.length > 0 && (
-                      <details className="text-green-800">
+                      <details className={bodyClass}>
                         <summary className="cursor-pointer">Per-file results</summary>
                         <div className="mt-2 bg-white rounded p-2 max-h-60 overflow-auto space-y-1">
                           {githubResult.results.map((r, i) => (
                             <div key={i} className="flex items-center gap-2 text-[11px]">
-                              <span style={{ width: 8, height: 8, borderRadius: 4, flexShrink: 0, background: r.status === 'registered' ? '#16a34a' : '#dc2626' }} />
+                              <span style={{ width: 8, height: 8, borderRadius: 4, flexShrink: 0, background: r.status === 'registered' ? '#16a34a' : r.status === 'skipped' ? '#9ca3af' : '#dc2626' }} />
                               <code className="font-mono text-gray-700 truncate flex-1">{r.path}</code>
-                              <span className="text-gray-500">{r.status === 'registered' ? `→ ${r.agent_id} (${r.tools_count} tools${r.model ? `, ${r.model}` : ''})` : `failed: ${r.error}`}</span>
+                              <span className="text-gray-500">{r.status === 'registered' ? `→ ${r.agent_id} (${r.tools_count} tools${r.model ? `, ${r.model}` : ''})` : r.status === 'skipped' ? 'skipped' : `failed: ${r.error}`}</span>
                             </div>
                           ))}
                         </div>
                       </details>
                     )}
                   </div>
-                )}
+                  )
+                })()}
               </form>
             </div>
           )}
