@@ -76,6 +76,18 @@ export interface CFOReportData {
 
   // Footer
   reviewBudgetCap: number
+
+  // Basis and limitations — the provenance the screen already renders
+  // (coverage banner, source badges, last-calibrated) must survive into the
+  // one artifact that leaves the building.
+  isDemo: boolean
+  basis: {
+    lastCalibrated: string | null
+    pricedModelLine: string | null
+    toolsPricedLine: string | null
+    observedDaysLine: string
+    inputProvenance: { label: string; source: string }[]
+  }
 }
 
 // ── Friendly tool names ─────────────────────────────────────────────────────
@@ -162,19 +174,80 @@ function buildWhatItDoes(tools: string[]): string {
 
 // ── Confidence translation ──────────────────────────────────────────────────
 
+// The HIGH criterion below mirrors the engine's real gate: 50 captured
+// production calls in a trailing 7-day window spanning at least 3 distinct
+// calendar days (spend_forecast.py LIVE_TRACE_MIN_CALLS /
+// LIVE_TRACE_MIN_ACTIVE_DAYS). There is no elapsed-time requirement, so the
+// copy must never promise one. Pinned by cfoReport.test.ts.
 function buildConfidenceLine(tier: "low" | "medium" | "high"): string {
   switch (tier) {
     case "low":
       return "Low — based only on the agent's setup. No test runs yet. Tightens once we run simulations."
     case "medium":
-      return "Moderate — based on simulated test conversations. Tightens to high confidence after seven days of live production usage."
+      return "Moderate — based on simulated test conversations. Reaches high confidence once we capture 50+ production calls spanning 3+ distinct days in a week."
     case "high":
-      return "High — based on seven or more days of live production data."
+      return "High — based on 50+ captured production calls spanning 3+ distinct days in the last week."
   }
 }
 
 function confidenceBadge(tier: "low" | "medium" | "high"): { label: string; tone: "low" | "medium" | "high" } {
   return { label: tier === "low" ? "LOW" : tier === "medium" ? "MODERATE" : "HIGH", tone: tier }
+}
+
+// ── Basis and limitations ───────────────────────────────────────────────────
+
+const INPUT_LABELS: Record<string, string> = {
+  runsPerDay: "Daily volume",
+  turnsPerRun: "Work per run",
+  tokensPerCall: "AI usage per call",
+  cacheHit: "Cache rate",
+  model: "AI model",
+  toolMix: "Tool mix",
+}
+
+const SOURCE_PLAIN: Record<string, string> = {
+  declared: "assumed from your setup",
+  measured: "measured from this agent's traffic",
+  default: "industry default, not yet measured",
+  volume: "counted within your declared volume",
+}
+
+function buildBasis(forecast: MockSpend): CFOReportData["basis"] {
+  const cov = forecast.coverage
+
+  let pricedModelLine: string | null = null
+  if (cov?.declaredModel) {
+    if (cov.modelMatch === "exact" || cov.modelMatch === "prefix") {
+      pricedModelLine = `AI model priced as ${cov.pricedModel} (known rate).`
+    } else if (cov.modelMatch === "family") {
+      pricedModelLine = `AI model ${cov.declaredModel} is not in our price list; priced at ${cov.pricedModel} rates, an estimate from a related model. The real rate may differ.`
+    } else {
+      pricedModelLine = `AI model ${cov.declaredModel} is not in our price list; priced at placeholder ${cov.pricedModel} rates, an estimate that could be materially off.`
+    }
+  }
+
+  const toolsPricedLine = cov && cov.toolsTotal > 0
+    ? `${cov.toolsPriced} of ${cov.toolsTotal} tools have a known per-call price${cov.toolsPriced < cov.toolsTotal ? "; tool costs may be understated" : ""}.`
+    : null
+
+  const observedDaysLine = forecast.observedDays != null
+    ? `Based on ${forecast.observedDays} day${forecast.observedDays === 1 ? "" : "s"} of observed live traffic.`
+    : "No live production data yet: this forecast is built from the agent's setup and simulation runs."
+
+  const inputProvenance = Object.entries(forecast.inputSources ?? {})
+    .filter(([key, value]) => value != null && INPUT_LABELS[key])
+    .map(([key, value]) => ({
+      label: INPUT_LABELS[key],
+      source: SOURCE_PLAIN[value as string] ?? String(value),
+    }))
+
+  return {
+    lastCalibrated: forecast.lastCalibrated ?? null,
+    pricedModelLine,
+    toolsPricedLine,
+    observedDaysLine,
+    inputProvenance,
+  }
 }
 
 // ── Composition (already in $ + %, just relabel) ────────────────────────────
@@ -299,5 +372,8 @@ export function buildCFOReportData(args: {
 
     recommendedActions: generateRecommendations(forecast, costReport, budgetCap),
     reviewBudgetCap: budgetCap,
+
+    isDemo: forecast.isDemo ?? false,
+    basis: buildBasis(forecast),
   }
 }

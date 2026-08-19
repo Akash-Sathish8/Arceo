@@ -18,6 +18,7 @@ import { fetchSpendForecast, fetchSpendTimeseries, fetchSpendAnomalies, fetchBud
 import type { SpendTimeseries, SpendAnomaly, BudgetFit, SavedBudget } from "@/lib/spendApi"
 import { ExportCFOReportButton } from "@/components/ExportCFOReportButton"
 import { apiFetch } from "@/lib/api"
+import { currentOrgName } from "@/lib/orgName"
 import { toast } from "@/components/shared/Toast"
 
 type SourceStatus = "calibrated" | "active" | "partial" | "disconnected"
@@ -38,6 +39,13 @@ const CONFIDENCE_CHIP: Record<Confidence, { label: string; bg: string; color: st
 }
 
 // Per-input provenance: never let a defaulted input read as a measurement.
+// The engine's HIGH gate (spend_forecast.py LIVE_TRACE_MIN_CALLS /
+// LIVE_TRACE_MIN_ACTIVE_DAYS): 50 captured calls in the trailing 7 days
+// spanning at least 3 distinct calendar days. There is no elapsed-time
+// requirement — copy must never promise a "7 days" upgrade.
+const HIGH_GATE_CALLS = 50
+const HIGH_GATE_DAYS = 3
+
 const SOURCE_BADGE: Record<string, { label: string; color: string; bg: string; tip: string }> = {
   declared: { label: "declared", color: "var(--severity-safe, #047857)",  bg: "var(--severity-safe-bg, #ecfdf5)",   tip: "You declared this value." },
   measured: { label: "measured", color: "var(--severity-safe, #047857)",  bg: "var(--severity-safe-bg, #ecfdf5)",   tip: "Measured from this agent's sandbox or live traces." },
@@ -800,7 +808,7 @@ function CostPortfolioContent({
                       </div>
                       <div>
                         <div className="text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-1">Confidence range</div>
-                        <p>The <strong className="mono">${m.low.toLocaleString()}–${m.high.toLocaleString()}</strong> band reflects how much data backs this forecast ({m.confidence} confidence), not measured run-to-run variance. It narrows as sandbox runs and live traces accumulate — reaching about ±15% after ~7 days of live production usage.</p>
+                        <p>The <strong className="mono">${m.low.toLocaleString()}–${m.high.toLocaleString()}</strong> band reflects how much data backs this forecast ({m.confidence} confidence), not measured run-to-run variance. It narrows as evidence accumulates: high confidence (about ±15%) unlocks at {HIGH_GATE_CALLS}+ captured production calls spanning {HIGH_GATE_DAYS}+ distinct days in a week.</p>
                       </div>
                       <div>
                         <div className="text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-1">How to raise confidence</div>
@@ -831,6 +839,18 @@ function CostPortfolioContent({
                 {m.confidence !== "high" && (m.confidenceCap === "single_day_burst"
                   ? " — the calls cluster in a short burst; high confidence unlocks once traffic spreads across 3+ different days"
                   : " — early days, so the range is wide; it tightens as more calls come through")}
+              </span>
+            )}
+            {/* HIGH-gate progress: numbers even for a sandbox-only agent, so
+                nobody is left with just a generic tooltip. The captured-call
+                count isn't on the available-forecast response (liveCalls7d is
+                sent only on unavailable ones), so days progress is shown where
+                measured and the gate is stated rather than faked. */}
+            {m.confidence !== "high" && (
+              <span className="text-xs text-gray-500 mr-2">
+                {m.observedDays != null
+                  ? `${Math.min(m.activeDays ?? 0, HIGH_GATE_DAYS)}/${HIGH_GATE_DAYS} distinct traffic days toward high confidence (needs ${HIGH_GATE_CALLS}+ calls in a week)`
+                  : `high confidence unlocks at ${HIGH_GATE_CALLS}+ captured production calls spanning ${HIGH_GATE_DAYS}+ distinct days in a week; none captured yet`}
               </span>
             )}
             · last calibrated <strong className="text-gray-900">{formatCalibrationDate(m.lastCalibrated)}</strong>
@@ -1239,6 +1259,7 @@ function CostPortfolioContent({
                 agentId={agentId}
                 displayName={displayName}
                 forecast={m}
+                orgName={currentOrgName()}
                 className="text-sm px-4 py-2 rounded-lg bg-gray-900 text-white font-medium inline-flex items-center gap-2 no-underline cursor-pointer"
                 label={<><FileText size={14} /> Export CFO PDF</>}
               />
