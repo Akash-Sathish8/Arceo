@@ -313,3 +313,89 @@ def test_new_catalog_entries_resolve_exactly(tool, action):
     """Catalog hits are locked — they must not depend on keywords or the LLM."""
     m = classify_with_fallback(tool, action)
     assert m.action == action
+
+
+# ── Beta-plan item 1.7 (2026-08-18): reads must not carry deletes_data ───────
+# A read whose name or description merely MENTIONS deleted/voided records got
+# the deletes_data label (matched against name+description), and because a read
+# carrying any label never escalates to the LLM, the label was unvetoable. One
+# read carrying touches_pii + deletes_data fires the critical pii-delete chain,
+# which is a hard fail in /api/scan — the false positive most likely to appear
+# in a customer's first scan.
+
+def test_read_mentioning_voided_records_is_not_deletion():
+    m = classify_with_fallback("billing", "list_invoices",
+                               "Returns all invoices, excluding voided ones")
+    assert "deletes_data" not in m.risk_labels
+
+
+def test_read_of_deleted_records_is_not_deletion():
+    # touches_pii survives (by design); deletes_data must not — this exact
+    # shape used to fire pii-delete at critical off a single read.
+    m = classify_with_fallback("crm", "list_deleted_contacts",
+                               "List contacts currently in the recycle bin")
+    assert "touches_pii" in m.risk_labels
+    assert "deletes_data" not in m.risk_labels
+
+
+def test_actual_delete_write_still_flagged():
+    m = classify_with_fallback("crm", "delete_contact",
+                               "Permanently delete a contact record")
+    assert "deletes_data" in m.risk_labels
+
+
+def test_single_recycle_bin_read_no_longer_fires_pii_delete_chain():
+    # End-to-end: the customer-facing symptom. One read carrying touches_pii
+    # + a phantom deletes_data fired pii-delete at critical (cross-label
+    # transitions need no second action), which is a hard fail in /api/scan.
+    from authority.chain_detector import detect_chains
+    from authority.parser import AgentConfig, ToolDef
+
+    read = classify_with_fallback("crm", "list_deleted_contacts",
+                                  "List contacts currently in the recycle bin")
+    agent = AgentConfig(id="a1", name="crm-bot", description="",
+                        tools=[ToolDef(name="crm", service="crm", description="",
+                                       actions=["list_deleted_contacts"])])
+    result = detect_chains(agent, action_overrides={"crm": {"list_deleted_contacts": read}})
+    fired = {fc.chain.id for fc in result.flagged_chains}
+    assert "pii-delete" not in fired
+
+
+# ── Beta-plan item 1.7, second half: negation-blind "overwrite" substring ────
+# "overwrite" was matched as a raw substring of the description, so a write
+# whose description says "never overwrites existing keys" was assigned
+# deletes_data with source=primitive + irreversible — locked and unvetoable.
+
+def test_negated_overwrite_description_is_not_deletion():
+    m = classify_with_fallback("vault", "write_config",
+                               "Adds a new config entry; never overwrites existing keys")
+    assert "deletes_data" not in m.risk_labels
+    assert m.reversible is True
+
+
+def test_positive_overwrite_description_is_weak_not_locked():
+    # Description-only evidence of overwriting is real signal but vetoable:
+    # weak_kw, and it must not lock irreversibility on its own.
+    m = classify_with_fallback("fs", "edit_document",
+                               "Overwrites the target document in place")
+    assert "deletes_data" in m.risk_labels
+    assert m.label_sources.get("deletes_data") == "weak_kw"
+    assert m.reversible is True
+
+
+def test_write_file_compound_stays_locked_deletion():
+    # Name-anchored evidence keeps the old strength: write_file genuinely
+    # destroys the prior contents.
+    m = classify_with_fallback("fs", "write_file",
+                               "Completely overwrite an existing file")
+    assert "deletes_data" in m.risk_labels
+    assert m.label_sources.get("deletes_data") == "primitive"
+    assert m.reversible is False
+
+
+def test_overwrite_in_action_name_stays_locked_deletion():
+    m = classify_with_fallback("fs", "overwrite_settings",
+                               "Replace the settings file")
+    assert "deletes_data" in m.risk_labels
+    assert m.label_sources.get("deletes_data") == "primitive"
+    assert m.reversible is False
