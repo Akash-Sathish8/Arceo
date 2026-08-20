@@ -283,6 +283,25 @@ def _name_has(name: str, tokens: set[str], compounds: tuple = ()) -> bool:
     return any(c in nl for c in compounds)
 
 
+_NEGATION_TOKENS = re.compile(
+    r"\b(?:never|not|no|nor|without|won'?t|doesn'?t|does not|cannot|can'?t|isn'?t|is not)\b"
+)
+
+
+def _mentions_unnegated_overwrite(description: str) -> bool:
+    """True when the description states the action overwrites something,
+    guarding against negations — "never overwrites existing keys" is a promise
+    NOT to destroy data, not evidence of destruction. Checks the ~40 chars
+    before each mention so an unrelated earlier negation can't mask a real one.
+    """
+    text = description.lower()
+    for match in re.finditer(r"overwrit", text):
+        window = text[max(0, match.start() - 40):match.start()]
+        if not _NEGATION_TOKENS.search(window):
+            return True
+    return False
+
+
 def _primitive_labels(action_name: str, description: str, is_read: bool) -> tuple[set[str], bool, bool, dict]:
     """Deterministic labels for agent/dev primitives the SaaS keywords miss.
 
@@ -310,13 +329,18 @@ def _primitive_labels(action_name: str, description: str, is_read: bool) -> tupl
     if not is_read and _name_has(name, FILE_WRITE_TOKENS, FILE_WRITE_COMPOUNDS):
         labels.add("changes_production")
         sources["changes_production"] = "primitive"
-        # An overwrite destroys the prior contents — treat as deletes_data +
-        # irreversible (write_file: "completely overwrite an existing file").
-        if "overwrite" in name.lower() or "overwrite" in description.lower() \
-                or _name_has(name, set(), ("write_file", "put_object", "save_file")):
+        # An overwrite destroys the prior contents — treat as deletes_data.
+        # NAME evidence (overwrite token, write_file-style compounds) is locked
+        # + irreversible. DESCRIPTION evidence is weak and vetoable: the old
+        # raw-substring check matched negations too ("never overwrites existing
+        # keys") and locked an irreversible label the LLM could never remove.
+        if _name_has(name, {"overwrite"}, ("write_file", "put_object", "save_file")):
             labels.add("deletes_data")
             sources["deletes_data"] = "primitive"
             irreversible = True
+        elif _mentions_unnegated_overwrite(description):
+            labels.add("deletes_data")
+            sources["deletes_data"] = "weak_kw"
     if not is_read and _name_has(name, FILE_DELETE_TOKENS, FILE_DELETE_COMPOUNDS):
         labels.add("deletes_data")
         sources["deletes_data"] = "primitive"
@@ -445,12 +469,15 @@ def _classify_keywords(action_name: str, description: str = "") -> dict:
         if any(kw in haystack for kw in keywords):
             # reads_secrets and bulk_export are read-SHAPED and legitimate on
             # reads (get_secret, bulk_export) — like touches_pii, they survive
-            # reads because the chain detector depends on them. changes_access
-            # and evades_detection do NOT: reading an IAM policy or a log is not
-            # changing access or evading detection.
+            # reads because the chain detector depends on them. changes_access,
+            # evades_detection and deletes_data do NOT: reading an IAM policy,
+            # a log, or a recycle bin (list_deleted_*, "...excluding voided
+            # ones") is not changing access, evading detection or deleting —
+            # and a PII read wrongly tagged deletes_data fires the critical
+            # pii-delete chain off a single action, hard-failing /api/scan.
             if is_read and label in ("moves_money", "changes_production",
                                      "sends_external", "changes_access",
-                                     "evades_detection"):
+                                     "evades_detection", "deletes_data"):
                 continue
             labels.append(label)
             sources[label] = "strong_kw" if label in unambig else "weak_kw"
