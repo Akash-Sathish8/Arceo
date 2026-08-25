@@ -965,9 +965,9 @@ typing-extensions==4.16.0 \
     #   pydantic
     #   pydantic-core
     #   sqlalchemy
-uvicorn[standard]==0.30.6 \
-    --hash=sha256:4b15decdda1e72be08209e860a1e10e92439ad5b97cf44cc945fcbee66fc5788 \
-    --hash=sha256:65fd46fe3fda5bdc1b03b94eb634923ff18cd35b2f084813ea79d1f103f711b5
+uvicorn[standard]==0.52.1 \
+    --hash=sha256:112ec661814189acbccd3f7b86460147cc065fc92c0821afa78918780e4354dd \
+    --hash=sha256:e4403f9d93188cf9d1088e9f40e3acd12630e2df8675316704379a7fc20fff6a
     # via -r requirements.txt
 uvloop==0.22.1 \
     --hash=sha256:017bd46f9e7b78e81606329d07141d3da446f8798c6baeec124260e22c262772 \
