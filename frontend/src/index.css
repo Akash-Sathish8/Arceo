@@ -23,20 +23,23 @@
   /* ── Redesign tokens (added 2026-06-01 from design handoff). ──
      Coexist with the existing tokens below so other pages keep working
      while the rebuild lands page-by-page. */
-  --ink-900: #1a1d24;
-  --ink-800: #262a32;
-  --ink-700: #3a3f49;
-  --ink-600: #555b66;
-  --ink-500: #6e7682;
-  --ink-400: #99a0ac;
-  --ink-300: #c4cad2;
-  --ink-200: #dee2e8;
+  /* Notion-style pass (2026-08-23): warm neutral ramp instead of the old
+     cool blue-grays. Content-first, calm; severity colors stay the only
+     loud voices on the page. */
+  --ink-900: #37352f;
+  --ink-800: #44423c;
+  --ink-700: #55534e;
+  --ink-600: #6b6966;
+  --ink-500: #787774;
+  --ink-400: #9b9a97;
+  --ink-300: #c9c7c4;
+  --ink-200: #e3e2df;
 
-  --paper:    #f7f8fa;
-  --paper-2:  #eef1f4;
+  --paper:    #ffffff;
+  --paper-2:  #f7f7f5;
   --card:     #ffffff;
-  --line:     #e6e9ee;
-  --line-soft:#eef0f4;
+  --line:     #e9e9e7;
+  --line-soft:#f1f1ef;
 
   /* Accent — Carolina blue (UNC PMS 542). */
   --accent:        #4B9CD3;
@@ -57,7 +60,7 @@
   --high-ring:     #d9560f;
   --critical-ring: #c1452f;
 
-  --shadow-card-new: 0 1px 2px rgba(20,25,35,.06), 0 1px 0 rgba(20,25,35,.02);
+  --shadow-card-new: 0 1px 2px rgba(15,15,15,.03);
 
   /* ── Surfaces ────────────────────────────────────────────────── */
   /* Aliased to handoff surfaces so legacy pages pick up the new palette. */
@@ -67,14 +70,16 @@
   --bg-overlay:       rgba(8, 9, 20, 0.52);
 
   /* ── Sidebar ─────────────────────────────────────────────────── */
-  /* Single source of truth for the dark rail — the component reads these. */
-  --sidebar-bg:            #1b1e24;
-  --sidebar-hover:         rgba(255,255,255,0.055);
-  --sidebar-active:        rgba(255,255,255,0.08);
-  --sidebar-border:        rgba(255,255,255,0.08);
-  --sidebar-text:          #a4abb6;
-  --sidebar-text-active:   #ffffff;
-  --sidebar-text-dim:      #79808b;
+  /* Single source of truth for the rail — the component reads these.
+     Light warm-gray rail (Notion-style) since the 2026-08-23 pass; the
+     content area stays white so the rail reads as quiet chrome. */
+  --sidebar-bg:            #f7f7f5;
+  --sidebar-hover:         rgba(0, 0, 0, 0.04);
+  --sidebar-active:        rgba(0, 0, 0, 0.06);
+  --sidebar-border:        #e9e9e7;
+  --sidebar-text:          #6b6966;
+  --sidebar-text-active:   #37352f;
+  --sidebar-text-dim:      #9b9a97;
 
   /* ── Borders ─────────────────────────────────────────────────── */
   /* Legacy names aliased to handoff tokens so non-redesigned pages
@@ -145,16 +150,18 @@
   --status-pending:      var(--caution);
 
   /* ── Shadows ─────────────────────────────────────────────────── */
-  --shadow-sm:    0 1px 3px 0 rgba(8,9,20,0.07), 0 1px 2px -1px rgba(8,9,20,0.05);
-  --shadow-md:    0 4px 10px -1px rgba(8,9,20,0.10), 0 2px 4px -2px rgba(8,9,20,0.06);
-  --shadow-hover: 0 10px 24px -4px rgba(8,9,20,0.13), 0 4px 8px -2px rgba(8,9,20,0.07);
-  --shadow-lg:    0 24px 48px -8px rgba(8,9,20,0.15), 0 8px 16px -4px rgba(8,9,20,0.08);
+  /* Near-flat (Notion pass): hairline borders separate surfaces; elevation
+     is reserved for things that genuinely float (popovers, menus). */
+  --shadow-sm:    none;
+  --shadow-md:    0 1px 2px rgba(15,15,15,0.04);
+  --shadow-hover: 0 2px 8px rgba(15,15,15,0.06);
+  --shadow-lg:    0 4px 12px rgba(15,15,15,0.08), 0 12px 32px rgba(15,15,15,0.10);
 
   /* ── Radii ───────────────────────────────────────────────────── */
   --radius-sm:    4px;
   --radius-md:    6px;
-  --radius-lg:    10px;
-  --radius-xl:    14px;
+  --radius-lg:    8px;
+  --radius-xl:    10px;
   --radius-full:  9999px;
 
   /* ── Chart series (forecast composition, fleet by-model) ─────── */
@@ -255,8 +262,7 @@ body {
   transition: transform .16s ease, box-shadow .16s ease, border-color .16s ease;
 }
 .ag-card:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 4px 16px rgba(20,25,35,.08), 0 1px 2px rgba(20,25,35,.04);
+  box-shadow: 0 2px 8px rgba(15,15,15,.05);
   border-color: var(--ink-300);
 }
 .ag-card:hover .ag-cardcta { color: var(--accent); }
@@ -300,14 +306,46 @@ body {
 .ag-btn { transition: transform .12s ease, opacity .14s ease; }
 .ag-btn:active:not(:disabled) { transform: translateY(1px); }
 
+/* ── Agent catalog rail ──────────────────────────────────────────── */
+/* The fleet browses sideways in its own box instead of growing the page
+   downward: horizontal scroll with gentle snap, momentum on touch, and a
+   quiet thin scrollbar. Cards keep a fixed width via their wrappers. */
+.agent-rail {
+  display: flex;
+  gap: 16px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x proximity;
+  -webkit-overflow-scrolling: touch;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 16px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--ink-300) transparent;
+}
+.agent-rail::-webkit-scrollbar { height: 8px; }
+.agent-rail::-webkit-scrollbar-thumb {
+  background: var(--ink-300);
+  border-radius: var(--radius-full);
+}
+.agent-rail::-webkit-scrollbar-track { background: transparent; }
+.agent-rail-item {
+  flex-shrink: 0;
+  width: 420px;
+  max-width: 85vw; /* small screens: one card mostly fills the box */
+  scroll-snap-align: start;
+  display: flex;        /* stretch the card to the rail's tallest item */
+}
+.agent-rail-item > * { width: 100%; }
+
 /* ── Forecast / spend surfaces ───────────────────────────────────── */
 /* Card chrome used across Cost portfolio and the spend dashboard. */
 .panel-card {
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  padding: 24px;
-  box-shadow: var(--shadow-sm);
+  padding: 20px;
 }
 .panel-card--wide { grid-column: span 2; }
 

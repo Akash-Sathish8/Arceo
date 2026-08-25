@@ -1521,7 +1521,7 @@ export default function Authority() {
           </div>
           )
         ) : (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 20 }}>
+          <div className="agent-rail">
             {filteredAgents.map((a) => {
               const br = a.blast_radius
               const data: AgentCardData = {
@@ -1549,11 +1549,12 @@ export default function Authority() {
                 policiesByEffect: a.policies_by_effect,
               }
               return (
-                <NewAgentCard
-                  key={a.id}
-                  agent={data}
-                  onOpen={(agent) => setDrawerAgent(agent)}
-                />
+                <div key={a.id} className="agent-rail-item">
+                  <NewAgentCard
+                    agent={data}
+                    onOpen={(agent) => setDrawerAgent(agent)}
+                  />
+                </div>
               )
             })}
           </div>

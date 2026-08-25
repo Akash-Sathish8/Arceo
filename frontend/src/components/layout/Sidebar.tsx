@@ -108,8 +108,8 @@ export default function Sidebar(): React.ReactElement {
     iconOn: ACCENT,
     onBg: "var(--sidebar-active)",
     border: "var(--sidebar-border)",
-    subA: "rgba(255,255,255,0.09)",
-    subT: "#e0e4ea",
+    subA: "var(--sidebar-active)",
+    subT: "var(--sidebar-text-active)",
     subS: "var(--sidebar-text-dim)",
   };
 
