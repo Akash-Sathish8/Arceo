@@ -94,6 +94,13 @@
   },
   "claude-sonnet-5": {
    "cache_discount": 0.9,
+   "effective_price": {
+    "input_per_mtok": 2.0,
+    "output_per_mtok": 10.0,
+    "source_url": "https://platform.claude.com/docs/en/pricing",
+    "until": "2026-08-31",
+    "verified_on": "2026-08-26"
+   },
    "input_per_mtok": 3.0,
    "output_per_mtok": 15.0,
    "source_url": "https://platform.claude.com/docs/en/pricing",

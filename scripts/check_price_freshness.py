@@ -10,6 +10,11 @@ Each model row in cost_defaults_operational.yaml carries:
     verified_on: "YYYY-MM-DD"   # when a human last checked the rate
     source_url:  "https://..."  # the official vendor page it came from
 
+A row may also carry a dated promotional rate:
+    effective_price: {input_per_mtok, output_per_mtok, until: "YYYY-MM-DD"}
+which is warned about as it approaches its end date and again once it lapses —
+a promo nobody revisits silently misprices every observed call after it ends.
+
 Rows older than --max-age-days (default 90) or missing metadata produce
 GitHub Actions ::warning:: annotations. Exit code stays 0 by default so the
 passage of time never breaks CI on an unrelated PR; pass --strict to hard-fail
@@ -28,6 +33,10 @@ import yaml
 
 YAML_PATH = (Path(__file__).resolve().parent.parent
              / "backend" / "analysis" / "cost_defaults_operational.yaml")
+
+# Lead time on a dated promotional rate. Long enough that a lapse is noticed
+# before it moves a customer's bill, short enough not to nag for a quarter.
+EFFECTIVE_PRICE_WARN_DAYS = 14
 
 
 def main() -> int:
@@ -59,6 +68,35 @@ def main() -> int:
             )
         if not row.get("source_url"):
             warnings.append(f"model '{key}' has no source_url — rate can't be re-audited")
+
+        # A dated promotional rate is the one thing in this file that goes stale
+        # on a schedule we already know. Nothing tracked it before: Sonnet 5's
+        # intro pricing was recorded in a prose comment saying "revisit after
+        # 2026-08-31" and nothing would have revisited it.
+        ep = row.get("effective_price")
+        if isinstance(ep, dict):
+            until_raw = ep.get("until")
+            try:
+                until = datetime.strptime(str(until_raw), "%Y-%m-%d").date()
+            except (ValueError, TypeError):
+                warnings.append(
+                    f"model '{key}' has an effective_price with unparseable/missing "
+                    f"until '{until_raw}' — a promotional rate with no end date "
+                    f"would be applied forever"
+                )
+            else:
+                left = (until - today).days
+                if left < 0:
+                    warnings.append(
+                        f"model '{key}' effective_price LAPSED {until_raw} ({-left}d ago) "
+                        f"— re-verify the row against {row.get('source_url', 'the vendor page')} "
+                        f"and delete the effective_price block"
+                    )
+                elif left <= EFFECTIVE_PRICE_WARN_DAYS:
+                    warnings.append(
+                        f"model '{key}' effective_price lapses {until_raw} (in {left}d) "
+                        f"— confirm the standard rate is still correct before it does"
+                    )
 
     for msg in warnings:
         print(f"::warning file=backend/analysis/cost_defaults_operational.yaml::{msg}")

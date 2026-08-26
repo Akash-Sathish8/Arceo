@@ -11,7 +11,7 @@ import { useEffect, useRef, useState } from "react"
 import {
   Banknote, Sliders, PieChart, Target,
   TrendingUp, Shield, Search, FileText, Plus, HelpCircle, X,
-  AlertTriangle, Check, ArrowRight,
+  AlertTriangle, Check, ArrowRight, Info,
 } from "lucide-react"
 import type { MockSpend } from "@/lib/mockSpend"
 import { fetchSpendForecast, fetchSpendTimeseries, fetchSpendAnomalies, fetchBudgetFit, fetchSavedBudget, saveBudget, applyGatePolicy, setForecastInputs, runSweep } from "@/lib/spendApi"
@@ -855,6 +855,18 @@ function CostPortfolioContent({
             )}
             · last calibrated <strong className="text-gray-900">{formatCalibrationDate(m.lastCalibrated)}</strong>
           </div>
+          {/* A vendor rate that changes on a known date. Renders above the
+              confidence guidance because it is the one caption that explains a
+              step the customer will otherwise see in the chart and read as a
+              bug — observed spend is priced at what was billed, the forecast at
+              the standard rate. Backend decides whether there is anything to
+              say (spend_forecast._pricing_note); null the rest of the time. */}
+          {m.pricingNote && (
+            <div className="mt-2 flex items-start gap-2 text-xs text-gray-600 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2">
+              <Info size={13} className="mt-0.5 flex-shrink-0 text-gray-400" />
+              <span>{m.pricingNote}</span>
+            </div>
+          )}
           {m.confidence !== "high" && (
             <div className="mt-2 text-xs text-gray-500">
               To raise confidence: connect production traces and let live data accumulate (biggest gain). Detail in <button

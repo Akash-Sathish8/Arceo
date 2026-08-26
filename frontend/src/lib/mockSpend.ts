@@ -85,6 +85,13 @@ export interface MockSpend {
     observedModels?: { model: string; calls: number; costShare: number }[]
   }
   lastCalibrated?: string
+  /** Set when a priced or observed model's rate changes on a KNOWN date (a
+   * vendor promo ending). The forecast itself never moves that day — it is
+   * already at the standard rate — but the customer's bill does, and observed
+   * spend before the date is priced at what was actually billed. Without this
+   * caption the resulting step in the chart reads as a bug. Null when no priced
+   * model has a dated rate. */
+  pricingNote?: string | null
   capturedAt?: string
   /** Seeded demo agent: the traffic behind these numbers is synthetic.
    * Rendered as a "Demo data" chip so illustrative numbers can never pass

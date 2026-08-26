@@ -87,6 +87,14 @@ def load_defaults(org_id: Optional[str] = None) -> dict:
             # for a key with no base pricing) can't be priced.
             if key in merged.get("models", {}):
                 merged["models"][key][sub_key] = value
+                # A NEGOTIATED rate beats a public promo. Overrides can only set
+                # the sticker fields (_OVERRIDE_MODEL_SUBKEYS in main.py), so a
+                # vendor's `effective_price` would otherwise survive the merge and
+                # reprice this org's observed calls at the PUBLIC discount —
+                # overriding the contract rate they actually pay. Same defect
+                # class as #176: list price silently winning over a negotiated one.
+                if sub_key in ("input_per_mtok", "output_per_mtok"):
+                    merged["models"][key].pop("effective_price", None)
         elif scope == "tool":
             merged.setdefault("tool_action_costs", {}).setdefault(key, {})[sub_key] = value
         elif scope == "infra":
@@ -596,6 +604,12 @@ def compute_live_rolling_averages(audit_rows: list, defaults: Optional[dict] = N
         # Real per-call $ using THIS call's own model (blends a mixed-model fleet).
         _tin, _cached, _cc, _out = u
         _mk = _resolve_model_key(detail.get("model"), defaults)
+        # NO `at=` here, deliberately. This function looks backward but its output
+        # is a FORECAST input — `llm_cost_per_call` below is what forecast_spend
+        # projects forward at the live tier. Pricing these calls at a promotional
+        # rate would carry the promo into next month's forecast and under-forecast
+        # by the full discount the day it lapses. Sticker is the forward truth;
+        # the "what did we spend" callers are the ones that pass a date.
         _cost = _call_cost_usd(_tin, _cached, _out, _mk, defaults, cache_creation=_cc)
         per_call_costs.append(_cost)
         model_cost[_mk] = model_cost.get(_mk, 0.0) + _cost
@@ -740,8 +754,10 @@ def compute_spend_timeseries(
             continue
         total_in, cached, cache_creation, out = u
         model_key = _resolve_model_key(detail.get("model"), defaults)
-        usd = _call_cost_usd(total_in, cached, out, model_key, defaults, cache_creation=cache_creation)
         date = str(ts)[:10]
+        # Observed spend — price each day at the rate actually billed that day.
+        usd = _call_cost_usd(total_in, cached, out, model_key, defaults,
+                             cache_creation=cache_creation, at=date)
         b = buckets.setdefault(date, [0.0, 0.0])
         b[0] += usd
         b[1] += 1
@@ -785,26 +801,37 @@ def compute_month_to_date_spend(
             continue
         total_in, cached, cache_creation, out = u
         model_key = _resolve_model_key(detail.get("model"), defaults)
-        total += _call_cost_usd(total_in, cached, out, model_key, defaults, cache_creation=cache_creation)
+        # Real money already spent — bill each call at its own date's rate.
+        total += _call_cost_usd(total_in, cached, out, model_key, defaults,
+                                cache_creation=cache_creation, at=ts)
     return round(total, 2)
 
 
-def call_cost_from_detail(detail: dict, *, defaults: Optional[dict] = None) -> float:
+def call_cost_from_detail(
+    detail: dict, *, defaults: Optional[dict] = None, at=None
+) -> float:
     """Dollar cost of one captured call, from the same audit-log `detail` blob the
     month-to-date sum reads. Returns 0.0 when the call carries no usable usage.
 
     Same arithmetic as `compute_month_to_date_spend` on a single row, exposed so
     the budget counter can be settled to the real cost as each call lands instead
     of re-summing the month (MED-004). Keep the two on one code path — a drift
-    between them would let the counter and the reported spend disagree.
+    between them would let the counter and the reported spend disagree. That is
+    why `at` defaults to NOW rather than to sticker: the counter measures real
+    money against a real cap, and the month-to-date figure it is reconciled
+    against prices every call at its own date. Callers settling a historical row
+    should pass that row's timestamp.
     """
     u = _extract_usage(detail)
     if u is None:
         return 0.0
+    from datetime import datetime as _dt
+
     defaults = defaults or load_defaults()
     total_in, cached, cache_creation, out = u
     model_key = _resolve_model_key(detail.get("model"), defaults)
-    return _call_cost_usd(total_in, cached, out, model_key, defaults, cache_creation=cache_creation)
+    return _call_cost_usd(total_in, cached, out, model_key, defaults,
+                          cache_creation=cache_creation, at=at or _dt.utcnow())
 
 
 # Anthropic bills a cache WRITE (cache_creation) at ~1.25x the input rate; a
@@ -813,16 +840,74 @@ def call_cost_from_detail(detail: dict, *, defaults: Optional[dict] = None) -> f
 CACHE_WRITE_MULTIPLIER = 1.25
 
 
+def _as_iso_date(at) -> Optional[str]:
+    """`at` (datetime, date, or ISO-ish string) as 'YYYY-MM-DD', or None.
+
+    ISO dates compare correctly as plain strings, so nothing here needs to parse
+    a date to decide which rate was in force.
+    """
+    if at is None:
+        return None
+    if isinstance(at, str):
+        return at[:10] or None
+    iso = getattr(at, "isoformat", None)
+    return iso()[:10] if callable(iso) else None
+
+
+def _effective_rates(mp: dict, at=None) -> tuple[float, float]:
+    """($/MTok in, $/MTok out) in force for a call made on `at`.
+
+    A row's `input_per_mtok`/`output_per_mtok` are the STICKER rate. A row may
+    also carry a dated promotional rate (see the schema note at the top of
+    cost_defaults_operational.yaml):
+
+        effective_price: {input_per_mtok, output_per_mtok, until}   # until INCLUSIVE
+
+    `at=None` means "price at the standing rate" and is what every FORWARD-looking
+    caller must pass. A forecast is about money not yet spent, so it prices at
+    sticker — projecting a promo that expires would under-forecast the moment it
+    lapses. Backward-looking callers ("what did we actually spend") pass the
+    call's own timestamp and get the rate that was really billed.
+
+    Only `until` is honoured, not a start date: every observed-spend window in
+    this module is at most 30 days, so no caller can reach back past the start of
+    a currently-running promo. A rate needing a start bound wants a `from` key
+    here, not a different mechanism.
+    """
+    sticker = (
+        float(mp.get("input_per_mtok", 0.0)),
+        float(mp.get("output_per_mtok", 0.0)),
+    )
+    ep = mp.get("effective_price")
+    if not isinstance(ep, dict):
+        return sticker
+    day = _as_iso_date(at)
+    until = _as_iso_date(ep.get("until"))
+    if day is None or until is None or day > until:
+        return sticker
+    return (
+        float(ep.get("input_per_mtok", sticker[0])),
+        float(ep.get("output_per_mtok", sticker[1])),
+    )
+
+
 def _call_cost_usd(
     total_input: int, cached_input: int, output: int, model_key: str, defaults: dict,
     cache_creation: int = 0,
+    at=None,
 ) -> float:
     """Dollar cost of a single captured call: cache reads get the discount, cache
-    writes get the write premium, the rest is billed at the input rate."""
+    writes get the write premium, the rest is billed at the input rate.
+
+    `at` is the call's own date; omit it to price at the standing (sticker) rate.
+    See `_effective_rates` — the omit-by-default keeps every forward-looking
+    caller, and the ground-truth backtest, on published rates.
+    """
     models = defaults.get("models", {})
     mp = models.get(model_key) or models.get(defaults.get("default_model")) or {}
-    in_price = float(mp.get("input_per_mtok", 0.0)) / 1_000_000.0
-    out_price = float(mp.get("output_per_mtok", 0.0)) / 1_000_000.0
+    in_rate, out_rate = _effective_rates(mp, at)
+    in_price = in_rate / 1_000_000.0
+    out_price = out_rate / 1_000_000.0
     cache_discount = float(mp.get("cache_discount", 0.5))
     non_cached = max(0, total_input - cached_input - cache_creation)
     return (
@@ -831,6 +916,89 @@ def _call_cost_usd(
         + cache_creation * in_price * CACHE_WRITE_MULTIPLIER
         + output * out_price
     )
+
+
+# ── Dated-pricing disclosure ─────────────────────────────────────────────────
+
+# How long after a promo lapses we keep explaining it. The observed-spend windows
+# in this module reach back 30 days, so for that long the chart still contains
+# calls billed at the old rate and the step in it needs a caption.
+PRICING_NOTE_TRAILING_DAYS = 30
+
+
+def _pricing_note(
+    model_name: str, defaults: dict, observed_models=None, today=None
+) -> Optional[str]:
+    """One plain-English sentence when a priced model's rate changes on a date.
+
+    Exists because fixing the arithmetic ALONE makes the product look broken.
+    Once observed calls price at a promotional rate and the forecast prices at
+    sticker, a CFO sees spend step up the day the promo lapses with nothing on
+    screen saying why. The step is real — their bill genuinely rises — so the
+    honest move is to name it before it happens, not to hide it by pricing both
+    sides wrong (which is what we did until now).
+
+    Covers the model the forecast priced at AND every model the agent was
+    observed running, since a model-switching agent's cost can move on a date
+    that has nothing to do with its declared model.
+    """
+    from datetime import date as _date, datetime as _dt, timedelta as _td
+
+    if today is None:
+        today = _dt.utcnow().date()
+    elif isinstance(today, str):
+        today = _date.fromisoformat(today[:10])
+    elif isinstance(today, _dt):
+        today = today.date()
+
+    keys: list[str] = []
+    for k in [model_name] + [m.get("model") for m in (observed_models or [])]:
+        if k and k not in keys:
+            keys.append(k)
+
+    for key in keys:
+        mp = (defaults.get("models") or {}).get(key) or {}
+        ep = mp.get("effective_price")
+        if not isinstance(ep, dict) or not ep.get("until"):
+            continue
+        try:
+            until = _date.fromisoformat(str(ep["until"])[:10])
+        except ValueError:
+            continue
+
+        e_in = float(ep.get("input_per_mtok", 0.0))
+        e_out = float(ep.get("output_per_mtok", 0.0))
+        s_in = float(mp.get("input_per_mtok", 0.0))
+        s_out = float(mp.get("output_per_mtok", 0.0))
+        if e_in <= 0 or e_out <= 0:
+            continue
+
+        rates = (f"${e_in:.2f}/${e_out:.2f} per million tokens in/out, "
+                 f"against the standard ${s_in:.2f}/${s_out:.2f}")
+
+        if today <= until:
+            # Quote a single percentage only when both sides move by the same
+            # factor; otherwise "about X%" would be true of one rate and not the
+            # other, which is the class of claim this whole item exists to stop.
+            pct_in = round((s_in / e_in - 1) * 100)
+            pct_out = round((s_out / e_out - 1) * 100)
+            rise = (f"about {pct_in}% more expensive"
+                    if pct_in == pct_out else
+                    f"{pct_in}% more expensive on input and {pct_out}% on output")
+            return (
+                f"Introductory pricing on {key} ends {until.isoformat()} ({rates}). "
+                f"Spend already recorded is priced at what was actually billed, and the "
+                f"forecast above already uses the standard rate — so no forecast changes "
+                f"that day, but this model becomes {rise} to run from "
+                f"{(until + _td(days=1)).isoformat()}."
+            )
+        if (today - until).days <= PRICING_NOTE_TRAILING_DAYS:
+            return (
+                f"Introductory pricing on {key} ended {until.isoformat()} ({rates}). "
+                f"Spend recorded on or before that date is priced at the introductory "
+                f"rate, which is why earlier days in the chart read lower."
+            )
+    return None
 
 
 # ── Spend anomaly detection (last 24h vs trailing baseline) ──────────────────
@@ -888,7 +1056,13 @@ def detect_spend_anomaly(
             continue
         total_in, cached, cache_creation, out = u
         model_key = _resolve_model_key(detail.get("model"), defaults)
-        usd = _call_cost_usd(total_in, cached, out, model_key, defaults, cache_creation=cache_creation)
+        # Observed dollars on both sides of the comparison, each at its own date's
+        # rate. A rate change inside the 8-day window does move the ratio (a
+        # lapsing promo makes the recent side dearer for identical traffic), but
+        # by the size of the price step — far under SPEND_ANOMALY_RATIO — and it
+        # is a real cost increase the CFO should see, not an artefact.
+        usd = _call_cost_usd(total_in, cached, out, model_key, defaults,
+                             cache_creation=cache_creation, at=ts)
         call = (usd, total_in + out, model_key)
         (recent if ts >= cutoff_recent else baseline).append(call)
 
@@ -1812,6 +1986,13 @@ def forecast_spend(
             "observedModels": overrides.get("by_model") or [],
         },
         "lastCalibrated": defaults.get("last_calibrated"),
+        # Null unless a priced or observed model's rate moves on a known date.
+        # The forecast never changes on that date (it is already at sticker) —
+        # what changes is the customer's bill, which is exactly why it is worth
+        # saying out loud before it happens.
+        "pricingNote": _pricing_note(
+            model_name, defaults, observed_models=overrides.get("by_model")
+        ),
     }
 
 
