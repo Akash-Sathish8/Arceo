@@ -1,0 +1,60 @@
+name: Price Audit
+
+# The freshness check ALSO runs inside CI (ci.yml, warn-only) so the passage of
+# time can never fail an unrelated PR. This job is the one with teeth: --strict,
+# on a schedule, so a stale catalog or a lapsed promotional rate surfaces even in
+# a week when nobody opens a PR. Warn-only in CI + strict on a cron is exactly
+# what the note on ci.yml's freshness step already proposed.
+#
+# ⚠️ DORMANT UNTIL THIS FILE REACHES THE DEFAULT BRANCH. GitHub resolves BOTH
+# `schedule` and `workflow_dispatch` against the repository's DEFAULT branch,
+# which is `Prod` — 170 commits behind `dev`. Merging this to `dev` does not
+# start the cron, and does not make it manually runnable either. Verified:
+#     $ gh workflow run price-audit.yml --ref chore/price-freshness-audit
+#     HTTP 404: workflow price-audit.yml not found on the default branch
+# It begins running by itself once the `Prod` vs `main` default-branch decision
+# lands (Tier 0.2, Akash's) — that decision now has a concrete consumer.
+# Until then the only way to run this check with teeth is locally:
+#     $ python3 scripts/check_price_freshness.py --strict
+#
+# EXPECT IT TO GO RED ON PURPOSE, twice:
+#   · once a model's `effective_price` lapses — Claude Sonnet 5's introductory
+#     rate ends 2026-08-31. The block needs deleting and the row re-verifying
+#     against the vendor's own page (never inferred from sibling rows).
+#   · on 2026-10-11, when the 45 rows dated `verified_on: 2026-07-12` cross the
+#     90-day line — 20 days before the beta customer goes live.
+# Both are the alarm working. Fix the catalog; don't relax the flag.
+
+on:
+  schedule:
+    # Mondays 09:00 UTC — a working-week morning, so a red run is seen the day
+    # it fires rather than over a weekend.
+    - cron: '0 9 * * 1'
+  workflow_dispatch:
+
+# MED-013: least privilege — this job only reads the repo.
+permissions:
+  contents: read
+
+jobs:
+  price-freshness:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - name: Checkout
+        uses: actions/checkout@eef61447b9ff4aafe5dcd4e0bbf5d482be7e7871  # v4.2.1
+      - name: Set up Python 3.11
+        uses: actions/setup-python@f677139bbe7f9c59b41e40162b753c062f5d49a3  # v5.2.0
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: backend/requirements*.lock
+      - name: Install dependencies
+        # Hash-pinned (MED-012). The script only needs pyyaml, but installing
+        # from the same lock the app uses keeps one integrity-verified path
+        # rather than a second, unpinned one for a single dependency.
+        run: pip install --require-hashes -r requirements.lock
+      - name: Price-table freshness (strict)
+        run: python ../scripts/check_price_freshness.py --strict

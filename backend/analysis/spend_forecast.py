@@ -918,6 +918,31 @@ def _call_cost_usd(
     )
 
 
+def catalog_calibration_date(defaults: dict) -> Optional[str]:
+    """The date to SHOW for "price catalog last calibrated" — the oldest thing
+    behind the number, not the newest.
+
+    `last_calibrated` is hand-set when the YAML body is materially recalibrated,
+    so it tracks the newest work done on the file. Publishing it alone let one
+    freshly-verified row drag the customer-visible date forward while most of the
+    catalog stayed old: with `last_calibrated: 2026-08-09` and 45 of 59 rows still
+    at `verified_on: 2026-07-12`, the CFO PDF printed "Price catalog last
+    calibrated 2026-08-09" — false for 76% of the rows it priced with.
+
+    Taking the minimum makes the published date mean the only thing a reader can
+    safely assume it means: EVERYTHING behind this number has been verified at
+    least since this date. A row with no (or an unparseable) `verified_on` is
+    skipped here rather than treated as fresh — `test_price_hygiene` already
+    fails the build for that, and silently reading it as today's date is the
+    failure mode this function exists to remove.
+    """
+    dates = [d for d in (
+        [defaults.get("last_calibrated")]
+        + [row.get("verified_on") for row in (defaults.get("models") or {}).values()]
+    ) if isinstance(d, str) and len(d) >= 10 and d[4] == d[7] == "-"]
+    return min(dates) if dates else defaults.get("last_calibrated")
+
+
 # ── Dated-pricing disclosure ─────────────────────────────────────────────────
 
 # How long after a promo lapses we keep explaining it. The observed-spend windows
@@ -1668,7 +1693,7 @@ def forecast_spend(
                 # the declared model was measured.
                 "observedModels": [],
             },
-            "lastCalibrated": defaults.get("last_calibrated"),
+            "lastCalibrated": catalog_calibration_date(defaults),
         }
 
     # ── Volume: runs/day × turns/run = LLM calls/day ──
@@ -1985,7 +2010,7 @@ def forecast_spend(
             # this is the measurement, and the UI must not conflate them.
             "observedModels": overrides.get("by_model") or [],
         },
-        "lastCalibrated": defaults.get("last_calibrated"),
+        "lastCalibrated": catalog_calibration_date(defaults),
         # Null unless a priced or observed model's rate moves on a known date.
         # The forecast never changes on that date (it is already at sticker) —
         # what changes is the customer's bill, which is exactly why it is worth
