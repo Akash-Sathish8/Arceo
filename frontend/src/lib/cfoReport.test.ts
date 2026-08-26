@@ -35,6 +35,33 @@ describe("confidence copy states the real gate (50 calls / 3+ days), never a 7-d
   })
 })
 
+// The spend-cap recommendation used to promise "the agent will pause and notify
+// if it approaches this limit" — true of neither mechanism. Enforcement is a 429
+// at 100% of the cap and only exists once an agent_budgets row does; the Slack
+// warning fires at 80% and no-ops with no webhook. Two thresholds, two
+// mechanisms, one of them conditional — the copy must not merge them again.
+describe("the spend-cap recommendation describes what enforcement actually does", () => {
+  const capRec = (confidence: "low" | "medium" | "high" = "medium") =>
+    build(fixture(confidence)).recommendedActions.find(r => /Cap monthly spend/.test(r)) ?? ""
+
+  test("never promises a pause, and never promises it on approach", () => {
+    const rec = capRec()
+    expect(rec).not.toMatch(/pause/i)
+    expect(rec).not.toMatch(/approach/i)
+  })
+
+  test("conditions enforcement on the cap being set", () => {
+    expect(capRec()).toMatch(/once set/i)
+  })
+
+  test("states the Slack warning as a condition, not a promise", () => {
+    const rec = capRec()
+    // "Connect Slack and ..." — never a bare "will notify".
+    expect(rec).toMatch(/connect slack/i)
+    expect(rec).not.toMatch(/will notify/i)
+  })
+})
+
 describe("basis block carries provenance from the forecast object", () => {
   test("all basis fields populate from fields the screen already renders", () => {
     const f = fixture("medium")

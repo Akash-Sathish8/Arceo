@@ -440,7 +440,7 @@ The brain owns the canonical Now/Next/Later. This is a Claude-facing summary; if
 4. **Start 5 CIO discovery calls** using the working demo.
 
 ### Next (1–2 weeks)
-1. **Live trace ingestion** to unlock the high-confidence tier (`/api/agent/{id}/llm-call` → per-agent rolling averages → forecast tightens ±28% → ±15% after 7 days).
+1. **Live trace ingestion** to unlock the high-confidence tier (`/api/agent/{id}/llm-call` → per-agent rolling averages → forecast tightens ±28% → ±15% once 50 captured calls land across 3+ distinct days in a rolling 7-day window).
 2. **Settings UI for per-org cost overrides** — let customers plug in their negotiated Anthropic rate via the dashboard, not by editing YAML on the server.
 3. **Convert the first design partner pilot** ($15K trial → annual contract).
 4. **Anomaly detection alerts** — "this agent's spend jumped 3× in 24 hours, here's what changed."
