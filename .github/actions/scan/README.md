@@ -38,7 +38,7 @@ Push the file and open a PR — the scan runs automatically.
 | Name | Default | Description |
 |---|---|---|
 | `api-key` | _required_ | Arceo API key. Use a repo secret. |
-| `api-url` | `https://api.arceo.dev` | Override only if you're self-hosting or using a staging instance. |
+| `api-url` | _(none — required)_ | The base URL of your Arceo instance, e.g. `https://arceo.your-company.com`. There is no hosted default. |
 | `threshold` | `60` | Fail the build when any agent's blast radius score exceeds this. |
 | `comment-mode` | `pr-comment` | `pr-comment` posts the report to the PR; `none` skips the comment but still writes to the step summary. |
 | `paths` | `.py,.ts,.tsx,.js,.jsx,.mjs` | Comma-separated extensions to scan. |
