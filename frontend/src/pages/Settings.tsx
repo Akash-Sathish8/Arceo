@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { Eye, EyeOff, Copy, Check, Users, KeyRound, UserCircle, Banknote, Bell, X } from "lucide-react";
 import { apiFetch, getUser, getToken } from "@/lib/api";
+import { timeAgo } from "@/lib/utils";
 import { Button } from "@/components/ui/Button";
 import { toast } from "@/components/shared/Toast";
 
@@ -415,6 +416,135 @@ interface TeamMember {
   is_self: boolean;
 }
 
+interface ApiKey {
+  id: string;
+  key_prefix: string;
+  name: string;
+  agent_id: string | null;
+  active: number | boolean;
+  last_used: string | null;
+  created_at: string;
+  created_by: string;
+}
+
+/** The list half of the API keys card.
+ *
+ * Kept separate from the create form for the same reason TeamMembers is: the
+ * list reloads on `reloadKey` after a create, and the create form owns the
+ * show-once reveal that must survive that reload. */
+function ApiKeys({ reloadKey, canManage }: { reloadKey: number; canManage: boolean }) {
+  const [keys, setKeys] = useState<ApiKey[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [busyId, setBusyId] = useState<string | null>(null);
+
+  const load = useCallback(() => {
+    // Deliberately NOT swallowed the way the neighbouring lists do. On this card
+    // the empty state reads "no keys yet, your agents cannot send traffic" — a
+    // confident, actionable claim. Rendering that after a failed fetch would tell
+    // someone their working setup is broken, or hide a key they already have.
+    setLoadFailed(false);
+    apiFetch<{ keys: ApiKey[] }>("/api/keys")
+      .then((d) => setKeys(d.keys || []))
+      .catch(() => setLoadFailed(true))
+      .finally(() => setLoading(false));
+  }, []);
+
+  useEffect(load, [load, reloadKey]);
+
+  const revoke = async (k: ApiKey) => {
+    if (
+      !window.confirm(
+        `Revoke the key "${k.name}"?\n\nAny agent still sending it will start getting 401s on ` +
+          `its next call, and its LLM calls will stop being captured. This cannot be undone — ` +
+          `issue a new key instead.`,
+      )
+    )
+      return;
+    setBusyId(k.id);
+    try {
+      await apiFetch(`/api/keys/${k.id}`, { method: "DELETE" });
+      toast(`Key "${k.name}" revoked`);
+      load();
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "Could not revoke key", "error");
+    }
+    setBusyId(null);
+  };
+
+  if (loading) return null;
+
+  if (loadFailed) {
+    return (
+      <p style={{ fontSize: 13, color: "var(--text-muted)", margin: 0 }}>
+        Couldn't load your API keys just now — reload to try again. This says nothing about
+        whether you have any.
+      </p>
+    );
+  }
+
+  if (keys.length === 0) {
+    return (
+      <p style={{ fontSize: 13, color: "var(--text-muted)", margin: 0 }}>
+        No API keys yet. Your agents cannot send traffic to Arceo until one exists.
+      </p>
+    );
+  }
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+      {keys.map((k) => {
+        const active = Boolean(k.active);
+        return (
+          <div
+            key={k.id}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 12,
+              background: "var(--bg-sunken)",
+              border: "1px solid var(--border)",
+              borderRadius: "var(--radius-lg)",
+              padding: "10px 12px",
+              opacity: active ? 1 : 0.6,
+            }}
+          >
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 13, fontWeight: 500, color: "var(--text-primary)" }}>
+                {k.name}
+              </div>
+              <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>
+                <code>{k.key_prefix}…</code>
+                {k.agent_id ? ` · scoped to ${k.agent_id}` : " · any agent"}
+                {" · "}
+                {/* "Never used" is the single most diagnostic thing on this screen:
+                    it is what a pilot sees when their key is set but their agent
+                    is not actually sending it. */}
+                {k.last_used ? `last used ${timeAgo(k.last_used)}` : "never used"}
+              </div>
+            </div>
+            {!active && (
+              <span style={{ fontSize: 11, fontWeight: 600, color: "var(--text-muted)" }}>
+                Revoked
+              </span>
+            )}
+            {active && canManage && (
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={busyId === k.id}
+                onClick={() => revoke(k)}
+              >
+                Revoke
+              </Button>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function TeamMembers({ reloadKey }: { reloadKey: number }) {
   const [members, setMembers] = useState<TeamMember[]>([]);
   const [loading, setLoading] = useState(true);
@@ -700,6 +830,39 @@ export default function Settings() {
   const [createdEmail, setCreatedEmail] = useState("");
   const [tempPass, setTempPass] = useState("");
 
+  // ── API keys ──────────────────────────────────────────────────────────────
+  // POST/DELETE /api/keys are admin-gated (_RBAC_ADMIN_PREFIXES, main.py:134),
+  // so a viewer gets the list and an explanation rather than buttons that 403.
+  const isAdmin = (user?.role || "") === "admin";
+  const [keyName, setKeyName] = useState("");
+  const [keyAgentId, setKeyAgentId] = useState("");
+  const [keyCreating, setKeyCreating] = useState(false);
+  const [keyReloadKey, setKeyReloadKey] = useState(0);
+  // The full key is returned exactly once and never stored in plaintext
+  // (main.py:7519-7523), so this is the only moment it can ever be shown.
+  const [createdKey, setCreatedKey] = useState("");
+  const [createdKeyName, setCreatedKeyName] = useState("");
+
+  const createKey = async () => {
+    const name = keyName.trim();
+    if (!name) return;
+    setKeyCreating(true);
+    try {
+      const res = await apiFetch<{ key: string; name: string }>("/api/keys", {
+        method: "POST",
+        body: JSON.stringify({ name, agent_id: keyAgentId.trim() }),
+      });
+      setCreatedKey(res.key);
+      setCreatedKeyName(res.name || name);
+      setKeyName("");
+      setKeyAgentId("");
+      setKeyReloadKey((k) => k + 1);
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "Could not create key", "error");
+    }
+    setKeyCreating(false);
+  };
+
   const [activeSection, setActiveSection] = useState("api");
   const [firstAgentId, setFirstAgentId] = useState("your-agent-id");
 
@@ -875,6 +1038,143 @@ if (await enforce("Stripe", "create_refund", { amount: 500 })) {
           {/* ── API & Integration ── */}
           {activeSection === "api" && (
             <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
+              {/* ── API keys ──────────────────────────────────────────────────
+                  This card is what Authority.tsx's connect flow sends people to
+                  ("Settings → API Keys → New Key"). Until it existed that link
+                  went nowhere, so nobody could produce the X-API-Key the LLM
+                  proxy and the capture endpoint both require — which meant no
+                  captured calls, and the high-confidence forecast tier was
+                  unreachable by any route. */}
+              <div
+                style={{
+                  background: "var(--bg-card)",
+                  border: "1px solid var(--border)",
+                  borderRadius: "var(--radius-lg)",
+                  padding: 24,
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 20,
+                }}
+              >
+                <div>
+                  <h2
+                    style={{ fontSize: 15, fontWeight: 600, color: "var(--text-primary)", margin: "0 0 4px" }}
+                  >
+                    API Keys
+                  </h2>
+                  <p style={{ fontSize: 13, color: "var(--text-secondary)", margin: 0 }}>
+                    This is what your agents send. Pass it as an{" "}
+                    <code
+                      style={{
+                        background: "var(--bg-sunken)",
+                        padding: "1px 6px",
+                        borderRadius: "var(--radius-md)",
+                        color: "var(--text-primary)",
+                      }}
+                    >
+                      X-API-Key
+                    </code>{" "}
+                    header on the LLM proxy and on captured calls. Without one, those requests are
+                    rejected and nothing reaches your spend forecast.
+                  </p>
+                </div>
+
+                <ApiKeys reloadKey={keyReloadKey} canManage={isAdmin} />
+
+                {createdKey && (
+                  <div
+                    style={{
+                      border: "1px solid #bbf7d0",
+                      background: "#f0fdf4",
+                      borderRadius: "var(--radius-lg)",
+                      padding: 16,
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: 8,
+                    }}
+                  >
+                    <div style={{ fontSize: 13, fontWeight: 600, color: "#166534" }}>
+                      Key "{createdKeyName}" created
+                    </div>
+                    <p style={{ fontSize: 12, color: "#15803d", margin: 0 }}>
+                      Copy it now — Arceo stores only a hash, so this is the one and only time it
+                      can be shown. If you lose it, revoke this key and issue another.
+                    </p>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <code
+                        style={{
+                          flex: 1,
+                          fontSize: 12,
+                          fontFamily: "monospace",
+                          background: "var(--bg-card)",
+                          border: "1px solid #bbf7d0",
+                          borderRadius: "var(--radius-md)",
+                          padding: "8px 10px",
+                          color: "#166534",
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                        }}
+                      >
+                        {createdKey}
+                      </code>
+                      <CopyButton text={createdKey} />
+                      <Button variant="secondary" size="sm" onClick={() => setCreatedKey("")}>
+                        Done
+                      </Button>
+                    </div>
+                  </div>
+                )}
+
+                {isAdmin ? (
+                  <div>
+                    <h3
+                      style={{
+                        fontSize: 13,
+                        fontWeight: 600,
+                        color: "var(--text-primary)",
+                        margin: "0 0 4px",
+                      }}
+                    >
+                      New key
+                    </h3>
+                    <p style={{ fontSize: 13, color: "var(--text-secondary)", marginBottom: 12 }}>
+                      Name it after the thing that will send it, so a revoke later is obvious.
+                      Leave the agent blank to let one key serve every agent in this workspace.
+                    </p>
+                    <form
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        createKey();
+                      }}
+                      style={{ display: "flex", flexWrap: "wrap", gap: 8 }}
+                    >
+                      <input
+                        type="text"
+                        value={keyName}
+                        onChange={(e) => setKeyName(e.target.value)}
+                        placeholder="e.g. production-support-agent"
+                        required
+                        style={{ ...inputStyle, flex: "1 1 220px", width: "auto" }}
+                      />
+                      <input
+                        type="text"
+                        value={keyAgentId}
+                        onChange={(e) => setKeyAgentId(e.target.value)}
+                        placeholder="Agent ID (optional)"
+                        style={{ ...inputStyle, flex: "1 1 180px", width: "auto" }}
+                      />
+                      <Button type="submit" disabled={keyCreating || !keyName.trim()}>
+                        {keyCreating ? "Creating…" : "Create key"}
+                      </Button>
+                    </form>
+                  </div>
+                ) : (
+                  <p style={{ fontSize: 12, color: "var(--text-muted)", margin: 0 }}>
+                    Only an admin in this workspace can create or revoke API keys.
+                  </p>
+                )}
+              </div>
+
               <div
                 style={{
                   background: "var(--bg-card)",
@@ -886,11 +1186,22 @@ if (await enforce("Stripe", "create_refund", { amount: 500 })) {
                 <h2
                   style={{ fontSize: 15, fontWeight: 600, color: "var(--text-primary)", margin: "0 0 4px" }}
                 >
-                  API Key
+                  Session token
                 </h2>
                 <p style={{ fontSize: 13, color: "var(--text-secondary)", marginBottom: 12 }}>
-                  Use this token to authenticate your agent with Arceo's enforcement API. Pass it
-                  as a{" "}
+                  This is your own sign-in, not an agent credential — it is what the dashboard uses
+                  and what{" "}
+                  <code
+                    style={{
+                      background: "var(--bg-sunken)",
+                      padding: "1px 6px",
+                      borderRadius: "var(--radius-md)",
+                      color: "var(--text-primary)",
+                    }}
+                  >
+                    POST /api/enforce
+                  </code>{" "}
+                  accepts while you are testing. Pass it as a{" "}
                   <code
                     style={{
                       background: "var(--bg-sunken)",
@@ -951,9 +1262,18 @@ if (await enforce("Stripe", "create_refund", { amount: 500 })) {
                   <CopyButton text={token} />
                 </div>
 
+                {/* Was "never expires unless you log out and back in" — false in
+                    two ways. create_token stamps an `exp` from the workspace's
+                    session length (auth.py:99-108, 24h by default and per-org
+                    configurable via resolve_token_expiry_hours), and changing
+                    your password invalidates it early through the `tv` claim.
+                    An agent left running on this token stops working silently,
+                    which is exactly why the card above exists. */}
                 <p style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 8, marginBottom: 0 }}>
-                  Your token never expires unless you log out and back in. Keep it secret — it
-                  grants full API access.
+                  This token expires with your session — 24 hours unless your workspace sets a
+                  different length — and changing your password ends it immediately.{" "}
+                  <strong>Don't put it in an agent:</strong> use an API key above, which does not
+                  expire until you revoke it. Keep both secret; this one grants your full access.
                 </p>
               </div>
 

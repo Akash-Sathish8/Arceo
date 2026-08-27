@@ -13,9 +13,11 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 import threading
 import time
 import types
+import urllib.error
 import urllib.request
 from typing import Any, Optional
 
@@ -23,20 +25,66 @@ DEFAULT_BASE_URL = os.getenv("ARCEO_BASE_URL", "http://localhost:8000")
 DEFAULT_API_KEY = os.getenv("ARCEO_API_KEY", "")
 
 
+# One diagnostic per process, not one per call — a busy agent would otherwise
+# flood stderr with the same line thousands of times.
+_warned = False
+
+
+def _warn_once(message: str) -> None:
+    """Emit a single diagnostic to stderr. Never raises."""
+    global _warned
+    if _warned:
+        return
+    _warned = True
+    try:
+        sys.stderr.write(f"[arceo] {message}\n")
+        sys.stderr.flush()
+    except Exception:
+        pass
+
+
 def _post_async(url: str, payload: dict, timeout: float = 5.0) -> None:
-    """Fire-and-forget POST in a daemon thread. Never raises into the caller."""
+    """Fire-and-forget POST in a daemon thread. Never raises into the caller.
+
+    It stays fire-and-forget — the module contract is that capture can never slow
+    down or break the wrapped call — but it is no longer SILENT. Swallowing every
+    exception meant a pilot whose key was missing, wrong, or revoked saw exactly
+    what a working install sees: nothing. They would then wait for a forecast that
+    could never arrive, because unkeyed capture is rejected outright and the
+    high-confidence tier needs 50 captured calls.
+
+    So: still never raise, but say something once per process.
+    """
     def _run() -> None:
         try:
             data = json.dumps(payload).encode("utf-8")
             headers = {"Content-Type": "application/json"}
             if DEFAULT_API_KEY:
                 headers["X-API-Key"] = DEFAULT_API_KEY
+            else:
+                # The most common setup mistake, and the one that looks least
+                # like a mistake. Say it before the server does.
+                _warn_once(
+                    "ARCEO_API_KEY is not set, so captured LLM calls will be rejected and "
+                    "your spend forecast will stay at its low-confidence tier. Create a key "
+                    "at Settings -> API & Integration -> API Keys and export it before "
+                    "starting this process."
+                )
             req = urllib.request.Request(
                 url, data=data, headers=headers, method="POST"
             )
             urllib.request.urlopen(req, timeout=timeout).close()
-        except Exception:
-            pass  # capture is best-effort; never break the agent
+        except urllib.error.HTTPError as e:
+            if e.code in (401, 403):
+                _warn_once(
+                    f"Arceo rejected a captured LLM call ({e.code}). The ARCEO_API_KEY in this "
+                    "process is missing, wrong, or revoked — no calls are being recorded. "
+                    "Check it at Settings -> API & Integration -> API Keys."
+                )
+            else:
+                _warn_once(f"Arceo capture failed ({e.code}); calls are not being recorded.")
+        except Exception as e:  # network down, bad URL, server unreachable
+            _warn_once(f"Arceo capture failed ({type(e).__name__}); calls are not being recorded.")
 
     threading.Thread(target=_run, daemon=True).start()
 
