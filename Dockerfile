@@ -6,16 +6,26 @@
 # Build:  docker build -t arceo .
 # Run:    docker run -p 8000:8000 \
 #           -e DATABASE_URL=postgresql://user:pass@host:5432/arceo \
+#           -e REDIS_URL=redis://host:6379/0 \
 #           -e ANTHROPIC_API_KEY=sk-ant-... \
 #           -e JWT_SECRET=<openssl rand -hex 32> \
 #           arceo
+#
+# ⚠️ REDIS_URL is REQUIRED and there is no Redis in this image. Omitting it used
+# to leave the container pointing at redis://localhost:6379 INSIDE itself, where
+# nothing listens — and because rate limiting fails closed, that container comes
+# up healthy and 429s every login. It now refuses to boot instead (Tier 2.3).
 #
 # Runtime env: DATABASE_URL (required — the Postgres instance; the app refuses
 # to boot WITHOUT it unless ARCEO_ENV names a dev environment, and migrates
 # schema on startup. Do NOT set ARCEO_ENV here: it is the switch that disables
 # every boot guard, and this image is meant for real deploys),
 # ANTHROPIC_API_KEY (required — classification, simulation, forecasting),
-# JWT_SECRET (required — auth warns on the dev default), DEMO_MODE=true (demo
+# REDIS_URL (required — rate limiting, live-trace fan-out and the leader lock;
+# fails closed, so an unreachable Redis 429s every request path that checks a
+# limit), JWT_SECRET (required — auth warns on the dev default),
+# ARCEO_RUN_MIGRATIONS_ON_BOOT (default off here: migrations need the owner role,
+# the app runs as arceo_app — see docs/MIGRATION_RUNBOOK.md), DEMO_MODE=true (demo
 # instances only: enables the `demo` login wipe), CORS_ORIGINS (only if the
 # frontend is hosted on another origin), ARCEO_LLM_CACHE_PATH (optional — the
 # LLM-classification cache, a local SQLite file; point it at /data to keep

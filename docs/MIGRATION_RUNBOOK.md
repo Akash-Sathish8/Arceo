@@ -71,9 +71,18 @@ export them first if they matter.
 
 ## Fresh start (no data to preserve)
 
-Just set `DATABASE_URL` and boot: startup runs `alembic upgrade head` and
-seeds the default org + admin on an empty database. For local dev:
-`docker compose up -d` gives you Postgres + Redis matching every default.
+**In dev**, set `DATABASE_URL` and boot: startup runs `alembic upgrade head` and
+seeds the default org + admin on an empty database. `docker compose up -d` gives
+you Postgres + Redis matching every default, and `ARCEO_ENV=dev` is required (it
+is what permits both the boot-time migration and the localhost fallbacks).
+
+⚠️ **On a real deploy this is NOT the path.** Startup migrations are off by
+default outside dev (`ARCEO_RUN_MIGRATIONS_ON_BOOT`), because the app runs as the
+restricted `arceo_app` role and migrations need the owner role — see *Activating
+row-level security* below, which this section used to contradict. Apply
+migrations as a deploy step under the owner URL, then start the app. If the
+schema is behind the code the app refuses to serve rather than starting and
+failing on the first query that needs the new column.
 
 ## Activating row-level security in production (Phase 3)
 
@@ -97,6 +106,21 @@ psql "$ADMIN_DATABASE_URL" -v app_password="'a-strong-password'" \
 
 Point the running app's `DATABASE_URL` at `arceo_app`; keep running migrations
 under the admin/owner URL (migrations create tables; `arceo_app` only does DML).
+
+**This is why `ARCEO_RUN_MIGRATIONS_ON_BOOT` defaults off outside dev.** At head,
+alembic degenerates to a `SELECT version_num`, which `arceo_app` can do — so a
+steady-state restart looks fine and hides the problem. It is the **first boot of
+a release carrying an unapplied revision** that raises permission-denied, i.e.
+exactly the deploy that matters, and the container never serves. Run migrations
+as their own step:
+
+```bash
+DATABASE_URL=<owner-url> alembic -c backend/alembic.ini upgrade head
+```
+
+then start the app pointed at `arceo_app`. The app verifies the schema is at head
+on boot and refuses to serve if it is not, so a forgotten migration fails loudly
+at deploy time rather than as a 500 on the first affected request.
 
 **Then verify RLS is actually live** — the single most important post-cutover
 check:
