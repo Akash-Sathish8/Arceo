@@ -1082,6 +1082,26 @@ function CostPortfolioContent({
               </div>
             )
           })}
+          {/* Model choice sits BELOW the bars and carries no bar of its own,
+              because it is not the same kind of quantity: every row above is one
+              input moved +/-20%, this is a different product. It used to be a
+              row up there at 1500-2200%, which won the sort, fed the caption a
+              dollar figure many times the agent's own forecast, and buried the
+              real top driver. Dollars are the honest unit for a choice. */}
+          {m.modelChoice && m.modelChoice.cheapestPoint < m.modelChoice.currentPoint && (
+            <div className="mt-3 pt-3 border-t border-gray-100 text-xs text-gray-600">
+              <span className="font-semibold text-gray-700">Model choice</span> is the largest lever
+              and is not on the scale above. This agent runs{" "}
+              <strong className="mono text-gray-900">${m.modelChoice.currentPoint.toLocaleString()}</strong>/mo
+              on <span className="mono">{m.modelChoice.currentModel}</span>; the cheapest model we
+              price is <span className="mono">{m.modelChoice.cheapestModel}</span>
+              {m.modelChoice.changesProvider && m.modelChoice.cheapestProvider
+                ? ` (${m.modelChoice.cheapestProvider}, a different provider)` : ""} at{" "}
+              <strong className="mono text-gray-900">${m.modelChoice.cheapestPoint.toLocaleString()}</strong>/mo.
+              <span className="text-gray-400"> Cheaper models are not equivalent — this is the size
+              of the choice, not a recommendation.</span>
+            </div>
+          )}
         </PanelCard>
 
         <PanelCard title="30-day actuals + 90-day projection" icon={<TrendingUp size={14} />} help="Solid line = observed daily LLM token cost from live traces — tool and infrastructure costs aren't in these traces, so the forecast (which includes them) can sit above the line. Shaded band = forward forecast range." fullWidth>

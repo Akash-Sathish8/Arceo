@@ -102,6 +102,13 @@ export interface BudgetRecommendation {
   newPoint: number
   tradeoff: string
   riskReductionUsd?: number
+  /** Vendor behind the suggested model, and whether taking this lever would
+   * move the agent onto a DIFFERENT vendor. There is no residency policy to
+   * enforce against, so this discloses rather than blocks: a governance product
+   * must not quietly route a customer's traffic to another provider inside a
+   * cost tip. Only set on the "model" lever. */
+  newProvider?: string | null
+  changesProvider?: boolean
 }
 
 /** The backend has two distinct shapes here, and conflating them crashed the

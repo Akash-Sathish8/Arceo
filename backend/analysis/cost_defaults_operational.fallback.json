@@ -128,6 +128,7 @@
    "input_per_mtok": 0.14,
    "output_per_mtok": 0.28,
    "source_url": "https://api-docs.deepseek.com/quick_start/pricing",
+   "status": "retired",
    "tokenizer_inflation": 1.0,
    "verified_on": "2026-07-12"
   },
@@ -136,6 +137,7 @@
    "input_per_mtok": 0.14,
    "output_per_mtok": 0.28,
    "source_url": "https://api-docs.deepseek.com/quick_start/pricing",
+   "status": "retired",
    "tokenizer_inflation": 1.0,
    "verified_on": "2026-07-12"
   },
@@ -160,6 +162,7 @@
    "input_per_mtok": 0.075,
    "output_per_mtok": 0.3,
    "source_url": "https://ai.google.dev/gemini-api/docs/pricing",
+   "status": "retired",
    "tokenizer_inflation": 1.0,
    "verified_on": "2026-07-12"
   },
@@ -168,6 +171,7 @@
    "input_per_mtok": 1.25,
    "output_per_mtok": 5.0,
    "source_url": "https://ai.google.dev/gemini-api/docs/pricing",
+   "status": "retired",
    "tokenizer_inflation": 1.0,
    "verified_on": "2026-07-12"
   },
@@ -176,6 +180,7 @@
    "input_per_mtok": 0.1,
    "output_per_mtok": 0.4,
    "source_url": "https://ai.google.dev/gemini-api/docs/pricing",
+   "status": "retired",
    "tokenizer_inflation": 1.0,
    "verified_on": "2026-08-09"
   },
@@ -392,6 +397,7 @@
    "input_per_mtok": 2.0,
    "output_per_mtok": 10.0,
    "source_url": "https://docs.x.ai/developers/models",
+   "status": "retired",
    "tokenizer_inflation": 1.0,
    "verified_on": "2026-07-12"
   },
@@ -400,6 +406,7 @@
    "input_per_mtok": 1.25,
    "output_per_mtok": 2.5,
    "source_url": "https://docs.x.ai/developers/migration/may-15-retirement",
+   "status": "retired",
    "tokenizer_inflation": 1.0,
    "verified_on": "2026-07-12"
   },
@@ -440,6 +447,7 @@
    "input_per_mtok": 3.5,
    "output_per_mtok": 3.5,
    "source_url": "https://www.together.ai/models/llama-3-1-405b",
+   "status": "retired",
    "tokenizer_inflation": 1.0,
    "verified_on": "2026-07-12"
   },
@@ -488,6 +496,7 @@
    "input_per_mtok": 15.0,
    "output_per_mtok": 60.0,
    "source_url": "https://developers.openai.com/api/docs/models/o1",
+   "status": "retired",
    "tokenizer_inflation": 1.0,
    "verified_on": "2026-07-12"
   },

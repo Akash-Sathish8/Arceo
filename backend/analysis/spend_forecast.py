@@ -840,6 +840,52 @@ def call_cost_from_detail(
 CACHE_WRITE_MULTIPLIER = 1.25
 
 
+# Host in a row's `source_url` -> the vendor a customer would be contracting with.
+# Derived rather than stored: `source_url` is already required on every row and
+# pinned by test_price_hygiene, so there is one field to keep correct instead of
+# two that can disagree.
+# Every host is one actually present in the catalog today, not a guess at what a
+# vendor's docs domain might be. test_every_model_row_resolves_a_provider fails
+# the build when a new row arrives on an unmapped host, so this cannot silently
+# fall back to "unknown provider" and drop the disclosure.
+_PROVIDER_BY_HOST = {
+    "platform.claude.com": "Anthropic",
+    "docs.claude.com": "Anthropic",
+    "developers.openai.com": "OpenAI",
+    "platform.openai.com": "OpenAI",
+    "ai.google.dev": "Google",
+    "cloud.google.com": "Google",
+    "api-docs.deepseek.com": "DeepSeek",
+    "docs.x.ai": "xAI",
+    "www.together.ai": "Together",
+    "together.ai": "Together",
+    "mistral.ai": "Mistral",
+    "docs.mistral.ai": "Mistral",
+    "cohere.com": "Cohere",
+    "docs.cohere.com": "Cohere",
+}
+
+
+def model_provider(mp: dict) -> Optional[str]:
+    """The vendor behind a model row, from its `source_url` host, or None."""
+    url = str(mp.get("source_url") or "")
+    host = url.split("//", 1)[-1].split("/", 1)[0].lower()
+    return _PROVIDER_BY_HOST.get(host)
+
+
+def is_recommendable(mp: dict) -> bool:
+    """Whether this model may be OFFERED as a switching option.
+
+    False for `status: retired`. Such rows still price normally, because
+    historical captured calls that used them must still reprice correctly; what
+    they must never do is show up as advice. The catalog carries nine of them and
+    one, gemini-1-5-flash, is the second-cheapest row in the file, so the
+    budget-fit recommender's "cheapest model when nothing fits" branch reached a
+    model Google no longer lists.
+    """
+    return mp.get("status") != "retired"
+
+
 def _as_iso_date(at) -> Optional[str]:
     """`at` (datetime, date, or ISO-ish string) as 'YYYY-MM-DD', or None.
 
@@ -1467,20 +1513,15 @@ def _compute_per_agent_sensitivity(
         {_volume_key: max(1, int(round(base_calls * 0.8)))},
     )))
 
-    # Model choice — spread across all available models (categorical, no ±20%)
-    model_points = [baseline_point]
-    for m_name in defaults.get("models", {}).keys():
-        if m_name == base_model:
-            continue
-        try:
-            model_points.append(_point_with(model=m_name))
-        except Exception:
-            continue
-    if len(model_points) > 1:
-        model_pct = int(round((max(model_points) - min(model_points)) / baseline_point * 100))
-    else:
-        model_pct = 0
-    sensitivities.append(("Model choice", model_pct))
+    # Model choice is deliberately NOT in `sensitivities`. Every row in that list
+    # answers "what if this input moves +/-20%"; model choice answers "what if you
+    # used a different product". Reporting them on one scale was a category error
+    # with real consequences: the categorical spread ran to 1514-2170% on the
+    # reference agents, so it won `sensitivities.sort()` every time, became
+    # sensitivity[0], and the UI multiplies sensitivity[0].pct by the forecast to
+    # caption the panel -- telling the owner of a $714/mo agent that a swing moves
+    # cost by ~$15,494/mo, while burying the real top driver. It is reported
+    # separately below, as the two concrete dollar figures it actually is.
 
     sensitivities.append(("Cache hit rate", _avg_pct_change(
         {"cache_hit": min(100.0, base_cache * 1.2)},
@@ -1499,10 +1540,49 @@ def _compute_per_agent_sensitivity(
 
     sensitivities.sort(key=lambda t: t[1], reverse=True)
 
-    return [
-        {"label": label, "pct": pct, "color": _color_for_rank(i, len(sensitivities))}
-        for i, (label, pct) in enumerate(sensitivities)
-    ]
+    # Cheapest and dearest RECOMMENDABLE alternatives, as dollars rather than a
+    # percentage. Retired rows are excluded for the same reason Lever 1 excludes
+    # them: naming a sunset model as the cheap option is advice we would not give.
+    priced: list[tuple[str, float]] = []
+    for m_name, m_row in (defaults.get("models") or {}).items():
+        if m_name == base_model or not is_recommendable(m_row):
+            continue
+        try:
+            priced.append((m_name, _point_with(model=m_name)))
+        except Exception:
+            continue
+
+    model_choice = None
+    if priced:
+        cheapest = min(priced, key=lambda t: t[1])
+        cheapest_row = (defaults.get("models") or {}).get(cheapest[0]) or {}
+        cur_provider = model_provider((defaults.get("models") or {}).get(base_model) or {})
+        new_provider = model_provider(cheapest_row)
+        model_choice = {
+            "currentModel": base_model,
+            "currentPoint": round(baseline_point),
+            "cheapestModel": cheapest[0],
+            "cheapestPoint": round(cheapest[1]),
+            # Same disclosure Lever 1 makes: a cost figure that quietly assumes a
+            # different vendor is not a cost figure a governance product should
+            # hand over without saying so.
+            "cheapestProvider": new_provider,
+            "changesProvider": bool(new_provider and new_provider != cur_provider),
+        }
+        # Deliberately NOT reported: the DEAREST alternative and a spread ratio.
+        # Both were tried and both reproduce the defect this change exists to fix
+        # -- across 50 recommendable models the spread reaches 871x, which is the
+        # 2170% number wearing a different unit. Nobody switches model to spend
+        # more, so the ceiling is noise; the floor is the only end of the range
+        # that answers a question anyone is asking.
+
+    return {
+        "rows": [
+            {"label": label, "pct": pct, "color": _color_for_rank(i, len(sensitivities))}
+            for i, (label, pct) in enumerate(sensitivities)
+        ],
+        "modelChoice": model_choice,
+    }
 
 
 def _cached_sensitivity(
@@ -1513,7 +1593,7 @@ def _cached_sensitivity(
     baseline_point: float,
     defaults: dict,
     org_id: Optional[str] = None,
-) -> list[dict]:
+) -> dict:
     agent_id = str(agent_config.get("id") or agent_config.get("name") or "unknown")
     key = (
         agent_id,
@@ -1925,6 +2005,15 @@ def forecast_spend(
         "toolMix": "measured" if tool_mix_measured else "default",
     }
 
+    _sens = (
+        {"rows": [], "modelChoice": None}  # never canned; real per-agent or absent
+        if _skip_sensitivity
+        else _cached_sensitivity(
+            agent_config, sandbox_traces, live_trace_count_7d, overrides, monthly_point, defaults,
+            org_id=org_id,
+        )
+    )
+
     return {
         "available": True,
         "point": round(monthly_point),
@@ -1961,14 +2050,11 @@ def forecast_spend(
         "topTools": top_tools,
         # Unit econ outcomes are per-RUN (sandbox occurrences are per run) → pass runs_per_day, not llm_calls.
         "unitEcon": _compute_unit_econ(agent_config, sandbox_traces, monthly_point, runs_per_day),
-        "sensitivity": (
-            []  # never canned; sensitivity is real per-agent or absent
-            if _skip_sensitivity
-            else _cached_sensitivity(
-                agent_config, sandbox_traces, live_trace_count_7d, overrides, monthly_point, defaults,
-                org_id=org_id,
-            )
-        ),
+        "sensitivity": _sens["rows"],
+        # Reported apart from `sensitivity` on purpose: the rows there are +/-20%
+        # perturbations of one input, this is a different product entirely. Two
+        # dollar figures, not a percentage that would out-sort every real driver.
+        "modelChoice": _sens["modelChoice"],
         "inputSources": input_sources,
         "confidence": tier,
         "model": model_name,
@@ -2056,9 +2142,17 @@ def compute_budget_fit(
 
     # ── Lever 1: model tier — least-aggressive downgrade that fits, else cheapest
     cur_model = base_overrides.get("model") or base["model"]
+    _catalog = load_defaults(org_id).get("models", {})
+    cur_provider = model_provider(_catalog.get(cur_model) or {})
     cheaper: list[tuple[str, int]] = []
-    for m_name in (load_defaults(org_id).get("models", {})):
+    for m_name, m_row in _catalog.items():
         if m_name == cur_model:
+            continue
+        # Never advise migrating ONTO a model the vendor is sunsetting. Retired
+        # rows stay priced (historical calls need them) but are not advice.
+        # Without this the "cheapest when nothing fits" branch below reached
+        # gemini-1-5-flash, which Google no longer lists.
+        if not is_recommendable(m_row):
             continue
         p, _ = _point({"model": m_name})
         if p < base_point:
@@ -2068,9 +2162,19 @@ def compute_budget_fit(
         # Among models that fit, prefer the most expensive (smallest change);
         # if none fit, take the cheapest (max saving).
         pick = max(fitting, key=lambda c: c[1]) if fitting else min(cheaper, key=lambda c: c[1])
+        # Say so when the cheapest option is a different vendor. We have no
+        # residency policy to enforce against, so this discloses rather than
+        # blocks: a governance product must not quietly route an Anthropic
+        # customer's traffic to another provider inside a cost tip.
+        new_provider = model_provider(_catalog.get(pick[0]) or {})
+        _switch = f"Switch the model to {pick[0]}"
+        if new_provider and new_provider != cur_provider:
+            _switch += f" ({new_provider}, a different provider)"
         cost_recs.append({
             "lever": "model",
-            "label": f"Switch the model to {pick[0]}",
+            "newProvider": new_provider,
+            "changesProvider": bool(new_provider and new_provider != cur_provider),
+            "label": _switch,
             "projectedSaving": round(base_point - pick[1]),
             "newPoint": pick[1],
             "tradeoff": "Cheaper per token — verify quality on your evals before switching.",
