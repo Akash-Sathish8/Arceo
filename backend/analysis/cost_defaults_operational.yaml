@@ -22,6 +22,22 @@ last_calibrated: "2026-08-09"
 # Anthropic rows were correct; seven non-Anthropic rows were not (see their
 # inline notes) and six missing models were added.
 #
+# ── OPTIONAL: `status: retired` — do not RECOMMEND this model ───────────────
+# A row with `status: retired` is still priced normally, because historical
+# captured calls that used it must still reprice correctly. What it stops is the
+# model being offered as a cost lever or counted as a switching option.
+#
+# The test is "would we tell a customer to move ONTO this?", NOT "does the
+# endpoint still respond". So it covers deprecated-but-still-served models
+# (o1, the deepseek-chat/reasoner aliases, the grok-3 slug that redirects to
+# grok-4.3) as well as ones the vendor has removed outright. Recommending any of
+# them is telling a customer to migrate onto something being sunset.
+#
+# Before this existed the retirements were prose comments only, so nothing could
+# read them: gemini-1-5-flash (retired by Google, unlisted on their pricing page)
+# is the SECOND CHEAPEST row in this file, and the budget-fit recommender picks
+# the cheapest model when nothing fits the budget.
+
 # ── OPTIONAL: `effective_price` — a rate that varies over TIME ──────────────
 # A row's input_per_mtok/output_per_mtok are the STICKER rate. A row may also
 # carry a dated promotional rate:
@@ -329,6 +345,7 @@ models:
     verified_on: "2026-07-12"
   # RETIRED by Google 2026-06-01 — kept to price historical captured calls.
   gemini-2-0-flash:
+    status: retired
     input_per_mtok: 0.10
     output_per_mtok: 0.40
     # Cache read is $0.025/MTok against $0.10 input = 25%, not the 10% the
@@ -340,6 +357,7 @@ models:
     verified_on: "2026-08-09"
   # RETIRED — unlisted on Google's pricing page (2026-07-12); last-known rates kept for historical calls.
   gemini-1-5-pro:
+    status: retired
     input_per_mtok: 1.25
     output_per_mtok: 5.00
     cache_discount: 0.90
@@ -348,6 +366,7 @@ models:
     verified_on: "2026-07-12"
   # RETIRED — unlisted on Google's pricing page (2026-07-12); last-known rates kept for historical calls.
   gemini-1-5-flash:
+    status: retired
     input_per_mtok: 0.075
     output_per_mtok: 0.30
     cache_discount: 0.90
@@ -392,6 +411,7 @@ models:
     verified_on: "2026-07-12"
   # Deprecated by OpenAI (still served/priced) — plan removal.
   o1:
+    status: retired
     input_per_mtok: 15.00
     output_per_mtok: 60.00
     cache_discount: 0.50
@@ -404,6 +424,7 @@ models:
   # yields no discount, which is correct for these endpoints).
   # RETIRED from Together serverless (2026-07-12); last-known rate kept for historical calls.
   llama-3-1-405b:
+    status: retired
     input_per_mtok: 3.50
     output_per_mtok: 3.50
     cache_discount: 0.0
@@ -469,6 +490,7 @@ models:
     source_url: https://api-docs.deepseek.com/quick_start/pricing
     verified_on: "2026-08-09"
   deepseek-v3:                   # deepseek-chat
+    status: retired
     input_per_mtok: 0.14
     output_per_mtok: 0.28
     cache_discount: 0.98
@@ -476,6 +498,7 @@ models:
     source_url: https://api-docs.deepseek.com/quick_start/pricing
     verified_on: "2026-07-12"
   deepseek-r1:                   # deepseek-reasoner
+    status: retired
     input_per_mtok: 0.14
     output_per_mtok: 0.28
     cache_discount: 0.98
@@ -547,6 +570,7 @@ models:
     verified_on: "2026-07-12"
   # Slug retired by xAI 2026-05-15 and REDIRECTS to grok-4.3 — priced at the redirect target's live rate (was 3.00/15.00).
   grok-3:
+    status: retired
     input_per_mtok: 1.25
     output_per_mtok: 2.50
     cache_discount: 0.84
@@ -555,6 +579,7 @@ models:
     verified_on: "2026-07-12"
   # RETIRED — unlisted on xAI's models page (2026-07-12); last-known rates kept for historical calls.
   grok-2:
+    status: retired
     input_per_mtok: 2.00
     output_per_mtok: 10.00
     cache_discount: 0.0
