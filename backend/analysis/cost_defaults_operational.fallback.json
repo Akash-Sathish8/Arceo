@@ -204,9 +204,16 @@
    "cache_discount": 0.9,
    "input_per_mtok": 1.25,
    "output_per_mtok": 10.0,
+   "price_tiers": [
+    {
+     "above_input_tokens": 200000,
+     "input_per_mtok": 2.5,
+     "output_per_mtok": 15.0
+    }
+   ],
    "source_url": "https://ai.google.dev/gemini-api/docs/pricing",
    "tokenizer_inflation": 1.0,
-   "verified_on": "2026-07-12"
+   "verified_on": "2026-08-27"
   },
   "gemini-3-1-flash-lite": {
    "cache_discount": 0.9,
@@ -220,9 +227,16 @@
    "cache_discount": 0.9,
    "input_per_mtok": 2.0,
    "output_per_mtok": 12.0,
+   "price_tiers": [
+    {
+     "above_input_tokens": 200000,
+     "input_per_mtok": 4.0,
+     "output_per_mtok": 18.0
+    }
+   ],
    "source_url": "https://ai.google.dev/gemini-api/docs/pricing",
    "tokenizer_inflation": 1.0,
-   "verified_on": "2026-07-12"
+   "verified_on": "2026-08-27"
   },
   "gemini-3-5-flash": {
    "cache_discount": 0.9,
@@ -405,6 +419,13 @@
    "cache_discount": 0.84,
    "input_per_mtok": 1.25,
    "output_per_mtok": 2.5,
+   "price_tiers": [
+    {
+     "above_input_tokens": 199999,
+     "input_per_mtok": 2.5,
+     "output_per_mtok": 5.0
+    }
+   ],
    "source_url": "https://docs.x.ai/developers/migration/may-15-retirement",
    "status": "retired",
    "tokenizer_inflation": 1.0,
@@ -414,33 +435,61 @@
    "cache_discount": 0.84,
    "input_per_mtok": 1.25,
    "output_per_mtok": 2.5,
+   "price_tiers": [
+    {
+     "above_input_tokens": 199999,
+     "input_per_mtok": 2.5,
+     "output_per_mtok": 5.0
+    }
+   ],
    "source_url": "https://docs.x.ai/developers/models",
    "tokenizer_inflation": 1.0,
-   "verified_on": "2026-07-12"
+   "verified_on": "2026-08-27"
   },
   "grok-4-3": {
    "cache_discount": 0.84,
    "input_per_mtok": 1.25,
    "output_per_mtok": 2.5,
+   "price_tiers": [
+    {
+     "above_input_tokens": 199999,
+     "input_per_mtok": 2.5,
+     "output_per_mtok": 5.0
+    }
+   ],
    "source_url": "https://docs.x.ai/developers/models",
    "tokenizer_inflation": 1.0,
-   "verified_on": "2026-07-12"
+   "verified_on": "2026-08-27"
   },
   "grok-4-5": {
    "cache_discount": 0.85,
    "input_per_mtok": 2.0,
    "output_per_mtok": 6.0,
+   "price_tiers": [
+    {
+     "above_input_tokens": 199999,
+     "input_per_mtok": 4.0,
+     "output_per_mtok": 12.0
+    }
+   ],
    "source_url": "https://docs.x.ai/developers/models",
    "tokenizer_inflation": 1.0,
-   "verified_on": "2026-08-09"
+   "verified_on": "2026-08-27"
   },
   "grok-build-0-1": {
    "cache_discount": 0.8,
    "input_per_mtok": 1.0,
    "output_per_mtok": 2.0,
+   "price_tiers": [
+    {
+     "above_input_tokens": 199999,
+     "input_per_mtok": 2.0,
+     "output_per_mtok": 4.0
+    }
+   ],
    "source_url": "https://docs.x.ai/developers/models",
    "tokenizer_inflation": 1.0,
-   "verified_on": "2026-07-12"
+   "verified_on": "2026-08-27"
   },
   "llama-3-1-405b": {
    "cache_discount": 0.0,
