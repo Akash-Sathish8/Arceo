@@ -125,4 +125,17 @@ indefinitely by default (Arceo never expires a pending action); pass
 Set these in the environment to avoid passing them every call:
 
 - `ARCEO_BASE_URL` — your Arceo backend (default `http://localhost:8000`)
-- `ARCEO_TOKEN` — your Arceo JWT (for `enforce`; capture is unauthenticated)
+- `ARCEO_TOKEN` — your Arceo JWT, for `enforce`. This is your **session token** and it
+  expires (24 hours unless your workspace sets otherwise), so it is for testing — not for a
+  long-running agent.
+- `ARCEO_API_KEY` — your Arceo **API key**. **Required for `capture`**: the capture endpoint
+  rejects unkeyed calls, so without it nothing reaches your spend forecast and the
+  high-confidence (±15%) tier can never be reached. `enforce` sends it too when it is set.
+  Create one at **Settings → API & Integration → API Keys**; it is shown once. Unlike
+  `ARCEO_TOKEN` it does not expire until you revoke it — **this, not `ARCEO_TOKEN`, is what a
+  long-running agent should carry.**
+
+⚠️ `capture` reads `ARCEO_BASE_URL` and `ARCEO_API_KEY` **once, when `arceo` is imported**
+(`_capture.py:24-25`), so export them before starting your process — setting them in code
+after the import has no effect on capture. `enforce` re-reads the environment on every call,
+so only capture has this constraint.

@@ -19,8 +19,10 @@ Quickstart:
     client.messages.create(model="claude-sonnet-4-6", max_tokens=512, messages=[...])
     # ^ usage is reported to Arceo automatically
 
-Set ARCEO_BASE_URL (and ARCEO_TOKEN for enforce) in the environment to avoid
-passing them on every call.
+Set ARCEO_BASE_URL, ARCEO_API_KEY (required — capture is rejected without it)
+and ARCEO_TOKEN (for enforce) in the environment to avoid passing them on every
+call. Capture reads BASE_URL and API_KEY at import time, so export them before
+starting the process.
 """
 
 from ._capture import wrap_llm, report_llm_call
