@@ -58,6 +58,56 @@ def test_extra_metadata_does_not_break_pricing():
     assert _call_cost_usd(1_000_000, 0, 0, "claude-opus-4-8", d) == 5.00
 
 
+# ── 2a. The two rate dimensions may not appear on one row ────────────────────
+# A rate can vary by DATE (`effective_price`) or by PROMPT LENGTH
+# (`price_tiers`). No vendor currently prices along both at once, so a row
+# carrying both would force `_effective_rates` to invent an interaction rule —
+# does the promo apply to the extended tier, at what discount? — and the answer
+# would be a guess, not something read off a vendor's page. The catalog forbids
+# it rather than letting the engine decide, which keeps the standing rule intact:
+# a price is sourced or it does not ship. If a vendor ever does both, this test
+# is the place that says so, and the fix is to source the combined schedule.
+
+def test_no_row_carries_both_rate_dimensions():
+    models = yaml.safe_load(_YAML.read_text())["models"]
+    both = [k for k, r in models.items()
+            if r.get("effective_price") is not None and r.get("price_tiers") is not None]
+    assert both == [], (
+        f"{both}: a row may carry `effective_price` OR `price_tiers`, not both — "
+        "their interaction is not sourced from any vendor. See _effective_rates."
+    )
+
+
+def test_every_row_actually_carries_a_price():
+    """Until the length dimension landed, `forecast_spend` read
+    `model_pricing["input_per_mtok"]` directly, so a row missing a rate raised a
+    KeyError on the request. It now goes through `_effective_rates`, which
+    defaults a missing rate to 0.0 — correct for the family-match fallback it
+    shares with `_call_cost_usd`, but it means a malformed row would price at
+    ZERO instead of failing loudly. That is the worst outcome for a cost product,
+    so the guarantee moves here: enforced at build time, not at request time."""
+    models = yaml.safe_load(_YAML.read_text())["models"]
+    for key, row in models.items():
+        for field in ("input_per_mtok", "output_per_mtok"):
+            assert isinstance(row.get(field), (int, float)), f"{key}: missing {field}"
+            assert row[field] > 0, f"{key}: {field} is not positive"
+
+
+def test_every_price_tier_is_well_formed_and_dearer():
+    """A tier that is cheaper than the base rate, or missing its boundary, is a
+    typo — and a silent one, since the engine would simply price the long prompts
+    lower and nothing would look wrong on screen."""
+    models = yaml.safe_load(_YAML.read_text())["models"]
+    tiered = {k: r for k, r in models.items() if r.get("price_tiers")}
+    assert tiered, "expected at least one tiered row — did the catalog lose them?"
+    for key, row in tiered.items():
+        for tier in row["price_tiers"]:
+            assert isinstance(tier.get("above_input_tokens"), int), f"{key}: boundary must be an int"
+            assert tier["above_input_tokens"] > 0, f"{key}: boundary must be positive"
+            assert tier["input_per_mtok"] >= row["input_per_mtok"], f"{key}: input tier is cheaper"
+            assert tier["output_per_mtok"] >= row["output_per_mtok"], f"{key}: output tier is cheaper"
+
+
 # ── 2b. The date we SHOW is the oldest thing behind the number ───────────────
 # `last_calibrated` is hand-set when the YAML body is recalibrated, so it tracks
 # the NEWEST work on the file. Published alone it let one freshly-verified row

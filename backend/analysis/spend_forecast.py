@@ -87,14 +87,29 @@ def load_defaults(org_id: Optional[str] = None) -> dict:
             # for a key with no base pricing) can't be priced.
             if key in merged.get("models", {}):
                 merged["models"][key][sub_key] = value
-                # A NEGOTIATED rate beats a public promo. Overrides can only set
-                # the sticker fields (_OVERRIDE_MODEL_SUBKEYS in main.py), so a
-                # vendor's `effective_price` would otherwise survive the merge and
-                # reprice this org's observed calls at the PUBLIC discount —
-                # overriding the contract rate they actually pay. Same defect
-                # class as #176: list price silently winning over a negotiated one.
+                # A NEGOTIATED rate beats a public SCHEDULE — in both dimensions.
+                # Overrides can only set the sticker fields
+                # (_OVERRIDE_MODEL_SUBKEYS in main.py), so a vendor's
+                # `effective_price` would otherwise survive the merge and reprice
+                # this org's observed calls at the PUBLIC discount — overriding
+                # the contract rate they actually pay. Same defect class as #176:
+                # list price silently winning over a negotiated one.
+                #
+                # `price_tiers` is dropped for the same reason and one more. The
+                # override form has no tier dimension at all — a customer can
+                # enter exactly one input rate and one output rate — so what they
+                # typed IS, by construction, "this is what I pay". Keeping the
+                # public 2x step on top of it would invent a contract term they
+                # were never given a field to express, and would overstate a
+                # long-context contract customer's spend by up to 2x.
+                #
+                # ⚠️ The converse limitation is real and known: an org whose
+                # contract IS tiered cannot say so, and we will under-price their
+                # long prompts. That is the graduated-schedule storage gap (3.6),
+                # deferred — not something to paper over by guessing here.
                 if sub_key in ("input_per_mtok", "output_per_mtok"):
                     merged["models"][key].pop("effective_price", None)
+                    merged["models"][key].pop("price_tiers", None)
         elif scope == "tool":
             merged.setdefault("tool_action_costs", {}).setdefault(key, {})[sub_key] = value
         elif scope == "infra":
@@ -900,15 +915,18 @@ def _as_iso_date(at) -> Optional[str]:
     return iso()[:10] if callable(iso) else None
 
 
-def _effective_rates(mp: dict, at=None) -> tuple[float, float]:
-    """($/MTok in, $/MTok out) in force for a call made on `at`.
+def _effective_rates(mp: dict, at=None, input_tokens: Optional[int] = None) -> tuple[float, float]:
+    """($/MTok in, $/MTok out) in force for a call made on `at` with a prompt of
+    `input_tokens` tokens.
 
-    A row's `input_per_mtok`/`output_per_mtok` are the STICKER rate. A row may
-    also carry a dated promotional rate (see the schema note at the top of
-    cost_defaults_operational.yaml):
+    A row's `input_per_mtok`/`output_per_mtok` are the STICKER rate. A rate can
+    vary along two independent dimensions, each an optional block on the row (see
+    the schema notes at the top of cost_defaults_operational.yaml):
 
         effective_price: {input_per_mtok, output_per_mtok, until}   # until INCLUSIVE
+        price_tiers: [{above_input_tokens, input_per_mtok, output_per_mtok}, ...]
 
+    ── TIME (`at`) ────────────────────────────────────────────────────────────
     `at=None` means "price at the standing rate" and is what every FORWARD-looking
     caller must pass. A forecast is about money not yet spent, so it prices at
     sticker — projecting a promo that expires would under-forecast the moment it
@@ -919,21 +937,59 @@ def _effective_rates(mp: dict, at=None) -> tuple[float, float]:
     this module is at most 30 days, so no caller can reach back past the start of
     a currently-running promo. A rate needing a start bound wants a `from` key
     here, not a different mechanism.
+
+    ── LENGTH (`input_tokens`) ────────────────────────────────────────────────
+    The opposite rule applies, and the asymmetry is the point. A promo expires,
+    so it must not be projected forward; a prompt-length tier does not — an agent
+    whose requests cross 200k tokens is billed at the high tier today and will be
+    next month too. So `input_tokens` is passed by BOTH observed and forecast
+    callers, and omitting it is what under-forecasts a long-context agent by up
+    to 2x, not what protects against it.
+
+    Both vendors that tier bill EVERY token in the request at the higher rate
+    once the prompt crosses, so the tier is selected once and applied to input
+    and output together. Tiers are matched highest-boundary-first, so a future
+    row with more than two tiers needs no ordering guarantee from the YAML.
+    `cache_discount` is not tiered — the cached-input price scales by the same
+    factor as input on every tiered row, so the ratio is invariant.
+
+    A row carrying both blocks would need an invented interaction rule; the
+    catalog forbids it and `test_price_hygiene` fails the build for it, so the
+    two branches below cannot both fire.
     """
-    sticker = (
+    rates = (
         float(mp.get("input_per_mtok", 0.0)),
         float(mp.get("output_per_mtok", 0.0)),
     )
+
+    tiers = mp.get("price_tiers")
+    if isinstance(tiers, list) and input_tokens is not None:
+        for tier in sorted(
+            (t for t in tiers if isinstance(t, dict)),
+            key=lambda t: float(t.get("above_input_tokens", 0)),
+            reverse=True,
+        ):
+            try:
+                boundary = float(tier["above_input_tokens"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            if input_tokens > boundary:
+                rates = (
+                    float(tier.get("input_per_mtok", rates[0])),
+                    float(tier.get("output_per_mtok", rates[1])),
+                )
+                break
+
     ep = mp.get("effective_price")
     if not isinstance(ep, dict):
-        return sticker
+        return rates
     day = _as_iso_date(at)
     until = _as_iso_date(ep.get("until"))
     if day is None or until is None or day > until:
-        return sticker
+        return rates
     return (
-        float(ep.get("input_per_mtok", sticker[0])),
-        float(ep.get("output_per_mtok", sticker[1])),
+        float(ep.get("input_per_mtok", rates[0])),
+        float(ep.get("output_per_mtok", rates[1])),
     )
 
 
@@ -948,10 +1004,16 @@ def _call_cost_usd(
     `at` is the call's own date; omit it to price at the standing (sticker) rate.
     See `_effective_rates` — the omit-by-default keeps every forward-looking
     caller, and the ground-truth backtest, on published rates.
+
+    The prompt-length tier is NOT opt-in the same way: `total_input` is already
+    the size of the request this call actually made, so every caller gets the
+    tier it was really billed at without passing anything. Cached and
+    cache-creation tokens count toward the boundary because both vendors tier on
+    the whole prompt, not on the uncached remainder.
     """
     models = defaults.get("models", {})
     mp = models.get(model_key) or models.get(defaults.get("default_model")) or {}
-    in_rate, out_rate = _effective_rates(mp, at)
+    in_rate, out_rate = _effective_rates(mp, at, input_tokens=total_input)
     in_price = in_rate / 1_000_000.0
     out_price = out_rate / 1_000_000.0
     cache_discount = float(mp.get("cache_discount", 0.5))
@@ -1895,8 +1957,17 @@ def forecast_spend(
         in_tokens, out_tokens = _estimate_tokens_per_call(agent_config, defaults, inflation, turns_per_run)
 
     # ── Per-call LLM cost ──
-    in_price = model_pricing["input_per_mtok"] / 1_000_000.0
-    out_price = model_pricing["output_per_mtok"] / 1_000_000.0
+    # Priced through `_effective_rates` rather than off the row's sticker fields,
+    # so a declared long-context agent is forecast at the tier it will actually
+    # be billed at. `at=None` is deliberate and unchanged: a DATED promo still
+    # must not be projected forward. Length is the dimension that must be, and
+    # reading `input_per_mtok` directly here was the last place a >200k prompt
+    # was priced at the low tier — under-forecasting those agents by up to 2x,
+    # and quoting model-switch savings (Lever 1 reprices through this function)
+    # at a tier the agent's own prompts would not have qualified for.
+    _in_rate, _out_rate = _effective_rates(model_pricing, None, input_tokens=in_tokens)
+    in_price = _in_rate / 1_000_000.0
+    out_price = _out_rate / 1_000_000.0
     cache_discount = float(model_pricing.get("cache_discount", 0.5))
     cache_factor = 1.0 - (cache_hit_rate * cache_discount)
     retry_factor = 1.0 + retry_rate
