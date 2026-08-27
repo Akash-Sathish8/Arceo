@@ -15,13 +15,19 @@ Three regression classes this pins:
 
 from __future__ import annotations
 
+import copy
 import json
 from datetime import date, datetime
 from pathlib import Path
 
 import yaml
 
-from analysis.spend_forecast import _call_cost_usd, _extract_usage, load_defaults
+from analysis.spend_forecast import (
+    _call_cost_usd,
+    _extract_usage,
+    catalog_calibration_date,
+    load_defaults,
+)
 
 _ANALYSIS = Path(__file__).resolve().parent.parent / "analysis"
 _YAML = _ANALYSIS / "cost_defaults_operational.yaml"
@@ -50,6 +56,47 @@ def test_extra_metadata_does_not_break_pricing():
     # reads — make sure pricing only looks at the rate fields.
     d = load_defaults()
     assert _call_cost_usd(1_000_000, 0, 0, "claude-opus-4-8", d) == 5.00
+
+
+# ── 2b. The date we SHOW is the oldest thing behind the number ───────────────
+# `last_calibrated` is hand-set when the YAML body is recalibrated, so it tracks
+# the NEWEST work on the file. Published alone it let one freshly-verified row
+# drag the customer-visible date forward while most of the catalog stayed old —
+# the CFO PDF printed "Price catalog last calibrated 2026-08-09" while 45 of 59
+# rows were still at verified_on 2026-07-12. False for 76% of the rows it priced.
+
+def test_published_date_is_never_newer_than_the_oldest_priced_row():
+    """The invariant: whatever we show, EVERY row has been verified since it."""
+    d = load_defaults()
+    shown = date.fromisoformat(catalog_calibration_date(d))
+    for key, row in d["models"].items():
+        checked = date.fromisoformat(str(row["verified_on"]))
+        assert shown <= checked, f"{key} verified {checked}, but we advertise {shown}"
+
+
+def test_published_date_does_not_just_echo_last_calibrated():
+    # Guards the actual regression: returning defaults["last_calibrated"] passes
+    # nothing above if the catalog happens to be uniform, so pin the real case.
+    d = load_defaults()
+    oldest = min(str(r["verified_on"]) for r in d["models"].values())
+    assert catalog_calibration_date(d) == min(str(d["last_calibrated"]), oldest)
+
+
+def test_a_fresh_row_cannot_drag_the_date_forward():
+    d = copy.deepcopy(load_defaults())
+    d["last_calibrated"] = "2026-12-01"
+    next(iter(d["models"].values()))["verified_on"] = "2026-12-01"
+    # One row re-verified today says nothing about the other 58.
+    assert catalog_calibration_date(d) == "2026-07-12"
+
+
+def test_a_row_with_no_verified_on_is_skipped_not_read_as_fresh():
+    # test_every_model_row_has_freshness_metadata already fails the build for
+    # this; the point here is that it degrades safely rather than silently
+    # publishing today's date for an unaudited row.
+    d = copy.deepcopy(load_defaults())
+    d["models"]["claude-opus-4-8"].pop("verified_on")
+    assert catalog_calibration_date(d) == "2026-07-12"
 
 
 # ── 3. Non-Anthropic usage shapes ─────────────────────────────────────────────
