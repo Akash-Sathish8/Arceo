@@ -11,7 +11,9 @@
 #           arceo
 #
 # Runtime env: DATABASE_URL (required — the Postgres instance; the app refuses
-# to boot on known prod platforms without it and migrates schema on startup),
+# to boot WITHOUT it unless ARCEO_ENV names a dev environment, and migrates
+# schema on startup. Do NOT set ARCEO_ENV here: it is the switch that disables
+# every boot guard, and this image is meant for real deploys),
 # ANTHROPIC_API_KEY (required — classification, simulation, forecasting),
 # JWT_SECRET (required — auth warns on the dev default), DEMO_MODE=true (demo
 # instances only: enables the `demo` login wipe), CORS_ORIGINS (only if the
