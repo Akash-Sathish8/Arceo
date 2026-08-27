@@ -18,6 +18,7 @@ import contextlib
 import os
 
 import vault
+from envcheck import DEV_ENVS as _DEV_ENVS
 
 
 # The single source of truth for envelope-encrypted (`encrypt_value`) columns:
@@ -70,9 +71,6 @@ def encrypt_at_rest_enabled() -> bool:
     """Whether new writes of sensitive columns are envelope-encrypted. Default OFF
     — flipping it on is a deliberate, specialist-reviewed step (docs/SECURITY_DESIGN.md)."""
     return os.getenv("ARCEO_ENCRYPT_AT_REST", "").lower() in ("1", "true", "yes", "on")
-
-
-_DEV_ENVS = {"dev", "local", "test", "ci"}
 
 
 def enforce_prod_encryption_policy() -> None:

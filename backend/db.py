@@ -19,16 +19,40 @@ import json
 from psycopg.rows import dict_row
 from psycopg_pool import ConnectionPool
 
+from envcheck import is_dev_env
+
 # Production guard: refuse to boot on a real deploy without an explicit
 # DATABASE_URL — the localhost default below only exists to pair with the
 # docker-compose postgres service for development.
-_PROD_MARKERS = ("RAILWAY_ENVIRONMENT", "FLY_APP_NAME", "RENDER", "PRODUCTION")
+#
+# This used to whitelist four PaaS environment variables
+# (RAILWAY_ENVIRONMENT / FLY_APP_NAME / RENDER / PRODUCTION) and treat anything
+# else as a laptop. Google Cloud Run sets none of them — it sets K_SERVICE — so
+# the guard no-opped on exactly the platform we are deploying to, and the URL
+# fell through to the localhost default.
+#
+# ⚠️ The fix is NOT to add K_SERVICE. `auth.py:26-29` records that this repo
+# already abandoned platform whitelists, because they fail open on every
+# platform they have not heard of; both sibling guards (auth.py's default-JWT
+# check and encryption.py's at-rest check) were inverted then and this was the
+# last one left. See envcheck.py.
+#
+# Why it matters more than "the app won't start": on most misconfigured deploys
+# this is loud — init_db() runs `alembic upgrade head` against the bogus URL and
+# the revision dies. The dangerous case is a topology where something DOES
+# answer on 127.0.0.1:5432, and the Cloud SQL Auth Proxy sidecar pattern binds
+# exactly there. Then nothing crashes: we silently attach to an unintended
+# database and run migrations on it.
 DATABASE_URL = os.environ.get("DATABASE_URL")
 if not DATABASE_URL:
-    if any(os.getenv(k) for k in _PROD_MARKERS):
+    if not is_dev_env():
         raise RuntimeError(
-            "DATABASE_URL is not set on a production deploy. Point it at the "
-            "production Postgres instance."
+            "DATABASE_URL is not set and ARCEO_ENV does not name a development "
+            "environment, so refusing to fall back to the local docker-compose "
+            "database — on a host running a Cloud SQL Auth Proxy that fallback "
+            "would connect to the wrong database and migrate it. Point "
+            "DATABASE_URL at your Postgres instance, or set ARCEO_ENV=dev for "
+            "local work."
         )
     # Dev default: matches docker-compose.yml (`docker compose up -d postgres`).
     DATABASE_URL = "postgresql://postgres:postgres@localhost:5432/arceo"

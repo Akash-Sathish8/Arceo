@@ -52,21 +52,28 @@ from llm_models import FAST_MODEL, DEEP_MODEL, verify_models_at_startup, anthrop
 import redis  # for RedisError; the client itself lives in shared_state
 import shared_state
 import approvals
+import envcheck
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup (migrated from the deprecated @app.on_event("startup")). The
     # scheduler helpers are defined later in the module but resolved at call time.
-    # Warn loudly if running on the dev-default database URL — a real deploy
-    # must point DATABASE_URL at the production Postgres (db.py refuses to
-    # boot on known prod platforms without it). Checked before init_db(),
-    # which exports the resolved URL for alembic.
+    # Note if running on the dev-default database URL. This is now only
+    # reachable in a DEV environment: db.py refuses to import at all without
+    # DATABASE_URL unless ARCEO_ENV names one, so by the time this runs the
+    # fallback has already been sanctioned.
+    #
+    # It used to read "db.py refuses to boot on known prod platforms" — that was
+    # the platform-whitelist framing, and it was wrong on Cloud Run, which is
+    # what 2.1 fixed. Kept as a dev-only breadcrumb rather than deleted, because
+    # "which database am I actually on?" is a real question when a compose stack
+    # and a proxy are both listening on 5432.
     if not os.environ.get("DATABASE_URL"):
         logging.getLogger("arceo").warning(
             "DATABASE_URL is not set — using the docker-compose default "
-            "(postgresql://postgres:postgres@localhost:5432/arceo). Set "
-            "DATABASE_URL explicitly in production."
+            "(postgresql://postgres:postgres@localhost:5432/arceo), allowed "
+            "because ARCEO_ENV=%s.", envcheck.arceo_env() or "(unset)",
         )
     # LOW-006: in a non-dev environment, refuse to boot unless encryption-at-rest
     # is on (sensitive columns must not be cleartext in prod). No-op in dev/test.
@@ -332,7 +339,9 @@ async def _global_rate_limit(request: Request, call_next):
 # A host is "dev-like" only if it says so explicitly (same convention as auth.py).
 # HSTS is withheld in dev/test/ci so local + HTTP-pilot instances aren't forced
 # onto https; it's sent everywhere else.
-_IS_DEV_ENV = os.getenv("ARCEO_ENV", "").lower() in {"dev", "local", "test", "ci"}
+# Same definition of "dev" as every other boot guard — see envcheck.py. Kept as
+# a module-level snapshot because the proxy/budget defaults read it per request.
+_IS_DEV_ENV = envcheck.is_dev_env()
 
 _SECURITY_HEADERS = {
     "X-Content-Type-Options": "nosniff",

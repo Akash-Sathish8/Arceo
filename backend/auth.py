@@ -10,6 +10,7 @@ import jwt
 from fastapi import HTTPException, Request
 
 from db import get_db, log_audit, DEFAULT_ORG_ID
+from envcheck import DEV_ENVS as _DEV_ENVS
 
 import logging as _logging
 
@@ -27,7 +28,10 @@ _logger = _logging.getLogger("actiongate.auth")
 # four PaaS env vars and let everything else (bare VMs, Docker, a tunneled
 # laptop) boot on the public demo secret — an open door to token forgery. We
 # invert it: the default secret is refused everywhere UNLESS ARCEO_ENV opts in.
-_DEV_ENVS = {"dev", "local", "test", "ci"}
+#
+# `_DEV_ENVS` is imported from envcheck (aliased, because this module's guards
+# run at IMPORT time and tests reach for it by name) so that every boot guard
+# answers "is this a real deploy?" identically.
 ARCEO_ENV = os.getenv("ARCEO_ENV", "").lower()
 
 _DEMO_TRUTHY = {"1", "true", "yes", "on"}
