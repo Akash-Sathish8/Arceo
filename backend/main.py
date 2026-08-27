@@ -281,20 +281,86 @@ class BodySizeLimitMiddleware:
 app.add_middleware(BodySizeLimitMiddleware)
 
 
-# MED-009: derive the caller IP for rate-limit keys. Behind a trusted proxy/ingress
-# (TRUSTED_PROXY set) every client shares the ingress socket IP, which collapses
-# them into one rate-limit bucket; honor the left-most X-Forwarded-For hop in that
-# case. Default OFF → identical to the prior request.client.host behavior, so an
-# untrusted deploy can't spoof its way past a limit with a forged header.
+# Derive the caller IP for rate-limit keys. (This block used to cite "MED-009";
+# that ID is the Content-Length body-size finding — Medium_Vulnerabilities.md:270
+# — and has nothing to do with client IPs. Label removed rather than replaced
+# with a guess.)
+#
+# Two mutually exclusive failure states, not one compound bug:
+#
+#   OFF  — every caller behind any ingress shares one socket IP, so they share
+#          one `auth-ip:` bucket at 10 per 900s. The eleventh login from ANYONE
+#          is refused. An availability defect, and the state we ship in today.
+#   ON,  — the old implementation took the LEFT-MOST X-Forwarded-For entry, which
+#   naive  is the one the caller writes. An attacker rotates it per request and
+#          mints a fresh bucket each time. Per-account stuffing is unchanged
+#          (the `auth-email:` limiter is unspoofable), so what it buys is
+#          enumeration and evasion of the global backstop.
+#
+# XFF is append-only left-to-right: `client, proxy1, proxy2`, each hop appending
+# the peer it heard from. So the only trustworthy entries are the ones YOUR
+# infrastructure wrote, counted from the right. ARCEO_TRUSTED_PROXY_HOPS says how
+# many of those there are:
+#
+#   0 → right-most entry      (direct *.run.app: the frontend appends the client)
+#   1 → second from the right (GCLB in front of Cloud Run)
+#
+# ⚠️ There is deliberately NO default. Either value is a security bug on the
+# other topology, so a deploy that opts into TRUSTED_PROXY has to say which one
+# it is. Guessing here would be worse than the bug we are fixing.
 TRUSTED_PROXY = os.getenv("TRUSTED_PROXY", "").lower() in ("1", "true", "yes", "on")
+
+def resolve_trusted_proxy_hops(trusted: bool, raw: str) -> int:
+    """How many forwarded hops to skip, or refuse to start.
+
+    Split out so the refusal is testable without re-importing the module: the
+    check runs at import time on purpose (a misconfigured deploy should fail
+    before it serves a request), which makes it awkward to exercise in place.
+    """
+    raw = (raw or "").strip()
+    if not trusted:
+        return 0
+    if not raw:
+        raise RuntimeError(
+            "TRUSTED_PROXY is on but ARCEO_TRUSTED_PROXY_HOPS is unset. Set it to "
+            "the number of proxies YOU control in front of this app: 0 for direct "
+            "Cloud Run (the client IP is the right-most X-Forwarded-For entry), 1 "
+            "for a Google Cloud Load Balancer in front of it. There is no safe "
+            "default — the wrong value either lets a caller forge their own "
+            "rate-limit bucket or collapses every caller into one."
+        )
+    try:
+        hops = int(raw)
+    except ValueError:
+        raise RuntimeError(
+            f"ARCEO_TRUSTED_PROXY_HOPS must be an integer, got {raw!r}."
+        ) from None
+    if hops < 0:
+        raise RuntimeError("ARCEO_TRUSTED_PROXY_HOPS cannot be negative.")
+    return hops
+
+
+TRUSTED_PROXY_HOPS = resolve_trusted_proxy_hops(
+    TRUSTED_PROXY, os.getenv("ARCEO_TRUSTED_PROXY_HOPS", ""))
 
 
 def client_ip(request: Request) -> str:
-    if TRUSTED_PROXY:
-        xff = request.headers.get("x-forwarded-for", "")
-        if xff:
-            return xff.split(",")[0].strip()
-    return request.client.host if request.client else "unknown"
+    """The caller identity rate limits are keyed on.
+
+    Falls back to the socket address whenever the forwarded chain is shorter than
+    the configured hop count. That is the safe direction: a short header means
+    fewer proxies than we were told to expect — someone reached us by a path that
+    bypasses one — and the socket address is the one thing the caller cannot
+    choose.
+    """
+    socket_ip = request.client.host if request.client else "unknown"
+    if not TRUSTED_PROXY:
+        return socket_ip
+    parts = [p.strip() for p in request.headers.get("x-forwarded-for", "").split(",") if p.strip()]
+    idx = len(parts) - 1 - TRUSTED_PROXY_HOPS
+    if idx < 0:
+        return socket_ip
+    return parts[idx]
 
 
 @app.middleware("http")

@@ -49,4 +49,17 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s \
   CMD ["python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/api/health', timeout=4).status == 200 else 1)"]
 
-CMD ["python", "-m", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+# --forwarded-allow-ips is pinned deliberately, and must not be removed.
+#
+# uvicorn's ProxyHeadersMiddleware is ON by default and, when its trusted set is
+# "*", returns x_forwarded_for[0] — the LEFT-MOST, caller-written hop — and
+# overwrites request.client.host with it, UPSTREAM of our own client_ip(). The
+# standard Cloud Run recipe is FORWARDED_ALLOW_IPS=*, so following it would
+# reintroduce the exact spoof Tier 2.4 removes, silently, even with
+# TRUSTED_PROXY off. (Verified against the pinned uvicorn 0.52.1.)
+#
+# Pinning the flag here beats the env var, so setting FORWARDED_ALLOW_IPS in the
+# deploy environment can no longer take effect. Keeping it at loopback makes the
+# middleware inert: request.client.host stays the real peer, and ONE place
+# decides who the caller is — client_ip(), with an explicit hop count.
+CMD ["python", "-m", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--forwarded-allow-ips", "127.0.0.1"]
