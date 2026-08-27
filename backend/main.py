@@ -5924,6 +5924,42 @@ def _clamp_forecast_overrides(overrides: dict) -> dict:
     return overrides
 
 
+def _sandbox_traces_for_tier(conn, agent_id: str, org_id: str) -> list:
+    """The agent's live sandbox traces — the argument every `forecast_spend`
+    caller must pass, because the CONFIDENCE TIER is derived from it.
+
+    `_detect_tier(sandbox_traces, live_trace_count_7d, ...)` reads this to decide
+    LOW vs MEDIUM, and the band multipliers follow the tier. Omitting it does not
+    merely lose a forecast input — it silently demotes the agent, so the same
+    agent rendered LOW on one endpoint and MEDIUM on another, on one screen.
+    That is why the query lives here once instead of being hand-rolled per
+    caller: a third copy is how the two got out of step in the first place.
+
+    `run_mode = 'live'` matches the risk path (`_latest_sim_evidence`) and is not
+    optional — a dry run appends no `turn_usage`, so it is not a weaker
+    measurement but no measurement at all, while still counting toward the tier.
+    See test_dry_runs_and_forecast_tier.
+
+    `ORDER BY created_at DESC` is likewise load-bearing, not tidiness: `LIMIT 10`
+    without an order picks arbitrary rows, so for an agent with more than ten
+    sims two callers could select different traces and derive different token
+    averages for the same agent.
+    """
+    sims = conn.execute(
+        "SELECT trace_json FROM simulations WHERE agent_id = %s AND status = 'completed' "
+        "AND run_mode = 'live' AND org_id = %s ORDER BY created_at DESC LIMIT 10",
+        (agent_id, org_id),
+    ).fetchall()
+    traces = []
+    for s in sims:
+        try:
+            if s["trace_json"]:
+                traces.append(json.loads(s["trace_json"]))
+        except (json.JSONDecodeError, TypeError):
+            continue
+    return traces
+
+
 def _prev_snapshot_point(conn, agent_id: str, org_id: str, before_iso: str) -> Optional[float]:
     """Most recent forecast snapshot >= 30 days old — but only if it was computed
     with the CURRENT formula version, so vs-last-month isn't a bogus cross-formula
@@ -5980,14 +6016,9 @@ def get_spend_forecast(
         agent = get_agent_from_db(conn, agent_id, org_id=_org(user))
         if not agent:
             raise HTTPException(status_code=404, detail=f"Agent '{agent_id}' not found")
-        # Pull any sandbox traces (for medium tier upgrade). Live runs only —
-        # a dry run never records turn_usage, so it measures nothing and must
-        # not promote the tier. Mirrors the risk path's run_mode filter.
-        sims = conn.execute(
-            "SELECT trace_json FROM simulations WHERE agent_id = %s AND status = 'completed' "
-            "AND run_mode = 'live' AND org_id = %s ORDER BY created_at DESC LIMIT 10",
-            (agent_id, _org(user)),
-        ).fetchall()
+        # Sandbox traces for the tier — see _sandbox_traces_for_tier for why the
+        # run_mode filter and the ordering are both load-bearing.
+        sandbox_traces = _sandbox_traces_for_tier(conn, agent_id, _org(user))
         # Count live traces in last 7 days (for high tier)
         seven_days_ago = (datetime.utcnow() - timedelta(days=7)).isoformat()
         live_count_row = conn.execute(
@@ -6027,14 +6058,6 @@ def get_spend_forecast(
             oldest_snapshot_days = (datetime.utcnow() - datetime.fromisoformat(oldest_snapshot_iso)).days
         except (ValueError, TypeError):
             oldest_snapshot_days = None
-
-    sandbox_traces = []
-    for s in sims:
-        try:
-            if s["trace_json"]:
-                sandbox_traces.append(json.loads(s["trace_json"]))
-        except (json.JSONDecodeError, TypeError):
-            continue
 
     # Live rolling averages form the baseline; explicit query params (slider
     # what-ifs) still win on top. Priced at the ORG's rates — see the note on
@@ -6290,19 +6313,11 @@ def get_spend_forecasts_batch(user: dict = Depends(get_current_user)):
                 forecasts[aid] = None
                 continue
 
-            # Sandbox traces for tier — live runs only (see the per-agent path)
-            sims = conn.execute(
-                "SELECT trace_json FROM simulations WHERE agent_id = %s AND status = 'completed' "
-                "AND run_mode = 'live' AND org_id = %s LIMIT 10",
-                (aid, org_id),
-            ).fetchall()
-            sandbox_traces = []
-            for s in sims:
-                try:
-                    if s["trace_json"]:
-                        sandbox_traces.append(json.loads(s["trace_json"]))
-                except (json.JSONDecodeError, TypeError):
-                    continue
+            # Sandbox traces for tier — live runs only. Shares the per-agent
+            # card's query so the fleet row and the card cannot disagree; this
+            # path previously had no ORDER BY, so with >10 sims it could pick a
+            # different ten and derive different token averages.
+            sandbox_traces = _sandbox_traces_for_tier(conn, aid, org_id)
 
             # vsLastMonth — most recent snapshot ≥30 days old (same formula version)
             thirty_days_ago = (datetime.utcnow() - timedelta(days=30)).isoformat()
@@ -6410,6 +6425,11 @@ def get_spend_timeseries(agent_id: str, user: dict = Depends(get_current_user)):
             (agent_id, seven_days_ago),
         ).fetchone()["n"])
         live_rows = [r for r in rows if r["timestamp"] > seven_days_ago]
+        # The chart's projection band comes from the SAME forecast the card
+        # shows, so it needs the same tier inputs. Without this the band beneath
+        # the chart was computed at a demoted tier — see the forecast_spend call
+        # below.
+        sandbox_traces = _sandbox_traces_for_tier(conn, agent_id, _org(user))
 
     org_defaults = load_defaults(_org(user))
     series = compute_spend_timeseries(rows, days=30, defaults=org_defaults)
@@ -6420,8 +6440,16 @@ def get_spend_timeseries(agent_id: str, user: dict = Depends(get_current_user)):
     # forecast beneath it at list.
     overrides = compute_live_rolling_averages(
         live_rows, defaults=org_defaults) if live_count >= LIVE_TRACE_MIN_CALLS_FORECAST else {}
+    # `sandbox_traces` is not optional here. `_detect_tier` derives the
+    # confidence tier from it, and the band multipliers follow the tier — so
+    # omitting it did not just drop a forecast input, it DEMOTED the agent.
+    # An agent with live sandbox runs and under 50 captured calls rendered the
+    # projection band at LOW (x0.50-x3.00) directly beneath a card showing
+    # MEDIUM (x0.70-x2.00): two different bands for one agent on one screen, on
+    # the CFO-facing surface. Pinned by test_forecast_band_agrees_across_surfaces.
     forecast = forecast_spend(
         agent,
+        sandbox_traces=sandbox_traces or None,
         live_trace_count_7d=live_count,
         overrides=overrides or None,
         org_id=_org(user),
