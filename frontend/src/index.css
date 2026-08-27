@@ -2,6 +2,75 @@
 @import '@fontsource-variable/jetbrains-mono';
 @import "tailwindcss";
 
+/* Remap Tailwind's cool gray + blue scales onto the product palette so the
+   ~550 legacy `*-gray-*` / `*-blue-*` utility usages across pages render in
+   the warm Notion ink ramp / Carolina accent instead of clashing blue-grays.
+   Values mirror the :root tokens below (Tailwind's @theme cannot reference
+   them via var()). New code should still prefer the tokens directly. */
+@theme {
+  --color-gray-50:  #f7f7f5;  /* --paper-2 */
+  --color-gray-100: #f1f1ef;  /* --line-soft */
+  --color-gray-200: #e9e9e7;  /* --line */
+  --color-gray-300: #d5d3cf;
+  --color-gray-400: #9b9a97;  /* --ink-400 */
+  --color-gray-500: #787774;  /* --ink-500 */
+  --color-gray-600: #6b6966;  /* --ink-600 */
+  --color-gray-700: #55534e;  /* --ink-700 */
+  --color-gray-800: #44423c;  /* --ink-800 */
+  --color-gray-900: #37352f;  /* --ink-900 */
+  --color-gray-950: #2b2a27;
+  --color-blue-50:  #ECF5FB;  /* --accent-soft */
+  --color-blue-100: #DEEDF8;
+  --color-blue-200: #D1E5F3;  /* --accent-line */
+  --color-blue-300: #A3CDE9;
+  --color-blue-400: #6FB2DC;
+  --color-blue-500: #4B9CD3;  /* --accent */
+  --color-blue-600: #2E7BB0;  /* --accent-ink */
+  --color-blue-700: #266693;
+  /* Status scales aligned to the severity tokens so Tailwind classes like
+     text-red-600 / bg-amber-50 land exactly on --critical / --caution etc. */
+  --color-red-50:  #fbece8;  /* --critical-bg */
+  --color-red-100: #f8e0db;
+  --color-red-200: #f3d6cf;  /* --critical-line */
+  --color-red-300: #e9b6ad;
+  --color-red-400: #d76a5e;
+  --color-red-500: #c73a2f;
+  --color-red-600: #b3261e;  /* --critical */
+  --color-red-700: #99201a;
+  --color-red-800: #7f1b16;
+  --color-red-900: #691713;
+  --color-orange-50:  #fdf0e7;  /* --high-bg */
+  --color-orange-100: #fae3d2;
+  --color-orange-200: #f5d5bc;  /* --high-line */
+  --color-orange-300: #eeb28b;
+  --color-orange-400: #e37b3a;
+  --color-orange-500: #d9560f;  /* --high-ring */
+  --color-orange-600: #c2410c;  /* --high */
+  --color-orange-700: #a53709;
+  --color-orange-800: #872d08;
+  --color-orange-900: #6f2507;
+  --color-amber-50:  #f5eedd;  /* --caution-bg */
+  --color-amber-100: #f0e5c9;
+  --color-amber-200: #e8dcbd;  /* --caution-line */
+  --color-amber-300: #dcc48d;
+  --color-amber-400: #c79320;  /* --caution-ring */
+  --color-amber-500: #b0831f;
+  --color-amber-600: #98711f;  /* --caution */
+  --color-amber-700: #7f5e1a;
+  --color-amber-800: #684d16;
+  --color-amber-900: #553f13;
+  --color-green-50:  #ecf3ef;  /* --safe-bg */
+  --color-green-100: #dfeae3;
+  --color-green-200: #d7e7dd;  /* --safe-line */
+  --color-green-300: #b7d4c2;
+  --color-green-400: #6aa985;
+  --color-green-500: #4c9068;
+  --color-green-600: #3f865f;  /* --safe */
+  --color-green-700: #35714f;
+  --color-green-800: #2c5d42;
+  --color-green-900: #244d37;
+}
+
 :root {
   /* ── Typography ──────────────────────────────────────────────── */
   /* Schibsted Grotesk (self-hosted via @fontsource) is THE product font;
@@ -53,12 +122,15 @@
      distinct from both amber (medium) and red (critical). Replaces the
      unreadable #fed7aa/#ea580c hardcodes. */
   --high:        #c2410c; --high-bg:     #fdf0e7; --high-line:     #f5d5bc;
-  --critical:    #cf4636; --critical-bg: #fbece8; --critical-line: #f3d6cf;
+  /* Critical sits one hue-step from high (orange) — deepened to crimson so the
+     pair separates (was #cf4636, ΔE 4 from --high; still a ramp, so critical
+     pills additionally use a FILLED treatment where they appear next to high). */
+  --critical:    #b3261e; --critical-bg: #fbece8; --critical-line: #f3d6cf;
   /* Ring/score variants — slightly punchier than the text tones. */
   --safe-ring:     #2f8a5b;
   --caution-ring:  #c79320;
   --high-ring:     #d9560f;
-  --critical-ring: #c1452f;
+  --critical-ring: #ad2418;
 
   --shadow-card-new: 0 1px 2px rgba(15,15,15,.03);
 
@@ -305,6 +377,42 @@ body {
 
 .ag-btn { transition: transform .12s ease, opacity .14s ease; }
 .ag-btn:active:not(:disabled) { transform: translateY(1px); }
+.ag-btn:hover:not(:disabled) { opacity: .92; }
+
+/* Keyboard affordance: one visible ring for every interactive control.
+   Inputs keep their own .ag-input focus ring (box-shadow), so they're not
+   double-ringed here. */
+button:focus-visible,
+a:focus-visible,
+select:focus-visible,
+[role="button"]:focus-visible,
+summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.view-toggle-btn { transition: color .12s ease, background .12s ease, box-shadow .12s ease; }
+
+/* ── Loading skeletons ───────────────────────────────────────────── */
+/* Layout-shaped shimmer placeholders. Size them at the call site
+   (`<div className="skeleton" style={{ height: … }} />`); they read as the
+   page composing itself instead of a spinner-then-pop. */
+.skeleton {
+  position: relative;
+  overflow: hidden;
+  background: var(--paper-2);
+  border-radius: 10px;
+}
+.skeleton::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, .65), transparent);
+  animation: skeleton-sweep 1.6s ease infinite;
+}
+@keyframes skeleton-sweep { 100% { transform: translateX(100%); } }
+@media (prefers-reduced-motion: reduce) { .skeleton::after { animation: none; } }
 
 /* ── Agent catalog rail ──────────────────────────────────────────── */
 /* The fleet browses sideways in its own box instead of growing the page
@@ -332,12 +440,63 @@ body {
 .agent-rail::-webkit-scrollbar-track { background: transparent; }
 .agent-rail-item {
   flex-shrink: 0;
-  width: 420px;
+  width: 360px;
   max-width: 85vw; /* small screens: one card mostly fills the box */
   scroll-snap-align: start;
   display: flex;        /* stretch the card to the rail's tallest item */
 }
 .agent-rail-item > * { width: 100%; }
+
+/* Catalog layout variants — same box chrome as the rail.
+   --v keeps the box's footprint and scrolls up/down inside it;
+   --grid drops the inner scroll and lets the box grow with content. */
+.agent-rail--v,
+.agent-rail--grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  scroll-snap-type: none;
+}
+.agent-rail--v {
+  overflow-x: hidden;
+  overflow-y: auto;
+  max-height: 620px; /* ~2 rows of cards — mirrors the rail's single-row footprint */
+  overscroll-behavior: contain;
+}
+.agent-rail--v::-webkit-scrollbar { width: 8px; height: 0; }
+.agent-rail--grid { overflow: visible; }
+.agent-rail--v .agent-rail-item,
+.agent-rail--grid .agent-rail-item {
+  width: auto;
+  max-width: none;
+}
+
+/* Segmented icon toggle for the catalog layout (rail / stack / grid) */
+.view-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  background: var(--bg-sunken);
+  border-radius: var(--radius-md);
+  padding: 3px;
+}
+.view-toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: none;
+  border-radius: calc(var(--radius-md) - 3px);
+  background: transparent;
+  color: var(--ink-400);
+  cursor: pointer;
+}
+.view-toggle-btn:hover { color: var(--ink-600); }
+.view-toggle-btn.is-active {
+  background: var(--bg-card);
+  color: var(--ink-800);
+  box-shadow: var(--shadow-card-new);
+}
 
 /* ── Forecast / spend surfaces ───────────────────────────────────── */
 /* Card chrome used across Cost portfolio and the spend dashboard. */

@@ -121,7 +121,7 @@ export default function InvoiceReconciliationPanel() {
             )}
           </h3>
           <p className="text-[11px] text-gray-400 mt-1">
-            Import what your provider actually billed and we compare it to the spend Arceo captured — the accuracy claim, checked against reality.
+            Import your provider's bill and we compare it to what Arceo tracked.
           </p>
         </div>
         <button
@@ -205,7 +205,7 @@ export default function InvoiceReconciliationPanel() {
         <div className="mt-4 rounded-lg p-6 text-center" style={{ background: "var(--bg-sunken)", border: "1px dashed var(--border)" }}>
           <div className="text-sm font-semibold text-gray-700">No bill imported yet</div>
           <p className="mt-1 text-xs text-gray-500 max-w-lg mx-auto leading-relaxed">
-            When you import a provider bill, this panel shows "Arceo tracked $X — your invoice says $Y" with an honest account of any gap. It's the fastest way to know whether these numbers can be trusted.
+            Import a bill to see "Arceo tracked $X — your invoice says $Y."
           </p>
         </div>
       ) : verdict && tone && (

@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom'
+import { recordAgentView } from '@/lib/recentViews'
 import {
   AlertTriangle,
   ArrowLeft,
@@ -170,9 +171,9 @@ interface PolicyConflict {
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const RISK_COLORS: Record<string, string> = {
-  moves_money: '#dc2626',
+  moves_money: 'var(--critical)',
   touches_pii: '#7c3aed',
-  deletes_data: '#ea580c',
+  deletes_data: 'var(--high)',
   sends_external: '#2563eb',
   changes_production: '#0d9488',
   changes_access: '#b91c1c',
@@ -196,15 +197,15 @@ const RISK_LABELS: Record<string, string> = {
 }
 
 const SEV_STYLE: Record<string, { bg: string; color: string }> = {
-  critical: { bg: '#fef2f2', color: '#dc2626' },
-  high: { bg: '#fff7ed', color: '#ea580c' },
-  medium: { bg: '#fefce8', color: '#ca8a04' },
+  critical: { bg: 'var(--critical-bg)', color: 'var(--critical)' },
+  high: { bg: 'var(--high-bg)', color: 'var(--high)' },
+  medium: { bg: 'var(--caution-bg)', color: 'var(--caution)' },
 }
 
 const EFFECT_STYLE: Record<string, { bg: string; color: string }> = {
-  BLOCK: { bg: '#fef2f2', color: '#dc2626' },
-  REQUIRE_APPROVAL: { bg: '#fff7ed', color: '#ea580c' },
-  ALLOW: { bg: '#f0fdf4', color: '#16a34a' },
+  BLOCK: { bg: 'var(--critical-bg)', color: 'var(--critical)' },
+  REQUIRE_APPROVAL: { bg: 'var(--high-bg)', color: 'var(--high)' },
+  ALLOW: { bg: 'var(--safe-bg)', color: 'var(--safe)' },
 }
 
 const EXEC_STATUS_STYLE: Record<string, { bg: string; color: string }> = {
@@ -237,7 +238,7 @@ const formatDescription = (text: string) =>
 
 const actionRiskDot = (tool: string, action: string): string => {
   const s = `${tool}.${action}`.toLowerCase()
-  if (/delete|terminate|drop|destroy|remove|cancel/.test(s)) return '#dc2626'
+  if (/delete|terminate|drop|destroy|remove|cancel/.test(s)) return 'var(--critical)'
   if (/charge|transfer|pay|refund|create_charge/.test(s)) return '#2563eb'
   if (/send|email|message|notify/.test(s)) return '#7c3aed'
   return '#9ca3af'
@@ -369,7 +370,7 @@ function AuthorityMap({ graph, serviceFilter }: AuthorityMapProps) {
           (a) => a.reversible !== false && !(a.risk_labels?.length ?? 0)
         ).length
         const isOpen = !collapsed[tool.id] || !!searchLower || riskFilter !== 'all'
-        const accentColor = nIrrev > 0 ? '#dc2626' : nRisky > 0 ? '#f59e0b' : '#d1d5db'
+        const accentColor = nIrrev > 0 ? 'var(--critical)' : nRisky > 0 ? '#f59e0b' : '#d1d5db'
 
         return (
           <div
@@ -423,7 +424,7 @@ function AuthorityMap({ graph, serviceFilter }: AuthorityMapProps) {
                       <span
                         className="w-2 h-2 rounded-full flex-shrink-0"
                         style={{
-                          background: isIrrev ? '#dc2626' : hasRisk ? '#f59e0b' : '#d1d5db',
+                          background: isIrrev ? 'var(--critical)' : hasRisk ? '#f59e0b' : '#d1d5db',
                         }}
                       />
                       <span className="text-sm text-gray-700 flex-1">
@@ -585,8 +586,8 @@ function WorstCasePanel({
           className="flex gap-3 mb-3 p-3 rounded-lg border"
           style={
             topChain?.severity === 'critical' && !hasCoveringPolicy
-              ? { background: '#fef2f2', borderColor: '#fca5a5' }
-              : { background: '#fff', borderColor: '#fde68a' }
+              ? { background: 'var(--critical-bg)', borderColor: 'var(--critical-line)' }
+              : { background: '#fff', borderColor: 'var(--caution-line)' }
           }
         >
           <span className="text-base leading-none mt-0.5 flex-shrink-0">⛓</span>
@@ -597,8 +598,8 @@ function WorstCasePanel({
                 <span
                   className="text-xs px-1.5 py-0.5 rounded font-medium"
                   style={{
-                    background: SEV_STYLE[topChain.severity]?.bg ?? '#fff7ed',
-                    color: SEV_STYLE[topChain.severity]?.color ?? '#ea580c',
+                    background: SEV_STYLE[topChain.severity]?.bg ?? 'var(--high-bg)',
+                    color: SEV_STYLE[topChain.severity]?.color ?? 'var(--high)',
                   }}
                 >
                   {topChain.severity.toUpperCase()}
@@ -637,7 +638,7 @@ function WorstCasePanel({
 
       <div className="flex items-center justify-between flex-wrap gap-2">
         <div className="flex items-center gap-2">
-          <span className="text-2xl font-bold" style={{ color: scoreColor }}>
+          <span className="text-2xl font-bold mono" style={{ color: scoreColor }}>
             {br.score}
           </span>
           <span className="text-xs text-gray-600">Risk Score — {dynamicScoreLabel}</span>
@@ -847,7 +848,7 @@ function ActionPicker({ tools, selectedPatterns, onAdd }: ActionPickerProps) {
                       <span
                         className="w-2 h-2 rounded-full flex-shrink-0"
                         style={{
-                          background: isIrrev ? '#dc2626' : isRisky ? '#f59e0b' : '#d1d5db',
+                          background: isIrrev ? 'var(--critical)' : isRisky ? '#f59e0b' : '#d1d5db',
                         }}
                       />
                       <span className="flex-1">{formatAction(a.action)}</span>
@@ -1010,26 +1011,26 @@ function EffectToggle({ value, onChange }: EffectToggleProps) {
       label: 'Block',
       desc: 'Agent is stopped — action never executes',
       Icon: X,
-      color: '#dc2626',
-      bg: '#fef2f2',
-      border: '#fca5a5',
+      color: 'var(--critical)',
+      bg: 'var(--critical-bg)',
+      border: 'var(--critical-line)',
     },
     {
       value: 'REQUIRE_APPROVAL' as const,
       label: 'Require Approval',
       desc: 'Pauses for a human to review and approve',
       Icon: Clock,
-      color: '#ea580c',
-      bg: '#fff7ed',
-      border: '#fdba74',
+      color: 'var(--high)',
+      bg: 'var(--high-bg)',
+      border: 'var(--high-line)',
     },
     {
       value: 'ALLOW' as const,
       label: 'Allow',
       desc: 'Explicitly permitted — logged for audit',
       Icon: Check,
-      color: '#16a34a',
-      bg: '#f0fdf4',
+      color: 'var(--safe)',
+      bg: 'var(--safe-bg)',
       border: '#86efac',
     },
   ]
@@ -1171,6 +1172,11 @@ export default function AgentDetail() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const policySectionRef = useRef<HTMLDivElement>(null)
+
+  // Feed the Authority page's "Recently Viewed" sort.
+  useEffect(() => {
+    if (agentId) recordAgentView(agentId)
+  }, [agentId])
 
   const [data, setData] = useState<AgentDetailResponse | null>(null)
   const [loading, setLoading] = useState(true)
@@ -1597,7 +1603,7 @@ export default function AgentDetail() {
       label: 'Move Money',
       tooltip: 'Charges, refunds, transfers, and subscription changes — any action that moves funds.',
       value: br.moves_money,
-      color: '#dc2626',
+      color: 'var(--critical)',
       riskKey: 'moves_money',
     },
     {
@@ -1611,7 +1617,7 @@ export default function AgentDetail() {
       label: 'Delete Data',
       tooltip: 'Permanently removes records, files, or data. Cannot be undone.',
       value: br.deletes_data,
-      color: '#ea580c',
+      color: 'var(--high)',
       riskKey: 'deletes_data',
     },
     {
@@ -1921,7 +1927,7 @@ export default function AgentDetail() {
                   />
                 </svg>
                 <div className="absolute inset-0 flex flex-col items-center justify-center">
-                  <span className="text-2xl font-bold leading-none">{br.score}</span>
+                  <span className="text-2xl font-bold leading-none mono">{br.score}</span>
                 </div>
               </div>
               <div className="text-xs font-medium mt-1">Risk Score</div>
@@ -2095,7 +2101,7 @@ export default function AgentDetail() {
           >
             {t.label}
             {t.dot && (
-              <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#dc2626', flexShrink: 0, display: 'inline-block' }} />
+              <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--critical)', flexShrink: 0, display: 'inline-block' }} />
             )}
           </button>
         ))}
@@ -2179,7 +2185,7 @@ export default function AgentDetail() {
               {policyEffectCounts['BLOCK'] > 0 && (
                 <span
                   className="text-xs px-2 py-0.5 rounded-full font-medium"
-                  style={{ background: '#fef2f2', color: '#dc2626' }}
+                  style={{ background: 'var(--critical-bg)', color: 'var(--critical)' }}
                 >
                   {policyEffectCounts['BLOCK']} Block
                 </span>
@@ -2187,7 +2193,7 @@ export default function AgentDetail() {
               {policyEffectCounts['REQUIRE_APPROVAL'] > 0 && (
                 <span
                   className="text-xs px-2 py-0.5 rounded-full font-medium"
-                  style={{ background: '#fff7ed', color: '#ea580c' }}
+                  style={{ background: 'var(--high-bg)', color: 'var(--high)' }}
                 >
                   {policyEffectCounts['REQUIRE_APPROVAL']} Require approval
                 </span>
@@ -2195,7 +2201,7 @@ export default function AgentDetail() {
               {policyEffectCounts['ALLOW'] > 0 && (
                 <span
                   className="text-xs px-2 py-0.5 rounded-full font-medium"
-                  style={{ background: '#f0fdf4', color: '#16a34a' }}
+                  style={{ background: 'var(--safe-bg)', color: 'var(--safe)' }}
                 >
                   {policyEffectCounts['ALLOW']} Allow
                 </span>

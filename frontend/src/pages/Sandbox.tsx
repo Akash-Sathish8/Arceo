@@ -10,7 +10,6 @@ import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { scoreToColor, timeAgo } from '@/lib/utils'
 import { chainShortLabel } from '@/lib/chainLabels'
-import Tooltip from '@/components/shared/Tooltip'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -109,16 +108,17 @@ const CATEGORY_TOOLTIPS: Partial<Record<ScenarioCategory, string>> = {
 }
 
 const SEVERITY_COLORS: Record<string, { bg: string; color: string; border: string }> = {
-  critical: { bg: '#fef2f2', color: '#dc2626', border: '#fca5a5' },
-  high:     { bg: '#fff7ed', color: '#ea580c', border: '#fdba74' },
-  medium:   { bg: '#fefce8', color: '#ca8a04', border: '#fde68a' },
-  info:     { bg: '#edf5fb', color: '#4B9CD3', border: '#7DB8E0' },
+  /* Filled, not tinted — critical must read differently from high at a glance. */
+  critical: { bg: 'var(--critical)', color: '#fff', border: 'var(--critical)' },
+  high:     { bg: 'var(--high-bg)', color: 'var(--high)', border: 'var(--high-line)' },
+  medium:   { bg: 'var(--caution-bg)', color: 'var(--caution)', border: 'var(--caution-line)' },
+  info:     { bg: 'var(--accent-soft)', color: 'var(--accent-ink)', border: 'var(--accent-line)' },
 }
 
 const CATEGORY_COLORS: Record<string, { bg: string; color: string }> = {
-  normal:       { bg: '#f0fdf4', color: '#16a34a' },
-  edge_case:    { bg: '#fff7ed', color: '#ea580c' },
-  adversarial:  { bg: '#fef2f2', color: '#dc2626' },
+  normal:       { bg: 'var(--safe-bg)', color: 'var(--safe)' },
+  edge_case:    { bg: 'var(--high-bg)', color: 'var(--high)' },
+  adversarial:  { bg: 'var(--critical-bg)', color: 'var(--critical)' },
   chain_exploit:{ bg: '#f5f3ff', color: '#7c3aed' },
 }
 
@@ -503,14 +503,14 @@ export default function Sandbox() {
   const sel = agents.find((a) => a.id === selectedAgent)
 
   return (
-    <div className="p-10 space-y-8">
+    <div className="space-y-8" style={{ padding: '34px 40px 64px', maxWidth: 1140, margin: '0 auto', fontFamily: 'var(--font-sans)' }}>
       {/* Page header */}
       <div>
-        <h1 className="text-2xl font-bold tracking-tight text-gray-900">Sandbox</h1>
-        <p className="text-sm text-gray-500 mt-2">
-          Run agents against mock APIs to test how they behave before they touch real systems.
+        <h1 style={{ fontSize: 'var(--fs-page)', fontWeight: 600, color: 'var(--ink-900)', letterSpacing: -0.3, margin: 0 }}>Sandbox</h1>
+        <p className="text-sm text-gray-500 mt-2" style={{ marginBottom: 0 }}>
+          Test agents against mock APIs before they touch real systems.
         </p>
-        <div className="flex mt-6">
+        <div className="flex mt-6" style={{ borderBottom: '1px solid var(--line)' }}>
           {([
             { id: 'run' as const, label: 'Run Simulation' },
             { id: 'past' as const, label: `Past Runs${simTotal > 0 ? ` (${simTotal})` : ''}` },
@@ -523,9 +523,9 @@ export default function Sandbox() {
                 border: 'none',
                 padding: '8px 16px 10px',
                 fontSize: 13,
-                fontWeight: sandboxTab === t.id ? 600 : 400,
-                color: sandboxTab === t.id ? 'var(--text-primary)' : 'var(--text-secondary)',
-                borderBottom: sandboxTab === t.id ? '2px solid var(--text-primary)' : '2px solid transparent',
+                fontWeight: sandboxTab === t.id ? 600 : 500,
+                color: sandboxTab === t.id ? 'var(--accent)' : 'var(--ink-500)',
+                borderBottom: sandboxTab === t.id ? '2px solid var(--accent)' : '2px solid transparent',
                 marginBottom: '-1px',
                 cursor: 'pointer',
                 fontFamily: 'inherit',
@@ -640,59 +640,48 @@ export default function Sandbox() {
         {/* Run buttons */}
         <div className="flex flex-wrap gap-2">
           <button
-            className="flex flex-col items-start text-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            style={{ background: 'var(--color-cta)', color: 'var(--text-inverse)', borderRadius: 'var(--radius-full)', border: 'none', padding: '8px 20px', fontFamily: 'inherit', cursor: 'pointer' }}
+            className="inline-flex items-center gap-1.5 text-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            style={{ background: 'var(--color-cta)', color: 'var(--text-inverse)', borderRadius: 'var(--radius-full)', border: 'none', padding: '9px 20px', fontFamily: 'inherit', cursor: 'pointer' }}
             onClick={() => { setRunMode('dry'); handleRun(true) }}
             disabled={(selectedScenarios.length === 0 && queuedCustomPrompts.length === 0) || !selectedAgent || running || sweeping}
-            title="Mocked APIs · enforces policies · no LLM call (free)"
+            title="Mocked APIs · enforces policies · no LLM call — free"
           >
-            <span className="flex items-center gap-1.5">
-              <Play size={13} />
-              {running && lastRunMode === 'dry-run'
-                ? runProgress && runProgress.total > 1
-                  ? `Running ${runProgress.current} of ${runProgress.total}...`
-                  : 'Running...'
-                : selectedScenarios.length > 1
-                ? `Test (mock APIs) · ${selectedScenarios.length}`
-                : 'Test (mock APIs)'}
-            </span>
-            <span className="text-[11px] opacity-70 mt-0.5">No LLM call · free</span>
+            <Play size={13} />
+            {running && lastRunMode === 'dry-run'
+              ? runProgress && runProgress.total > 1
+                ? `Running ${runProgress.current} of ${runProgress.total}...`
+                : 'Running...'
+              : selectedScenarios.length > 1
+              ? `Test (mock APIs) · ${selectedScenarios.length}`
+              : 'Test (mock APIs)'}
           </button>
 
           <button
-            className="flex flex-col items-start text-sm disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            style={{ background: 'transparent', border: '1px solid var(--border-strong)', color: 'var(--text-primary)', borderRadius: 'var(--radius-full)', padding: '7px 16px', fontFamily: 'inherit', cursor: 'pointer' }}
+            className="inline-flex items-center gap-1.5 text-sm disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            style={{ background: 'transparent', border: '1px solid var(--border-strong)', color: 'var(--text-primary)', borderRadius: 'var(--radius-full)', padding: '8px 16px', fontFamily: 'inherit', cursor: 'pointer' }}
             onClick={() => { setRunMode('llm'); handleRun(false) }}
             disabled={(selectedScenarios.length === 0 && queuedCustomPrompts.length === 0) || !selectedAgent || running || sweeping}
-            title="Mocked APIs · enforces policies · uses a real LLM (~$0.05 per run)"
+            title="Mocked APIs · enforces policies · uses a real LLM — about $0.05 per run"
           >
-            <span className="flex items-center gap-1.5">
-              <Cpu size={13} />
-              {running && lastRunMode === 'llm'
-                ? runProgress && runProgress.total > 1
-                  ? `Running ${runProgress.current} of ${runProgress.total}...`
-                  : 'Running...'
-                : selectedScenarios.length > 1
-                ? `Test (real LLM) · ${selectedScenarios.length}`
-                : 'Test (real LLM)'}
-            </span>
-            <span className="text-[11px] opacity-60 mt-0.5">Uses an LLM · ~$0.05 per run</span>
+            <Cpu size={13} />
+            {running && lastRunMode === 'llm'
+              ? runProgress && runProgress.total > 1
+                ? `Running ${runProgress.current} of ${runProgress.total}...`
+                : 'Running...'
+              : selectedScenarios.length > 1
+              ? `Test (real LLM) · ${selectedScenarios.length}`
+              : 'Test (real LLM)'}
           </button>
 
           <button
-            className="flex flex-col items-start text-sm disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            style={{ background: 'transparent', border: '1px solid var(--border-strong)', color: 'var(--text-primary)', borderRadius: 'var(--radius-full)', padding: '7px 16px', fontFamily: 'inherit', cursor: 'pointer' }}
+            className="inline-flex items-center gap-1.5 text-sm disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            style={{ background: 'transparent', border: '1px solid var(--border-strong)', color: 'var(--text-primary)', borderRadius: 'var(--radius-full)', padding: '8px 16px', fontFamily: 'inherit', cursor: 'pointer' }}
             onClick={() => handleSweep(true)}
             disabled={!selectedAgent || running || sweeping}
-            title="Run every scenario for this agent — full risk coverage report"
+            title="Run every scenario against mock APIs — free, takes 30–60 seconds"
           >
-            <span className="flex items-center gap-1.5">
-              <Zap size={13} />
-              {sweeping ? 'Sweeping... (30–60 seconds)' : 'Sweep all scenarios'}
-            </span>
-            <span className="text-[11px] opacity-70 mt-0.5">
-              {sweeping ? 'running all scenarios' : 'Every scenario · mock APIs · free'}
-            </span>
+            <Zap size={13} />
+            {sweeping ? 'Sweeping... (30–60 seconds)' : 'Sweep all scenarios'}
           </button>
         </div>
 
@@ -777,7 +766,7 @@ export default function Sandbox() {
             <div className="flex-1 flex flex-wrap items-center gap-1.5 min-w-0">
               {selectedScenarios.length === 0 && queuedCustomPrompts.length === 0 && (
                 <span className="text-xs text-gray-400 italic">
-                  No scenarios selected — click a scenario below or add a custom prompt
+                  Click scenarios below to queue them
                 </span>
               )}
               {selectedScenarios.map((s) => {
@@ -897,18 +886,9 @@ export default function Sandbox() {
                     ? { background: 'var(--color-cta)', color: 'var(--text-inverse)', borderRadius: 'var(--radius-full)', border: 'none', fontFamily: 'inherit', cursor: 'pointer' }
                     : { background: 'var(--bg-sunken)', color: 'var(--text-secondary)', borderRadius: 'var(--radius-full)', border: 'none', fontFamily: 'inherit', cursor: 'pointer' }}
                   onClick={() => setCategoryFilter(f.value)}
+                  title={CATEGORY_TOOLTIPS[f.value as ScenarioCategory]}
                 >
                   {f.label}
-                  {f.value === 'normal' && (
-                    <span style={{ fontSize: 10, fontWeight: 700, background: '#16a34a', color: '#fff', borderRadius: 4, padding: '1px 6px', letterSpacing: '0.02em', lineHeight: 1.6 }}>Start here</span>
-                  )}
-                  {CATEGORY_TOOLTIPS[f.value as ScenarioCategory] && (
-                    <Tooltip text={CATEGORY_TOOLTIPS[f.value as ScenarioCategory]!}>
-                      <span className="w-3.5 h-3.5 rounded-full bg-gray-300 text-gray-700 text-[9px] flex items-center justify-center font-bold cursor-default">
-                        ?
-                      </span>
-                    </Tooltip>
-                  )}
                   <span className={`text-[10px] ${categoryFilter === f.value ? 'opacity-70' : 'text-gray-400'}`}>
                     {count}
                   </span>
@@ -919,8 +899,8 @@ export default function Sandbox() {
 
           {/* Scenario grid */}
           {loadingScenarios ? (
-            <div className="flex items-center justify-center py-16">
-              <div className="w-6 h-6 border-2 border-gray-200 border-t-gray-700 rounded-full animate-spin" />
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5" aria-busy="true" aria-label="Loading scenarios">
+              {[0, 1, 2, 3, 4, 5].map((i) => <div key={i} className="skeleton" style={{ height: 120 }} />)}
             </div>
           ) : filteredScenarios.length === 0 ? (
             <div className="flex items-center justify-center py-16 text-sm text-gray-400">
@@ -932,13 +912,6 @@ export default function Sandbox() {
                 const cat = CATEGORY_COLORS[s.category] ?? CATEGORY_COLORS.normal
                 const sev = SEVERITY_COLORS[s.severity] ?? SEVERITY_COLORS.info
                 const isSelected = selectedScenarios.some((x) => x.id === s.id)
-                const borderColor =
-                  s.severity === 'critical' ? '#dc2626'
-                  : s.severity === 'high'     ? '#ea580c'
-                  : s.category === 'normal'   ? '#16a34a'
-                  : s.category === 'chain_exploit' ? '#7c3aed'
-                  : s.category === 'adversarial'   ? '#dc2626'
-                  : undefined
 
                 return (
                   <div
@@ -946,7 +919,6 @@ export default function Sandbox() {
                     className={`bg-white border border-gray-200 rounded-xl shadow-sm p-5 cursor-pointer hover:border-gray-300 hover:shadow-md transition-all ${
                       isSelected ? 'ring-2 ring-gray-900 ring-offset-1' : ''
                     }`}
-                    style={borderColor ? { borderLeftWidth: 3, borderLeftColor: borderColor } : undefined}
                     onClick={() => toggleScenario(s)}
                   >
                     <div className="flex flex-wrap items-center gap-1.5 mb-2">

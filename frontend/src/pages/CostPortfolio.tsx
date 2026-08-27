@@ -1132,7 +1132,7 @@ function CostPortfolioContent({
             <div className="text-xs text-gray-600 mb-3">
               Spent <span className="mono font-semibold text-gray-900">${savedBudget.monthToDateUsd.toLocaleString()}</span> of
               your <span className="mono">${savedBudget.budget.toLocaleString()}</span> alert budget this month
-              {savedBudget.pctUsed != null && <> (<strong className={savedBudget.pctUsed >= (savedBudget.alertThresholdPct ?? 80) ? "" : "text-gray-900"} style={savedBudget.pctUsed >= (savedBudget.alertThresholdPct ?? 80) ? { color: "var(--severity-critical, #dc2626)" } : undefined}>{savedBudget.pctUsed}%</strong>)</>}.
+              {savedBudget.pctUsed != null && <> (<strong className={savedBudget.pctUsed >= (savedBudget.alertThresholdPct ?? 80) ? "" : "text-gray-900"} style={savedBudget.pctUsed >= (savedBudget.alertThresholdPct ?? 80) ? { color: "var(--severity-critical, var(--critical))" } : undefined}>{savedBudget.pctUsed}%</strong>)</>}.
               {savedBudget.alertThresholdPct != null && <span className="text-gray-400"> Slack alert at {savedBudget.alertThresholdPct}%.</span>}
             </div>
           )}
@@ -1159,7 +1159,7 @@ function CostPortfolioContent({
                 <>
                   <div
                     className="flex items-center gap-2 text-sm px-3 py-2.5 rounded-lg mb-3"
-                    style={{ background: "var(--severity-critical-bg)", border: "1px solid var(--severity-critical-border, var(--border))", color: "var(--severity-critical, #dc2626)" }}
+                    style={{ background: "var(--severity-critical-bg)", border: "1px solid var(--severity-critical-border, var(--border))", color: "var(--severity-critical, var(--critical))" }}
                   >
                     <AlertTriangle size={15} />
                     <span>
@@ -1179,7 +1179,7 @@ function CostPortfolioContent({
                               </div>
                             )}
                             {r.riskReductionUsd ? (
-                              <div className="text-[11px] mono" style={{ color: "var(--severity-critical, #dc2626)" }}>
+                              <div className="text-[11px] mono" style={{ color: "var(--severity-critical, var(--critical))" }}>
                                 −${r.riskReductionUsd.toLocaleString()} risk
                               </div>
                             ) : null}
@@ -1203,7 +1203,7 @@ function CostPortfolioContent({
                     ))}
                   </div>
                   <div className="text-[11px] text-gray-400 mt-3">
-                    We rank options by impact and show the trade-off — we only auto-apply the guardrail (the rest are your call). Spikes above your usual rate already alert via Slack (Settings).
+                    Only the guardrail auto-applies — the rest are your call.
                   </div>
                 </>
               )}

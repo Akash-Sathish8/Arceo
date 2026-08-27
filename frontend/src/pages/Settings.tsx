@@ -316,7 +316,7 @@ function CostOverridesSection({ inputStyle }: { inputStyle: React.CSSProperties 
                         <input
                           style={{
                             ...cellInputStyle,
-                            border: ov ? "2px solid var(--severity-safe, #16a34a)" : cellInputStyle.border,
+                            border: ov ? "2px solid var(--severity-safe, var(--safe))" : cellInputStyle.border,
                           }}
                           value={shown}
                           onChange={(e) => setDrafts((d) => ({ ...d, [draftKey]: e.target.value }))}
@@ -325,7 +325,7 @@ function CostOverridesSection({ inputStyle }: { inputStyle: React.CSSProperties 
                           title={ov ? `Custom rate (list: ${def})` : "List rate"}
                         />
                         {ov && (
-                          <span style={{ position: "absolute", top: -7, right: -6, fontSize: 9, fontWeight: 700, background: "var(--severity-safe-bg, #dcfce7)", color: "var(--severity-safe, #16a34a)", borderRadius: 6, padding: "1px 5px" }}>
+                          <span style={{ position: "absolute", top: -7, right: -6, fontSize: 9, fontWeight: 700, background: "var(--severity-safe-bg, #dcfce7)", color: "var(--severity-safe, var(--safe))", borderRadius: 6, padding: "1px 5px" }}>
                             CUSTOM
                           </span>
                         )}
@@ -354,7 +354,7 @@ function CostOverridesSection({ inputStyle }: { inputStyle: React.CSSProperties 
           Added to every agent call to cover compute, observability, and plumbing. Default ${infraDefault}.
         </p>
         <input
-          style={{ ...cellInputStyle, width: 160, border: infraOverride ? "2px solid var(--severity-safe, #16a34a)" : cellInputStyle.border }}
+          style={{ ...cellInputStyle, width: 160, border: infraOverride ? "2px solid var(--severity-safe, var(--safe))" : cellInputStyle.border }}
           value={drafts["infra|per_call_overhead_usd|"] ?? String(infraOverride?.value ?? infraDefault)}
           onChange={(e) => setDrafts((d) => ({ ...d, "infra|per_call_overhead_usd|": e.target.value }))}
           onBlur={(e) => commitCell("infra", "per_call_overhead_usd", "", infraDefault, e.target.value)}
@@ -1015,8 +1015,8 @@ if (await enforce("Stripe", "create_refund", { amount: 500 })) {
                           fontWeight: 700,
                           padding: "2px 6px",
                           borderRadius: 4,
-                          background: "#f0fdf4",
-                          color: "#16a34a",
+                          background: "var(--safe-bg)",
+                          color: "var(--safe)",
                           whiteSpace: "nowrap",
                         }}
                       >
@@ -1034,8 +1034,8 @@ if (await enforce("Stripe", "create_refund", { amount: 500 })) {
                           fontWeight: 700,
                           padding: "2px 6px",
                           borderRadius: 4,
-                          background: "#fef2f2",
-                          color: "#dc2626",
+                          background: "var(--critical-bg)",
+                          color: "var(--critical)",
                           whiteSpace: "nowrap",
                         }}
                       >
@@ -1053,8 +1053,8 @@ if (await enforce("Stripe", "create_refund", { amount: 500 })) {
                           fontWeight: 700,
                           padding: "2px 6px",
                           borderRadius: 4,
-                          background: "#fefce8",
-                          color: "#ca8a04",
+                          background: "var(--caution-bg)",
+                          color: "var(--caution)",
                           whiteSpace: "nowrap",
                         }}
                       >
@@ -1125,7 +1125,7 @@ if (await enforce("Stripe", "create_refund", { amount: 500 })) {
                   <div
                     style={{
                       border: "1px solid #bbf7d0",
-                      background: "#f0fdf4",
+                      background: "var(--safe-bg)",
                       borderRadius: "var(--radius-lg)",
                       padding: 16,
                       display: "flex",
@@ -1191,7 +1191,7 @@ if (await enforce("Stripe", "create_refund", { amount: 500 })) {
                             </code>
                           </div>
                         </div>
-                        <p style={{ fontSize: 11, color: "#16a34a", margin: 0 }}>
+                        <p style={{ fontSize: 11, color: "var(--safe)", margin: 0 }}>
                           They can change their password after signing in.
                         </p>
                       </>
@@ -1257,7 +1257,7 @@ if (await enforce("Stripe", "create_refund", { amount: 500 })) {
                         style={{
                           marginTop: 10,
                           border: "1px solid var(--severity-critical-border, #fecaca)",
-                          background: "var(--severity-critical-bg, #fef2f2)",
+                          background: "var(--severity-critical-bg, var(--critical-bg))",
                           color: "var(--severity-critical, #b91c1c)",
                           borderRadius: "var(--radius-lg)",
                           padding: "10px 12px",

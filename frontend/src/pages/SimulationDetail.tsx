@@ -94,7 +94,7 @@ function SimpleView({ data, depth = 0 }: { data: unknown; depth?: number }) {
     return <span style={{ color: "var(--text-muted)", fontStyle: "italic" }}>null</span>;
   }
   if (typeof data === "boolean") {
-    return <span style={{ color: data ? "#16a34a" : "#dc2626" }}>{String(data)}</span>;
+    return <span style={{ color: data ? "var(--safe)" : "var(--critical)" }}>{String(data)}</span>;
   }
   if (typeof data === "number") {
     return <span style={{ color: "var(--color-accent)" }}>{data}</span>;
@@ -133,17 +133,18 @@ function SimpleView({ data, depth = 0 }: { data: unknown; depth?: number }) {
 }
 
 const SEVERITY_STYLES: Record<string, { bg: string; color: string }> = {
-  critical: { bg: "#fef2f2", color: "#dc2626" },
-  high: { bg: "#fff7ed", color: "#ea580c" },
-  medium: { bg: "#fefce8", color: "#ca8a04" },
-  low: { bg: "#f0fdf4", color: "#16a34a" },
+  /* Filled, not tinted — critical must read differently from high at a glance. */
+  critical: { bg: "var(--critical)", color: "#fff" },
+  high: { bg: "var(--high-bg)", color: "var(--high)" },
+  medium: { bg: "var(--caution-bg)", color: "var(--caution)" },
+  low: { bg: "var(--safe-bg)", color: "var(--safe)" },
 };
 
 function ScoreRing({ score }: { score: number }) {
   const radius = 44;
   const circ = 2 * Math.PI * radius;
   const dash = (score / 100) * circ;
-  const color = score >= 70 ? "#dc2626" : score >= 40 ? "#d97706" : "#16a34a";
+  const color = score >= 70 ? "var(--critical)" : score >= 40 ? "var(--high)" : "var(--safe)";
   const label = score >= 70 ? "Critical" : score >= 40 ? "High" : "Safe";
 
   return (
@@ -187,8 +188,8 @@ function StepRow({ step }: { step: TraceStep }) {
         <div
           className="flex items-center justify-center w-5 h-5 rounded-full flex-shrink-0"
           style={{
-            backgroundColor: step.allowed ? "#d1fae5" : "#fee2e2",
-            color: step.allowed ? "#065f46" : "#991b1b",
+            backgroundColor: step.allowed ? "var(--safe-bg)" : "var(--critical-bg)",
+            color: step.allowed ? "var(--safe)" : "var(--critical)",
           }}
         >
           {step.allowed ? <CheckCircle size={12} /> : <XCircle size={12} />}
@@ -544,13 +545,13 @@ export default function SimulationDetail() {
       {report?.detection_grade && report.detection_grade.expected.length > 0 && (
         <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-6">
           <h3 className="font-semibold mb-2 flex items-center gap-2" style={{ fontSize: 15, color: "var(--text-primary)" }}>
-            <Crosshair size={16} style={{ color: report.detection_grade.passed ? "#16a34a" : "#ea580c" }} />
+            <Crosshair size={16} style={{ color: report.detection_grade.passed ? "var(--safe)" : "var(--high)" }} />
             Detection accuracy
             <span
               className="text-xs font-semibold px-2 py-0.5 rounded-full"
               style={report.detection_grade.passed
-                ? { background: "#f0fdf4", color: "#16a34a" }
-                : { background: "#fff7ed", color: "#ea580c" }}
+                ? { background: "var(--safe-bg)", color: "var(--safe)" }
+                : { background: "var(--high-bg)", color: "var(--high)" }}
             >
               {report.detection_grade.passed ? "All expected violations detected" : "Missed expected violations"}
             </span>
@@ -587,7 +588,7 @@ export default function SimulationDetail() {
               <span style={{ fontSize: 12, color: "var(--text-secondary)", marginTop: 2 }}>Missed:</span>
               {report.detection_grade.missed.map((label) => (
                 <span key={label} className="text-xs px-2 py-0.5 rounded-full font-medium"
-                      style={{ background: "#fef2f2", color: "#dc2626" }}>
+                      style={{ background: "var(--critical-bg)", color: "var(--critical)" }}>
                   {label}
                 </span>
               ))}

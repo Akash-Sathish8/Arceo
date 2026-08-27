@@ -1,17 +1,23 @@
 import { useState, useEffect, useCallback } from "react";
 import { Link } from "react-router-dom";
-import { Link2, CheckCircle, Square, CheckSquare } from "lucide-react";
+import { Link2, CheckCircle, Square, CheckSquare, ArrowUpDown, X } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { toast } from "@/components/shared/Toast";
 import { scoreBand, scoreToColor } from "@/lib/utils";
 import { chainShortLabel, chainNarrative } from "@/lib/chainLabels";
 import Tooltip from "@/components/shared/Tooltip";
 import ErrorState from "@/components/shared/ErrorState";
+import PageHeader from "@/components/shared/PageHeader";
 import { RISK_SCORE_METHODOLOGY, OVER_PERMISSION_METHODOLOGY } from "@/lib/methodology";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const AGENT_COLORS = ["#2563eb", "#16a34a", "#ea580c", "#7c3aed", "#0d9488"] as const;
+/* Agent-identity colors (trace steps, chips). Deliberately distinct from the
+   severity palette — the old set reused safe-green and high-orange, which made
+   agent chips read as status. Order validated for CVD + normal-vision
+   separation (dataviz six-checks, 2026-08-27); agent names always accompany
+   the color, so identity is never color-alone. */
+const AGENT_COLORS = ["#c2417f", "#2E7BB0", "#8b5cf6", "#0d9488"] as const;
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -221,10 +227,10 @@ function OptimizeResult({ result, onApply, applying, appliedCount }: OptimizeRes
 
   const verdictColor =
     overall_optimization_score < 20
-      ? "#16a34a"
+      ? "var(--safe)"
       : overall_optimization_score < 50
-      ? "#ea580c"
-      : "#dc2626";
+      ? "var(--high)"
+      : "var(--critical)";
 
   return (
     <div
@@ -265,36 +271,36 @@ function OptimizeResult({ result, onApply, applying, appliedCount }: OptimizeRes
             style={{
               fontSize: 20,
               fontWeight: 700,
-              color: total_overprivileged > 0 ? "#dc2626" : "#16a34a",
+              color: total_overprivileged > 0 ? "var(--critical)" : "var(--safe)",
             }}
           >
             {total_overprivileged}
           </div>
-          <div style={{ fontSize: 11, color: "#6b7280" }}>Permissions not needed</div>
+          <div style={{ fontSize: 11, color: "var(--ink-500)" }}>Permissions not needed</div>
         </div>
         <div style={{ textAlign: "center" }}>
           <div
             style={{
               fontSize: 20,
               fontWeight: 700,
-              color: total_permission_gaps > 0 ? "#ea580c" : "#16a34a",
+              color: total_permission_gaps > 0 ? "var(--high)" : "var(--safe)",
             }}
           >
             {total_permission_gaps}
           </div>
-          <div style={{ fontSize: 11, color: "#6b7280" }}>Permissions missing</div>
+          <div style={{ fontSize: 11, color: "var(--ink-500)" }}>Permissions missing</div>
         </div>
         <div style={{ textAlign: "center" }}>
           <div
             style={{
               fontSize: 20,
               fontWeight: 700,
-              color: totalApprovalGates > 0 ? "#ca8a04" : "#16a34a",
+              color: totalApprovalGates > 0 ? "var(--caution)" : "var(--safe)",
             }}
           >
             {totalApprovalGates}
           </div>
-          <div style={{ fontSize: 11, color: "#6b7280" }}>Steps needing sign-off</div>
+          <div style={{ fontSize: 11, color: "var(--ink-500)" }}>Steps needing sign-off</div>
         </div>
         <Tooltip content={OVER_PERMISSION_METHODOLOGY}>
           <div style={{ textAlign: "center", cursor: "help" }}>
@@ -304,15 +310,15 @@ function OptimizeResult({ result, onApply, applying, appliedCount }: OptimizeRes
                 fontWeight: 700,
                 color:
                   overall_optimization_score > 50
-                    ? "#dc2626"
+                    ? "var(--critical)"
                     : overall_optimization_score > 20
-                    ? "#ea580c"
-                    : "#16a34a",
+                    ? "var(--high)"
+                    : "var(--safe)",
               }}
             >
               {overall_optimization_score}
             </div>
-            <div style={{ fontSize: 11, color: "#6b7280" }}>Excess-permission score</div>
+            <div style={{ fontSize: 11, color: "var(--ink-500)" }}>Excess permissions</div>
           </div>
         </Tooltip>
       </div>
@@ -339,7 +345,7 @@ function OptimizeResult({ result, onApply, applying, appliedCount }: OptimizeRes
             <span style={{ fontSize: 13, fontWeight: 600, color: "var(--text-primary)" }}>
               {agent.agent_name}
             </span>
-            <span style={{ fontSize: 12, color: "#6b7280" }}>{agent.summary}</span>
+            <span style={{ fontSize: 12, color: "var(--ink-500)" }}>{agent.summary}</span>
           </div>
 
           {agent.overprivileged && agent.overprivileged.length > 0 && (
@@ -350,7 +356,7 @@ function OptimizeResult({ result, onApply, applying, appliedCount }: OptimizeRes
                   fontWeight: 600,
                   textTransform: "uppercase",
                   letterSpacing: "0.05em",
-                  color: "#dc2626",
+                  color: "var(--critical)",
                   marginBottom: 4,
                 }}
               >
@@ -368,8 +374,8 @@ function OptimizeResult({ result, onApply, applying, appliedCount }: OptimizeRes
                       padding: "2px 6px",
                       borderRadius: 4,
                       ...(item.severity === "high"
-                        ? { background: "#fef2f2", color: "#dc2626" }
-                        : { background: "#fff7ed", color: "#ea580c" }),
+                        ? { background: "var(--critical)", color: "#fff" }
+                        : { background: "var(--high-bg)", color: "var(--high)" }),
                     }}
                   >
                     {item.severity?.toUpperCase()}
@@ -378,7 +384,7 @@ function OptimizeResult({ result, onApply, applying, appliedCount }: OptimizeRes
                     <code style={{ fontSize: 12, fontFamily: "monospace", color: "#1f2937" }}>
                       {item.action}
                     </code>
-                    <span style={{ fontSize: 12, color: "#6b7280", marginLeft: 8 }}>
+                    <span style={{ fontSize: 12, color: "var(--ink-500)", marginLeft: 8 }}>
                       {item.reason}
                     </span>
                   </div>
@@ -388,8 +394,8 @@ function OptimizeResult({ result, onApply, applying, appliedCount }: OptimizeRes
                       fontWeight: 700,
                       padding: "2px 6px",
                       borderRadius: 4,
-                      background: "#fef2f2",
-                      color: "#dc2626",
+                      background: "var(--critical-bg)",
+                      color: "var(--critical)",
                     }}
                   >
                     BLOCK
@@ -407,7 +413,7 @@ function OptimizeResult({ result, onApply, applying, appliedCount }: OptimizeRes
                   fontWeight: 600,
                   textTransform: "uppercase",
                   letterSpacing: "0.05em",
-                  color: "#ea580c",
+                  color: "var(--high)",
                   marginBottom: 4,
                 }}
               >
@@ -422,7 +428,7 @@ function OptimizeResult({ result, onApply, applying, appliedCount }: OptimizeRes
                     <code style={{ fontSize: 12, fontFamily: "monospace", color: "#1f2937" }}>
                       {item.action}
                     </code>
-                    <span style={{ fontSize: 12, color: "#6b7280", marginLeft: 8 }}>
+                    <span style={{ fontSize: 12, color: "var(--ink-500)", marginLeft: 8 }}>
                       {item.reason}
                     </span>
                   </div>
@@ -432,8 +438,8 @@ function OptimizeResult({ result, onApply, applying, appliedCount }: OptimizeRes
                       fontWeight: 700,
                       padding: "2px 6px",
                       borderRadius: 4,
-                      background: "#fff7ed",
-                      color: "#ea580c",
+                      background: "var(--high-bg)",
+                      color: "var(--high)",
                     }}
                   >
                     REVIEW
@@ -469,7 +475,7 @@ function OptimizeResult({ result, onApply, applying, appliedCount }: OptimizeRes
                       padding: "2px 6px",
                       borderRadius: 4,
                       background: "#fefce8",
-                      color: "#ca8a04",
+                      color: "var(--caution)",
                     }}
                   >
                     {chain.severity?.toUpperCase()}
@@ -478,7 +484,7 @@ function OptimizeResult({ result, onApply, applying, appliedCount }: OptimizeRes
                     <span style={{ fontSize: 12, fontWeight: 500, color: "#1f2937" }}>
                       {chainShortLabel(chain.chain_id ?? chain.chain_name)}
                     </span>
-                    <span style={{ fontSize: 12, color: "#6b7280", marginLeft: 8 }}>
+                    <span style={{ fontSize: 12, color: "var(--ink-500)", marginLeft: 8 }}>
                       {agent.agent_name} → {chain.to_agent} — a person approves before this handoff runs
                     </span>
                   </div>
@@ -489,7 +495,7 @@ function OptimizeResult({ result, onApply, applying, appliedCount }: OptimizeRes
                       padding: "2px 6px",
                       borderRadius: 4,
                       background: "#fefce8",
-                      color: "#ca8a04",
+                      color: "var(--caution)",
                       whiteSpace: "nowrap",
                     }}
                   >
@@ -509,7 +515,7 @@ function OptimizeResult({ result, onApply, applying, appliedCount }: OptimizeRes
                   alignItems: "center",
                   gap: 6,
                   fontSize: 12,
-                  color: "#16a34a",
+                  color: "var(--safe)",
                   fontWeight: 500,
                 }}
               >
@@ -530,7 +536,7 @@ function OptimizeResult({ result, onApply, applying, appliedCount }: OptimizeRes
                 alignItems: "center",
                 gap: 6,
                 fontSize: 13,
-                color: "#16a34a",
+                color: "var(--safe)",
                 fontWeight: 500,
               }}
             >
@@ -601,7 +607,7 @@ function WorkflowResult({ result, agentNames, agentColors, mode }: WorkflowResul
             borderRadius: "var(--radius-full)",
             ...(mode === "llm"
               ? { background: "var(--accent-soft)", color: "var(--accent-ink)" }
-              : { background: "var(--bg-sunken)", color: "#6b7280" }),
+              : { background: "var(--bg-sunken)", color: "var(--ink-500)" }),
           }}
         >
           {mode === "llm" ? "Driven by Claude" : "Capability sweep — no LLM"}
@@ -622,40 +628,40 @@ function WorkflowResult({ result, agentNames, agentColors, mode }: WorkflowResul
             style={{
               fontSize: 20,
               fontWeight: 700,
-              color: violations.length > 0 ? "#dc2626" : "#16a34a",
+              color: violations.length > 0 ? "var(--critical)" : "var(--safe)",
             }}
           >
             {violations.length}
           </div>
-          <div style={{ fontSize: 11, color: "#6b7280" }}>Rules broken</div>
+          <div style={{ fontSize: 11, color: "var(--ink-500)" }}>Rules broken</div>
         </div>
         <div style={{ textAlign: "center" }}>
           <div
             style={{
               fontSize: 20,
               fontWeight: 700,
-              color: allChains.length > 0 ? "#ea580c" : "#16a34a",
+              color: allChains.length > 0 ? "var(--high)" : "var(--safe)",
             }}
           >
             {allChains.length}
           </div>
-          <div style={{ fontSize: 11, color: "#6b7280" }}>Risky sequences</div>
+          <div style={{ fontSize: 11, color: "var(--ink-500)" }}>Risky sequences</div>
         </div>
         <div style={{ textAlign: "center" }}>
           <div style={{ fontSize: 20, fontWeight: 700, color: "var(--text-primary)" }}>{steps.length}</div>
-          <div style={{ fontSize: 11, color: "#6b7280" }}>Steps taken</div>
+          <div style={{ fontSize: 11, color: "var(--ink-500)" }}>Steps taken</div>
         </div>
         <div style={{ textAlign: "center" }}>
           <div
             style={{
               fontSize: 20,
               fontWeight: 700,
-              color: crossChains.length > 0 ? "#dc2626" : "#16a34a",
+              color: crossChains.length > 0 ? "var(--critical)" : "var(--safe)",
             }}
           >
             {crossChains.length}
           </div>
-          <div style={{ fontSize: 11, color: "#6b7280" }}>Risky handoffs</div>
+          <div style={{ fontSize: 11, color: "var(--ink-500)" }}>Risky handoffs</div>
         </div>
       </div>
 
@@ -681,7 +687,7 @@ function WorkflowResult({ result, agentNames, agentColors, mode }: WorkflowResul
               marginBottom: 8,
             }}
           >
-            <Link2 size={14} style={{ color: "#dc2626" }} />
+            <Link2 size={14} style={{ color: "var(--critical)" }} />
             Risky handoffs that happened in this test
           </div>
           {crossChains.map((c, i) => (
@@ -691,8 +697,7 @@ function WorkflowResult({ result, agentNames, agentColors, mode }: WorkflowResul
                 display: "flex",
                 alignItems: "flex-start",
                 gap: 8,
-                padding: "6px 0 6px 8px",
-                borderLeft: `2px solid ${c.severity === "critical" ? "#dc2626" : "#ea580c"}`,
+                padding: "6px 0",
               }}
             >
               <span
@@ -702,8 +707,8 @@ function WorkflowResult({ result, agentNames, agentColors, mode }: WorkflowResul
                   padding: "2px 6px",
                   borderRadius: 4,
                   ...(c.severity === "critical"
-                    ? { background: "#fef2f2", color: "#dc2626" }
-                    : { background: "#fff7ed", color: "#ea580c" }),
+                    ? { background: "var(--critical)", color: "#fff" }
+                    : { background: "var(--high-bg)", color: "var(--high)" }),
                 }}
               >
                 {c.severity?.toUpperCase()}
@@ -712,12 +717,12 @@ function WorkflowResult({ result, agentNames, agentColors, mode }: WorkflowResul
                 <span style={{ fontSize: 12, fontWeight: 500, color: "#1f2937" }}>
                   {chainShortLabel(c.chain_id ?? c.chain_name)}
                   {c.from_agent && c.to_agent && (
-                    <span style={{ fontWeight: 400, color: "#6b7280" }}>
+                    <span style={{ fontWeight: 400, color: "var(--ink-500)" }}>
                       {" "}· {c.from_agent} → {c.to_agent}
                     </span>
                   )}
                 </span>
-                <span style={{ fontSize: 12, color: "#6b7280" }}>
+                <span style={{ fontSize: 12, color: "var(--ink-500)" }}>
                   {chainNarrative(c.chain_id ?? c.chain_name)}
                 </span>
               </div>
@@ -735,7 +740,7 @@ function WorkflowResult({ result, agentNames, agentColors, mode }: WorkflowResul
               fontWeight: 600,
               textTransform: "uppercase",
               letterSpacing: "0.05em",
-              color: "#9ca3af",
+              color: "var(--ink-400)",
               marginBottom: 8,
             }}
           >
@@ -752,8 +757,8 @@ function WorkflowResult({ result, agentNames, agentColors, mode }: WorkflowResul
                   fontWeight: 700,
                   padding: "2px 6px",
                   borderRadius: 4,
-                  background: "#fef2f2",
-                  color: "#dc2626",
+                  background: "var(--critical-bg)",
+                  color: "var(--critical)",
                 }}
               >
                 {v.severity?.toUpperCase() || "HIGH"}
@@ -762,7 +767,7 @@ function WorkflowResult({ result, agentNames, agentColors, mode }: WorkflowResul
             </div>
           ))}
           {violations.length > 5 && (
-            <span style={{ fontSize: 12, color: "#9ca3af" }}>+{violations.length - 5} more</span>
+            <span style={{ fontSize: 12, color: "var(--ink-400)" }}>+{violations.length - 5} more</span>
           )}
         </div>
       )}
@@ -775,7 +780,7 @@ function WorkflowResult({ result, agentNames, agentColors, mode }: WorkflowResul
             fontWeight: 600,
             textTransform: "uppercase",
             letterSpacing: "0.05em",
-            color: "#9ca3af",
+            color: "var(--ink-400)",
             marginBottom: 8,
           }}
         >
@@ -785,7 +790,7 @@ function WorkflowResult({ result, agentNames, agentColors, mode }: WorkflowResul
           {steps.slice(0, 20).map((step, i) => {
             const stepAgentId = step.source_agent_id || step.agent_id || "";
             const decision = step.enforce_decision || step.decision;
-            const color = agentColors[stepAgentId] || "#9ca3af";
+            const color = agentColors[stepAgentId] || "var(--ink-400)";
             const agentName = agentNames[stepAgentId] || stepAgentId;
             const isBlocked = decision === "BLOCK";
             const isPending = decision === "REQUIRE_APPROVAL";
@@ -800,7 +805,7 @@ function WorkflowResult({ result, agentNames, agentColors, mode }: WorkflowResul
                   borderRadius: "var(--radius-md)",
                   fontSize: 12,
                   ...(isBlocked
-                    ? { background: "#fef2f2", border: "1px solid #fecaca" }
+                    ? { background: "var(--critical-bg)", border: "1px solid #fecaca" }
                     : isPending
                     ? { background: "#fefce8", border: "1px solid #fef08a" }
                     : { background: "var(--bg-sunken)" }),
@@ -840,7 +845,7 @@ function WorkflowResult({ result, agentNames, agentColors, mode }: WorkflowResul
                       padding: "2px 6px",
                       borderRadius: 4,
                       background: "#fecaca",
-                      color: "#dc2626",
+                      color: "var(--critical)",
                     }}
                   >
                     BLOCKED
@@ -854,7 +859,7 @@ function WorkflowResult({ result, agentNames, agentColors, mode }: WorkflowResul
                       padding: "2px 6px",
                       borderRadius: 4,
                       background: "#fef08a",
-                      color: "#ca8a04",
+                      color: "var(--caution)",
                     }}
                   >
                     PENDING
@@ -864,7 +869,7 @@ function WorkflowResult({ result, agentNames, agentColors, mode }: WorkflowResul
             );
           })}
           {steps.length > 20 && (
-            <div style={{ fontSize: 12, color: "#9ca3af", paddingLeft: 8 }}>
+            <div style={{ fontSize: 12, color: "var(--ink-400)", paddingLeft: 8 }}>
               +{steps.length - 20} more steps
             </div>
           )}
@@ -1166,25 +1171,12 @@ export default function Workflows() {
 
   if (loading) {
     return (
-      <div style={{ padding: 24, background: "var(--bg-card)" }}>
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            height: 192,
-          }}
-        >
-          <div
-            style={{
-              width: 24,
-              height: 24,
-              border: "2px solid var(--border-strong)",
-              borderTopColor: "var(--color-cta)",
-              borderRadius: "50%",
-              animation: "spin 0.8s linear infinite",
-            }}
-          />
+      <div style={{ padding: "34px 40px 64px", maxWidth: 1140, margin: "0 auto" }} aria-busy="true" aria-label="Loading workflows">
+        {/* Mirrors the page: header → left tool rail + right results column */}
+        <div className="skeleton" style={{ height: 30, width: 200 }} />
+        <div style={{ display: "flex", gap: 24, marginTop: 24 }}>
+          <div className="skeleton" style={{ height: 320, width: 360, flexShrink: 0 }} />
+          <div className="skeleton" style={{ height: 320, flex: 1 }} />
         </div>
       </div>
     );
@@ -1196,10 +1188,7 @@ export default function Workflows() {
 
   if (agents.length < 2) {
     return (
-      <div style={{ padding: 24, background: "var(--bg-card)" }}>
-        <Link to="/" style={{ fontSize: 13, color: "#6b7280", textDecoration: "none" }}>
-          ← All Agents
-        </Link>
+      <div style={{ padding: "34px 40px 64px", fontFamily: "var(--font-sans)", maxWidth: 1140, margin: "0 auto" }}>
         <div
           style={{
             display: "flex",
@@ -1213,11 +1202,11 @@ export default function Workflows() {
         >
           <Link2 size={32} style={{ color: "var(--border)", marginBottom: 16 }} />
           <h2 style={{ fontSize: 17, fontWeight: 600, color: "var(--text-primary)", marginBottom: 8 }}>
-            Multi-Agent Workflows
+            Test agents as a team
           </h2>
-          <p style={{ fontSize: 13, color: "#6b7280", maxWidth: 360, marginBottom: 24 }}>
-            You need at least 2 agents to define a workflow. Arceo will analyze cross-agent risk
-            chains — actions one agent takes that enable another to cause harm.
+          <p style={{ fontSize: 13, color: "var(--ink-500)", maxWidth: 380, marginBottom: 24, lineHeight: 1.55 }}>
+            This page needs at least 2 agents. Once you have a team, Arceo shows you where one
+            agent's work lets another cause harm — before anything runs for real.
           </p>
           <Link
             to="/?connect=true"
@@ -1239,28 +1228,17 @@ export default function Workflows() {
   }
 
   return (
-    <div style={{ padding: 24, background: "var(--bg-card)" }}>
-      {/* Back link */}
-      <Link to="/" style={{ fontSize: 13, color: "#6b7280", textDecoration: "none" }}>
-        ← All Agents
-      </Link>
+    <div style={{ padding: "34px 40px 64px", fontFamily: "var(--font-sans)", maxWidth: 1140, margin: "0 auto" }}>
+      <PageHeader
+        title="Workflows"
+        description="Map the risky handoffs between your agents, then test the whole flow safely."
+      />
 
-      {/* Header */}
-      <div style={{ marginTop: 16, marginBottom: 24 }}>
-        <h1 style={{ fontSize: 20, fontWeight: 600, color: "var(--text-primary)", margin: 0 }}>
-          Multi-Agent Workflows
-        </h1>
-        <p style={{ fontSize: 13, color: "#6b7280", marginTop: 4, marginBottom: 0 }}>
-          Some risks only appear when agents work together — one agent's output becomes another's
-          dangerous input. Pick the agents, find those handoffs, then test the workflow safely.
-        </p>
-      </div>
-
-      <div style={{ display: "flex", gap: 24, alignItems: "flex-start" }}>
+      <div style={{ display: "flex", gap: 24, alignItems: "flex-start", marginTop: 24 }}>
         {/* ── Left: Agent picker ── */}
         <div
           style={{
-            width: 320,
+            width: 360,
             flexShrink: 0,
             display: "flex",
             flexDirection: "column",
@@ -1282,14 +1260,14 @@ export default function Workflows() {
                 fontWeight: 600,
                 textTransform: "uppercase",
                 letterSpacing: "0.05em",
-                color: "#9ca3af",
+                color: "var(--ink-400)",
                 marginBottom: 2,
               }}
             >
-              Test a team of agents
+              Pick your team
             </div>
-            <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 12 }}>
-              Select 2 or more agents. The first one you pick leads the workflow.
+            <div style={{ fontSize: 12, color: "var(--ink-500)", marginBottom: 12 }}>
+              Pick 2 or more — the first one leads.
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
               {agents.map((a) => {
@@ -1315,7 +1293,7 @@ export default function Workflows() {
                     {isSelected ? (
                       <CheckSquare size={15} style={{ color: "var(--accent)", flexShrink: 0 }} />
                     ) : (
-                      <Square size={15} style={{ color: "#d1d5db", flexShrink: 0 }} />
+                      <Square size={15} style={{ color: "var(--ink-300)", flexShrink: 0 }} />
                     )}
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div
@@ -1350,20 +1328,9 @@ export default function Workflows() {
                               flexShrink: 0,
                             }}
                           >
-                            LEAD
+                            Lead
                           </span>
                         )}
-                      </div>
-                      <div
-                        style={{
-                          fontSize: 11,
-                          color: "#9ca3af",
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
-                          whiteSpace: "nowrap",
-                        }}
-                      >
-                        {a.description || (a.tools || []).join(", ")}
                       </div>
                     </div>
                     <RiskPill score={a.blast_radius?.score || 0} />
@@ -1388,82 +1355,10 @@ export default function Workflows() {
                 opacity: allAgentIds.length < 2 || analyzing ? 0.5 : 1,
               }}
             >
-              {analyzing
-                ? "Checking…"
-                : `Find risky handoffs (${allAgentIds.length} agent${
-                    allAgentIds.length === 1 ? "" : "s"
-                  } selected)`}
+              {analyzing ? "Checking…" : "Map the risky handoffs"}
             </button>
           </div>
 
-          {/* Optimize panel */}
-          {allAgentIds.length >= 2 && (
-            <div
-              style={{
-                background: "var(--bg-card)",
-                border: "1px solid var(--border)",
-                borderRadius: "var(--radius-lg)",
-                padding: 16,
-                display: "flex",
-                flexDirection: "column",
-                gap: 12,
-              }}
-            >
-              <div>
-                <div
-                  style={{
-                    fontSize: 11,
-                    fontWeight: 600,
-                    textTransform: "uppercase",
-                    letterSpacing: "0.05em",
-                    color: "#9ca3af",
-                    marginBottom: 2,
-                  }}
-                >
-                  Right-size the permissions
-                </div>
-                <div style={{ fontSize: 12, color: "#6b7280" }}>
-                  Describe what this workflow is supposed to do. Arceo flags the permissions these
-                  agents don't need for it — and any they're missing.
-                </div>
-              </div>
-              <textarea
-                style={textareaStyle}
-                value={workflowDesc}
-                onChange={(e) => setWorkflowDesc(e.target.value)}
-                placeholder={`Example: "Handle customer refund requests — look up order, check eligibility, issue refund if under $500, escalate otherwise."`}
-                rows={3}
-                onFocus={(e) => {
-                  (e.target as HTMLTextAreaElement).style.borderColor = "var(--border-focus)";
-                }}
-                onBlur={(e) => {
-                  (e.target as HTMLTextAreaElement).style.borderColor = "transparent";
-                }}
-              />
-              <button
-                onClick={handleOptimize}
-                disabled={optimizing || !workflowDesc.trim()}
-                style={{
-                  width: "100%",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  background: "var(--color-cta)",
-                  color: "var(--text-inverse)",
-                  padding: "10px 20px",
-                  borderRadius: "var(--radius-lg)",
-                  fontSize: 13,
-                  fontWeight: 600,
-                  border: "none",
-                  whiteSpace: "nowrap",
-                  cursor: optimizing || !workflowDesc.trim() ? "not-allowed" : "pointer",
-                  opacity: optimizing || !workflowDesc.trim() ? 0.5 : 1,
-                }}
-              >
-                {optimizing ? "Checking permissions…" : "Check the permissions"}
-              </button>
-            </div>
-          )}
         </div>
 
         {/* ── Right: Results ── */}
@@ -1478,8 +1373,25 @@ export default function Workflows() {
                 border: "1px solid var(--border)",
                 borderRadius: "var(--radius-lg)",
                 padding: 16,
+                position: "relative",
               }}
             >
+              {/* Dismiss: clear the analysis (and anything built on it) and
+                  return to the default riskiest-combinations view */}
+              <button
+                onClick={() => { setStaticChains(null); setOptimizeResult(null); setResult(null); }}
+                aria-label="Close analysis"
+                title="Close analysis"
+                style={{
+                  position: "absolute", top: 10, right: 10,
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  width: 26, height: 26, borderRadius: 6,
+                  background: "transparent", border: "none",
+                  color: "var(--ink-400)", cursor: "pointer",
+                }}
+              >
+                <X size={15} strokeWidth={1.8} />
+              </button>
               {allAgentIds.length >= 2 && (() => {
                 const max = Math.max(
                   ...allAgentIds.map((id) => agents.find((a) => a.id === id)?.blast_radius?.score || 0)
@@ -1520,7 +1432,7 @@ export default function Workflows() {
                         {blastLabel(combined)} when these agents act together
                         {combined > max ? " — each is safer on its own" : ""}
                       </div>
-                      <div style={{ fontSize: 12, color: "#9ca3af" }}>
+                      <div style={{ fontSize: 12, color: "var(--ink-400)" }}>
                         Based on what they can do — before anything runs
                       </div>
                     </div>
@@ -1535,13 +1447,12 @@ export default function Workflows() {
                     alignItems: "center",
                     gap: 8,
                     fontSize: 13,
-                    color: "#16a34a",
+                    color: "var(--safe)",
                     fontWeight: 500,
                   }}
                 >
                   <CheckCircle size={14} />
-                  No risky handoffs found — nothing one of these agents does enables another to
-                  cause harm.
+                  No risky handoffs found between these agents.
                 </div>
               ) : (
                 <>
@@ -1560,8 +1471,7 @@ export default function Workflows() {
                           display: "flex",
                           alignItems: "flex-start",
                           gap: 8,
-                          padding: "6px 0 6px 12px",
-                          borderLeft: `2px solid ${c.severity === "critical" ? "#dc2626" : "#ea580c"}`,
+                          padding: "6px 0",
                         }}
                       >
                         <span
@@ -1572,8 +1482,8 @@ export default function Workflows() {
                             borderRadius: 4,
                             flexShrink: 0,
                             ...(c.severity === "critical"
-                              ? { background: "#fef2f2", color: "#dc2626" }
-                              : { background: "#fff7ed", color: "#ea580c" }),
+                              ? { background: "var(--critical)", color: "#fff" }
+                              : { background: "var(--high-bg)", color: "var(--high)" }),
                           }}
                         >
                           {c.severity?.toUpperCase()}
@@ -1607,16 +1517,16 @@ export default function Workflows() {
                           fontWeight: 600,
                           textTransform: "uppercase",
                           letterSpacing: "0.05em",
-                          color: "#9ca3af",
+                          color: "var(--ink-400)",
                           marginBottom: 2,
                         }}
                       >
                         Test it with a scenario
                       </div>
-                      <div style={{ fontSize: 12, color: "#6b7280" }}>
+                      <div style={{ fontSize: 12, color: "var(--ink-500)" }}>
                         {llmAvailable
-                          ? "Describe a task in plain English. Claude runs your agents against simulated tools — nothing real happens — and Arceo enforces your policies on every step."
-                          : "Describe a task in plain English. Arceo plays it out across these agents with simulated tools — nothing real happens — and shows you every step."}
+                          ? "Claude runs it against simulated tools — nothing real happens, and your policies are enforced on every step."
+                          : "Runs against simulated tools — nothing real happens, and you see every step."}
                       </div>
                     </div>
                     <textarea
@@ -1659,7 +1569,7 @@ export default function Workflows() {
                           : "Run a safe test"}
                       </span>
                       {!running && (
-                        <span style={{ fontSize: 10, color: "#9ca3af", fontWeight: 400 }}>
+                        <span style={{ fontSize: 10, color: "var(--ink-400)", fontWeight: 400 }}>
                           {llmAvailable
                             ? "Claude-driven · nothing real happens"
                             : "simulated · nothing real happens"}
@@ -1667,6 +1577,75 @@ export default function Workflows() {
                       )}
                     </button>
                   </div>
+            </div>
+          )}
+
+          {/* Trim permissions — a peer of the analysis it follows: appears once
+              handoffs have been mapped, produces the OptimizeResult below */}
+          {staticChains !== null && (
+            <div
+              style={{
+                background: "var(--bg-card)",
+                border: "1px solid var(--border)",
+                borderRadius: "var(--radius-lg)",
+                padding: 16,
+                display: "flex",
+                flexDirection: "column",
+                gap: 12,
+              }}
+            >
+              <div>
+                <div
+                  style={{
+                    fontSize: 11,
+                    fontWeight: 600,
+                    textTransform: "uppercase",
+                    letterSpacing: "0.05em",
+                    color: "var(--ink-400)",
+                    marginBottom: 2,
+                  }}
+                >
+                  Trim extra permissions
+                </div>
+                <div style={{ fontSize: 12, color: "var(--ink-500)" }}>
+                  Describe what the workflow should do — Arceo flags permissions your agents
+                  don't need, plus any missing.
+                </div>
+              </div>
+              <textarea
+                style={textareaStyle}
+                value={workflowDesc}
+                onChange={(e) => setWorkflowDesc(e.target.value)}
+                placeholder={`Example: "Handle customer refund requests — look up order, check eligibility, issue refund if under $500, escalate otherwise."`}
+                rows={2}
+                onFocus={(e) => {
+                  (e.target as HTMLTextAreaElement).style.borderColor = "var(--border-focus)";
+                }}
+                onBlur={(e) => {
+                  (e.target as HTMLTextAreaElement).style.borderColor = "transparent";
+                }}
+              />
+              <button
+                onClick={handleOptimize}
+                disabled={optimizing || !workflowDesc.trim()}
+                style={{
+                  width: "fit-content",
+                  display: "flex",
+                  alignItems: "center",
+                  background: "var(--color-cta)",
+                  color: "var(--text-inverse)",
+                  padding: "9px 22px",
+                  borderRadius: "var(--radius-full)",
+                  fontSize: 13,
+                  fontWeight: 600,
+                  border: "none",
+                  whiteSpace: "nowrap",
+                  cursor: optimizing || !workflowDesc.trim() ? "not-allowed" : "pointer",
+                  opacity: optimizing || !workflowDesc.trim() ? 0.5 : 1,
+                }}
+              >
+                {optimizing ? "Checking permissions…" : "Check the permissions"}
+              </button>
             </div>
           )}
 
@@ -1730,60 +1709,45 @@ export default function Workflows() {
               <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text-primary)" }}>
                 Riskiest combinations in your fleet
               </div>
-              <div style={{ fontSize: 12, color: "#9ca3af", marginBottom: 12 }}>
-                Detected automatically — no setup needed.
+              <div style={{ fontSize: 12, color: "var(--ink-400)", marginBottom: 12 }}>
+                Click one to load it.
               </div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(250px, 1fr))", gap: 12 }}>
                 {topPairings.map((p, i) => {
-                  const worst = p.chains[0];
-                  const more = p.chains.length - 1;
+                  const sev = p.severity === "critical" ? "var(--critical)" : "var(--high)";
                   return (
                     <button
                       key={i}
                       onClick={() => handlePairingClick(p)}
+                      className="ag-card"
                       style={{
                         display: "flex",
+                        flexDirection: "column",
                         alignItems: "flex-start",
-                        gap: 10,
-                        width: "100%",
+                        gap: 6,
                         textAlign: "left",
-                        padding: "10px 12px",
+                        padding: "13px 16px 11px",
                         borderRadius: "var(--radius-md)",
                         border: "1px solid var(--border)",
-                        background: "#ffffff",
+                        background: "var(--card)",
                         cursor: "pointer",
                       }}
                     >
-                      <span
-                        style={{
-                          fontSize: 10,
-                          fontWeight: 700,
-                          padding: "2px 6px",
-                          borderRadius: 4,
-                          flexShrink: 0,
-                          marginTop: 1,
-                          ...(p.severity === "critical"
-                            ? { background: "#fef2f2", color: "#dc2626" }
-                            : { background: "#fff7ed", color: "#ea580c" }),
-                        }}
-                      >
-                        {p.severity === "critical" ? "CRITICAL" : "HIGH"}
+                      <span style={{ fontSize: 13.5, fontWeight: 600, color: "var(--text-primary)", lineHeight: 1.35 }}>
+                        {p.agents[0]?.name}
                       </span>
-                      <div style={{ minWidth: 0 }}>
-                        <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text-primary)" }}>
-                          {p.agents[0]?.name} + {p.agents[1]?.name}
-                        </div>
-                        {worst && (
-                          <div style={{ fontSize: 12, color: "#6b7280", lineHeight: 1.5 }}>
-                            {worst.description}
-                          </div>
-                        )}
-                        {more > 0 && (
-                          <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 2 }}>
-                            +{more} more chain{more !== 1 ? "s" : ""}
-                          </div>
-                        )}
-                      </div>
+                      <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        <ArrowUpDown size={13} strokeWidth={1.8} style={{ color: "var(--ink-300)" }} />
+                        <span style={{ fontSize: 10.5, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5, color: sev }}>
+                          {p.severity === "critical" ? "Critical" : "High"} handoffs
+                        </span>
+                      </span>
+                      <span style={{ fontSize: 13.5, fontWeight: 600, color: "var(--text-primary)", lineHeight: 1.35 }}>
+                        {p.agents[1]?.name}
+                      </span>
+                      <span className="mono" style={{ fontSize: 11.5, color: "var(--ink-400)", marginTop: 3 }}>
+                        {p.chains.length} chain{p.chains.length !== 1 ? "s" : ""}
+                      </span>
                     </button>
                   );
                 })}
@@ -1806,13 +1770,12 @@ export default function Workflows() {
               <p
                 style={{
                   fontSize: 13,
-                  color: "#6b7280",
+                  color: "var(--ink-500)",
                   maxWidth: 400,
                   margin: "0 auto 24px",
                 }}
               >
-                Select 2 or more agents on the left, then find the risky handoffs between them —
-                for example:
+                Pick agents on the left to map the handoffs between them — for example:
               </p>
               <div
                 style={{
@@ -1831,8 +1794,8 @@ export default function Workflows() {
                       fontWeight: 700,
                       padding: "2px 6px",
                       borderRadius: 4,
-                      background: "#fef2f2",
-                      color: "#dc2626",
+                      background: "var(--critical-bg)",
+                      color: "var(--critical)",
                       whiteSpace: "nowrap",
                     }}
                   >
@@ -1849,8 +1812,8 @@ export default function Workflows() {
                       fontWeight: 700,
                       padding: "2px 6px",
                       borderRadius: 4,
-                      background: "#fff7ed",
-                      color: "#ea580c",
+                      background: "var(--high-bg)",
+                      color: "var(--high)",
                       whiteSpace: "nowrap",
                     }}
                   >

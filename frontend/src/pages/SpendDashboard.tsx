@@ -87,7 +87,7 @@ function StatCard({ label, value, delta, deltaTone: tone = "var(--text-muted)" }
   return (
     <div className="panel-card" style={{ padding: 16 }}>
       <div className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">{label}</div>
-      <div className="text-2xl font-bold tabular-nums mt-1 tracking-tight">{value}</div>
+      <div className="text-2xl font-bold tabular-nums mt-1 tracking-tight mono">{value}</div>
       {delta && <div className="text-[11px] mt-1" style={{ color: tone }}>{delta}</div>}
     </div>
   )

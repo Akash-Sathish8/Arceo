@@ -99,9 +99,9 @@ const TOOL_CHIP_COLORS: Record<string, { bg: string; color: string }> = {
   sendgrid: { bg: "#d1fae5", color: "#065f46" },
   github: { bg: "#f3f4f6", color: "#111827" },
   slack: { bg: "#fef3c7", color: "var(--severity-high)" },
-  aws: { bg: "#fff7ed", color: "#c2410c" },
+  aws: { bg: "var(--high-bg)", color: "#c2410c" },
   hubspot: { bg: "#fce7f3", color: "#9d174d" },
-  pagerduty: { bg: "#fef2f2", color: "#991b1b" },
+  pagerduty: { bg: "var(--critical-bg)", color: "#991b1b" },
 };
 
 const AUDIT_ACTION_LABELS: Record<string, string> = {
@@ -384,10 +384,14 @@ export default function History(): React.ReactElement {
 
   if (loading) {
     return (
-      <div className="p-6">
-        <div className="flex items-center gap-2 text-sm text-gray-500">
-          <div className="w-4 h-4 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin" />
-          Loading...
+      <div className="p-6" aria-busy="true" aria-label="Loading history">
+        {/* Mirrors the page: title → filter bar → log rows */}
+        <div className="skeleton" style={{ height: 30, width: 200 }} />
+        <div className="skeleton" style={{ height: 40, marginTop: 20 }} />
+        <div style={{ marginTop: 12 }}>
+          {[0, 1, 2, 3, 4, 5].map((i) => (
+            <div key={i} className="skeleton" style={{ height: 48, marginTop: 10 }} />
+          ))}
         </div>
       </div>
     );
@@ -551,7 +555,7 @@ export default function History(): React.ReactElement {
             <span className="flex items-center gap-1.5">
               <span
                 className="inline-block w-3 h-3 rounded-sm border"
-                style={{ background: "#fff5f5", borderColor: "#fca5a5" }}
+                style={{ background: "#fff5f5", borderColor: "var(--critical-line)" }}
               />
               Destructive
             </span>

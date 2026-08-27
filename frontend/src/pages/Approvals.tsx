@@ -253,10 +253,13 @@ export default function Approvals() {
 
   if (loading) {
     return (
-      <div style={{ padding: 40, maxWidth: 768, margin: "0 auto" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, color: "var(--text-secondary)", fontSize: 13 }}>
-          <div style={{ width: 16, height: 16, border: "2px solid var(--border-strong)", borderTopColor: "var(--text-secondary)", borderRadius: "50%", animation: "btn-spin 0.7s linear infinite" }} />
-          Loading...
+      <div style={{ padding: 40, maxWidth: 768, margin: "0 auto" }} aria-busy="true" aria-label="Loading approvals">
+        {/* Mirrors the page: title → pending-approval cards */}
+        <div className="skeleton" style={{ height: 30, width: 240 }} />
+        <div style={{ marginTop: 20 }}>
+          {[0, 1, 2].map((i) => (
+            <div key={i} className="skeleton" style={{ height: 96, marginTop: 12 }} />
+          ))}
         </div>
       </div>
     )
