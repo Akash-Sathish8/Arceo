@@ -261,7 +261,7 @@ Default org + `admin@actiongate.io` user seeded on first boot if tables empty (`
 - `enforcement.py` — Policy match + condition eval (`gt`/`gte`/`lt`/`lte`/`eq`/`neq`/`in`/`not_in`/`contains`/`requires_prior`) → BLOCK / REQUIRE_APPROVAL / ALLOW. Fires Slack webhook on block
 
 ### `analysis/`
-- `spend_forecast.py` — the 3-tier spend forecaster (LOW capability / MEDIUM sandbox ±28% / HIGH live ±15%). Live tier forecasts from ≥5 captured calls with a wide band (D27), HIGH at ≥50; calls/day uses a calendar-day basis — quiet days are priced in (decision 2026-07-07). Accuracy grades: `brain/Live/mvp-campaign/accuracy-tracker.md`
+- `spend_forecast.py` — the 3-tier spend forecaster (LOW capability ×0.50–×3.00 / MEDIUM sandbox ×0.70–×2.00 / HIGH live ×0.85–×1.15 ≈ ±15%). ⚠️ The bands are **asymmetric** — a symmetric ±28% MEDIUM held only 3 of 8 hand-checked truths and was retired 2026-07-03; do not restate them as ± figures except HIGH, which genuinely is ±15%. Live tier forecasts from ≥5 captured calls with a wide band (D27), HIGH at ≥50; calls/day uses a calendar-day basis — quiet days are priced in (decision 2026-07-07). Accuracy grades: `brain/Live/mvp-campaign/accuracy-tracker.md`
 - `cost_model.py` — Capabilities → $ exposure (per-tool breach scenarios)
 - `cost_defaults.yaml` — Configurable cost ranges
 - `prelaunch.py` — Pre-launch audit: boundary + regression + cost + replay → single prioritized fix list with `FixItem`s
@@ -448,7 +448,7 @@ The brain owns the canonical Now/Next/Later. This is a Claude-facing summary; if
 4. **Start 5 CIO discovery calls** using the working demo.
 
 ### Next (1–2 weeks)
-1. **Live trace ingestion** to unlock the high-confidence tier (`/api/agent/{id}/llm-call` → per-agent rolling averages → forecast tightens ±28% → ±15% once 50 captured calls land across 3+ distinct days in a rolling 7-day window).
+1. **Live trace ingestion** to unlock the high-confidence tier (`/api/agent/{id}/llm-call` → per-agent rolling averages → forecast tightens from the MEDIUM band ×0.70–×2.00 to ×0.85–×1.15 once 50 captured calls land across 3+ distinct days in a rolling 7-day window — a **rate**, roughly 215 calls/month, not a waiting period; an agent below it never reaches HIGH (1.13, PR #217)).
 2. **Settings UI for per-org cost overrides** — let customers plug in their negotiated Anthropic rate via the dashboard, not by editing YAML on the server.
 3. **Convert the first design partner pilot** ($15K trial → annual contract).
 4. **Anomaly detection alerts** — "this agent's spend jumped 3× in 24 hours, here's what changed."
