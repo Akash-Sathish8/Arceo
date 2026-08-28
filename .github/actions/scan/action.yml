@@ -12,7 +12,9 @@ inputs:
   api-url:
     description: 'Arceo backend base URL'
     required: false
-    default: 'https://api.arceo.dev'
+    # No default: api.arceo.dev has never had a DNS record. Point this at your
+    # own instance.
+    default: ''
   threshold:
     description: 'Fail build if max blast radius exceeds this (0-100)'
     required: false

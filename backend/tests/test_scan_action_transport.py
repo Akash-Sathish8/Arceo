@@ -158,3 +158,49 @@ class _FakeIO:
 
     def read(self):
         return self._data
+
+
+# ── 2.5: an unset api-url must not crash the customer's CI ───────────────────
+# `api-url: ${{ secrets.ARCEO_API_URL }}` with the secret unset supplies an
+# EXPLICIT empty string, which GitHub does not backfill with the action's
+# default — so this is the documented wiring, not an edge case. With API_URL="",
+# the url became "/api/scan", and `urllib.request.Request()` in _post_json sits
+# outside its own try: ValueError("unknown url type") escaped `except
+# TransportError` and surfaced as an unhandled Python traceback in someone
+# else's pipeline.
+
+def _load_with_url(monkeypatch, url_value):
+    monkeypatch.setenv("ARCEO_API_KEY", "test-key")
+    monkeypatch.setenv("ARCEO_API_URL", url_value)
+    spec = importlib.util.spec_from_file_location("arceo_scan_run_urlcase", _RUN_PY)
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules["arceo_scan_run_urlcase"] = mod
+    spec.loader.exec_module(mod)
+    return mod
+
+
+@pytest.mark.parametrize("url_value", ["", "   ", "api.arceo.dev", "//api.arceo.dev"])
+def test_a_missing_or_relative_api_url_exits_with_an_explanation(monkeypatch, capsys, url_value):
+    mod = _load_with_url(monkeypatch, url_value)
+
+    with pytest.raises(SystemExit) as e:
+        mod.call_scan([{"path": "a.py", "content": "x"}])
+    assert e.value.code == 1
+    err = capsys.readouterr().err
+    assert "::error::" in err, "must be a GitHub annotation, not a bare traceback"
+    assert "ARCEO_API_URL" in err
+    # The empty-secret trap is the actual cause, so the message has to name it.
+    assert "secret" in err.lower()
+
+
+def test_the_dead_default_hostname_is_gone(monkeypatch):
+    """api.arceo.dev is delegated to Route 53 with no A/AAAA/CNAME record, so it
+    has never resolved. Shipping it as the default meant the out-of-box
+    experience was a DNS failure against a hostname we published."""
+    monkeypatch.setenv("ARCEO_API_KEY", "test-key")
+    monkeypatch.delenv("ARCEO_API_URL", raising=False)
+    spec = importlib.util.spec_from_file_location("arceo_scan_run_nodefault", _RUN_PY)
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules["arceo_scan_run_nodefault"] = mod
+    spec.loader.exec_module(mod)
+    assert mod.API_URL == "", f"expected no default, got {mod.API_URL!r}"

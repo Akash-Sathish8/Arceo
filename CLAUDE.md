@@ -78,6 +78,7 @@ cd backend
 pip install -r requirements.txt
 echo "ANTHROPIC_API_KEY=sk-ant-..." > .env       # required for LLM classification + simulation
 echo "JWT_SECRET=$(openssl rand -hex 32)" >> .env # don't ship default secret
+export ARCEO_ENV=dev                              # REQUIRED locally — see below
 python3 -m uvicorn main:app --reload --port 8000
 
 # Frontend (port 5173)
@@ -91,7 +92,14 @@ npm install
 npm run dev
 ```
 
-Or the whole product as one container: `docker build -t arceo . && docker run -p 8000:8000 -v arceo-data:/data -e ANTHROPIC_API_KEY=... -e JWT_SECRET=... arceo` (backend serves the built SPA from `backend/static/`).
+⚠️ **`export ARCEO_ENV=dev` is not optional and `.env` is not auto-loaded.** Every boot guard —
+the default JWT secret, `DEMO_MODE`, encryption-at-rest, and (since Tier 2.1) the `DATABASE_URL`
+fallback to the docker-compose Postgres — refuses to run unless `ARCEO_ENV` names a dev environment
+(`dev` / `local` / `test` / `ci`). **Unset counts as production**, deliberately: forgetting it on a
+laptop costs a startup error with instructions, while the inverse default would cost the guard on a
+real deploy. Alternatively export `DATABASE_URL` yourself and skip the fallback entirely.
+
+Or the whole product as one container: `docker build -t arceo . && docker run -p 8000:8000 -e DATABASE_URL=postgresql://user:pass@host:5432/arceo -e ANTHROPIC_API_KEY=... -e JWT_SECRET=... arceo` (backend serves the built SPA from `backend/static/`). **`DATABASE_URL` is required** — without it the container refuses to boot, because `ARCEO_ENV` is deliberately unset in the image. See the Dockerfile header for the full runtime env.
 
 The website proxies API calls via `next.config.ts` rewrite: `/api/backend/*` → `${BACKEND_URL ?? "http://localhost:8000"}/api/*`. The frontend talks to the backend directly.
 
@@ -475,7 +483,9 @@ The brain owns the canonical Now/Next/Later. This is a Claude-facing summary; if
 - **Container build:** root `Dockerfile` (PR #27, 2026-07-07) — multi-stage: node builds the SPA into `backend/static/` (main.py serves it, traversal-safe), `python:3.11-slim` runs uvicorn on :8000 as a non-root user. `.dockerignore` keeps `.env` and `*.db` out of the image.
 - **Run:** `docker run -p 8000:8000 -v arceo-data:/data -e ANTHROPIC_API_KEY=... -e JWT_SECRET=... arceo` — SQLite lives at `ARCEO_DB_PATH=/data/actiongate.db`; skip the volume and all data dies with the container. Suited to running in a customer's VPC (the pilot pitch).
 - **Healthcheck:** `GET /api/health`
-- **Env vars:** `ANTHROPIC_API_KEY` (required), `JWT_SECRET` (required for prod), `ARCEO_DB_PATH`, `GITHUB_TOKEN` (optional, raises GitHub scan limit from 60/hr to 5000/hr), `BACKEND_URL` (website), `DEMO_MODE` (demo instances must set it — see Demo login), `CORS_ORIGINS`
+- **Env vars:** `ANTHROPIC_API_KEY` (required), `JWT_SECRET` (required for prod), **`DATABASE_URL` (required on any real deploy — see `ARCEO_ENV`)**, `ARCEO_DB_PATH`, `GITHUB_TOKEN` (optional, raises GitHub scan limit from 60/hr to 5000/hr), `BACKEND_URL` (website), `DEMO_MODE` (demo instances must set it — see Demo login), `CORS_ORIGINS`
+- **`ARCEO_ENV`** — the single switch every boot guard reads (`dev`/`local`/`test`/`ci` = development; anything else, **including unset**, = production). It gates the default JWT secret, `DEMO_MODE`, encryption-at-rest and the `DATABASE_URL` fallback. **Never set it on a deploy.** Canonical definition: `backend/envcheck.py`.
+  ⚠️ Platform allowlists were removed in Tier 2.1 — the old `_PROD_MARKERS` check (`RAILWAY_ENVIRONMENT`/`FLY_APP_NAME`/`RENDER`/`PRODUCTION`) no-opped on **Google Cloud Run**, which sets `K_SERVICE`. Do not reintroduce one; add nothing to a platform list, gate on `ARCEO_ENV`.
 
 ---
 

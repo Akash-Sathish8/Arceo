@@ -40,8 +40,15 @@ script` step), so the mechanics below are continuously verified.
    verifies everything from the genesis forward. Nothing to do here; just know
    `verify` will show a non-zero `legacy_unsealed` on a migrated instance.
 4. **Point the app at Postgres:** set `DATABASE_URL` in the deploy environment
-   (the Dockerfile no longer sets `ARCEO_DB_PATH`; the app refuses to boot on
-   known prod platforms without `DATABASE_URL`).
+   (the Dockerfile no longer sets `ARCEO_DB_PATH`). The app refuses to boot
+   without `DATABASE_URL` unless `ARCEO_ENV` names a dev environment — and
+   **`ARCEO_ENV` must not be set on a cutover host**, since it is the switch
+   that disables every boot guard.
+   ⚠️ This guard used to key off a list of PaaS environment variables and
+   no-opped on Google Cloud Run (Tier 2.1). If your target runs a **Cloud SQL
+   Auth Proxy**, note the sidecar binds `127.0.0.1:5432` — under the old guard a
+   missing `DATABASE_URL` would have connected there successfully and migrated
+   the wrong database rather than failing.
 5. **Start and health-check:**
    ```bash
    curl -fsS http://<host>:8000/api/health
