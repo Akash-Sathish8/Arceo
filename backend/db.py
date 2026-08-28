@@ -125,14 +125,83 @@ def get_db():
         _POOL.putconn(conn)
 
 
+_TRUTHY = {"1", "true", "yes", "on"}
+_FALSY = {"0", "false", "no", "off"}
+
+
+def run_migrations_on_boot() -> bool:
+    """Whether startup should run `alembic upgrade head` itself (Tier 2.9).
+
+    Default ON in dev — `docker compose up -d && boot` has to keep working, and
+    the runbook's "fresh start" path depends on it. Default OFF everywhere else,
+    because production runs the app as the restricted `arceo_app` role while
+    migrations need the owner role (see docs/MIGRATION_RUNBOOK.md).
+
+    That mismatch is a RELEASE-ORDERING hazard rather than a steady-state one:
+    at head, alembic degenerates to a `SELECT version_num` and `arceo_app` can do
+    that fine. It is the FIRST boot of a release carrying an unapplied revision
+    that raises permission-denied — so the container that fails is the one
+    shipping the change, and it never serves.
+
+    `ARCEO_RUN_MIGRATIONS_ON_BOOT` overrides in both directions, matching the
+    convention of `ARCEO_PROXY_REQUIRE_KEY` and `ARCEO_BUDGET_ENFORCE`.
+    """
+    flag = os.getenv("ARCEO_RUN_MIGRATIONS_ON_BOOT", "").strip().lower()
+    if flag in _TRUTHY:
+        return True
+    if flag in _FALSY:
+        return False
+    return is_dev_env()
+
+
+def _assert_schema_at_head(cfg) -> None:
+    """Refuse to serve against a database that is behind the code.
+
+    ⚠️ This is the half that makes skipping migrations safe. Turning the upgrade
+    off without it would trade a loud failure (permission denied, container does
+    not start) for a silent one (container starts, then 500s on the first query
+    touching a column the migration was supposed to add). The whole point of
+    2.9 is to move the failure earlier, not to hide it.
+    """
+    from alembic.script import ScriptDirectory
+
+    head = ScriptDirectory.from_config(cfg).get_current_head()
+    try:
+        with get_db() as conn:
+            row = conn.execute("SELECT version_num FROM alembic_version").fetchone()
+        current = row["version_num"] if row else None
+    except Exception as exc:  # no alembic_version table at all = never migrated
+        raise RuntimeError(
+            "ARCEO_RUN_MIGRATIONS_ON_BOOT is off and this database has no Alembic "
+            f"version table ({type(exc).__name__}). Run `alembic upgrade head` under "
+            "the owner role before starting the app — see docs/MIGRATION_RUNBOOK.md."
+        ) from exc
+
+    if current != head:
+        raise RuntimeError(
+            f"Database schema is at revision {current!r} but this release expects "
+            f"{head!r}, and ARCEO_RUN_MIGRATIONS_ON_BOOT is off. Run `alembic upgrade "
+            "head` under the OWNER role (not arceo_app), then restart. Refusing to "
+            "serve against a schema the code does not match."
+        )
+
+
 def init_db():
-    """Apply Alembic migrations (they own ALL schema) and seed baseline rows."""
+    """Apply Alembic migrations (they own ALL schema) and seed baseline rows.
+
+    Whether the upgrade runs here is `run_migrations_on_boot()`; when it does
+    not, the schema is still verified to be at head so a mismatch fails at boot
+    instead of at the first query.
+    """
     from alembic import command
     from alembic.config import Config
 
     os.environ["DATABASE_URL"] = DATABASE_URL  # alembic/env.py reads it
     cfg = Config(str(Path(__file__).parent / "alembic.ini"))
-    command.upgrade(cfg, "head")
+    if run_migrations_on_boot():
+        command.upgrade(cfg, "head")
+    else:
+        _assert_schema_at_head(cfg)
 
     with get_db() as conn:
         org_count = conn.execute("SELECT COUNT(*) AS n FROM organizations").fetchone()["n"]
