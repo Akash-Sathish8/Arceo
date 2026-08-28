@@ -3,6 +3,11 @@
     "target": "ES2020",
     "useDefineForClassFields": true,
     "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    // @types/node is here for the vitest suite only: confidence.test.ts reads
+    // the four customer-facing surfaces (and the backend engine) off disk to
+    // check their copy, because three of them are React components and this
+    // project has no jsdom. No application code imports a node built-in.
+    "types": ["node"],
     "module": "ESNext",
     "skipLibCheck": true,
     "moduleResolution": "bundler",

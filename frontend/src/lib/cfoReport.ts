@@ -16,6 +16,9 @@
  */
 
 import type { MockSpend } from "@/lib/mockSpend"
+import {
+  HIGH_GATE_CALLS, HIGH_GATE_DAYS, HIGH_GATE_MONTHLY_EQUIV, HIGH_GATE_WINDOW_DAYS,
+} from "./confidence"
 
 // ── Backend response shapes (kept local — no other consumers) ───────────────
 
@@ -174,19 +177,30 @@ function buildWhatItDoes(tools: string[]): string {
 
 // ── Confidence translation ──────────────────────────────────────────────────
 
-// The HIGH criterion below mirrors the engine's real gate: 50 captured
-// production calls in a trailing 7-day window spanning at least 3 distinct
-// calendar days (spend_forecast.py LIVE_TRACE_MIN_CALLS /
-// LIVE_TRACE_MIN_ACTIVE_DAYS). There is no elapsed-time requirement, so the
-// copy must never promise one. Pinned by cfoReport.test.ts.
+// The HIGH criterion below mirrors the engine's real gate, which now lives in
+// lib/confidence.ts so this file and the three other surfaces that explain it
+// cannot drift apart. There is no elapsed-time requirement, so the copy must
+// never promise one. Pinned by cfoReport.test.ts.
+//
+// 1.13's product question, decided 2026-08-28: the cap STAYS, and the copy has
+// to say so. Because the window is rolling with no accumulation, the gate is a
+// RATE, not a total: an agent running below roughly 215 calls a month never
+// reaches HIGH however long it runs. The MEDIUM line therefore must not say
+// "once we capture" either, because "once" promises arrival to an agent for
+// which it will not arrive. This is the artifact that reaches a CFO with no
+// engineer attached, so the conditional belongs here more than anywhere.
 function buildConfidenceLine(tier: "low" | "medium" | "high"): string {
   switch (tier) {
     case "low":
       return "Low — based only on the agent's setup. No test runs yet. Tightens once we run simulations."
     case "medium":
-      return "Moderate — based on simulated test conversations. Reaches high confidence once we capture 50+ production calls spanning 3+ distinct days in a week."
+      return "Moderate — based on simulated test conversations. Reaches high confidence if this agent captures " +
+        `${HIGH_GATE_CALLS}+ production calls spanning ${HIGH_GATE_DAYS}+ distinct days within any ` +
+        `${HIGH_GATE_WINDOW_DAYS}-day window — roughly ${HIGH_GATE_MONTHLY_EQUIV} calls a month. ` +
+        "Agents that run below that rate stay at this band."
     case "high":
-      return "High — based on 50+ captured production calls spanning 3+ distinct days in the last week."
+      return `High — based on ${HIGH_GATE_CALLS}+ captured production calls across ` +
+        `${HIGH_GATE_DAYS}+ distinct days in the trailing ${HIGH_GATE_WINDOW_DAYS}-day window.`
   }
 }
 

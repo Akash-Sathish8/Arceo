@@ -1,6 +1,7 @@
 import { describe, test, expect } from "vitest"
 import { buildCFOReportData } from "./cfoReport"
 import type { MockSpend } from "./mockSpend"
+import { HIGH_GATE_MONTHLY_EQUIV } from "./confidence"
 
 function fixture(confidence: "low" | "medium" | "high"): MockSpend {
   return {
@@ -18,20 +19,62 @@ const build = (forecast: MockSpend) => buildCFOReportData({
 
 // The real HIGH gate is 50 captured LLM calls in a trailing 7-day window
 // spanning >=3 distinct calendar days (spend_forecast.py LIVE_TRACE_MIN_CALLS
-// / LIVE_TRACE_MIN_ACTIVE_DAYS). Seven days is never required. This PDF is
-// the artifact that leaves the building; its copy must state the real gate.
-describe("confidence copy states the real gate (50 calls / 3+ days), never a 7-day rule", () => {
+// / LIVE_TRACE_MIN_ACTIVE_DAYS). This PDF is the artifact that leaves the
+// building; its copy must state the real gate.
+//
+// ⚠️ This guard was WIDENED in one respect and TIGHTENED in several, 2026-08-28
+// (item 1.13). It used to ban the literal string "7 days", because the original
+// defect phrased the gate as a seven-day waiting period. That over-fired: the
+// window genuinely IS 7 days, and "50+ calls in any rolling 7 days" is the most
+// accurate sentence available. Banning the numeral pushed the copy toward vague
+// phrasing rather than wrong phrasing.
+//
+// What actually needs banning is the PROMISE OF ARRIVAL BY TIME, in any of the
+// four forms this codebase shipped it: "after 7 days", "once we capture",
+// "accumulate 30+ days", "as evidence accumulates". Those are now banned by
+// name, AND the copy must carry an explicit rolling-window qualifier, which no
+// time-promise phrasing can satisfy. Net: strictly harder to regress than the
+// string it replaces.
+const TIME_PROMISE = [
+  /after (seven|7|\d+) days/i,
+  /once we capture/i,
+  /accumulat/i,
+  /over time/i,
+  /30\+? days/,
+  /as (evidence|data) (accumulates|builds)/i,
+]
+
+describe("confidence copy states the real gate (50 calls / 3+ days) as a rate, never a waiting period", () => {
   test("high tier names the real criterion", () => {
     const line = build(fixture("high")).confidenceLine
     expect(line).toMatch(/50/)
     expect(line).toMatch(/3\+? (distinct )?days/)
-    expect(line).not.toMatch(/seven|7 days/i)
+    for (const bad of TIME_PROMISE) expect(line).not.toMatch(bad)
   })
 
   test("medium tier promises the real upgrade path, not a time-based one", () => {
     const line = build(fixture("medium")).confidenceLine
-    expect(line).not.toMatch(/seven|7 days/i)
     expect(line).toMatch(/50/)
+    for (const bad of TIME_PROMISE) expect(line).not.toMatch(bad)
+  })
+
+  // The 1.13 decision: the cap stays, so the copy has to admit the cap exists.
+  test("medium tier says the gate is a rate an agent can fail to meet", () => {
+    const line = build(fixture("medium")).confidenceLine
+    expect(line, "no rolling-window qualifier — reads as a countdown")
+      .toMatch(/rolling|within any|any \d+-day/i)
+    expect(line, "does not state the monthly volume a CFO can check against")
+      .toMatch(new RegExp(String(HIGH_GATE_MONTHLY_EQUIV)))
+    expect(line, "does not admit that a quiet agent never reaches HIGH")
+      .toMatch(/below that rate|stay at this band|never reach/i)
+  })
+
+  test("every tier line stays one plain paragraph a CFO can read", () => {
+    for (const tier of ["low", "medium", "high"] as const) {
+      const line = build(fixture(tier)).confidenceLine
+      expect(line.length).toBeLessThan(400)
+      expect(line).not.toMatch(/LIVE_TRACE|spend_forecast|undefined|NaN/)
+    }
   })
 })
 
