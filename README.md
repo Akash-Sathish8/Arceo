@@ -46,16 +46,24 @@ Arceo answers both before deployment, in one report.
 
 ## Quickstart
 
-Run the whole product as one container:
+Arceo needs **Postgres and Redis**. Both are hard dependencies — Redis has no
+in-memory fallback, and rate limiting fails closed, so an unreachable Redis
+returns 429 on every login and enforcement check rather than degrading quietly.
 
 ```bash
+docker compose up -d postgres redis        # the two backing services
 docker build -t arceo .
-docker run -p 8000:8000 -v arceo-data:/data \
+docker run -p 8000:8000 \
+  -e DATABASE_URL=postgresql://postgres:postgres@host.docker.internal:5432/arceo \
+  -e REDIS_URL=redis://host.docker.internal:6379/0 \
   -e ANTHROPIC_API_KEY=... -e JWT_SECRET=... arceo
 ```
 
-Then open http://localhost:8000. For running the backend, frontend, and website
-separately in development, see [CONTRIBUTING.md](CONTRIBUTING.md).
+Then open http://localhost:8000. The container refuses to start without
+`DATABASE_URL` and `REDIS_URL` — deliberately, since booting without them
+produces an instance that passes its health check and fails every real request.
+For running the backend, frontend, and website separately in development, see
+[CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Repository structure
 
@@ -94,7 +102,7 @@ verdict — **fail** on any critical chain or a blast radius over your threshold
 
 ## Tech stack
 
-- **Backend:** FastAPI · SQLite · NetworkX · Anthropic SDK · PyJWT · bcrypt
+- **Backend:** FastAPI · Postgres (psycopg3 + Alembic) · Redis · NetworkX · Anthropic SDK · PyJWT · bcrypt
 - **Frontend:** React 19 · Vite · TypeScript · Tailwind v4 · React Router · Zustand · @react-pdf/renderer
 - **Website:** Next.js 16 · React 19 · Tailwind v4
 

@@ -78,6 +78,12 @@ async def lifespan(app: FastAPI):
     # LOW-006: in a non-dev environment, refuse to boot unless encryption-at-rest
     # is on (sensitive columns must not be cleartext in prod). No-op in dev/test.
     encryption.enforce_prod_encryption_policy()
+    # 2.3: Redis is a hard dependency, and rate limiting fails CLOSED — an
+    # unreachable Redis does not degrade the product, it 429s every login,
+    # enforcement check and repo scan while the health check still passes.
+    # Checked here so that state is a failed boot rather than a live-but-useless
+    # instance. Warns rather than raises in dev.
+    shared_state.enforce_redis_reachable()
     init_db()
     verify_models_at_startup(os.environ.get("ANTHROPIC_API_KEY"))
     if not _snapshot_scheduler_disabled():
