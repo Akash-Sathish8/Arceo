@@ -2477,6 +2477,8 @@ def set_agent_context(agent_id: str, req: ExposureContextInput, user: dict = Dep
 
 @app.delete("/api/authority/agent/{agent_id}")
 def delete_agent(agent_id: str, user: dict = Depends(get_current_user)):
+    from jobs.purge_llm_captures import erase_captures_for_agent
+
     org_id = _org(user)
     with get_db() as conn:
         existing = conn.execute("SELECT name FROM agents WHERE id = %s AND org_id = %s", (agent_id, org_id)).fetchone()
@@ -2488,15 +2490,30 @@ def delete_agent(agent_id: str, user: dict = Depends(get_current_user)):
         sweep_count = conn.execute("SELECT COUNT(*) AS n FROM sweeps WHERE agent_id = %s", (agent_id,)).fetchone()["n"]
         exec_count = conn.execute("SELECT COUNT(*) AS n FROM execution_log WHERE agent_id = %s", (agent_id,)).fetchone()["n"]
 
+        # 3.2: the captured prompt/response BODIES are the densest customer PII in
+        # the product, and `llm_captures.agent_id` is a bare Text column with an
+        # index but NO foreign key and NO cascade (0014_llm_captures.py:38) — so
+        # deleting an agent orphaned them. Nothing referenced them afterwards and
+        # only the age sweep would ever have removed them, which is a poor place
+        # to put a deletion guarantee: that sweep runs on the scheduler thread,
+        # which until Tier 2.8 died permanently on a single Redis error.
+        #
+        # `erase_captures_for_agent` is the same per-subject GDPR path the
+        # retention job uses. The audit rows survive with their metadata and
+        # digest, so the hash chain never notices a body went away.
+        captures = erase_captures_for_agent(conn, org_id, agent_id)
+
         conn.execute("DELETE FROM simulations WHERE agent_id = %s", (agent_id,))
         conn.execute("DELETE FROM sweeps WHERE agent_id = %s", (agent_id,))
         conn.execute("DELETE FROM execution_log WHERE agent_id = %s", (agent_id,))
         conn.execute("DELETE FROM agents WHERE id = %s", (agent_id,))  # cascades to tools, actions, policies, test_data
 
         log_audit(conn, user["sub"], user["email"], "DELETE_AGENT", resource=agent_id,
-                  detail=f"Deleted agent '{existing['name']}' + {sim_count} simulations, {sweep_count} sweeps, {exec_count} executions")
+                  detail=f"Deleted agent '{existing['name']}' + {sim_count} simulations, "
+                         f"{sweep_count} sweeps, {exec_count} executions, {captures} captured bodies")
 
-    return {"message": "Agent deleted", "cleaned": {"simulations": sim_count, "sweeps": sweep_count, "executions": exec_count}}
+    return {"message": "Agent deleted", "cleaned": {"simulations": sim_count, "sweeps": sweep_count,
+                                                    "executions": exec_count, "captures": captures}}
 
 
 class BulkDeleteRequest(BaseModel):
@@ -2506,8 +2523,11 @@ class BulkDeleteRequest(BaseModel):
 @app.post("/api/authority/agents/delete")
 def bulk_delete_agents(req: BulkDeleteRequest, user: dict = Depends(get_current_user)):
     """Delete multiple agents and all their history in one call."""
+    from jobs.purge_llm_captures import erase_captures_for_agent
+
     deleted = []
     not_found = []
+    captures = 0
     org_id = _org(user)
     with get_db() as conn:
         for agent_id in req.agent_ids:
@@ -2515,6 +2535,11 @@ def bulk_delete_agents(req: BulkDeleteRequest, user: dict = Depends(get_current_
             if not existing:
                 not_found.append(agent_id)
                 continue
+
+            # Same erasure as the single-agent path (3.2). Bulk delete is the one
+            # a customer offboarding a fleet actually uses, so it must not be the
+            # path that leaves the PII behind.
+            captures += erase_captures_for_agent(conn, org_id, agent_id)
 
             conn.execute("DELETE FROM simulations WHERE agent_id = %s", (agent_id,))
             conn.execute("DELETE FROM sweeps WHERE agent_id = %s", (agent_id,))
@@ -2524,9 +2549,10 @@ def bulk_delete_agents(req: BulkDeleteRequest, user: dict = Depends(get_current_
 
         if deleted:
             log_audit(conn, user["sub"], user["email"], "BULK_DELETE_AGENTS",
-                      detail=f"Deleted {len(deleted)} agents: {', '.join(deleted)}")
+                      detail=f"Deleted {len(deleted)} agents ({captures} captured bodies): "
+                             f"{', '.join(deleted)}")
 
-    return {"deleted": deleted, "not_found": not_found}
+    return {"deleted": deleted, "not_found": not_found, "captures_erased": captures}
 
 
 # ── Agent Discovery: Register + Import ─────────────────────────────────────
@@ -2980,7 +3006,7 @@ async def extract_agents_from_github(req: GithubExtractInput, user: dict = Depen
     )
 
     headers = {"Accept": "application/vnd.github+json", "User-Agent": "arceo-scanner"}
-    gh_token = os.getenv("GITHUB_TOKEN")
+    gh_token, gh_token_source = _github_scan_token(_org(user))
     if gh_token:
         headers["Authorization"] = f"Bearer {gh_token}"
 
@@ -3004,15 +3030,35 @@ async def extract_agents_from_github(req: GithubExtractInput, user: dict = Depen
                 break
             last_status = r.status_code
             if r.status_code == 403:
-                raise HTTPException(status_code=429, detail="GitHub API rate limit hit. Set GITHUB_TOKEN env var on the backend to raise to 5000/hr.")
+                # 3.1: never print operator instructions for OUR backend at a
+                # tenant. They cannot set an env var on a shared instance, and
+                # telling them to is both useless and a disclosure about how the
+                # service is run.
+                raise HTTPException(status_code=429, detail=(
+                    "GitHub's API rate limit was hit. Add a GitHub token under "
+                    "Settings → API & Integration → Credentials to scan with your "
+                    "own rate limit (5000/hr) instead of the shared one."
+                    if gh_token_source == "server" else
+                    "GitHub's API rate limit was hit for the token on your "
+                    "workspace credential. Try again shortly."))
         if not tree_data:
             # GitHub returns 404 for a private repo to an unauthenticated caller —
             # indistinguishable from truly-missing without a token. Say so instead
             # of a flat "Repo not found".
             if last_status == 404 and not gh_token:
-                raise HTTPException(status_code=404, detail=f"{owner}/{repo} not found. If it is private, set GITHUB_TOKEN on the backend — GitHub returns 404 for private repos to unauthenticated callers.")
+                raise HTTPException(status_code=404, detail=(
+                    f"{owner}/{repo} not found. GitHub returns 404 rather than 403 "
+                    "for repositories a token cannot see, so this also means "
+                    "'private, and the credential in use has no access'. To scan a "
+                    "private repository, add a GitHub token with read access under "
+                    "Settings → API & Integration → Credentials."))
             if last_status in (401, 403):
-                raise HTTPException(status_code=403, detail=f"Access to {owner}/{repo} denied — the configured GITHUB_TOKEN lacks access to this (private?) repo.")
+                raise HTTPException(status_code=403, detail=(
+                    f"Access to {owner}/{repo} was denied by GitHub — "
+                    + ("your workspace's GitHub credential does not have access to it."
+                       if gh_token_source == "org" else
+                       "add a GitHub token with access to it under Settings → "
+                       "API & Integration → Credentials.")))
             raise HTTPException(status_code=404, detail=f"Repo not found or no main/master branch: {owner}/{repo}")
 
         candidates: list[str] = []
@@ -3114,7 +3160,9 @@ async def extract_agents_from_github(req: GithubExtractInput, user: dict = Depen
     if max_files_reached:
         notes.append(f"stopped at the {req.max_files}-file limit — more agents may exist")
     if fetch_errors:
-        notes.append(f"{fetch_errors} file(s) could not be fetched" + (" (GitHub rate limit — set GITHUB_TOKEN)" if rate_limited else ""))
+        notes.append(f"{fetch_errors} file(s) could not be fetched"
+                     + (" (GitHub rate limit — add your own GitHub credential in Settings"
+                        " to scan on your own limit)" if rate_limited else ""))
     if oversized_files:
         shown = ", ".join(oversized_files[:3])
         notes.append(f"{len(oversized_files)} file(s) skipped over the "
@@ -4525,7 +4573,47 @@ def send_test_digest(user: dict = Depends(get_current_user)):
 # that would silently never be injected.
 # zendesk/salesforce are per-tenant: their vaulted credential carries the
 # subdomain/instance that fills the SERVICE_BASE_URLS placeholder at forward time.
-VAULT_SUPPORTED_PROVIDERS = {"stripe", "github", "sendgrid", "zendesk", "salesforce"}
+#: `github_scan` is deliberately DISTINCT from `github` (3.1). The `github` row
+#: is injected into the agent's RUNTIME GitHub calls, and those include
+#: force_push, merge_pull_request and delete_branch — so reusing it for repo
+#: READS would mean every scan runs with a production write credential. Two
+#: purposes, two secrets, and a customer can grant the scan one read-only scope.
+VAULT_SUPPORTED_PROVIDERS = {"stripe", "github", "github_scan", "sendgrid", "zendesk", "salesforce"}
+
+
+def _github_scan_token(org_id: str) -> tuple[str | None, str]:
+    """The token to use for this org's repo scan, and where it came from.
+
+    3.1: this used one server-wide `GITHUB_TOKEN` for every tenant. On a
+    single-tenant self-host that is unremarkable; on a shared hosted instance it
+    means one credential — ours — reads whatever repository any customer names,
+    with `owner/repo` supplied by the caller and only editor-rank gating.
+
+    Bound the exposure honestly: the endpoint never returns file bytes. What
+    crosses the boundary is private file PATHS, the Haiku-derived tool inventory
+    persisted into the caller's org, and up to 8000 characters of verbatim
+    extracted system-prompt text. Derived disclosure, not a source dump — but
+    still another tenant's private repository, read on a credential they never
+    granted.
+
+    Falls back to the server token so self-host and local dev keep working
+    unchanged; the returned source lets the caller say which one failed rather
+    than printing operator instructions at a tenant.
+    """
+    try:
+        with get_db() as conn:
+            row = conn.execute(
+                "SELECT encrypted_config, wrapped_dek FROM provider_credentials "
+                "WHERE org_id = %s AND provider = %s", (org_id, "github_scan"),
+            ).fetchone()
+        if row:
+            cfg = vault.decrypt_credential(row["wrapped_dek"], row["encrypted_config"])
+            secret = (cfg or {}).get("secret")
+            if secret:
+                return secret, "org"
+    except Exception as e:  # noqa: BLE001 — a broken credential must not 500 the scan
+        logger.warning("github_scan credential unusable for org %s: %s", org_id, e)
+    return os.getenv("GITHUB_TOKEN") or None, "server"
 
 
 def _vault_require_on() -> bool:
@@ -4612,17 +4700,50 @@ def delete_credential(provider: str, user: dict = Depends(get_current_user)):
 
 # ── Audit Log ───────────────────────────────────────────────────────────────
 
+#: Page size for the two history endpoints. Bounded because the audit table is
+#: append-only and grows a row per LLM call — an unbounded read is 3.3.
+_HISTORY_PAGE_MAX = 500
+_HISTORY_PAGE_DEFAULT = 100
+
+
 @app.get("/api/audit")
-def get_audit_log(user: dict = Depends(get_current_user)):
-    # MED-001: the audit trail carries captured LLM prompts/responses in `detail`.
-    # It's a compliance/integrity surface — admin-only, matching /api/audit/verify.
+def get_audit_log(user: dict = Depends(get_current_user),
+                  limit: int = Query(default=_HISTORY_PAGE_DEFAULT, ge=1, le=_HISTORY_PAGE_MAX),
+                  offset: int = Query(default=0, ge=0)):
+    """Audit entries, newest first.
+
+    MED-001: the audit trail carries captured LLM prompts/responses in `detail`.
+    It's a compliance/integrity surface — admin-only, matching /api/audit/verify.
+
+    3.2: this was hard-capped at 100 with no way to ask for more, which would be
+    a defensible product decision on its own — except History.tsx's "Export CSV"
+    reads exactly this endpoint and presents the result as a full export. A
+    customer asking for their audit trail (a compliance request, or a
+    pre-deletion copy) silently received the most recent 100 rows and no
+    indication that was not all of it.
+
+    `total` is returned so the caller can tell. That matters more than the
+    pagination: a truncated export that KNOWS it is truncated is a UI problem, a
+    truncated export that does not is a wrong answer to a compliance question.
+    """
     require_role(user, "admin")
+    org_id = _org(user)
     with get_db() as conn:
+        total = conn.execute(
+            "SELECT COUNT(*) AS n FROM audit_log WHERE org_id = %s", (org_id,)
+        ).fetchone()["n"]
         rows = conn.execute(
-            "SELECT * FROM audit_log WHERE org_id = %s ORDER BY timestamp DESC LIMIT 100",
-            (_org(user),)
+            "SELECT * FROM audit_log WHERE org_id = %s ORDER BY timestamp DESC "
+            "LIMIT %s OFFSET %s",
+            (org_id, limit, offset),
         ).fetchall()
-    return {"entries": _hydrate_audit_rows(rows)}
+    return {
+        "entries": _hydrate_audit_rows(rows),
+        "total": int(total),
+        "limit": limit,
+        "offset": offset,
+        "hasMore": offset + len(rows) < int(total),
+    }
 
 
 @app.get("/api/cogs")
@@ -4721,13 +4842,28 @@ def verify_audit_chain(user: dict = Depends(get_current_user)):
 # ── Execution Log ───────────────────────────────────────────────────────────
 
 @app.get("/api/executions")
-def get_execution_log(user: dict = Depends(get_current_user)):
+def get_execution_log(user: dict = Depends(get_current_user),
+                      limit: int = Query(default=_HISTORY_PAGE_DEFAULT, ge=1, le=_HISTORY_PAGE_MAX),
+                      offset: int = Query(default=0, ge=0)):
+    """Execution entries, newest first. Same pagination contract as /api/audit
+    and for the same reason — History.tsx exports both together (3.2)."""
+    org_id = _org(user)
     with get_db() as conn:
+        total = conn.execute(
+            "SELECT COUNT(*) AS n FROM execution_log WHERE org_id = %s", (org_id,)
+        ).fetchone()["n"]
         rows = conn.execute(
-            "SELECT * FROM execution_log WHERE org_id = %s ORDER BY timestamp DESC LIMIT 100",
-            (_org(user),)
+            "SELECT * FROM execution_log WHERE org_id = %s ORDER BY timestamp DESC "
+            "LIMIT %s OFFSET %s",
+            (org_id, limit, offset),
         ).fetchall()
-    return {"entries": [encryption.hydrate(dict(r), "params") for r in rows]}
+    return {
+        "entries": [encryption.hydrate(dict(r), "params") for r in rows],
+        "total": int(total),
+        "limit": limit,
+        "offset": offset,
+        "hasMore": offset + len(rows) < int(total),
+    }
 
 
 @app.get("/api/executions/{agent_id}")
