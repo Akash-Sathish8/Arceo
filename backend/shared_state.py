@@ -247,6 +247,41 @@ def spend_adjust(scope: str, delta: float) -> None:
     _SPEND_ADJUST(keys=[_spend_key(scope)], args=[repr(float(delta)), _SPEND_TTL])
 
 
+#: Accrual, as opposed to reservation-settlement. `_SPEND_ADJUST` above returns
+#: early when the key does not exist, which is correct for its job — settling a
+#: hold that must already be there, where creating one would invent money in the
+#: customer's budget ledger. Arceo's own COGS has no reservation step: the cost
+#: is only known after the call returns, and the first call of the month is
+#: exactly the case where the key is cold. Hence a separate script rather than
+#: relaxing the existing one.
+_SPEND_ACCRUE = _client.register_script(
+    """
+    local key = KEYS[1]
+    local total = redis.call('INCRBYFLOAT', key, ARGV[1])
+    redis.call('EXPIRE', key, tonumber(ARGV[2]))
+    return total
+    """
+)
+
+
+def spend_accrue(scope: str, amount: float) -> float | None:
+    """Add to a counter, creating it if cold. Returns the new total.
+
+    Used for Arceo's own LLM spend (see cogs.py), which is measured after the
+    fact and never reserved. Do NOT use this to settle a customer budget
+    reservation — `spend_adjust` refuses a cold key on purpose.
+    """
+    try:
+        return float(_SPEND_ACCRUE(keys=[_spend_key(scope)],
+                                   args=[repr(float(amount)), _SPEND_TTL]))
+    except (redis.RedisError, ValueError, TypeError):
+        # Metering is best-effort: losing a COGS data point must never fail the
+        # work that produced it. Unlike the rate limiter there is nothing to
+        # fail closed ABOUT — refusing the call would not protect anything.
+        logger.warning("spend_accrue failed for %s; COGS under-counted", scope)
+        return None
+
+
 def spend_total(scope: str) -> float | None:
     """Current counter value, or None if cold. Read-only; for tests + diagnostics."""
     raw = _client.get(_spend_key(scope))
