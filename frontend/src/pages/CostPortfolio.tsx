@@ -20,6 +20,9 @@ import { ExportCFOReportButton } from "@/components/ExportCFOReportButton"
 import { apiFetch } from "@/lib/api"
 import { currentOrgName } from "@/lib/orgName"
 import { toast } from "@/components/shared/Toast"
+import {
+  HIGH_GATE_CALLS, HIGH_GATE_DAYS, HIGH_GATE_MONTHLY_EQUIV, HIGH_GATE_WINDOW_DAYS,
+} from "@/lib/confidence"
 
 type SourceStatus = "calibrated" | "active" | "partial" | "disconnected"
 
@@ -39,12 +42,9 @@ const CONFIDENCE_CHIP: Record<Confidence, { label: string; bg: string; color: st
 }
 
 // Per-input provenance: never let a defaulted input read as a measurement.
-// The engine's HIGH gate (spend_forecast.py LIVE_TRACE_MIN_CALLS /
-// LIVE_TRACE_MIN_ACTIVE_DAYS): 50 captured calls in the trailing 7 days
-// spanning at least 3 distinct calendar days. There is no elapsed-time
-// requirement — copy must never promise a "7 days" upgrade.
-const HIGH_GATE_CALLS = 50
-const HIGH_GATE_DAYS = 3
+// The HIGH gate and its monthly equivalent now live in one place, because four
+// surfaces described them four different ways and three were wrong — see
+// lib/confidence.ts.
 
 const SOURCE_BADGE: Record<string, { label: string; color: string; bg: string; tip: string }> = {
   declared: { label: "declared", color: "var(--severity-safe, #047857)",  bg: "var(--severity-safe-bg, #ecfdf5)",   tip: "You declared this value." },
@@ -808,11 +808,12 @@ function CostPortfolioContent({
                       </div>
                       <div>
                         <div className="text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-1">Confidence range</div>
-                        <p>The <strong className="mono">${m.low.toLocaleString()}–${m.high.toLocaleString()}</strong> band reflects how much data backs this forecast ({m.confidence} confidence), not measured run-to-run variance. It narrows as evidence accumulates: high confidence (about ±15%) unlocks at {HIGH_GATE_CALLS}+ captured production calls spanning {HIGH_GATE_DAYS}+ distinct days in a week.</p>
+                        <p>The <strong className="mono">${m.low.toLocaleString()}–${m.high.toLocaleString()}</strong> band reflects how much data backs this forecast ({m.confidence} confidence), not measured run-to-run variance. High confidence (about ±15%) needs {HIGH_GATE_CALLS}+ captured production calls in any rolling {HIGH_GATE_WINDOW_DAYS} days, spanning {HIGH_GATE_DAYS}+ distinct days.</p>
+                        <p className="mt-1">That is a rate, not a total, so it does not arrive by waiting. It works out to roughly {HIGH_GATE_MONTHLY_EQUIV} calls a month. An agent that runs below that rate stays at its current band however long it runs, because a month of quiet traffic is genuinely weaker evidence about next month than a busy week is.</p>
                       </div>
                       <div>
                         <div className="text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-1">How to raise confidence</div>
-                        <p>Connect production traces (biggest gain), finish tool pricing for remaining services, and accumulate 30+ days of live data to anchor the baseline.</p>
+                        <p>Connect production traces, which is the biggest single gain, and finish tool pricing for the remaining services. Note that time alone does not raise it: the high-confidence gate is a call RATE, so an agent that runs below it will not cross the line by accumulating more days.</p>
                       </div>
                     </div>
                   </div>
@@ -849,8 +850,8 @@ function CostPortfolioContent({
             {m.confidence !== "high" && (
               <span className="text-xs text-gray-500 mr-2">
                 {m.observedDays != null
-                  ? `${Math.min(m.activeDays ?? 0, HIGH_GATE_DAYS)}/${HIGH_GATE_DAYS} distinct traffic days toward high confidence (needs ${HIGH_GATE_CALLS}+ calls in a week)`
-                  : `high confidence unlocks at ${HIGH_GATE_CALLS}+ captured production calls spanning ${HIGH_GATE_DAYS}+ distinct days in a week; none captured yet`}
+                  ? `${Math.min(m.activeDays ?? 0, HIGH_GATE_DAYS)}/${HIGH_GATE_DAYS} distinct traffic days. High confidence also needs ${HIGH_GATE_CALLS}+ calls in a rolling week, about ${HIGH_GATE_MONTHLY_EQUIV} a month, which is a rate rather than a total`
+                  : `High confidence needs ${HIGH_GATE_CALLS}+ captured production calls in a rolling week, spanning ${HIGH_GATE_DAYS}+ distinct days. None captured yet`}
               </span>
             )}
             · last calibrated <strong className="text-gray-900">{formatCalibrationDate(m.lastCalibrated)}</strong>

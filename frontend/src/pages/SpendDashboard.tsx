@@ -25,6 +25,7 @@ import InvoiceReconciliationPanel from "@/components/InvoiceReconciliation"
 import { pluralize } from "@/lib/strings"
 import { currentOrgName } from "@/lib/orgName"
 import { type FleetReportData } from "@/components/FleetCFOReport"
+import { HIGH_GATE_CALLS, HIGH_GATE_MONTHLY_EQUIV, HIGH_GATE_WINDOW_DAYS } from "@/lib/confidence"
 
 // @react-pdf/renderer (~1MB) loads only when a user opens the fleet export.
 const FleetCFODownloadLink = lazy(() => import("@/components/FleetCFODownloadLink"))
@@ -327,7 +328,7 @@ export default function SpendDashboard() {
                   </div>
                   <div>
                     <div className="text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-1">Confidence band</div>
-                    <p>The band is aggregated from each agent's own confidence tier — wider for low-confidence agents (few or no live traces), tighter for those with production data — so it is asymmetric: the low and high ends are summed across the fleet rather than a fixed ±%. Connect production traces and accumulate 30+ days of live data to tighten it.</p>
+                    <p>The band is aggregated from each agent's own confidence tier — wider for low-confidence agents (few or no live traces), tighter for those with production data — so it is asymmetric: the low and high ends are summed across the fleet rather than a fixed ±%. It tightens when individual agents reach a higher tier, which is a question of traffic rate rather than elapsed time: high confidence needs {HIGH_GATE_CALLS}+ captured calls in any rolling {HIGH_GATE_WINDOW_DAYS} days, about {HIGH_GATE_MONTHLY_EQUIV} a month. Agents quieter than that hold their band indefinitely.</p>
                   </div>
                   <div>
                     <div className="text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-1">Agents not forecasted</div>
