@@ -84,6 +84,17 @@ async def lifespan(app: FastAPI):
     # Checked here so that state is a failed boot rather than a live-but-useless
     # instance. Warns rather than raises in dev.
     shared_state.enforce_redis_reachable()
+    # 2.10: ARCEO_FAIL_MODE=allow turns every enforcement error into an ALLOW.
+    # It is a documented break-glass ("an Arceo outage must not halt customer
+    # agents"), but it is read per-exception deep inside safe_enforce_check, so
+    # an instance can run for months in fail-open with nothing anywhere saying
+    # so. Say it once, loudly, at boot.
+    if os.environ.get("ARCEO_FAIL_MODE", "block").strip().lower() == "allow":
+        logging.getLogger("arceo").warning(
+            "ARCEO_FAIL_MODE=allow — enforcement FAILS OPEN. Any error mid-decision "
+            "returns ALLOW instead of BLOCK. This is the break-glass setting; it "
+            "must not be the steady state on a deploy that enforces policy."
+        )
     init_db()
     verify_models_at_startup(os.environ.get("ANTHROPIC_API_KEY"))
     if not _snapshot_scheduler_disabled():

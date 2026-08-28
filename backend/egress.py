@@ -19,6 +19,8 @@ from __future__ import annotations
 
 import logging
 import os
+
+import envcheck
 from urllib.parse import urlparse, urlunparse
 
 from fastapi import HTTPException
@@ -59,8 +61,28 @@ def validate_external_url(url: str) -> str | None:
     host = parsed.hostname
     if not host:
         raise HTTPException(status_code=400, detail="URL must include a host")
+    # ⚠️ 2.10: this bypass is a full SSRF primitive and had NO production gate.
+    # Returning here skips getaddrinfo entirely, which disables BOTH the
+    # loopback/private/link-local rejection below AND the DNS-rebind IP pinning
+    # (the caller sees pinned_ip=None and sends to the hostname unchanged). It is
+    # reached from MCP connect, where the URL is caller-supplied and there is no
+    # host allowlist — so with the flag set, "connect to an MCP server" fetches
+    # any address the server can reach. On Cloud Run that includes
+    # 169.254.169.254, the metadata server that issues service-account tokens.
+    #
+    # It is now gated on ARCEO_ENV the same way DEMO_MODE is, so setting it on a
+    # real deploy does nothing.
+    #
+    # ⚠️ docs/security/backend/Dead_Code_Report.md asserted this flag was
+    # "fenced against production by an explicit gate". That was false, and is
+    # very likely why it survived a security review — the doc is corrected.
     if os.getenv("ARCEO_ALLOW_INTERNAL_MCP", "").lower() in ("1", "true", "yes"):
-        return None
+        if envcheck.is_dev_env():
+            return None
+        logger.warning(
+            "ARCEO_ALLOW_INTERNAL_MCP is set but ARCEO_ENV does not name a dev "
+            "environment — ignoring it. The SSRF guard stays on."
+        )
     try:
         infos = _socket.getaddrinfo(host, parsed.port or (443 if parsed.scheme == "https" else 80))
     except _socket.gaierror:
