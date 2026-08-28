@@ -59,7 +59,7 @@ ENV ARCEO_LLM_CACHE_PATH=/data/llm_cache.db
 VOLUME /data
 EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s \
-  CMD ["python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/api/health', timeout=4).status == 200 else 1)"]
+  CMD ["sh", "-c", "python -c \"import os,urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:'+os.environ.get('PORT','8000')+'/api/health', timeout=4).status == 200 else 1)\""]
 
 # --forwarded-allow-ips is pinned deliberately, and must not be removed.
 #
@@ -74,4 +74,10 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=15s \
 # deploy environment can no longer take effect. Keeping it at loopback makes the
 # middleware inert: request.client.host stays the real peer, and ONE place
 # decides who the caller is — client_ip(), with an explicit hop count.
-CMD ["python", "-m", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--forwarded-allow-ips", "127.0.0.1"]
+# Shell form so ${PORT} expands, with `exec` so uvicorn stays PID 1 and still
+# receives SIGTERM. Nothing in backend/ reads PORT, and the port was hardcoded to
+# 8000 — but Cloud Run injects PORT (8080 by default) and routes to it, so a
+# by-the-book deploy started a server nobody could reach unless the revision
+# explicitly overrode containerPort. Honouring $PORT removes the footgun instead
+# of documenting a workaround for it; it still defaults to 8000 everywhere else.
+CMD ["sh", "-c", "exec python -m uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000} --forwarded-allow-ips 127.0.0.1"]
