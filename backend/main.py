@@ -3421,11 +3421,27 @@ def scan_files(req: ScanRequest, request: Request):
     }
 
 
-# Spend-anomaly check debounce — agent_id -> unix ts of last check. In-memory
-# (lost on restart) like the LLM classification cache; at worst a restart means
-# one extra check per agent.
+# Spend-anomaly check debounce (2.7). TWO layers, and they are not redundant.
+#
+# The comment here used to reason only about RESTART — "at worst a restart means
+# one extra check per agent" — which says nothing about concurrency. With N
+# instances an in-process dict gives N checks and N Slack messages per hour, and
+# it also grew one entry per agent forever.
+#
+# Redis is the cross-instance truth. The local dict stays as a cheap PRE-FILTER,
+# because this debounce does not merely suppress a notification — it guards an
+# 8-day audit_log scan with per-row AES-GCM decryption, on the hot path of
+# ingest_llm_call, i.e. once per captured LLM call. `should_fire_once` fails
+# toward FIRING when Redis is unreachable (the right call for an alert, and the
+# convention enforcement.py:283-290 already sets), but applying that posture to
+# this one unguarded would turn every capture into a decrypting 8-day scan
+# during a Redis outage. The local filter bounds that blast radius to one check
+# per agent per hour per instance.
 _ANOMALY_CHECK_LAST: dict[str, float] = {}
 _ANOMALY_CHECK_INTERVAL_SECONDS = 3600
+# Bound the pre-filter. It is a cache, not a ledger; dropping the oldest entries
+# costs at most one extra check for those agents.
+_ANOMALY_CHECK_MAX_TRACKED = 5000
 
 
 def _maybe_fire_spend_anomaly_alert(agent_id: str):
@@ -3434,9 +3450,25 @@ def _maybe_fire_spend_anomaly_alert(agent_id: str):
     failures must not break ingestion."""
     try:
         now = time.time()
+        # Layer 1 — local, free, and the only thing standing between a Redis
+        # outage and an 8-day decrypting scan per captured call.
         if now - _ANOMALY_CHECK_LAST.get(agent_id, 0.0) < _ANOMALY_CHECK_INTERVAL_SECONDS:
             return
+        if len(_ANOMALY_CHECK_LAST) >= _ANOMALY_CHECK_MAX_TRACKED:
+            for stale in sorted(_ANOMALY_CHECK_LAST, key=_ANOMALY_CHECK_LAST.get)[:1000]:
+                _ANOMALY_CHECK_LAST.pop(stale, None)
         _ANOMALY_CHECK_LAST[agent_id] = now
+
+        # Layer 2 — cross-instance. Without this, N instances each run the scan
+        # and each send their own Slack message for the same hour.
+        try:
+            import shared_state as _ss
+            if not _ss.should_fire_once(f"anomaly:{agent_id}", _ANOMALY_CHECK_INTERVAL_SECONDS):
+                return
+        except Exception:
+            # Same posture as enforcement.py: worse to go silent than to
+            # double-send. Layer 1 already bounds the cost of getting here.
+            pass
 
         from analysis.spend_forecast import detect_spend_anomaly, load_defaults
 
@@ -3554,9 +3586,17 @@ def ingest_llm_call(agent_id: str, payload: dict, request: Request):
     return {"ok": True}
 
 
-# Budget-cap alert debounce — fires at most once per agent per calendar month
-# (keyed agent_id -> "YYYY-MM" already alerted). In-memory like the anomaly one.
-_BUDGET_ALERT_FIRED: dict[str, str] = {}
+# Budget-cap alert debounce — at most once per agent per calendar month (2.7).
+#
+# Redis-only, unlike the anomaly debounce above, and deliberately so: this gates
+# a NOTIFICATION, not a computation, so there is nothing expensive to protect
+# against on the failure path. The in-process dict this replaces gave one alert
+# PER INSTANCE per month — a CFO seeing the same budget warning N times, where N
+# is however many instances happened to be up.
+#
+# The key carries the month, so a fixed TTL comfortably longer than a month is
+# correct and self-cleaning; the next month is simply a different key.
+_BUDGET_ALERT_TTL_SECONDS = 40 * 24 * 3600
 
 
 def _maybe_fire_budget_alert(agent_id: str):
@@ -3567,8 +3607,16 @@ def _maybe_fire_budget_alert(agent_id: str):
         from analysis.spend_forecast import compute_month_to_date_spend, load_defaults
 
         month_key = datetime.utcnow().strftime("%Y-%m")
-        if _BUDGET_ALERT_FIRED.get(agent_id) == month_key:
-            return
+        alert_key = f"budgetalert:{agent_id}:{month_key}"
+        # Peek, don't claim. This runs on the hot path of every captured LLM
+        # call and the work below is a month-to-date audit scan with per-row
+        # decryption — the in-process dict this replaces existed to skip it.
+        try:
+            import shared_state as _ss
+            if _ss.fired_recently(alert_key):
+                return
+        except Exception:
+            pass
 
         with get_db() as conn:
             row = conn.execute(
@@ -3597,7 +3645,15 @@ def _maybe_fire_budget_alert(agent_id: str):
         mtd = compute_month_to_date_spend(rows, defaults=load_defaults(org_id))
         if budget <= 0 or mtd < budget * threshold_pct / 100.0:
             return
-        _BUDGET_ALERT_FIRED[agent_id] = month_key
+        # Claim it. Two instances can both reach here in the same instant; only
+        # one wins the SET NX, so the CFO gets one message rather than N.
+        try:
+            import shared_state as _ss
+            if not _ss.should_fire_once(alert_key, _BUDGET_ALERT_TTL_SECONDS):
+                return
+        except Exception:
+            # enforcement.py's convention: worse to go silent than to double-send.
+            pass
 
         pct = round(mtd / budget * 100)
         # MED-010: guarded egress (see _maybe_fire_spend_anomaly_alert).
@@ -6458,7 +6514,14 @@ def delete_agent_budget(agent_id: str, user: dict = Depends(get_current_user)):
 
 
 # Cache for the batch endpoint — keyed by (org_id, agent_id), 10-min TTL.
-_BATCH_FORECAST_CACHE: dict[tuple[str, str], tuple[float, dict]] = {}
+# 2.7: unlike the sensitivity cache this one always had a TTL, so cross-instance
+# staleness was bounded at 10 minutes and self-healing — which is why the plan
+# ranks it below that one. Ten minutes is still the wrong answer on the CFO
+# surface for the specific case that matters: a customer enters their negotiated
+# rate, refreshes the Spend Dashboard, and is quoted LIST price by whichever
+# instance answers. The override version marker makes that immediate, so it is
+# included in the key here for the same cost as reading it.
+_BATCH_FORECAST_CACHE: dict[tuple, tuple[float, dict]] = {}
 _BATCH_CACHE_TTL_SECONDS = 600
 
 
@@ -6474,7 +6537,7 @@ def get_spend_forecasts_batch(user: dict = Depends(get_current_user)):
     """
     from analysis.spend_forecast import (
         forecast_spend, compute_live_rolling_averages, load_defaults,
-        LIVE_TRACE_MIN_CALLS_FORECAST,
+        LIVE_TRACE_MIN_CALLS_FORECAST, _overrides_version,
     )
 
     org_id = _org(user)
@@ -6492,7 +6555,7 @@ def get_spend_forecasts_batch(user: dict = Depends(get_current_user)):
         forecasts: dict[str, Any] = {}
         for row in agent_rows:
             aid = row["id"]
-            cache_key = (org_id, aid)
+            cache_key = (org_id, aid, _overrides_version(org_id))
             cached = _BATCH_FORECAST_CACHE.get(cache_key)
             if cached and (now - cached[0] < _BATCH_CACHE_TTL_SECONDS):
                 forecasts[aid] = cached[1]
@@ -6762,11 +6825,16 @@ def _validate_cost_override(req: CostOverrideInput, defaults: dict) -> None:
         raise HTTPException(status_code=400, detail="scope must be model, tool, infra, or breach")
 
 
-def _bust_forecast_caches() -> None:
-    """Override writes change pricing — drop every derived forecast cache."""
+def _bust_forecast_caches(org_id: str | None = None) -> None:
+    """Override writes change pricing — drop every derived forecast cache.
+
+    ⚠️ Pass org_id (2.7). Without it this only fixes the instance that took the
+    write; every other instance keeps serving that org's OLD pricing, and the
+    sensitivity cache had no TTL, so "old" meant indefinitely.
+    """
     from analysis.spend_forecast import clear_override_caches
     _BATCH_FORECAST_CACHE.clear()
-    clear_override_caches()
+    clear_override_caches(org_id)
 
 
 @app.get("/api/cost/models")
@@ -6825,7 +6893,7 @@ def set_org_default_model(req: DefaultModelInput, user: dict = Depends(get_curre
                 (model, org_id, now),
             )
         log_audit(conn, user["sub"], user["email"], "SET_DEFAULT_MODEL", detail=str(model), org_id=org_id)
-    _bust_forecast_caches()
+    _bust_forecast_caches(_org(user))
     return {"ok": True, "default_model": model}
 
 
@@ -7056,7 +7124,7 @@ def upsert_cost_override(req: CostOverrideInput, user: dict = Depends(get_curren
         )
         log_audit(conn, user["sub"], user["email"], "COST_OVERRIDE_SET",
                   resource=f"{req.scope}:{req.key}:{req.sub_key}", detail=str(req.value), org_id=_org(user))
-    _bust_forecast_caches()
+    _bust_forecast_caches(_org(user))
     return {"ok": True}
 
 
@@ -7073,7 +7141,7 @@ def delete_cost_override(override_id: int, user: dict = Depends(get_current_user
         conn.execute("DELETE FROM cost_overrides WHERE id = %s AND org_id = %s", (override_id, _org(user)))
         log_audit(conn, user["sub"], user["email"], "COST_OVERRIDE_DELETE",
                   resource=f"{row['scope']}:{row['key']}:{row['sub_key']}", org_id=_org(user))
-    _bust_forecast_caches()
+    _bust_forecast_caches(_org(user))
     return {"ok": True}
 
 
