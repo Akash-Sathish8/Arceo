@@ -21,7 +21,7 @@ import psycopg
 from dotenv import load_dotenv
 load_dotenv()
 
-from fastapi import FastAPI, HTTPException, Depends, Query, Request, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Depends, Query, Request, Response, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -200,7 +200,11 @@ RATE_LIMIT_LLM_MAX = int(os.getenv("RATE_LIMIT_LLM_MAX", "120"))
 RATE_LIMIT_LLM_WINDOW = int(os.getenv("RATE_LIMIT_LLM_WINDOW", "60"))
 # Liveness/config probes must never be throttled (dashboards + load balancers
 # poll them); everything else under /api is covered.
-_RATE_LIMIT_EXEMPT_PATHS = {"/api/health", "/api/demo-mode"}
+# /api/ready is exempt for the same reason as /api/health: a probe that gets
+# 429'd marks the instance unready and sheds its traffic onto siblings, which is
+# how a rate limit becomes an outage. Its DB hit is bounded by
+# _READY_CACHE_SECONDS rather than by the limiter.
+_RATE_LIMIT_EXEMPT_PATHS = {"/api/health", "/api/ready", "/api/demo-mode"}
 
 # MED-006: cap the overall request body so an oversized payload can't exhaust
 # memory / drive unbounded work before per-model validation runs. Generous enough
@@ -629,7 +633,29 @@ def _snapshot_scheduler_loop():
         # passes (and N Slack digests) every interval. TTL > poll interval so
         # the holder keeps re-winning; if it dies the lock lapses and another
         # worker takes over on the next tick.
-        if not shared_state.try_acquire_leader("scheduler", _SNAPSHOT_POLL_SECONDS + 30):
+        #
+        # ⚠️ 2.8: this call MUST be inside a try. Every job body below carries
+        # "except Exception — scheduler must never die", but the leader-lock
+        # acquire sat outside all of them, and it is the one call that reaches
+        # Redis on its own (`try_acquire_leader` does a bare `_client.set` with
+        # no fallback, by design). So a single RedisError from a restart or
+        # failover propagated out of `while True:` and killed the thread
+        # permanently — until the process was restarted, with no supervision and
+        # no ERROR log. What died with it: forecast snapshots, the weekly
+        # digest, and the ONLY automated data-retention control we have
+        # (purge_llm_captures, which deletes captured prompt and response
+        # bodies past their retention window). A PII retention control that
+        # stops running silently is the worst item on that list.
+        try:
+            got_lock = shared_state.try_acquire_leader(
+                "scheduler", _SNAPSHOT_POLL_SECONDS + 30)
+        except Exception as e:  # noqa: BLE001 — a Redis blip must not be fatal
+            # ERROR, not warning: unlike the job failures below, this means the
+            # scheduler accomplished nothing this tick.
+            logger.error("scheduler leader-lock check failed, skipping this tick: %s", e)
+            time.sleep(_SNAPSHOT_POLL_SECONDS)
+            continue
+        if not got_lock:
             time.sleep(_SNAPSHOT_POLL_SECONDS)
             continue
         try:
@@ -7589,7 +7615,62 @@ def revoke_api_key(key_id: str, user: dict = Depends(get_current_user)):
 
 @app.get("/api/health")
 def health():
+    """LIVENESS. Deliberately checks nothing.
+
+    "Is this process running and able to answer?" — nothing more. It is
+    rate-limit exempt (`_RATE_LIMIT_EXEMPT_PATHS`) and pinned under load by
+    test_concurrency_and_timeouts, and it must stay that way: a liveness probe
+    that depends on Postgres restarts the container during a database blip,
+    which is the opposite of what you want. Readiness is `/api/ready`.
+    """
     return {"status": "ok"}
+
+
+# How long a readiness result is reused. `/api/ready` is unauthenticated and
+# rate-limit exempt (a probe that gets 429'd marks the instance unready, which
+# sheds traffic onto its siblings and cascades), so without this it is an
+# unauthenticated way to make the app open a database connection as fast as you
+# can send requests — against a pool bounded at DB_POOL_MAX=10. The cache means
+# the real cost is one `SELECT 1` per interval no matter the request rate, and
+# it bounds recovery detection to the same interval.
+_READY_CACHE_SECONDS = 5.0
+_ready_cache: tuple[float, bool, str] | None = None
+
+
+@app.get("/api/ready")
+def readiness(response: Response):
+    """READINESS. "Should this instance be sent traffic?"
+
+    Split from `/api/health` because a static 200 hid the failure that actually
+    happens after a successful boot: Postgres fails over, credentials rotate, or
+    the bounded pool wedges — and the container stays green while every real
+    endpoint 500s. The Dockerfile HEALTHCHECK polls liveness; an orchestrator
+    should poll this.
+
+    ⚠️ This deliberately does NOT probe Redis. The global per-caller limiter
+    fails OPEN precisely so a Redis outage degrades rate limiting instead of
+    taking the API down (`shared_state.rate_limit_ok`, MED-007). Gating
+    readiness on Redis would convert that designed partial degradation into a
+    full outage — every instance would report unready at once. The Redis
+    dependency is enforced at BOOT instead, where it belongs.
+    """
+    global _ready_cache
+    now = time.time()
+    if _ready_cache is not None and now - _ready_cache[0] < _READY_CACHE_SECONDS:
+        _, ok, detail = _ready_cache
+    else:
+        try:
+            with get_db() as conn:
+                conn.execute("SELECT 1")
+            ok, detail = True, "database reachable"
+        except Exception as e:  # noqa: BLE001 — any failure means "do not route here"
+            ok, detail = False, f"database unreachable: {type(e).__name__}"
+            logger.warning("readiness probe failed: %s", e)
+        _ready_cache = (now, ok, detail)
+
+    if not ok:
+        response.status_code = 503
+    return {"status": "ready" if ok else "not ready", "detail": detail}
 
 
 
@@ -7619,7 +7700,18 @@ if STATIC_DIR.exists():
 
     @app.get("/{full_path:path}")
     def serve_frontend(full_path: str):
-        """Serve the React SPA for any non-API route (path-traversal safe)."""
+        """Serve the React SPA for any non-API route (path-traversal safe).
+
+        ⚠️ API paths must 404 here, not fall through to the SPA. This catch-all
+        matched ANY unmatched GET including `/api/...`, returning index.html with
+        a 200 — and `frontend/src/lib/api.ts` turns a non-JSON 200 into
+        `{} as T`. So a typo'd or removed endpoint reached the caller as an empty
+        object rather than an error: the client saw "no agents", "no policies",
+        "no spend" and rendered an empty state instead of failing. A wrong URL
+        must look wrong.
+        """
+        if full_path.startswith("api/"):
+            raise HTTPException(status_code=404, detail="Not found")
         safe = _safe_static_path(STATIC_DIR, full_path)
         if safe is not None:
             return FileResponse(str(safe))
