@@ -35,16 +35,77 @@ logger = logging.getLogger("arceo")
 ANTHROPIC_TIMEOUT = float(os.getenv("ARCEO_ANTHROPIC_TIMEOUT", "60"))
 
 
-def anthropic_client(api_key: str | None = None):
-    """Construct an Anthropic client with a bounded timeout (MED-004).
+class _MeteredMessages:
+    """Wraps `client.messages` so every completed call is metered as COGS.
+
+    Delegates everything except `create`, and around `create` does exactly two
+    things: call through untouched, then record the usage. The recording is
+    inside `cogs.record`, which never raises — so this cannot turn a metering
+    problem into a failed simulation.
+    """
+
+    __slots__ = ("_inner", "_meter")
+
+    def __init__(self, inner, meter):
+        object.__setattr__(self, "_inner", inner)
+        object.__setattr__(self, "_meter", meter)
+
+    def __getattr__(self, name):
+        return getattr(object.__getattribute__(self, "_inner"), name)
+
+    def create(self, *args, **kwargs):
+        inner = object.__getattribute__(self, "_inner")
+        response = inner.create(*args, **kwargs)
+        if object.__getattribute__(self, "_meter"):
+            import cogs
+            cogs.record(kwargs.get("model") or getattr(response, "model", ""),
+                        getattr(response, "usage", None), source="anthropic_client")
+        return response
+
+
+class _MeteredAnthropic:
+    """An Anthropic client whose `.messages.create` is metered. Everything else
+    passes straight through, so the SDK surface is unchanged."""
+
+    __slots__ = ("_inner", "messages")
+
+    def __init__(self, inner, meter: bool = True):
+        object.__setattr__(self, "_inner", inner)
+        object.__setattr__(self, "messages", _MeteredMessages(inner.messages, meter))
+
+    def __getattr__(self, name):
+        return getattr(object.__getattribute__(self, "_inner"), name)
+
+
+def anthropic_client(api_key: str | None = None, *, meter: bool = True):
+    """Construct an Anthropic client with a bounded timeout (MED-004), metered.
 
     Every call site MUST use this rather than anthropic.Anthropic() directly so
     the timeout is applied uniformly. Passing api_key=None makes the SDK read
     ANTHROPIC_API_KEY from the environment, collapsing the old
     `Anthropic(api_key=k) if k else Anthropic()` pattern. The SDK's built-in
-    retries (max_retries, default 2) still cover transient errors."""
+    retries (max_retries, default 2) still cover transient errors.
+
+    ⚠️ It is also where Arceo's OWN LLM spend is metered (Tier 2.6). Every call
+    made here is on the SERVER's key — risk classification, code extraction,
+    sandbox runs, sweeps, red teams, scenario generation, LLM mocks, executive
+    summaries, /api/scan — so every call is cost of goods sold, and none of them
+    moved any counter before.
+
+    The meter lives at this constructor rather than at the eleven
+    `messages.create` call sites on purpose: a twelfth call site is metered
+    whether or not its author knows `cogs.py` exists. Instrumenting the call
+    sites individually is the shape that drifts, and it drifts in the
+    comfortable direction — a forgotten site makes the margin look better than
+    it is.
+
+    `meter=False` is for the one case that is NOT our cost: a call made with a
+    customer-supplied key. Nothing does that today; the LLM proxy forwards raw
+    over httpx and never builds a client here.
+    """
     import anthropic
-    return anthropic.Anthropic(api_key=api_key or None, timeout=ANTHROPIC_TIMEOUT)
+    client = anthropic.Anthropic(api_key=api_key or None, timeout=ANTHROPIC_TIMEOUT)
+    return _MeteredAnthropic(client, meter=meter)
 
 
 # Same reasoning as ANTHROPIC_TIMEOUT, for the OpenAI-compatible path (MED-008).

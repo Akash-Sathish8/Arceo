@@ -189,6 +189,21 @@ RATE_LIMIT_GLOBAL_WINDOW = int(os.getenv("RATE_LIMIT_GLOBAL_WINDOW", "60"))
 # LLM-invoking endpoints (ingest + LLM proxy) get their own per-agent ceiling so a
 # single agent id can't be used to amplify spend (HIGH-003). Generous by default;
 # tune down for stricter cost control.
+# 2.6: the extraction endpoints were the only Arceo-BILLED LLM paths with no
+# per-endpoint limiter — every peer has one (the LLM proxy, /api/scan, LLM
+# capture, /api/enforce, live-trace ingest, the mock sandbox). The 1000/60s
+# global backstop is not a substitute: it is IP-keyed for bearer callers and
+# fail_open=True, i.e. DoS hygiene rather than a cost control. Default worst
+# case without this was 1000 extract-github requests/min x 25 files =
+# 25,000 Haiku extractions per minute on OUR key.
+#
+# Keyed per ORG, not per IP: the cost lands on us per tenant, and an IP key
+# would let one customer's CI runners rotate their way around it.
+# Deliberately tighter than RATE_LIMIT_LLM_MAX — one extract-github request is
+# up to 25 Haiku calls at max_tokens=8000, so these are not comparable units.
+RATE_LIMIT_EXTRACT_MAX = int(os.getenv("RATE_LIMIT_EXTRACT_MAX", "20"))
+RATE_LIMIT_EXTRACT_WINDOW = int(os.getenv("RATE_LIMIT_EXTRACT_WINDOW", "60"))
+
 RATE_LIMIT_LLM_MAX = int(os.getenv("RATE_LIMIT_LLM_MAX", "120"))
 RATE_LIMIT_LLM_WINDOW = int(os.getenv("RATE_LIMIT_LLM_WINDOW", "60"))
 # Liveness/config probes must never be throttled (dashboards + load balancers
@@ -2776,6 +2791,9 @@ def _extract_and_register(content: str, filename: str = "", agent_name_hint: str
 @app.post("/api/authority/agents/extract")
 def extract_agent_from_code(req: ExtractInput, user: dict = Depends(get_current_user)):
     """Use Haiku to extract agent structure from pasted/uploaded code."""
+    # 2.6: this call is billed to ARCEO, not the caller — see RATE_LIMIT_EXTRACT_MAX.
+    check_rate_limit(f"extract:{_org(user)}",
+                     RATE_LIMIT_EXTRACT_MAX, RATE_LIMIT_EXTRACT_WINDOW)
     return _extract_and_register(req.content, req.filename, req.agent_name_hint, org_id=_org(user))
 
 
@@ -2806,11 +2824,18 @@ class GithubExtractInput(BaseModel):
 async def extract_agents_from_github(req: GithubExtractInput, user: dict = Depends(get_current_user)):
     """Scan a public GitHub repo for agent files and register every one found.
 
+    ⚠️ Rate-limited per org (2.6): ONE request here is up to max_files (25) Haiku
+    extractions on Arceo's key, which made this the most expensive unguarded
+    endpoint in the product.
+
     Walks the repo tree, picks files that import an LLM SDK (anthropic / openai /
     langchain / etc.), and runs Haiku extraction on each. Returns per-file
     results. Requires auth; public repos only for now — capped at max_files Haiku
     calls per request to bound cost.
     """
+    check_rate_limit(f"extract:{_org(user)}",
+                     RATE_LIMIT_EXTRACT_MAX, RATE_LIMIT_EXTRACT_WINDOW)
+
     import re as _re
     import httpx as _httpx
 
@@ -4426,6 +4451,59 @@ def get_audit_log(user: dict = Depends(get_current_user)):
     return {"entries": _hydrate_audit_rows(rows)}
 
 
+@app.get("/api/cogs")
+def org_cogs(user: dict = Depends(get_current_user)):
+    """What ARCEO spent on ARCEO's key for this org this month, and the margin.
+
+    Tier 2.6 exists because we could not answer this. Metering it without a way
+    to read it would leave the same gap with more code, so this is the surface.
+
+    ⚠️ Read the two numbers carefully, they are not the same currency of claim:
+
+      `arceoSpendUsd`    — OUR cost. Every LLM call made on the server key doing
+                           work for this org: classification, extraction,
+                           sandbox runs, sweeps, red teams, scenario generation,
+                           mocks, summaries, /api/scan. Redis-only, so a flush
+                           loses the month — see cogs.total(). Not billable
+                           truth; a margin indicator.
+      `customerSpendUsd` — what the CUSTOMER's agents spent on the CUSTOMER's
+                           key, from the audit log. This one IS reconstructible
+                           and is the system of record.
+
+    So `margin` answers "what does serving this account cost us relative to the
+    volume they run through us" — it is NOT revenue margin, because Arceo does
+    not bill per token today (see 0.4). Naming it anything shorter would invite
+    exactly that misreading.
+
+    Admin-only: it is commercial data about the account.
+    """
+    require_admin(user)
+    import cogs as _cogs
+
+    org_id = _org(user)
+    arceo_usd = _cogs.total(org_id)
+    with get_db() as conn:
+        customer_usd = _mtd_spend_from_audit(conn, org_id, None)
+
+    ratio = None
+    if arceo_usd is not None and customer_usd:
+        ratio = round(arceo_usd / customer_usd, 4)
+
+    return {
+        "month": datetime.utcnow().strftime("%Y-%m"),
+        "arceoSpendUsd": None if arceo_usd is None else round(arceo_usd, 4),
+        "customerSpendUsd": round(customer_usd, 4),
+        "costRatio": ratio,
+        "basis": (
+            "arceoSpendUsd is Arceo's own LLM cost for this org this month, "
+            "counted in Redis and lost on a flush — an indicator, not a ledger. "
+            "customerSpendUsd is the customer's captured spend from the audit "
+            "log and is reconstructible. costRatio is our cost per dollar of "
+            "customer volume, not revenue margin: Arceo does not bill per token."
+        ),
+    }
+
+
 @app.get("/api/audit/verify")
 def verify_audit_chain(user: dict = Depends(get_current_user)):
     """Walk this org's audit hash-chain and prove it hasn't been tampered with.
@@ -4987,6 +5065,11 @@ def _run_multi_agent_simulation_impl(req: MultiSimulateRequest, user: dict):
     from sandbox.prompts.scenarios import get_scenario, Scenario
     from dataclasses import asdict as _asdict
 
+    # 2.6: single-agent /simulate has gated since HIGH-003; this one never did,
+    # and it is the MORE expensive of the two — N agents each running their own
+    # LLM loop, with dispatch between them.
+    _budget_gate(req.coordinator_id, _org(user))
+
     if req.coordinator_id not in req.agent_ids:
         raise HTTPException(status_code=400, detail="coordinator_id must be in agent_ids")
 
@@ -5090,6 +5173,12 @@ def optimize_workflow_permissions(req: WorkflowOptimizeRequest, user: dict = Dep
     - approval_gates: cross-agent chains that need REQUIRE_APPROVAL policies
     - per-agent optimization score (0-100, lower = better optimized)
     """
+    # 2.6: this endpoint had NO gate, NO _run_heavy_job wrapper, and no dry_run
+    # guard on the LLM path — with ANTHROPIC_API_KEY set it ALWAYS ran the full
+    # multi-agent loop on our key. It is the same shape of work as
+    # /sandbox/simulate/multi, so it gets the same gate.
+    _budget_gate(req.coordinator_id, _org(user))
+
     from sandbox.multi_runner import run_multi_simulation, run_multi_simulation_dry
     from sandbox.prompts.scenarios import Scenario
     from authority.chain_detector import LABEL_TRANSITIONS
