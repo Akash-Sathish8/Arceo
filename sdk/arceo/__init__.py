@@ -15,7 +15,7 @@ Quickstart:
     from anthropic import Anthropic
     from arceo import wrap_llm
 
-    client = wrap_llm(Anthropic(), "your-agent-id", base_url="https://api.arceo.dev")
+    client = wrap_llm(Anthropic(), "your-agent-id", base_url="https://arceo.your-company.com")
     client.messages.create(model="claude-sonnet-4-6", max_tokens=512, messages=[...])
     # ^ usage is reported to Arceo automatically
 

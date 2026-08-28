@@ -26,7 +26,9 @@ in a 7-day window your forecast moves to its high-confidence (±15%) tier.
 from anthropic import Anthropic
 from arceo import wrap_llm
 
-client = wrap_llm(Anthropic(), "your-agent-id", base_url="https://api.arceo.dev")
+# base_url is YOUR Arceo instance. There is no hosted default — it falls back to
+# http://localhost:8000, which is what `docker compose up` gives you.
+client = wrap_llm(Anthropic(), "your-agent-id", base_url="https://arceo.your-company.com")
 
 client.messages.create(
     model="claude-sonnet-4-6",

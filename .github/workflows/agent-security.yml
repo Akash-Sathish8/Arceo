@@ -18,15 +18,38 @@ jobs:
         with:
           fetch-depth: 0   # full history so diff works
 
-      # Skip cleanly until ARCEO_API_KEY is configured (and the backend is deployed),
-      # so this check passes instead of hard-failing on every push with no secret.
+      # ⚠️ Say out loud that we are not scanning.
+      #
+      # The step below is skipped until ARCEO_API_KEY is configured, and a
+      # skipped step still reports the JOB as success. So "Agent Security ✅" has
+      # been appearing on every Arceo pull request while running nothing — we
+      # were shipping a CI security gate we do not run on ourselves, and reading
+      # its green tick as if it meant something. Already written up at
+      # docs/PRODUCT_FUNCTIONALITY_REVIEW.md:365.
+      #
+      # Keeping it non-blocking is deliberate: there is genuinely no backend to
+      # scan against yet, and failing every PR would just get the workflow
+      # deleted. But it must be VISIBLE rather than silently green.
+      - name: Note that the scan is not configured
+        if: ${{ env.ARCEO_API_KEY == '' }}
+        run: |
+          echo "::warning title=Agent Security scan did NOT run::ARCEO_API_KEY is not configured, so no scan was performed. This check being green does not mean the code was scanned. Configure ARCEO_API_KEY and ARCEO_API_URL once an Arceo instance is reachable."
+          {
+            echo "### ⚠️ Agent Security scan did not run"
+            echo ""
+            echo "\`ARCEO_API_KEY\` is not configured, so **no scan was performed**."
+            echo "A green check here does not mean this code was scanned."
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Arceo Agent Security Scan
         if: ${{ env.ARCEO_API_KEY != '' }}
         uses: ./.github/actions/scan
         with:
           api-key: ${{ secrets.ARCEO_API_KEY }}
-          # Optional override — leave unset to use the default (https://api.arceo.dev).
-          # Until the backend is deployed, set ARCEO_API_URL as a repo secret pointing
-          # at your local tunnel (e.g. https://abc123.ngrok.app) or staging URL.
+          # REQUIRED — there is no default (api.arceo.dev has never resolved).
+          # Point it at your instance, or a tunnel while developing
+          # (e.g. https://abc123.ngrok.app). Note that leaving the secret unset
+          # sends an EMPTY string here, which does not fall back to any default;
+          # the action fails with an explicit message in that case.
           api-url: ${{ secrets.ARCEO_API_URL }}
           threshold: '60'
