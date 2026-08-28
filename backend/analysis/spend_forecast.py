@@ -13,6 +13,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import time as _time
 from pathlib import Path
 from typing import Any, Optional
 
@@ -159,10 +160,17 @@ def _fetch_org_overrides(org_id: str) -> tuple[list[tuple], bool]:
         return [], False
 
 
-def clear_override_caches() -> None:
+def clear_override_caches(org_id: Optional[str] = None) -> None:
     """Bust derived caches after a cost_overrides write. The defaults cache
-    itself holds only pristine YAML and never needs busting."""
+    itself holds only pristine YAML and never needs busting.
+
+    ⚠️ Clearing the local dict only ever fixed the instance that took the write.
+    Pass `org_id` so the other instances are invalidated too (2.7) — without it
+    they keep quoting this org's OLD pricing until their entries age out.
+    """
     _SENSITIVITY_CACHE.clear()
+    if org_id:
+        bump_overrides_version(org_id)
 
 
 def _first_set(*vals, default):
@@ -1436,8 +1444,74 @@ def _estimate_tool_cost_per_call(
 
 
 # ── Per-agent sensitivity (±20% perturbation) ────────────────────────────────
+#
+# 2.7: this was an unbounded, TTL-less dict busted only by an in-process call.
+# Two defects, and the second is the one that costs money:
+#
+#   1. It grew forever. The key includes a hash of the agent config, so every
+#      edit to every agent added a permanent entry.
+#   2. `clear_override_caches()` runs on ONE instance. An org saving a negotiated
+#      rate cleared that instance and no other, so every other instance kept
+#      quoting LIST PRICE for that org — with no TTL, indefinitely. A customer
+#      who just told us their contract rate would keep seeing the wrong number
+#      depending on which instance answered.
+#
+# The fix for (2) is a version marker rather than cross-instance invalidation
+# messaging: an override write bumps a per-org counter in Redis, and the counter
+# is part of the cache key, so every instance misses on its next read without
+# anyone having to be told. The marker itself is cached locally for a few seconds
+# so a cache HIT does not cost a network round trip; that bounds staleness at
+# seconds instead of forever.
+_SENSITIVITY_CACHE: dict[tuple, tuple[float, list[dict]]] = {}
+_SENSITIVITY_TTL_SECONDS = 900
+#: Hard ceiling. This is a cache, not a ledger — evicting the oldest entries
+#: costs a recomputation, which is exactly what it costs on a cold instance.
+_SENSITIVITY_MAX_ENTRIES = 2000
 
-_SENSITIVITY_CACHE: dict[tuple[str, str, str], list[dict]] = {}
+_OVERRIDES_VERSION_LOCAL: dict[str, tuple[float, str]] = {}
+_OVERRIDES_VERSION_TTL_SECONDS = 5.0
+
+
+def _overrides_version(org_id: Optional[str]) -> str:
+    """A marker that changes whenever ANY instance writes this org's overrides.
+
+    Read through a short local TTL so the common path (cache hit) stays free.
+    Degrades to a constant when Redis is unavailable — that restores the old
+    per-instance behaviour rather than breaking forecasts, which is the right
+    trade for a pricing cache.
+    """
+    if not org_id:
+        return "-"
+    now = _time.time()
+    hit = _OVERRIDES_VERSION_LOCAL.get(org_id)
+    if hit is not None and now - hit[0] < _OVERRIDES_VERSION_TTL_SECONDS:
+        return hit[1]
+    version = "0"
+    try:
+        import shared_state
+
+        version = str(shared_state.client().get(f"overrides_ver:{org_id}") or "0")
+    except Exception:
+        pass
+    _OVERRIDES_VERSION_LOCAL[org_id] = (now, version)
+    return version
+
+
+def bump_overrides_version(org_id: Optional[str]) -> None:
+    """Invalidate every instance's sensitivity cache for one org.
+
+    Called on an override write. Cheap, and it does not need to reach the other
+    instances — they read the marker themselves.
+    """
+    if not org_id:
+        return
+    try:
+        import shared_state
+
+        shared_state.client().incr(f"overrides_ver:{org_id}")
+    except Exception:
+        pass
+    _OVERRIDES_VERSION_LOCAL.pop(org_id, None)
 
 
 # ── Data sources panel ───────────────────────────────────────────────────────
@@ -1686,17 +1760,24 @@ def _cached_sensitivity(
         agent_id,
         _stable_hash(agent_config),
         # org_id is in the key because per-org cost overrides shift the
-        # perturbation results; clear_override_caches() busts on writes.
-        _stable_hash({"overrides": overrides, "org": org_id, "tier_inputs": [bool(sandbox_traces), live_trace_count_7d > 0]}),
+        # perturbation results. The overrides VERSION is in it too, so a write on
+        # any instance changes this key everywhere — see _overrides_version.
+        _stable_hash({"overrides": overrides, "org": org_id,
+                      "ver": _overrides_version(org_id),
+                      "tier_inputs": [bool(sandbox_traces), live_trace_count_7d > 0]}),
     )
+    now = _time.time()
     cached = _SENSITIVITY_CACHE.get(key)
-    if cached is not None:
-        return cached
+    if cached is not None and now - cached[0] < _SENSITIVITY_TTL_SECONDS:
+        return cached[1]
     result = _compute_per_agent_sensitivity(
         agent_config, sandbox_traces, live_trace_count_7d, overrides, baseline_point, defaults,
         org_id=org_id,
     )
-    _SENSITIVITY_CACHE[key] = result
+    if len(_SENSITIVITY_CACHE) >= _SENSITIVITY_MAX_ENTRIES:
+        for stale in sorted(_SENSITIVITY_CACHE, key=lambda k: _SENSITIVITY_CACHE[k][0])[:500]:
+            _SENSITIVITY_CACHE.pop(stale, None)
+    _SENSITIVITY_CACHE[key] = (now, result)
     return result
 
 

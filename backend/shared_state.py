@@ -165,8 +165,24 @@ def try_acquire_leader(name: str, ttl_seconds: int) -> bool:
 
 def should_fire_once(key: str, ttl_seconds: int) -> bool:
     """True the first time this key is seen within the TTL, False after — so two
-    workers deciding the same BLOCK don't both fire a notification."""
+    workers deciding the same BLOCK don't both fire a notification.
+
+    ⚠️ This CLAIMS the key. Callers that want to skip expensive work before
+    deciding whether they even have something to fire must peek with
+    `fired_recently` first — claiming early would burn the token on a call that
+    then decides not to alert, and nothing would ever be sent."""
     return bool(_client.set(f"once:{key}", "1", nx=True, ex=ttl_seconds))
+
+
+def fired_recently(key: str) -> bool:
+    """Whether `should_fire_once(key, ...)` has already been claimed and not yet
+    expired. Read-only — it does NOT claim.
+
+    Exists so a caller can bail out before doing costly work: the budget alert's
+    dedupe guards a month-to-date audit scan with per-row decryption, on the hot
+    path of every captured LLM call, so "have we already alerted this month?"
+    has to be answerable without a database read."""
+    return bool(_client.exists(f"once:{key}"))
 
 
 # ── Spend counters: atomic month-to-date totals (MED-004) ─────────────────────
