@@ -112,7 +112,6 @@ export default function SpendDashboard() {
   const [loading, setLoading] = useState(true)
   const [loadedAt, setLoadedAt] = useState<string | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
-  const [showMethodology, setShowMethodology] = useState(false)
   const [pickerOpen, setPickerOpen] = useState(false)
 
   const load = useCallback(() => {

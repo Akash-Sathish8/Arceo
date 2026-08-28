@@ -98,6 +98,13 @@ jobs:
         run: npm ci
       - name: Typecheck
         run: npx tsc --noEmit
+      # The vitest suite existed since the CFO-PDF copy work but was never wired
+      # in, so every guard in it — including the one asserting the PDF states the
+      # real confidence gate — passed by never running. A guard nothing executes
+      # is not a guard; that is the same shape as the Agent Security scan that
+      # reported success while skipping its own scan step.
+      - name: Unit tests
+        run: npm run test
       - name: Build
         run: npm run build
 
