@@ -1,12 +1,16 @@
 import { useLocation } from "react-router-dom";
 import { useEffect, useRef } from "react";
 import { AnimatePresence, motion } from "framer-motion";
+import { Menu } from "lucide-react";
 import Sidebar from "./Sidebar";
 import ErrorBoundary from "./ErrorBoundary";
+import LogoMark from "@/components/shared/LogoMark";
+import { useSidebarStore } from "@/store/sidebar";
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const location = useLocation();
   const mainRef = useRef<HTMLElement>(null);
+  const setMobileOpen = useSidebarStore((s) => s.setMobileOpen);
 
   // Scroll the content region back to top on every route change — <main> is the
   // scroll container, so navigating from the bottom of a long list used to land
@@ -15,6 +19,11 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     mainRef.current?.scrollTo({ top: 0, left: 0, behavior: "auto" });
   }, [location.pathname]);
 
+  // A route change means the drawer's job is done.
+  useEffect(() => {
+    setMobileOpen(false);
+  }, [location.pathname, setMobileOpen]);
+
   if (location.pathname === "/login") {
     // Login gets its own boundary too — a crash here used to blank the screen.
     return <ErrorBoundary resetKey={location.pathname}>{children}</ErrorBoundary>;
@@ -22,9 +31,10 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div
+      className="app-shell"
       style={{
         display: "flex",
-        height: "100vh",
+        flexDirection: "column",
         overflow: "hidden",
         background: "var(--paper)",
         fontFamily: "var(--font-sans)",
@@ -32,6 +42,19 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         WebkitFontSmoothing: "antialiased",
       }}
     >
+      <header className="mobile-topbar">
+        <button
+          type="button"
+          className="mobile-topbar-menu"
+          onClick={() => setMobileOpen(true)}
+          aria-label="Open navigation"
+        >
+          <Menu size={20} strokeWidth={1.8} />
+        </button>
+        <LogoMark size={24} />
+        <span style={{ fontWeight: 600, fontSize: 17, letterSpacing: -0.3 }}>Arceo</span>
+      </header>
+      <div style={{ display: "flex", flex: 1, minHeight: 0 }}>
       <Sidebar />
       <main
         ref={mainRef}
@@ -59,6 +82,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           </AnimatePresence>
         </ErrorBoundary>
       </main>
+      </div>
     </div>
   );
 }

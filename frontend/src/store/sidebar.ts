@@ -22,6 +22,9 @@ interface SidebarStore {
   collapsed: boolean
   toggle: () => void
   setCollapsed: (v: boolean) => void
+  /** Mobile-only overlay drawer. Not persisted — a drawer always starts closed. */
+  mobileOpen: boolean
+  setMobileOpen: (v: boolean) => void
 }
 
 export const useSidebarStore = create<SidebarStore>((set) => ({
@@ -36,4 +39,6 @@ export const useSidebarStore = create<SidebarStore>((set) => ({
     persist(v)
     set({ collapsed: v })
   },
+  mobileOpen: false,
+  setMobileOpen: (v) => set({ mobileOpen: v }),
 }))

@@ -374,8 +374,8 @@ export default function SpendDashboard() {
 
       {!loading && agents.length > 0 && (
         <>
-          <div className="grid grid-cols-3 gap-4 mt-6 mb-6">
-            <div className="col-span-2">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-6 mb-6">
+            <div className="md:col-span-2">
               <AnchorStat
                 label="This month (est.)"
                 value={`$${totalSpend.toLocaleString()}`}
@@ -405,7 +405,7 @@ export default function SpendDashboard() {
           </div>
 
           {compositionTotal > 0 && (
-            <div className="grid grid-cols-2 gap-6 mb-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
               <div className="panel-card" style={{ padding: 20 }}>
                 <h3 className="text-[13px] font-semibold">Composition (this month)</h3>
                 <p className="text-[11px] text-gray-400 mt-1 mb-4">Where the company's AI dollars are going.</p>

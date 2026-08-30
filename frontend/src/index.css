@@ -238,7 +238,8 @@
 
   /* ── Page gutter ─────────────────────────────────────────────── */
   /* The one page rhythm. Every routed page applies `padding: var(--page-pad)`
-     on its outer container; never a per-page p-8/p-10/40px. */
+     on its outer container; never a per-page p-8/p-10/40px. Narrower steps
+     for tablet/phone are set in the media queries below :root. */
   --page-pad: 34px 40px 64px;
 
   /* ── Chart series ────────────────────────────────────────────── */
@@ -269,6 +270,62 @@
     outline: 2px solid var(--border-focus);
     outline-offset: 2px;
   }
+
+  /* Kill the 300ms double-tap-zoom delay on every interactive control. */
+  button, a, select, input, textarea, [role="button"], summary {
+    touch-action: manipulation;
+  }
+}
+
+/* Tablet / phone gutter steps — every page inherits via var(--page-pad). */
+@media (max-width: 1023px) {
+  :root { --page-pad: 28px 24px 56px; }
+}
+@media (max-width: 767px) {
+  :root { --page-pad: 20px 16px 48px; }
+}
+
+/* Touch devices get real targets. Height only — forcing min-width distorts
+   compact selects and inline chips. */
+@media (pointer: coarse) {
+  button, select, [role="button"], .ag-nav {
+    min-height: 44px;
+  }
+}
+
+/* ── App shell ───────────────────────────────────────────────────── */
+/* dvh so mobile browser chrome doesn't hide the bottom of the app;
+   the vh line is the fallback for engines without dvh. */
+.app-shell {
+  height: 100vh;
+  height: 100dvh;
+}
+
+/* Mobile top bar — hidden on desktop, shown below the rail breakpoint. */
+.mobile-topbar {
+  display: none;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+  padding: calc(6px + env(safe-area-inset-top)) 12px 6px;
+  border-bottom: 1px solid var(--line);
+  background: var(--paper);
+  color: var(--ink-900);
+}
+.mobile-topbar-menu {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  min-height: 44px;
+  background: none;
+  border: none;
+  border-radius: var(--radius-md);
+  color: var(--ink-600);
+  cursor: pointer;
+}
+@media (max-width: 1023px) {
+  .mobile-topbar { display: flex; }
 }
 
 body {

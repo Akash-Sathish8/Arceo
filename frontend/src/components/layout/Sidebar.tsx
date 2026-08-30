@@ -12,12 +12,14 @@ import {
   LogOut,
   PanelLeftClose,
   PanelLeftOpen,
+  X,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import LogoMark from "@/components/shared/LogoMark";
 import { apiFetch, isLoggedIn, getUser, logout } from "@/lib/api";
 import { deriveOrgName } from "@/lib/orgName";
 import { useSidebarStore } from "@/store/sidebar";
+import { useIsMobile } from "@/lib/useMediaQuery";
 
 interface NavItem {
   id: string;
@@ -40,8 +42,21 @@ function getUserInitial(email: string | undefined): string {
 
 export default function Sidebar(): React.ReactElement {
   const [pendingCount, setPendingCount] = useState(0);
-  const collapsed = useSidebarStore((s) => s.collapsed);
+  const collapsedPref = useSidebarStore((s) => s.collapsed);
   const toggle = useSidebarStore((s) => s.toggle);
+  const isMobile = useIsMobile();
+  const mobileOpen = useSidebarStore((s) => s.mobileOpen);
+  const setMobileOpen = useSidebarStore((s) => s.setMobileOpen);
+  // The drawer always renders expanded — collapse is a desktop-rail concept.
+  const collapsed = isMobile ? false : collapsedPref;
+  const closeDrawer = () => { if (isMobile) setMobileOpen(false); };
+
+  useEffect(() => {
+    if (!isMobile || !mobileOpen) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setMobileOpen(false); };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [isMobile, mobileOpen, setMobileOpen]);
 
   const user = getUser() as { email?: string } | null;
   const orgName = deriveOrgName(user?.email);
@@ -134,8 +149,47 @@ export default function Sidebar(): React.ReactElement {
     </button>
   );
 
+  const closeBtn = (
+    <button
+      onClick={() => setMobileOpen(false)}
+      aria-label="Close navigation"
+      style={{
+        background: "none",
+        border: "none",
+        color: C.icon,
+        cursor: "pointer",
+        padding: 8,
+        borderRadius: 7,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+      }}
+    >
+      <X size={18} strokeWidth={1.8} />
+    </button>
+  );
+
   return (
+    <>
+      {isMobile && (
+        <div
+          onClick={() => setMobileOpen(false)}
+          aria-hidden="true"
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 55,
+            background: "var(--bg-overlay)",
+            opacity: mobileOpen ? 1 : 0,
+            pointerEvents: mobileOpen ? "auto" : "none",
+            transition: "opacity 0.2s ease",
+          }}
+        />
+      )}
     <aside
+      {...(isMobile
+        ? { role: "dialog", "aria-modal": true, "aria-label": "Navigation", inert: !mobileOpen }
+        : {})}
       style={{
         width: collapsed ? 72 : 248,
         flexShrink: 0,
@@ -143,8 +197,22 @@ export default function Sidebar(): React.ReactElement {
         display: "flex",
         flexDirection: "column",
         padding: collapsed ? "22px 10px" : "22px 14px",
-        minHeight: "100vh",
-        transition: "width 0.18s ease",
+        ...(isMobile
+          ? {
+              position: "fixed",
+              top: 0,
+              bottom: 0,
+              left: 0,
+              zIndex: 60,
+              height: "100dvh",
+              paddingLeft: "calc(14px + env(safe-area-inset-left))",
+              paddingTop: "calc(22px + env(safe-area-inset-top))",
+              transform: mobileOpen ? "translateX(0)" : "translateX(-100%)",
+              transition: "transform 0.2s ease",
+              boxShadow: mobileOpen ? "var(--shadow-lg)" : "none",
+              overflowY: "auto",
+            }
+          : {}),
       }}
     >
       <div
@@ -173,7 +241,7 @@ export default function Sidebar(): React.ReactElement {
         {!collapsed && (
           <>
             <div style={{ flex: 1 }} />
-            {toggleBtn}
+            {isMobile ? closeBtn : toggleBtn}
           </>
         )}
       </div>
@@ -214,6 +282,7 @@ export default function Sidebar(): React.ReactElement {
               key={item.id}
               to={item.to}
               end={item.to === "/"}
+              onClick={closeDrawer}
               className={({ isActive }) => `ag-nav${isActive ? " ag-nav--active" : ""}`}
               title={collapsed ? item.label : undefined}
               style={({ isActive }) => ({
@@ -281,6 +350,7 @@ export default function Sidebar(): React.ReactElement {
 
       <NavLink
         to="/settings"
+        onClick={closeDrawer}
         className={({ isActive }) => `ag-nav${isActive ? " ag-nav--active" : ""}`}
         title={collapsed ? "Settings" : undefined}
         style={({ isActive }) => ({
@@ -377,5 +447,6 @@ export default function Sidebar(): React.ReactElement {
         </button>
       </div>
     </aside>
+    </>
   );
 }
