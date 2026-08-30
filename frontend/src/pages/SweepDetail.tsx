@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
-import { useParams, Link } from "react-router-dom";
-import { ArrowLeft, Shield, CheckCircle, XCircle, AlertTriangle } from "lucide-react";
+import { useParams } from "react-router-dom";
+import { Shield, CheckCircle, XCircle, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { apiFetch } from "@/lib/api";
 import { toast } from "@/components/shared/Toast";
 import { timeAgo, scoreBand } from "@/lib/utils";
 import ErrorState from "@/components/shared/ErrorState";
+import PageHeader from "@/components/shared/PageHeader";
 
 // Shapes below mirror the backend SweepReport (backend/sandbox/models.py) exactly
 // — the endpoint returns that dataclass flat (no `{sweep: ...}` wrapper).
@@ -176,7 +177,7 @@ export default function SweepDetail() {
 
   if (loading) {
     return (
-      <div style={{ padding: 40 }}>
+      <div style={{ padding: "var(--page-pad)" }}>
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
           <div className="animate-pulse" style={{ height: 32, background: "var(--bg-sunken)", borderRadius: "var(--radius-md)", width: 192 }} />
           <div className="animate-pulse" style={{ height: 160, background: "var(--bg-sunken)", borderRadius: 12 }} />
@@ -187,12 +188,12 @@ export default function SweepDetail() {
   }
 
   if (loadError) {
-    return <div style={{ padding: 40 }}><ErrorState message={loadError} onRetry={load} /></div>;
+    return <div style={{ padding: "var(--page-pad)" }}><ErrorState message={loadError} onRetry={load} /></div>;
   }
 
   if (!sweep) {
     return (
-      <div style={{ padding: 40, textAlign: "center", paddingTop: 80, color: "var(--text-muted)" }}>
+      <div style={{ padding: "var(--page-pad)", textAlign: "center", paddingTop: 80, color: "var(--text-muted)" }}>
         <Shield size={32} style={{ margin: "0 auto 8px", color: "var(--border-strong)" }} />
         <p style={{ fontSize: 13 }}>Sweep not found.</p>
       </div>
@@ -212,19 +213,9 @@ export default function SweepDetail() {
   const createdAt = sweep.completed_at ?? sweep.started_at ?? "";
 
   return (
-    <div style={{ padding: 40, display: "flex", flexDirection: "column", gap: 32, maxWidth: 800 }}>
+    <div style={{ padding: "var(--page-pad)", display: "flex", flexDirection: "column", gap: 32, maxWidth: 800 }}>
       {/* Header */}
-      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-        <Link to="/sandbox">
-          <Button variant="secondary" size="sm" icon={<ArrowLeft size={14} />}>
-            Back to Sandbox
-          </Button>
-        </Link>
-        <span style={{ color: "var(--border-strong)" }}>/</span>
-        <h1 style={{ fontSize: 24, fontWeight: 700, color: "var(--text-primary)", margin: 0 }}>
-          Sweep Detail
-        </h1>
-      </div>
+      <PageHeader title="Sweep Detail" back={{ to: "/sandbox", label: "Back to Sandbox" }} />
 
       {/* Overview */}
       <div style={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: "var(--radius-lg)", padding: 24 }}>
@@ -422,7 +413,7 @@ export default function SweepDetail() {
             </h3>
             {recommendations.some((r) => typeof r !== "string" && r.actionable && r.action_pattern && r.effect) && (
               <Button size="sm" onClick={applyAllRecommendations} disabled={applyingAll} loading={applyingAll}>
-                {applyingAll ? "Applying..." : "Apply All"}
+                {applyingAll ? "Applying…" : "Apply All"}
               </Button>
             )}
           </div>

@@ -17,6 +17,7 @@ import type { MockSpend } from "@/lib/mockSpend"
 import { fetchSpendForecast, fetchSpendTimeseries, fetchSpendAnomalies, fetchBudgetFit, fetchSavedBudget, saveBudget, applyGatePolicy, setForecastInputs, runSweep } from "@/lib/spendApi"
 import type { SpendTimeseries, SpendAnomaly, BudgetFit, SavedBudget } from "@/lib/spendApi"
 import { ExportCFOReportButton } from "@/components/ExportCFOReportButton"
+import PageHeader from "@/components/shared/PageHeader"
 import { apiFetch } from "@/lib/api"
 import { currentOrgName } from "@/lib/orgName"
 import { toast } from "@/components/shared/Toast"
@@ -47,10 +48,10 @@ const HIGH_GATE_CALLS = 50
 const HIGH_GATE_DAYS = 3
 
 const SOURCE_BADGE: Record<string, { label: string; color: string; bg: string; tip: string }> = {
-  declared: { label: "declared", color: "var(--severity-safe, #047857)",  bg: "var(--severity-safe-bg, #ecfdf5)",   tip: "You declared this value." },
-  measured: { label: "measured", color: "var(--severity-safe, #047857)",  bg: "var(--severity-safe-bg, #ecfdf5)",   tip: "Measured from this agent's sandbox or live traces." },
-  default:  { label: "default",  color: "var(--severity-medium, #b45309)", bg: "var(--severity-medium-bg, #fffbeb)", tip: "Industry-typical default — not measured for this agent. Declare it or run a sweep to make it real." },
-  volume:   { label: "in volume", color: "var(--severity-safe, #047857)",  bg: "var(--severity-safe-bg, #ecfdf5)",   tip: "Your declared daily volume already counts every model call, so no extra per-run multiplier is applied. Declare turns per run if your number was runs, not calls." },
+  declared: { label: "declared", color: "var(--severity-safe)",  bg: "var(--severity-safe-bg)",   tip: "You declared this value." },
+  measured: { label: "measured", color: "var(--severity-safe)",  bg: "var(--severity-safe-bg)",   tip: "Measured from this agent's sandbox or live traces." },
+  default:  { label: "default",  color: "var(--severity-medium)", bg: "var(--severity-medium-bg)", tip: "Industry-typical default — not measured for this agent. Declare it or run a sweep to make it real." },
+  volume:   { label: "in volume", color: "var(--severity-safe)",  bg: "var(--severity-safe-bg)",   tip: "Your declared daily volume already counts every model call, so no extra per-run multiplier is applied. Declare turns per run if your number was runs, not calls." },
 }
 
 function SourceBadge({ source }: { source?: string }) {
@@ -301,11 +302,11 @@ function formatCalibrationDate(iso: string | undefined): string {
 
 function CostPortfolioEmpty({ agentId, displayName }: { agentId: string | undefined; displayName: string }) {
   return (
-    <div className="min-h-screen p-8" style={{ background: "var(--bg-page)" }}>
+    <div style={{ padding: "var(--page-pad)" }}>
       <div className="text-xs text-gray-400 mb-2">
         <Link to="/" className="hover:underline" style={{ color: "var(--text-link)" }}>Agents</Link> · <Link to={`/agent/${agentId}`} className="hover:underline" style={{ color: "var(--text-link)" }}>{displayName}</Link> · Cost portfolio
       </div>
-      <h1 className="text-2xl font-bold tracking-tight">Cost portfolio · {displayName}</h1>
+      <PageHeader title={`Cost portfolio · ${displayName}`} />
       <div className="panel-card mt-8 text-center" style={{ padding: 48 }}>
         <Banknote className="mx-auto mb-4 text-gray-400" size={36} />
         <div className="text-base font-semibold text-gray-900">No forecast yet for this agent</div>
@@ -326,11 +327,11 @@ function CostPortfolioEmpty({ agentId, displayName }: { agentId: string | undefi
 
 function CostPortfolioLoading({ agentId, displayName }: { agentId: string | undefined; displayName: string }) {
   return (
-    <div className="min-h-screen p-8" style={{ background: "var(--bg-page)" }}>
+    <div style={{ padding: "var(--page-pad)" }}>
       <div className="text-xs text-gray-400 mb-2">
         <Link to="/" className="hover:underline" style={{ color: "var(--text-link)" }}>Agents</Link> · <Link to={`/agent/${agentId}`} className="hover:underline" style={{ color: "var(--text-link)" }}>{displayName}</Link> · Cost portfolio
       </div>
-      <h1 className="text-2xl font-bold tracking-tight">Cost portfolio · {displayName}</h1>
+      <PageHeader title={`Cost portfolio · ${displayName}`} />
       <p className="text-sm text-gray-500 mt-3">Loading forecast…</p>
     </div>
   )
@@ -428,7 +429,7 @@ function ForecastUnavailableView({
 
   if (phase === "running") {
     return (
-      <div className="min-h-screen p-8" style={{ background: "var(--bg-page)" }}>
+      <div style={{ padding: "var(--page-pad)" }}>
         <div className="text-xs text-gray-400 mb-2">Cost Portfolio · {displayName}</div>
         <div
           className="max-w-xl rounded-xl border p-8 text-center mx-auto mt-8"
@@ -446,7 +447,7 @@ function ForecastUnavailableView({
   }
 
   return (
-    <div className="min-h-screen p-8" style={{ background: "var(--bg-page)" }}>
+    <div style={{ padding: "var(--page-pad)" }}>
       <div className="text-xs text-gray-400 mb-2">Cost Portfolio · {displayName}</div>
       <div
         className="max-w-xl rounded-xl border p-8 mx-auto mt-8"
@@ -483,7 +484,7 @@ function ForecastUnavailableView({
             <button
               onClick={() => setPhase("form")}
               className="text-sm px-5 py-2.5 rounded-lg font-medium text-white"
-              style={{ background: "var(--color-cta, #0f172a)", border: "none", cursor: "pointer" }}
+              style={{ background: "var(--color-cta)", border: "none", cursor: "pointer" }}
             >
               Get cost report
             </button>
@@ -549,7 +550,7 @@ function ForecastUnavailableView({
             <button
               onClick={generate}
               className="w-full text-sm px-4 py-2.5 rounded-lg font-medium text-white"
-              style={{ background: "var(--color-cta, #0f172a)", border: "none", cursor: "pointer" }}
+              style={{ background: "var(--color-cta)", border: "none", cursor: "pointer" }}
             >
               Sandbox agent &amp; generate report
             </button>
@@ -698,27 +699,25 @@ function CostPortfolioContent({
   }
 
   return (
-    <div className="min-h-screen p-8" style={{ background: "var(--bg-page)" }}>
+    <div style={{ padding: "var(--page-pad)" }}>
       <div className="text-xs text-gray-400 mb-2">
         <Link to="/" className="hover:underline" style={{ color: "var(--text-link)" }}>Agents</Link> · <Link to={`/agent/${agentId}`} className="hover:underline" style={{ color: "var(--text-link)" }}>{displayName}</Link> · Cost portfolio
       </div>
-      <h1 className="text-2xl font-bold tracking-tight">
-        Cost portfolio · {displayName}
-        {m.isDemo && (
+      <PageHeader
+        title={`Cost portfolio · ${displayName}`}
+        description="Operational spend forecast"
+        actions={m.isDemo ? (
           <span
-            className="align-middle ml-3 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full cursor-help"
+            className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full cursor-help"
             title="This agent's traffic is sample data seeded for demonstration — the math is real, but the calls were generated, not captured from a live agent."
             style={{ background: "var(--severity-medium-bg)", color: "var(--severity-high)", border: "1px solid var(--severity-medium-border)" }}
           >Demo data</span>
-        )}
-      </h1>
-      <div className="mt-2">
-        <div className="text-sm font-medium text-gray-700">Operational spend forecast</div>
-        {/* observedDays is only set when live traffic actually fed the number —
-            below 50 calls the confidence stays low/medium but the basis is
-            still real traffic, not the capability tree (D27). */}
-        <div className="text-xs text-gray-500 mt-1">Updated {relativeTime(m.capturedAt)} · derived from <span className="font-semibold text-gray-700">{m.confidence === "high" || m.observedDays != null ? "live traces" : m.confidence === "medium" ? "sandbox traces" : "capability tree"}</span></div>
-      </div>
+        ) : undefined}
+      />
+      {/* observedDays is only set when live traffic actually fed the number —
+          below 50 calls the confidence stays low/medium but the basis is
+          still real traffic, not the capability tree (D27). */}
+      <div className="text-xs text-gray-500">Updated {relativeTime(m.capturedAt)} · derived from <span className="font-semibold text-gray-700">{m.confidence === "high" || m.observedDays != null ? "live traces" : m.confidence === "medium" ? "sandbox traces" : "capability tree"}</span></div>
 
       {anomaly && <AnomalyBanner anomaly={anomaly} displayName={displayName} />}
 
@@ -1110,7 +1109,7 @@ function CostPortfolioContent({
             <button
               onClick={onSaveBudgetAlert}
               className="text-xs px-3 py-2 rounded-md font-medium cursor-pointer whitespace-nowrap text-white"
-              style={{ background: "var(--text-primary, #0f172a)" }}
+              style={{ background: "var(--text-primary)" }}
             >
               {savedBudget?.budget === budget ? "Alert set ✓" : "Set a spend alert"}
             </button>

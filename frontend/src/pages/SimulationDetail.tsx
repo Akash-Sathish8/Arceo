@@ -4,7 +4,6 @@ import { Button } from "@/components/ui/Button";
 import {
   ChevronDown,
   ChevronRight,
-  ArrowLeft,
   AlertTriangle,
   CheckCircle,
   XCircle,
@@ -18,6 +17,7 @@ import { apiFetch } from "@/lib/api";
 import { toast } from "@/components/shared/Toast";
 import { timeAgo, riskLabelColor, riskLabelBg, riskLabelName } from "@/lib/utils";
 import ErrorState from "@/components/shared/ErrorState";
+import PageHeader from "@/components/shared/PageHeader";
 import type { RiskLabel } from "@/lib/types";
 
 interface TraceStep {
@@ -151,7 +151,7 @@ function ScoreRing({ score }: { score: number }) {
     <div className="flex-shrink-0">
       <div className="relative" style={{ width: 100, height: 100 }}>
         <svg width={100} height={100} style={{ transform: "rotate(-90deg)" }}>
-          <circle cx={50} cy={50} r={radius} fill="none" stroke="#e5e7eb" strokeWidth={8} />
+          <circle cx={50} cy={50} r={radius} fill="none" stroke="var(--line)" strokeWidth={8} />
           <circle
             cx={50}
             cy={50}
@@ -176,13 +176,13 @@ function StepRow({ step }: { step: TraceStep }) {
   const [expanded, setExpanded] = useState(false);
   const [showRaw, setShowRaw] = useState(false);
 
-  const sty = SEVERITY_STYLES[step.severity?.toLowerCase() ?? ""] ?? { bg: "#f9fafb", color: "#6b7280" };
+  const sty = SEVERITY_STYLES[step.severity?.toLowerCase() ?? ""] ?? { bg: "var(--paper-2)", color: "var(--ink-500)" };
 
   return (
-    <div className="border border-gray-200 rounded-lg overflow-hidden" style={{ background: '#ffffff' }}>
+    <div className="border rounded-lg overflow-hidden" style={{ background: 'var(--card)', borderColor: 'var(--line)' }}>
       <button
         onClick={() => setExpanded((v) => !v)}
-        className="w-full flex items-center gap-3 p-3 text-left transition-colors hover:bg-gray-50"
+        className="w-full flex items-center gap-3 p-3 text-left transition-colors hover:bg-[var(--paper-2)]"
         style={{ background: 'transparent' }}
       >
         <div
@@ -235,7 +235,7 @@ function StepRow({ step }: { step: TraceStep }) {
       </button>
 
       {expanded && (
-        <div className="border-t border-gray-200 p-3" style={{ background: '#ffffff' }}>
+        <div className="border-t p-3" style={{ background: 'var(--card)', borderColor: 'var(--line)' }}>
           <div className="flex gap-2 mb-3">
             <button
               onClick={() => setShowRaw(false)}
@@ -387,23 +387,23 @@ export default function SimulationDetail() {
 
   if (loading) {
     return (
-      <div className="p-6">
+      <div style={{ padding: "var(--page-pad)" }}>
         <div className="animate-pulse space-y-4">
-          <div className="h-8 bg-gray-200 rounded w-48" />
-          <div className="h-40 bg-gray-200 rounded-xl" />
-          <div className="h-64 bg-gray-200 rounded-xl" />
+          <div className="h-8 rounded w-48" style={{ background: "var(--line)" }} />
+          <div className="h-40 rounded-xl" style={{ background: "var(--line)" }} />
+          <div className="h-64 rounded-xl" style={{ background: "var(--line)" }} />
         </div>
       </div>
     );
   }
 
   if (loadError) {
-    return <div style={{ padding: 40 }}><ErrorState message={loadError} onRetry={load} /></div>;
+    return <div style={{ padding: "var(--page-pad)" }}><ErrorState message={loadError} onRetry={load} /></div>;
   }
 
   if (!sim) {
     return (
-      <div style={{ padding: 40, textAlign: "center", paddingTop: 80, color: "var(--text-muted)" }}>
+      <div style={{ padding: "var(--page-pad)", textAlign: "center", paddingTop: 80, color: "var(--text-muted)" }}>
         <Shield size={32} style={{ margin: "0 auto 8px", color: "var(--border-strong)" }} />
         <p style={{ fontSize: 13 }}>Simulation not found.</p>
       </div>
@@ -418,20 +418,12 @@ export default function SimulationDetail() {
   const score = report?.risk_score ?? 0;
 
   return (
-    <div className="p-8 space-y-8 max-w-5xl">
+    <div className="space-y-8 max-w-5xl" style={{ padding: "var(--page-pad)" }}>
       {/* Header */}
-      <div className="flex items-center gap-3">
-        <Link to="/sandbox">
-          <Button variant="secondary" size="sm" icon={<ArrowLeft size={14} />}>
-            Back to Sandbox
-          </Button>
-        </Link>
-        <span style={{ color: "var(--border-strong)" }}>/</span>
-        <h1 style={{ fontSize: 24, fontWeight: 700, color: "var(--text-primary)", margin: 0 }}>Simulation Detail</h1>
-      </div>
+      <PageHeader title="Simulation Detail" back={{ to: "/sandbox", label: "Back to Sandbox" }} />
 
       {/* Overview */}
-      <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-6">
+      <div className="border rounded-xl shadow-sm p-6" style={{ background: "var(--card)", borderColor: "var(--line)" }}>
         <div className="flex items-start gap-6">
           <ScoreRing score={score} />
           <div className="flex-1">
@@ -490,14 +482,14 @@ export default function SimulationDetail() {
 
       {/* Violations */}
       {violations.length > 0 && (
-        <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-6">
+        <div className="border rounded-xl shadow-sm p-6" style={{ background: "var(--card)", borderColor: "var(--line)" }}>
           <h3 className="font-semibold mb-5 flex items-center gap-2" style={{ fontSize: 15, color: "var(--text-primary)" }}>
-            <XCircle size={16} className="text-red-500" />
+            <XCircle size={16} style={{ color: "var(--critical)" }} />
             Violations ({violations.length})
           </h3>
           <div className="space-y-2">
             {violations.map((v, i) => {
-              const sty = SEVERITY_STYLES[v.severity?.toLowerCase()] ?? { bg: "#f9fafb", color: "#6b7280" };
+              const sty = SEVERITY_STYLES[v.severity?.toLowerCase()] ?? { bg: "var(--paper-2)", color: "var(--ink-500)" };
               return (
                 <div
                   key={i}
@@ -543,7 +535,7 @@ export default function SimulationDetail() {
       {/* Detection accuracy — only when the scenario declared expected
           violations (optional data; absent renders nothing, not an error) */}
       {report?.detection_grade && report.detection_grade.expected.length > 0 && (
-        <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-6">
+        <div className="border rounded-xl shadow-sm p-6" style={{ background: "var(--card)", borderColor: "var(--line)" }}>
           <h3 className="font-semibold mb-2 flex items-center gap-2" style={{ fontSize: 15, color: "var(--text-primary)" }}>
             <Crosshair size={16} style={{ color: report.detection_grade.passed ? "var(--safe)" : "var(--high)" }} />
             Detection accuracy
@@ -599,14 +591,14 @@ export default function SimulationDetail() {
 
       {/* Chains */}
       {chains.length > 0 && (
-        <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-6">
+        <div className="border rounded-xl shadow-sm p-6" style={{ background: "var(--card)", borderColor: "var(--line)" }}>
           <h3 className="font-semibold mb-5 flex items-center gap-2" style={{ fontSize: 15, color: "var(--text-primary)" }}>
-            <GitBranch size={16} className="text-orange-500" />
+            <GitBranch size={16} style={{ color: "var(--high)" }} />
             Chains Triggered ({chains.length})
           </h3>
           <div className="space-y-2">
             {chains.map((c, i) => {
-              const sty = SEVERITY_STYLES[c.severity?.toLowerCase()] ?? { bg: "#f9fafb", color: "#6b7280" };
+              const sty = SEVERITY_STYLES[c.severity?.toLowerCase()] ?? { bg: "var(--paper-2)", color: "var(--ink-500)" };
               return (
                 <div
                   key={i}
@@ -632,14 +624,14 @@ export default function SimulationDetail() {
 
       {/* Recommendations */}
       {recommendations.length > 0 && (
-        <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-6">
+        <div className="border rounded-xl shadow-sm p-6" style={{ background: "var(--card)", borderColor: "var(--line)" }}>
           <div className="flex items-center justify-between mb-3">
             <h3 className="font-semibold flex items-center gap-2" style={{ fontSize: 15, color: "var(--text-primary)" }}>
-              <Shield size={16} className="text-blue-500" />
+              <Shield size={16} style={{ color: "var(--accent)" }} />
               Recommendations ({recommendations.length})
             </h3>
             <Button size="sm" onClick={applyAllRecommendations} disabled={applyingAll} loading={applyingAll}>
-              {applyingAll ? "Applying..." : "Apply All"}
+              {applyingAll ? "Applying…" : "Apply All"}
             </Button>
           </div>
           <div className="space-y-1.5">
@@ -666,7 +658,7 @@ export default function SimulationDetail() {
       )}
 
       {/* Timeline */}
-      <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-4">
+      <div className="border rounded-xl shadow-sm p-4" style={{ background: "var(--card)", borderColor: "var(--line)" }}>
         <h3 className="font-semibold mb-3 flex items-center gap-2" style={{ fontSize: 15, color: "var(--text-primary)" }}>
           <Clock size={16} style={{ color: "var(--text-secondary)" }} />
           Execution Timeline ({steps.length} steps)

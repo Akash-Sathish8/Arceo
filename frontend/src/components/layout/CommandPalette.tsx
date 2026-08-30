@@ -3,12 +3,12 @@ import { AnimatePresence, motion } from "framer-motion";
 import { Command } from "cmdk";
 import { useNavigate } from "react-router-dom";
 import {
-  LayoutDashboard,
+  LayoutGrid,
   GitBranch,
   FlaskConical,
   Clock,
   GitCompare,
-  CheckSquare,
+  ShieldCheck,
   Settings,
   Search,
   User,
@@ -26,13 +26,13 @@ interface Agent {
 }
 
 const NAV_ITEMS = [
-  { label: "Agents", to: "/", icon: <LayoutDashboard size={14} /> },
+  { label: "Agents", to: "/", icon: <LayoutGrid size={14} /> },
   { label: "Spend", to: "/spend", icon: <Banknote size={14} /> },
   { label: "Workflows", to: "/workflows", icon: <GitBranch size={14} /> },
   { label: "Sandbox", to: "/sandbox", icon: <FlaskConical size={14} /> },
   { label: "History", to: "/history", icon: <Clock size={14} /> },
   { label: "Compare", to: "/compare", icon: <GitCompare size={14} /> },
-  { label: "Approvals", to: "/approvals", icon: <CheckSquare size={14} /> },
+  { label: "Approvals", to: "/approvals", icon: <ShieldCheck size={14} /> },
   { label: "Settings", to: "/settings", icon: <Settings size={14} /> },
 ];
 

@@ -381,7 +381,7 @@ function OptimizeResult({ result, onApply, applying, appliedCount }: OptimizeRes
                     {item.severity?.toUpperCase()}
                   </span>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <code style={{ fontSize: 12, fontFamily: "monospace", color: "#1f2937" }}>
+                    <code style={{ fontSize: 12, fontFamily: "monospace", color: "var(--ink-800)" }}>
                       {item.action}
                     </code>
                     <span style={{ fontSize: 12, color: "var(--ink-500)", marginLeft: 8 }}>
@@ -425,7 +425,7 @@ function OptimizeResult({ result, onApply, applying, appliedCount }: OptimizeRes
                   style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 0" }}
                 >
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <code style={{ fontSize: 12, fontFamily: "monospace", color: "#1f2937" }}>
+                    <code style={{ fontSize: 12, fontFamily: "monospace", color: "var(--ink-800)" }}>
                       {item.action}
                     </code>
                     <span style={{ fontSize: 12, color: "var(--ink-500)", marginLeft: 8 }}>
@@ -474,14 +474,14 @@ function OptimizeResult({ result, onApply, applying, appliedCount }: OptimizeRes
                       fontWeight: 700,
                       padding: "2px 6px",
                       borderRadius: 4,
-                      background: "#fefce8",
+                      background: "var(--caution-bg)",
                       color: "var(--caution)",
                     }}
                   >
                     {chain.severity?.toUpperCase()}
                   </span>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <span style={{ fontSize: 12, fontWeight: 500, color: "#1f2937" }}>
+                    <span style={{ fontSize: 12, fontWeight: 500, color: "var(--ink-800)" }}>
                       {chainShortLabel(chain.chain_id ?? chain.chain_name)}
                     </span>
                     <span style={{ fontSize: 12, color: "var(--ink-500)", marginLeft: 8 }}>
@@ -494,7 +494,7 @@ function OptimizeResult({ result, onApply, applying, appliedCount }: OptimizeRes
                       fontWeight: 700,
                       padding: "2px 6px",
                       borderRadius: 4,
-                      background: "#fefce8",
+                      background: "var(--caution-bg)",
                       color: "var(--caution)",
                       whiteSpace: "nowrap",
                     }}
@@ -560,7 +560,7 @@ function OptimizeResult({ result, onApply, applying, appliedCount }: OptimizeRes
               }}
             >
               {applying
-                ? "Applying..."
+                ? "Applying…"
                 : `Apply All Recommendations (${total_overprivileged + totalApprovalGates} policies)`}
             </button>
           )}
@@ -670,10 +670,10 @@ function WorkflowResult({ result, agentNames, agentColors, mode }: WorkflowResul
         <div
           style={{
             marginBottom: 16,
-            border: "1px solid #fecaca",
+            border: "1px solid var(--critical-line)",
             borderRadius: "var(--radius-md)",
             padding: 12,
-            background: "rgba(254,242,242,0.3)",
+            background: "var(--critical-bg)",
           }}
         >
           <div
@@ -714,7 +714,7 @@ function WorkflowResult({ result, agentNames, agentColors, mode }: WorkflowResul
                 {c.severity?.toUpperCase()}
               </span>
               <div style={{ display: "flex", flexDirection: "column" }}>
-                <span style={{ fontSize: 12, fontWeight: 500, color: "#1f2937" }}>
+                <span style={{ fontSize: 12, fontWeight: 500, color: "var(--ink-800)" }}>
                   {chainShortLabel(c.chain_id ?? c.chain_name)}
                   {c.from_agent && c.to_agent && (
                     <span style={{ fontWeight: 400, color: "var(--ink-500)" }}>
@@ -805,9 +805,9 @@ function WorkflowResult({ result, agentNames, agentColors, mode }: WorkflowResul
                   borderRadius: "var(--radius-md)",
                   fontSize: 12,
                   ...(isBlocked
-                    ? { background: "var(--critical-bg)", border: "1px solid #fecaca" }
+                    ? { background: "var(--critical-bg)", border: "1px solid var(--critical-line)" }
                     : isPending
-                    ? { background: "#fefce8", border: "1px solid #fef08a" }
+                    ? { background: "var(--caution-bg)", border: "1px solid var(--caution-line)" }
                     : { background: "var(--bg-sunken)" }),
                 }}
               >
@@ -844,7 +844,7 @@ function WorkflowResult({ result, agentNames, agentColors, mode }: WorkflowResul
                       fontWeight: 700,
                       padding: "2px 6px",
                       borderRadius: 4,
-                      background: "#fecaca",
+                      background: "var(--critical-line)",
                       color: "var(--critical)",
                     }}
                   >
@@ -858,7 +858,7 @@ function WorkflowResult({ result, agentNames, agentColors, mode }: WorkflowResul
                       fontWeight: 700,
                       padding: "2px 6px",
                       borderRadius: 4,
-                      background: "#fef08a",
+                      background: "var(--caution-line)",
                       color: "var(--caution)",
                     }}
                   >
@@ -1171,7 +1171,7 @@ export default function Workflows() {
 
   if (loading) {
     return (
-      <div style={{ padding: "34px 40px 64px", maxWidth: 1140, margin: "0 auto" }} aria-busy="true" aria-label="Loading workflows">
+      <div style={{ padding: "var(--page-pad)", maxWidth: 1140, margin: "0 auto" }} aria-busy="true" aria-label="Loading workflows">
         {/* Mirrors the page: header → left tool rail + right results column */}
         <div className="skeleton" style={{ height: 30, width: 200 }} />
         <div style={{ display: "flex", gap: 24, marginTop: 24 }}>
@@ -1183,12 +1183,16 @@ export default function Workflows() {
   }
 
   if (loadError) {
-    return <div style={{ padding: 40 }}><ErrorState message={loadError} onRetry={loadAgents} /></div>;
+    return <div style={{ padding: "var(--page-pad)" }}><ErrorState message={loadError} onRetry={loadAgents} /></div>;
   }
 
   if (agents.length < 2) {
     return (
-      <div style={{ padding: "34px 40px 64px", fontFamily: "var(--font-sans)", maxWidth: 1140, margin: "0 auto" }}>
+      <div style={{ padding: "var(--page-pad)", fontFamily: "var(--font-sans)", maxWidth: 1140, margin: "0 auto" }}>
+        <PageHeader
+          title="Workflows"
+          description="Map the risky handoffs between your agents, then test the whole flow safely."
+        />
         <div
           style={{
             display: "flex",
@@ -1228,7 +1232,7 @@ export default function Workflows() {
   }
 
   return (
-    <div style={{ padding: "34px 40px 64px", fontFamily: "var(--font-sans)", maxWidth: 1140, margin: "0 auto" }}>
+    <div style={{ padding: "var(--page-pad)", fontFamily: "var(--font-sans)", maxWidth: 1140, margin: "0 auto" }}>
       <PageHeader
         title="Workflows"
         description="Map the risky handoffs between your agents, then test the whole flow safely."
@@ -1285,7 +1289,7 @@ export default function Workflows() {
                       padding: "8px 12px",
                       borderRadius: "var(--radius-md)",
                       border: `1px solid ${isSelected ? "var(--accent)" : "var(--border)"}`,
-                      background: isSelected ? "var(--accent-soft)" : "#ffffff",
+                      background: isSelected ? "var(--accent-soft)" : "var(--card)",
                       textAlign: "left",
                       cursor: "pointer",
                     }}
@@ -1533,7 +1537,7 @@ export default function Workflows() {
                       style={textareaStyle}
                       value={customPrompt}
                       onChange={(e) => setCustomPrompt(e.target.value)}
-                      placeholder={`Describe a scenario to simulate across ${allAgentIds.length} agents...\n\nExample: "Process a bulk refund for customers affected by the outage, then notify the team and update all records."`}
+                      placeholder={`Describe a scenario to simulate across ${allAgentIds.length} agents…\n\nExample: "Process a bulk refund for customers affected by the outage, then notify the team and update all records."`}
                       rows={4}
                       onFocus={(e) => {
                         (e.target as HTMLTextAreaElement).style.borderColor = "var(--border-focus)";

@@ -16,9 +16,11 @@ import {
 } from 'lucide-react'
 import { apiFetch, getToken } from '@/lib/api'
 import { toast } from '@/components/shared/Toast'
-import { bandDescription, scoreBand, scoreToColor } from '@/lib/utils'
+import { bandDescription, riskLabelBg, riskLabelColor, riskLabelName, scoreBand, scoreToColor } from '@/lib/utils'
+import type { RiskLabel } from '@/lib/types'
 import Tooltip from '@/components/shared/Tooltip'
 import ErrorState from '@/components/shared/ErrorState'
+import CodeTabs, { type CodeTab } from '@/components/shared/CodeTabs'
 import { RISK_SCORE_METHODOLOGY } from '@/lib/methodology'
 
 // ── Local types ───────────────────────────────────────────────────────────────
@@ -170,32 +172,6 @@ interface PolicyConflict {
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const RISK_COLORS: Record<string, string> = {
-  moves_money: 'var(--critical)',
-  touches_pii: '#7c3aed',
-  deletes_data: 'var(--high)',
-  sends_external: '#2563eb',
-  changes_production: '#0d9488',
-  changes_access: '#b91c1c',
-  reads_secrets: '#a21caf',
-  evades_detection: '#4338ca',
-  bulk_export: '#15803d',
-  executes_code: '#334155',
-}
-
-const RISK_LABELS: Record<string, string> = {
-  moves_money: 'Moves Money',
-  touches_pii: 'Touches PII',
-  deletes_data: 'Deletes Data',
-  sends_external: 'Sends External',
-  changes_production: 'Changes Prod',
-  changes_access: 'Access control',
-  reads_secrets: 'Secrets',
-  evades_detection: 'Log tampering',
-  bulk_export: 'Bulk export',
-  executes_code: 'Code exec',
-}
-
 const SEV_STYLE: Record<string, { bg: string; color: string }> = {
   critical: { bg: 'var(--critical-bg)', color: 'var(--critical)' },
   high: { bg: 'var(--high-bg)', color: 'var(--high)' },
@@ -239,9 +215,9 @@ const formatDescription = (text: string) =>
 const actionRiskDot = (tool: string, action: string): string => {
   const s = `${tool}.${action}`.toLowerCase()
   if (/delete|terminate|drop|destroy|remove|cancel/.test(s)) return 'var(--critical)'
-  if (/charge|transfer|pay|refund|create_charge/.test(s)) return '#2563eb'
-  if (/send|email|message|notify/.test(s)) return '#7c3aed'
-  return '#9ca3af'
+  if (/charge|transfer|pay|refund|create_charge/.test(s)) return riskLabelColor('moves_money')
+  if (/send|email|message|notify/.test(s)) return riskLabelColor('sends_external')
+  return 'var(--ink-400)'
 }
 
 const blastLabel = (score: number): string => bandDescription(scoreBand(score).key)
@@ -318,7 +294,7 @@ function AuthorityMap({ graph, serviceFilter }: AuthorityMapProps) {
           style={{ background: 'var(--bg-sunken)', border: '2px solid transparent', borderRadius: 'var(--radius-full)', color: 'var(--text-primary)', padding: '0 16px', height: '36px', fontSize: 13, outline: 'none', flex: 1, minWidth: 0, fontFamily: 'inherit' }}
           onFocus={e => (e.currentTarget.style.borderColor = 'var(--border-focus)')}
           onBlur={e => (e.currentTarget.style.borderColor = 'transparent')}
-          placeholder="Search actions..."
+          placeholder="Search actions…"
           value={graphSearch}
           onChange={(e) => setGraphSearch(e.target.value)}
         />
@@ -370,7 +346,7 @@ function AuthorityMap({ graph, serviceFilter }: AuthorityMapProps) {
           (a) => a.reversible !== false && !(a.risk_labels?.length ?? 0)
         ).length
         const isOpen = !collapsed[tool.id] || !!searchLower || riskFilter !== 'all'
-        const accentColor = nIrrev > 0 ? 'var(--critical)' : nRisky > 0 ? '#f59e0b' : '#d1d5db'
+        const accentColor = nIrrev > 0 ? 'var(--critical)' : nRisky > 0 ? 'var(--caution)' : 'var(--ink-300)'
 
         return (
           <div
@@ -424,7 +400,7 @@ function AuthorityMap({ graph, serviceFilter }: AuthorityMapProps) {
                       <span
                         className="w-2 h-2 rounded-full flex-shrink-0"
                         style={{
-                          background: isIrrev ? 'var(--critical)' : hasRisk ? '#f59e0b' : '#d1d5db',
+                          background: isIrrev ? 'var(--critical)' : hasRisk ? 'var(--caution)' : 'var(--ink-300)',
                         }}
                       />
                       <span className="text-sm text-gray-700 flex-1">
@@ -436,12 +412,12 @@ function AuthorityMap({ graph, serviceFilter }: AuthorityMapProps) {
                             key={r}
                             className="px-1.5 py-0.5 text-xs rounded border font-medium"
                             style={{
-                              background: (RISK_COLORS[r] ?? '#9ca3af') + '18',
-                              color: RISK_COLORS[r] ?? '#6b7280',
-                              borderColor: (RISK_COLORS[r] ?? '#9ca3af') + '50',
+                              background: riskLabelBg(r as RiskLabel),
+                              color: riskLabelColor(r as RiskLabel),
+                              borderColor: riskLabelColor(r as RiskLabel),
                             }}
                           >
-                            {RISK_LABELS[r] ?? r}
+                            {riskLabelName(r)}
                           </span>
                         ))}
                         {isIrrev && (
@@ -501,7 +477,7 @@ function DeploymentContextEditor({
   const sel = 'text-xs border border-gray-200 rounded px-2 py-1 bg-white'
   return (
     <div className="flex items-center gap-2 flex-wrap mb-4 -mt-1">
-      <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Deployment context</span>
+      <span className="font-semibold text-gray-500 uppercase tracking-wide" style={{ fontSize: 'var(--fs-micro)' }}>Deployment context</span>
       <select className={sel} value={env} onChange={(e) => setEnv(e.target.value)} aria-label="environment">
         <option value="">environment…</option>
         <option value="prod">prod</option>
@@ -587,7 +563,7 @@ function WorstCasePanel({
           style={
             topChain?.severity === 'critical' && !hasCoveringPolicy
               ? { background: 'var(--critical-bg)', borderColor: 'var(--critical-line)' }
-              : { background: '#fff', borderColor: 'var(--caution-line)' }
+              : { background: 'var(--paper)', borderColor: 'var(--caution-line)' }
           }
         >
           <span className="text-base leading-none mt-0.5 flex-shrink-0">⛓</span>
@@ -691,7 +667,7 @@ function WorstCasePanel({
 
           {br.top_contributors && br.top_contributors.filter((c) => c.usd > 0).length > 0 && (
             <div className="space-y-1">
-              <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Top dollar exposure</div>
+              <div className="font-semibold text-gray-500 uppercase tracking-wide" style={{ fontSize: 'var(--fs-micro)' }}>Top dollar exposure</div>
               {br.top_contributors
                 .filter((c) => c.usd > 0)
                 .slice(0, 3)
@@ -769,8 +745,7 @@ function ActionPicker({ tools, selectedPatterns, onAdd }: ActionPickerProps) {
     <div className="relative" ref={ref}>
       <button
         type="button"
-        style={{ background: 'var(--bg-sunken)', border: open ? '2px solid var(--border-focus)' : '2px solid transparent', borderRadius: 'var(--radius-full)', color: 'var(--text-primary)', padding: '0 16px', height: '42px', width: '100%', fontSize: 13, outline: 'none', display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontFamily: 'inherit', cursor: 'pointer' }}
-        className="transition-all"
+        style={{ background: 'var(--bg-sunken)', border: open ? '2px solid var(--border-focus)' : '2px solid transparent', borderRadius: 'var(--radius-full)', color: 'var(--text-primary)', padding: '0 16px', height: '42px', width: '100%', fontSize: 13, outline: 'none', display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontFamily: 'inherit', cursor: 'pointer', transition: 'border-color 0.15s' }}
         onClick={() => setOpen((o) => !o)}
       >
         <span style={{ color: 'var(--text-secondary)' }}>
@@ -778,7 +753,7 @@ function ActionPicker({ tools, selectedPatterns, onAdd }: ActionPickerProps) {
         </span>
         <ChevronDown
           className={`w-4 h-4 transition-transform ${open ? 'rotate-180' : ''}`}
-          style={{ color: '#9ca3af' }}
+          style={{ color: 'var(--ink-400)' }}
         />
       </button>
 
@@ -790,7 +765,7 @@ function ActionPicker({ tools, selectedPatterns, onAdd }: ActionPickerProps) {
               style={{ background: 'var(--bg-sunken)', border: '2px solid transparent', borderRadius: 'var(--radius-full)', color: 'var(--text-primary)', padding: '0 14px', height: '36px', width: '100%', fontSize: 13, outline: 'none', fontFamily: 'inherit' }}
               onFocus={e => (e.currentTarget.style.borderColor = 'var(--border-focus)')}
               onBlur={e => (e.currentTarget.style.borderColor = 'transparent')}
-              placeholder="Search actions..."
+              placeholder="Search actions…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
             />
@@ -798,7 +773,7 @@ function ActionPicker({ tools, selectedPatterns, onAdd }: ActionPickerProps) {
           <div className="max-h-64 overflow-y-auto">
             {filteredTools.map((t) => (
               <div key={t.name}>
-                <div className="px-3 py-1.5 text-xs font-semibold text-gray-500 uppercase tracking-wide bg-gray-50">
+                <div className="px-3 py-1.5 font-semibold text-gray-500 uppercase tracking-wide bg-gray-50" style={{ fontSize: 'var(--fs-micro)' }}>
                   {t.service || t.name}
                 </div>
                 {t.wildcardMatch && (
@@ -848,7 +823,7 @@ function ActionPicker({ tools, selectedPatterns, onAdd }: ActionPickerProps) {
                       <span
                         className="w-2 h-2 rounded-full flex-shrink-0"
                         style={{
-                          background: isIrrev ? 'var(--critical)' : isRisky ? '#f59e0b' : '#d1d5db',
+                          background: isIrrev ? 'var(--critical)' : isRisky ? 'var(--caution)' : 'var(--ink-300)',
                         }}
                       />
                       <span className="flex-1">{formatAction(a.action)}</span>
@@ -863,12 +838,12 @@ function ActionPicker({ tools, selectedPatterns, onAdd }: ActionPickerProps) {
                             key={r}
                             className="text-xs px-1.5 py-0.5 rounded border"
                             style={{
-                              background: (RISK_COLORS[r] ?? '#9ca3af') + '22',
-                              color: RISK_COLORS[r] ?? '#6b7280',
-                              borderColor: (RISK_COLORS[r] ?? '#9ca3af') + '55',
+                              background: riskLabelBg(r as RiskLabel),
+                              color: riskLabelColor(r as RiskLabel),
+                              borderColor: riskLabelColor(r as RiskLabel),
                             }}
                           >
-                            {RISK_LABELS[r] ?? r}
+                            {riskLabelName(r)}
                           </span>
                         ))}
                       </div>
@@ -1031,7 +1006,7 @@ function EffectToggle({ value, onChange }: EffectToggleProps) {
       Icon: Check,
       color: 'var(--safe)',
       bg: 'var(--safe-bg)',
-      border: '#86efac',
+      border: 'var(--safe-line)',
     },
   ]
 
@@ -1043,18 +1018,19 @@ function EffectToggle({ value, onChange }: EffectToggleProps) {
           <button
             key={o.value}
             type="button"
-            className="flex flex-col items-center gap-1 p-3 border-2 rounded-xl text-center transition-all"
-            style={
-              isActive
+            className="flex flex-col items-center gap-1 p-3 border-2 rounded-xl text-center"
+            style={{
+              transition: 'border-color 0.15s, background-color 0.15s',
+              ...(isActive
                 ? { borderColor: o.border, background: o.bg }
-                : { borderColor: '#e5e7eb', background: '#fff' }
-            }
+                : { borderColor: 'var(--line)', background: 'var(--paper)' }),
+            }}
             onClick={() => onChange(o.value)}
           >
-            <o.Icon className="w-4 h-4" style={{ color: isActive ? o.color : '#9ca3af' }} />
+            <o.Icon className="w-4 h-4" style={{ color: isActive ? o.color : 'var(--ink-400)' }} />
             <span
               className="text-xs font-semibold"
-              style={{ color: isActive ? o.color : '#6b7280' }}
+              style={{ color: isActive ? o.color : 'var(--ink-500)' }}
             >
               {o.label}
             </span>
@@ -1074,8 +1050,6 @@ interface IntegrationSnippetsProps {
 }
 
 function IntegrationSnippets({ agentId, token }: IntegrationSnippetsProps) {
-  const [tab, setTab] = useState<'python' | 'curl' | 'node'>('python')
-  const [copied, setCopied] = useState(false)
   const shortToken = token ? token.slice(0, 20) + '...' : 'YOUR_TOKEN'
 
   const snippets: Record<'python' | 'curl' | 'node', string> = {
@@ -1128,39 +1102,15 @@ const { decision } = await response.json();
 // decision: "ALLOW" | "BLOCK" | "REQUIRE_APPROVAL"`,
   }
 
-  const copy = () => {
-    navigator.clipboard.writeText(snippets[tab])
-    setCopied(true)
-    setTimeout(() => setCopied(false), 2000)
-  }
+  const tabs: CodeTab[] = [
+    { label: 'python', code: snippets.python, lang: 'python' },
+    { label: 'curl', code: snippets.curl, lang: 'bash' },
+    { label: 'Node.js', code: snippets.node, lang: 'javascript' },
+  ]
 
   return (
-    <div className="mt-3 border border-gray-200 rounded-xl overflow-hidden">
-      <div className="flex items-center border-b border-gray-200 bg-gray-50">
-        {(['python', 'curl', 'node'] as const).map((t) => (
-          <button
-            key={t}
-            className={`px-4 py-2 text-sm transition-colors ${
-              tab === t
-                ? 'bg-white border-b-2 border-gray-900 text-gray-900 font-medium'
-                : 'text-gray-500 hover:text-gray-700'
-            }`}
-            onClick={() => setTab(t)}
-          >
-            {t === 'node' ? 'Node.js' : t}
-          </button>
-        ))}
-        <button
-          className="ml-auto flex items-center gap-1.5 px-3 py-2 text-xs text-gray-500 hover:text-gray-700 transition-colors"
-          onClick={copy}
-        >
-          <Copy className="w-3.5 h-3.5" />
-          {copied ? 'Copied!' : 'Copy'}
-        </button>
-      </div>
-      <pre className="p-4 text-xs bg-gray-900 overflow-x-auto">
-        <code className="text-green-400">{snippets[tab]}</code>
-      </pre>
+    <div className="mt-3">
+      <CodeTabs tabs={tabs} />
     </div>
   )
 }
@@ -1543,7 +1493,7 @@ export default function AgentDetail() {
 
   if (loading) {
     return (
-      <div className="p-8 max-w-5xl mx-auto">
+      <div className="max-w-5xl mx-auto" style={{ padding: 'var(--page-pad)' }}>
         <Link
           to="/"
           className="inline-flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-800 mb-6 transition-colors"
@@ -1553,7 +1503,7 @@ export default function AgentDetail() {
         </Link>
         <div className="flex flex-col items-center justify-center py-20 gap-3">
           <div className="w-8 h-8 border-2 border-gray-300 border-t-gray-900 rounded-full animate-spin" />
-          <p className="text-sm text-gray-500">Loading agent data...</p>
+          <p className="text-sm text-gray-500">Loading agent data…</p>
         </div>
       </div>
     )
@@ -1561,7 +1511,7 @@ export default function AgentDetail() {
 
   if (error || !data) {
     return (
-      <div className="p-8 max-w-5xl mx-auto">
+      <div className="max-w-5xl mx-auto" style={{ padding: 'var(--page-pad)' }}>
         <Link
           to="/"
           className="inline-flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-800 mb-6 transition-colors"
@@ -1586,7 +1536,7 @@ export default function AgentDetail() {
   const scoreLevel = br.score < 40 && hasCriticalUnreviewed
     ? 'Action Required'
     : scoreBand(br.score, hasCriticalChains ? 1 : 0, br.band).label
-  const scoreColor = br.score < 40 && hasCriticalChains ? '#d97706' : scoreToColor(br.score)
+  const scoreColor = br.score < 40 && hasCriticalChains ? 'var(--caution)' : scoreToColor(br.score)
   const ringR = 44
   const ringC = 2 * Math.PI * ringR
   const ringOffset = ringC * (1 - br.score / 100)
@@ -1597,76 +1547,87 @@ export default function AgentDetail() {
       tooltip: 'Every individual API call or operation this agent can perform across all its connected tools.',
       value: br.total_actions,
       color: null as string | null,
+      bg: null as string | null,
       riskKey: 'all',
     },
     {
       label: 'Move Money',
       tooltip: 'Charges, refunds, transfers, and subscription changes — any action that moves funds.',
       value: br.moves_money,
-      color: 'var(--critical)',
+      color: riskLabelColor('moves_money'),
+      bg: riskLabelBg('moves_money'),
       riskKey: 'moves_money',
     },
     {
       label: 'Touch PII',
       tooltip: 'Reads or writes personal data — names, emails, addresses, payment info, or any customer record.',
       value: br.touches_pii,
-      color: '#7c3aed',
+      color: riskLabelColor('touches_pii'),
+      bg: riskLabelBg('touches_pii'),
       riskKey: 'touches_pii',
     },
     {
       label: 'Delete Data',
       tooltip: 'Permanently removes records, files, or data. Cannot be undone.',
       value: br.deletes_data,
-      color: 'var(--high)',
+      color: riskLabelColor('deletes_data'),
+      bg: riskLabelBg('deletes_data'),
       riskKey: 'deletes_data',
     },
     {
       label: 'Send External',
       tooltip: 'Emails, messages, or webhooks sent to customers or third-party services outside your system.',
       value: br.sends_external,
-      color: '#2563eb',
+      color: riskLabelColor('sends_external'),
+      bg: riskLabelBg('sends_external'),
       riskKey: 'sends_external',
     },
     {
       label: 'Change Prod',
       tooltip: 'Edits to live configuration, infrastructure, or deployment settings.',
       value: br.changes_production,
-      color: '#0d9488',
+      color: riskLabelColor('changes_production'),
+      bg: riskLabelBg('changes_production'),
       riskKey: 'changes_production',
     },
     {
       label: 'Access control',
       tooltip: 'Can hand out or change who has access — grant roles, promote to admin, reset passwords, or issue API keys.',
       value: br.changes_access ?? 0,
-      color: '#b91c1c',
+      color: riskLabelColor('changes_access'),
+      bg: riskLabelBg('changes_access'),
       riskKey: 'changes_access',
     },
     {
       label: 'Secrets',
       tooltip: 'Can read secrets, credentials, API keys, or environment variables.',
       value: br.reads_secrets ?? 0,
-      color: '#a21caf',
+      color: riskLabelColor('reads_secrets'),
+      bg: riskLabelBg('reads_secrets'),
       riskKey: 'reads_secrets',
     },
     {
       label: 'Log tampering',
       tooltip: 'Can turn off or delete logging, audit trails, or alerts — so its own actions go unrecorded.',
       value: br.evades_detection ?? 0,
-      color: '#4338ca',
+      color: riskLabelColor('evades_detection'),
+      bg: riskLabelBg('evades_detection'),
       riskKey: 'evades_detection',
     },
     {
       label: 'Bulk export',
       tooltip: 'Can pull data out in bulk — full exports or whole-table dumps, not one record at a time.',
       value: br.bulk_export ?? 0,
-      color: '#15803d',
+      color: riskLabelColor('bulk_export'),
+      bg: riskLabelBg('bulk_export'),
       riskKey: 'bulk_export',
     },
     {
       label: 'Code exec',
       tooltip: 'Can run arbitrary code, shell commands, or SQL — effectively unlimited reach.',
       value: br.executes_code ?? 0,
-      color: '#334155',
+      color: riskLabelColor('executes_code'),
+      bg: riskLabelBg('executes_code'),
       riskKey: 'executes_code',
     },
     {
@@ -1674,6 +1635,7 @@ export default function AgentDetail() {
       tooltip: 'Actions that cannot be undone — includes permanent deletions, charges, and outbound sends.',
       value: br.irreversible_actions,
       color: null as string | null,
+      bg: null as string | null,
       riskKey: 'irreversible',
     },
   ]
@@ -1733,7 +1695,7 @@ export default function AgentDetail() {
   // ── Render ───────────────────────────────────────────────────────────────
 
   return (
-    <div className="p-8 max-w-5xl mx-auto">
+    <div className="max-w-5xl mx-auto" style={{ padding: 'var(--page-pad)' }}>
       {/* Top bar */}
       <div className="flex items-center justify-between mb-5 flex-wrap gap-2">
         <Link
@@ -1849,7 +1811,7 @@ export default function AgentDetail() {
                   className="hover:opacity-80 transition-opacity disabled:opacity-50"
                   disabled={editSaving || !editName.trim()}
                 >
-                  {editSaving ? 'Saving...' : 'Save Changes'}
+                  {editSaving ? 'Saving…' : 'Save Changes'}
                 </button>
                 <button
                   type="button"
@@ -1863,7 +1825,7 @@ export default function AgentDetail() {
             </form>
           ) : (
             <div className="flex-1 min-w-0">
-              <h1 className="text-2xl font-bold text-gray-900 mb-1">{agent.name}</h1>
+              <h1 className="mb-1" style={{ fontSize: 'var(--fs-page)', fontWeight: 600, color: 'var(--ink-900)' }}>{agent.name}</h1>
               <p className="text-sm text-gray-500 mb-3">{agent.description}</p>
               <div className="flex flex-wrap gap-1.5">
                 {agent.tools.map((t) => {
@@ -1883,7 +1845,7 @@ export default function AgentDetail() {
                         border: isActive ? '1.5px solid var(--text-primary)' : '1px solid var(--border)',
                         background: isActive ? 'var(--text-primary)' : 'var(--bg-sunken)',
                         color: isActive ? 'white' : 'var(--text-secondary)',
-                        transition: 'all 120ms',
+                        transition: 'background 120ms, color 120ms, border-color 120ms',
                       }}
                     >
                       {t.service}
@@ -1950,12 +1912,12 @@ export default function AgentDetail() {
                   disabled={!clickable}
                   onClick={() => setActiveStatFilter(isActive ? null : s.riskKey)}
                   style={{
-                    background: isActive ? (s.color ?? '#374151') + '18' : 'transparent',
-                    border: isActive ? `1.5px solid ${s.color ?? '#374151'}30` : '1.5px solid transparent',
+                    background: isActive ? (s.bg ?? 'var(--paper-2)') : 'transparent',
+                    border: isActive ? `1.5px solid ${s.color ?? 'var(--ink-700)'}` : '1.5px solid transparent',
                     borderRadius: 6, padding: '2px 8px',
                     cursor: clickable ? 'pointer' : 'default',
                     color: s.color ?? 'inherit',
-                    transition: 'all 120ms',
+                    transition: 'background 120ms, border-color 120ms',
                   }}
                   className="text-lg font-bold leading-snug hover:opacity-80"
                 >
@@ -1991,7 +1953,7 @@ export default function AgentDetail() {
             They contribute 0 to the score while their true risk is unknown:
             surfacing them is the honest alternative to silently scoring them safe. */}
         {br.coverage && (br.coverage.unclassifiedActions ?? 0) > 0 && (
-          <div className="mt-2 text-xs flex items-start gap-1.5" style={{ lineHeight: 1.45, color: 'var(--severity-high, #b45309)' }}>
+          <div className="mt-2 text-xs flex items-start gap-1.5" style={{ lineHeight: 1.45, color: 'var(--high)' }}>
             <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
             <span>
               {br.coverage.unclassifiedActions} {(br.coverage.unclassifiedActions ?? 0) === 1 ? 'action' : 'actions'} could not be classified at all
@@ -2037,16 +1999,16 @@ export default function AgentDetail() {
               <div className="space-y-2">
                 {Object.entries(byService).map(([service, actions]) => (
                   <div key={service}>
-                    <div className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide mb-1">{service}</div>
+                    <div className="font-semibold text-gray-400 uppercase tracking-wide mb-1" style={{ fontSize: 'var(--fs-micro)' }}>{service}</div>
                     <div className="flex flex-wrap gap-1">
                       {actions.map((a) => (
                         <span
                           key={a.toolName + '.' + a.action}
                           style={{
                             fontSize: 11,
-                            background: stat?.color ? stat.color + '12' : 'var(--bg-sunken)',
+                            background: stat?.bg ?? 'var(--bg-sunken)',
                             color: stat?.color ?? 'var(--text-primary)',
-                            border: `1px solid ${stat?.color ? stat.color + '30' : 'var(--border)'}`,
+                            border: `1px solid ${stat?.color ?? 'var(--border)'}`,
                             borderRadius: 4, padding: '2px 7px',
                           }}
                         >
@@ -2110,7 +2072,7 @@ export default function AgentDetail() {
       {activeTab === 'graph' && (
         <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-6 mb-6">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="font-semibold text-gray-800 flex items-center gap-1.5">
+            <h2 className="font-semibold text-gray-800 flex items-center gap-1.5" style={{ fontSize: 'var(--fs-title)' }}>
               Tool Map
               <Tooltip text="A complete map of every tool and action this agent has access to, grouped by service and color-coded by risk level.">
                 <span className="inline-flex items-center justify-center w-3.5 h-3.5 text-xs bg-gray-200 text-gray-600 rounded-full cursor-help">
@@ -2141,7 +2103,7 @@ export default function AgentDetail() {
           ref={policySectionRef}
         >
           <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
-            <h2 className="font-semibold text-gray-800 flex items-center gap-1.5">
+            <h2 className="font-semibold text-gray-800 flex items-center gap-1.5" style={{ fontSize: 'var(--fs-title)' }}>
               Enforcement Policies ({sortedPolicies.length})
               <Tooltip text="Rules that tell Arceo what to do when this agent attempts specific actions — block them outright, require a human to approve first, or explicitly allow them.">
                 <span className="inline-flex items-center justify-center w-3.5 h-3.5 text-xs bg-gray-200 text-gray-600 rounded-full cursor-help">
@@ -2164,18 +2126,19 @@ export default function AgentDetail() {
                   onClick={handleToggleDefaultEffect}
                   className="relative inline-flex flex-shrink-0 rounded-full transition-colors border-0 cursor-pointer"
                   style={{
-                    background: data.agent.default_effect === 'DENY' ? 'var(--accent)' : '#d1d5db',
+                    background: data.agent.default_effect === 'DENY' ? 'var(--accent)' : 'var(--ink-300)',
                     height: 18,
                     width: 32,
                     opacity: defaultEffectSaving ? 0.6 : 1,
                   }}
                 >
                   <span
-                    className="absolute top-0.5 rounded-full bg-white transition-all"
+                    className="absolute top-0.5 rounded-full bg-white"
                     style={{
                       width: 14,
                       height: 14,
                       left: data.agent.default_effect === 'DENY' ? 16 : 2,
+                      transition: 'left 0.15s',
                     }}
                   />
                 </button>
@@ -2376,7 +2339,7 @@ export default function AgentDetail() {
             </button>
             {showAddPolicyForm && <form className="space-y-3" onSubmit={handleAddPolicy}>
               <div>
-                <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
+                <div className="font-semibold text-gray-500 uppercase tracking-wide mb-1.5" style={{ fontSize: 'var(--fs-micro)' }}>
                   1. Choose actions
                 </div>
                 <ActionPicker
@@ -2454,7 +2417,7 @@ export default function AgentDetail() {
               )}
 
               <div>
-                <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
+                <div className="font-semibold text-gray-500 uppercase tracking-wide mb-1.5" style={{ fontSize: 'var(--fs-micro)' }}>
                   2. Set enforcement
                 </div>
                 <EffectToggle value={newEffect} onChange={setNewEffect} />
@@ -2543,7 +2506,7 @@ export default function AgentDetail() {
       {/* ── Tab: Executions ── */}
       {activeTab === 'executions' && (
         <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-6 mb-6">
-          <h2 className="font-semibold text-gray-800 mb-3">
+          <h2 className="font-semibold text-gray-800 mb-3" style={{ fontSize: 'var(--fs-title)' }}>
             Recent Executions ({executions?.length ?? 0})
           </h2>
 
@@ -2614,7 +2577,7 @@ export default function AgentDetail() {
       {activeTab === 'chains' && (
         <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-6 mb-6">
           <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
-            <h2 className="font-semibold text-gray-800 flex items-center gap-1.5">
+            <h2 className="font-semibold text-gray-800 flex items-center gap-1.5" style={{ fontSize: 'var(--fs-title)' }}>
               Dangerous Chains ({chains.length})
               <Tooltip text="Multi-step sequences where two or more of this agent's capabilities combine to create elevated risk — e.g. accessing customer PII then emailing it externally.">
                 <span className="inline-flex items-center justify-center w-3.5 h-3.5 text-xs bg-gray-200 text-gray-600 rounded-full cursor-help">
@@ -2667,7 +2630,7 @@ export default function AgentDetail() {
                       {c.demonstrated ? (
                         <span
                           className="text-xs px-1.5 py-0.5 rounded font-medium"
-                          style={{ background: '#dcfce7', color: '#15803d' }}
+                          style={{ background: 'var(--safe-bg)', color: 'var(--safe)' }}
                           title="Confirmed in a sandbox run — data flowed between the steps."
                         >
                           Demonstrated
@@ -2675,7 +2638,7 @@ export default function AgentDetail() {
                       ) : br.evidence?.hasSim ? (
                         <span
                           className="text-xs px-1.5 py-0.5 rounded font-medium"
-                          style={{ background: '#f3f4f6', color: '#6b7280' }}
+                          style={{ background: 'var(--paper-2)', color: 'var(--ink-500)' }}
                           title="Not observed in the last sandbox run; flagged because the capability exists."
                         >
                           Possible
@@ -2683,7 +2646,7 @@ export default function AgentDetail() {
                       ) : (
                         <span
                           className="text-xs px-1.5 py-0.5 rounded font-medium"
-                          style={{ background: '#f3f4f6', color: '#6b7280' }}
+                          style={{ background: 'var(--paper-2)', color: 'var(--ink-500)' }}
                           title="Run a sandbox to confirm whether this chain actually fires."
                         >
                           Unverified
@@ -2717,12 +2680,12 @@ export default function AgentDetail() {
                             <span
                               className="text-xs px-2 py-0.5 rounded border font-medium"
                               style={{
-                                borderColor: RISK_COLORS[step] ?? '#ccc',
-                                color: RISK_COLORS[step] ?? '#555',
-                                background: (RISK_COLORS[step] ?? '#ccc') + '12',
+                                borderColor: riskLabelColor(step as RiskLabel),
+                                color: riskLabelColor(step as RiskLabel),
+                                background: riskLabelBg(step as RiskLabel),
                               }}
                             >
-                              {RISK_LABELS[step] ?? step}
+                              {riskLabelName(step)}
                             </span>
                             {j < c.steps.length - 1 && (
                               <span className="text-gray-400 text-xs">→</span>
@@ -2751,7 +2714,7 @@ export default function AgentDetail() {
                               key={gi}
                               className="flex-1 min-w-0 p-2 bg-gray-50 rounded-lg border border-gray-100"
                             >
-                              <div className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">
+                              <div className="font-semibold text-gray-400 uppercase tracking-wide mb-1" style={{ fontSize: 'var(--fs-micro)' }}>
                                 Step {gi + 1}
                               </div>
                               {order.map((svc) => (
@@ -2799,7 +2762,7 @@ export default function AgentDetail() {
       {visibleRecs.length > 0 && (
         <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-6 mb-6">
           <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
-            <h2 className="font-semibold text-gray-800 flex items-center gap-1.5">
+            <h2 className="font-semibold text-gray-800 flex items-center gap-1.5" style={{ fontSize: 'var(--fs-title)' }}>
               Recommendations ({visibleRecs.length})
               <Tooltip text="Policy suggestions auto-generated based on this agent's risk profile. Applying them adds enforcement rules to reduce your exposure.">
                 <span className="inline-flex items-center justify-center w-3.5 h-3.5 text-xs bg-gray-200 text-gray-600 rounded-full cursor-help">
@@ -2961,7 +2924,7 @@ export default function AgentDetail() {
               your policies and returns a decision in &lt;10ms.
             </p>
             <div className="flex items-center gap-3 p-2.5 bg-gray-50 border border-gray-200 rounded-lg mb-3">
-              <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+              <span className="font-semibold text-gray-500 uppercase tracking-wide" style={{ fontSize: 'var(--fs-micro)' }}>
                 Agent ID
               </span>
               <code className="flex-1 text-xs font-mono text-gray-800 truncate">{agentId}</code>

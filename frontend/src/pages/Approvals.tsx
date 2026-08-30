@@ -8,6 +8,7 @@ import type { RiskLabel } from '@/lib/types'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import ErrorState from '@/components/shared/ErrorState'
+import PageHeader from '@/components/shared/PageHeader'
 
 interface ApprovalItem {
   id: string
@@ -253,7 +254,7 @@ export default function Approvals() {
 
   if (loading) {
     return (
-      <div style={{ padding: 40, maxWidth: 768, margin: "0 auto" }} aria-busy="true" aria-label="Loading approvals">
+      <div style={{ padding: "var(--page-pad)", maxWidth: 768, margin: "0 auto" }} aria-busy="true" aria-label="Loading approvals">
         {/* Mirrors the page: title → pending-approval cards */}
         <div className="skeleton" style={{ height: 30, width: 240 }} />
         <div style={{ marginTop: 20 }}>
@@ -266,21 +267,17 @@ export default function Approvals() {
   }
 
   return (
-    <div className="p-10 max-w-4xl mx-auto">
+    <div className="max-w-4xl mx-auto" style={{ padding: 'var(--page-pad)' }}>
       {/* Page header */}
-      <div className="flex items-start justify-between mb-8">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight text-gray-900">Approval Queue</h1>
-          <p className="mt-2 text-sm text-gray-500">
-            Actions your agents flagged for human review before proceeding.
-          </p>
-        </div>
-        {approvals.length > 0 && (
-          <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold" style={{ background: 'var(--status-pending-bg)', color: 'var(--status-pending)', border: '1px solid var(--severity-medium-border)' }}>
+      <PageHeader
+        title="Approval Queue"
+        description="Actions your agents flagged for human review before proceeding."
+        actions={approvals.length > 0 ? (
+          <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold" style={{ background: 'var(--caution-bg)', color: 'var(--caution)', border: '1px solid var(--caution-line)' }}>
             {approvals.length} pending
           </span>
-        )}
-      </div>
+        ) : undefined}
+      />
 
       {/* Load error — must win over the "all caught up" empty state */}
       {loadError && approvals.length === 0 ? (
@@ -336,7 +333,7 @@ export default function Approvals() {
                   loading={bulkRunning === 'approve'}
                   icon={<Check size={14} />}
                 >
-                  {bulkRunning === 'approve' ? 'Approving...' : `Approve ${selected.size}`}
+                  {bulkRunning === 'approve' ? 'Approving…' : `Approve ${selected.size}`}
                 </Button>
                 <Button
                   variant="destructive"
@@ -346,7 +343,7 @@ export default function Approvals() {
                   loading={bulkRunning === 'reject'}
                   icon={<X size={14} />}
                 >
-                  {bulkRunning === 'reject' ? 'Rejecting...' : `Reject ${selected.size}`}
+                  {bulkRunning === 'reject' ? 'Rejecting…' : `Reject ${selected.size}`}
                 </Button>
                 <Button variant="ghost" size="sm" onClick={() => setSelected(new Set())} disabled={bulkRunning != null}>
                   Clear
@@ -521,7 +518,7 @@ export default function Approvals() {
                       loading={deciding[a.id] === 'approve'}
                       icon={<Check size={14} />}
                     >
-                      {deciding[a.id] === 'approve' ? 'Approving...' : 'Approve'}
+                      {deciding[a.id] === 'approve' ? 'Approving…' : 'Approve'}
                     </Button>
                     <Button
                       variant="destructive"
@@ -531,12 +528,12 @@ export default function Approvals() {
                       loading={deciding[a.id] === 'reject'}
                       icon={<X size={14} />}
                     >
-                      {deciding[a.id] === 'reject' ? 'Rejecting...' : 'Reject'}
+                      {deciding[a.id] === 'reject' ? 'Rejecting…' : 'Reject'}
                     </Button>
                     <div style={{ flex: 1 }}>
                       <Input
                         type="text"
-                        placeholder="Add a note (optional)..."
+                        placeholder="Add a note (optional)…"
                         value={notes[a.id] ?? ''}
                         onChange={(e) => handleNoteChange(a.id, e.target.value)}
                         disabled={isBusy}

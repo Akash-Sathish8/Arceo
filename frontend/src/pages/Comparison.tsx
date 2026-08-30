@@ -1,8 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import { useSearchParams, Link } from "react-router-dom";
-import { Button } from "@/components/ui/Button";
+import { useSearchParams } from "react-router-dom";
+import PageHeader from "@/components/shared/PageHeader";
 import {
-  ArrowLeft,
   ArrowRight,
   TrendingDown,
   TrendingUp,
@@ -259,7 +258,7 @@ function MetricRow({
       >
         {before}
       </div>
-      <ArrowRight size={14} style={{ color: "#d1d5db", flexShrink: 0 }} />
+      <ArrowRight size={14} style={{ color: "var(--ink-300)", flexShrink: 0 }} />
       <div
         style={{ width: 64, textAlign: "right", fontWeight: 500, color: "var(--text-primary)", fontSize: 13 }}
       >
@@ -449,7 +448,7 @@ export default function Comparison() {
   return (
     <div
       style={{
-        padding: 40,
+        padding: "var(--page-pad)",
         display: "flex",
         flexDirection: "column",
         gap: 32,
@@ -459,17 +458,10 @@ export default function Comparison() {
       }}
     >
       {/* Header */}
-      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-        <Link to="/sandbox">
-          <Button variant="secondary" size="sm" icon={<ArrowLeft size={14} />}>
-            Back to Sandbox
-          </Button>
-        </Link>
-        <span style={{ color: "#d1d5db" }}>/</span>
-        <h1 style={{ fontSize: 24, fontWeight: 700, color: "var(--text-primary)", margin: 0 }}>
-          Compare Simulations
-        </h1>
-      </div>
+      <PageHeader
+        title="Compare Simulations"
+        back={{ to: "/sandbox", label: "Back to Sandbox" }}
+      />
 
       {/* Pickers */}
       <div
@@ -504,8 +496,8 @@ export default function Comparison() {
             alignItems: "center",
             gap: 8,
             padding: 12,
-            background: "#fffbeb",
-            border: "1px solid #fcd34d",
+            background: "var(--severity-high-bg)",
+            border: "1px solid var(--severity-high-border)",
             borderRadius: "var(--radius-lg)",
             fontSize: 13,
             color: "var(--severity-high)",
@@ -532,7 +524,7 @@ export default function Comparison() {
               borderRadius: "var(--radius-lg)",
               padding: 24,
               textAlign: "center",
-              backgroundColor: neutral ? "#f9fafb" : improved ? "var(--safe-bg)" : "var(--critical-bg)",
+              backgroundColor: neutral ? "var(--paper-2)" : improved ? "var(--safe-bg)" : "var(--critical-bg)",
               border: `1px solid ${neutral ? "var(--border)" : improved ? "var(--severity-safe-border)" : "var(--severity-critical-border)"}`,
             }}
           >
@@ -541,7 +533,7 @@ export default function Comparison() {
                 fontSize: 20,
                 fontWeight: 700,
                 marginBottom: 4,
-                color: neutral ? "#6b7280" : improved ? "var(--safe)" : "var(--critical)",
+                color: neutral ? "var(--ink-500)" : improved ? "var(--safe)" : "var(--critical)",
               }}
             >
               {neutral
@@ -684,7 +676,7 @@ export default function Comparison() {
                       padding: "4px 8px",
                       background: "var(--critical-bg)",
                       color: "var(--critical)",
-                      border: "1px solid #fecaca",
+                      border: "1px solid var(--critical-line)",
                       borderRadius: "var(--radius-md)",
                     }}
                   >

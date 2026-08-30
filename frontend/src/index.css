@@ -236,11 +236,25 @@
   --radius-xl:    10px;
   --radius-full:  9999px;
 
-  /* ── Chart series (forecast composition, fleet by-model) ─────── */
-  --chart-tokens:    var(--label-touches-pii);
-  --chart-tools:     var(--color-cta);
-  --chart-infra:     var(--severity-safe);
-  --chart-grid:      #F1F5F9;
+  /* ── Page gutter ─────────────────────────────────────────────── */
+  /* The one page rhythm. Every routed page applies `padding: var(--page-pad)`
+     on its outer container; never a per-page p-8/p-10/40px. */
+  --page-pad: 34px 40px 64px;
+
+  /* ── Chart series ────────────────────────────────────────────── */
+  /* Categorical palette for neutral data series (spend by model, composition).
+     Fixed assignment order 1→5, never cycled or reshuffled by filters.
+     CVD-validated set; severity and risk-label colors are semantically
+     reserved and must never color a neutral series. */
+  --chart-cat-1: #4B9CD3;  /* Carolina blue (accent) */
+  --chart-cat-2: #C77E3D;  /* warm tan */
+  --chart-cat-3: #2E9E85;  /* teal (distinct from --safe status green) */
+  --chart-cat-4: #7D5BC6;  /* muted violet */
+  --chart-cat-5: #D06A78;  /* rose */
+  --chart-tokens:    var(--chart-cat-4);
+  --chart-tools:     var(--chart-cat-1);
+  --chart-infra:     var(--chart-cat-3);
+  --chart-grid:      var(--line-soft);
   --chart-axis:      var(--text-muted);
 }
 
@@ -266,11 +280,6 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* ── Monospace contexts ──────────────────────────────────────────── */
-.mono {
-  font-family: var(--font-mono);
-}
-
 /* ── Spinner keyframe ────────────────────────────────────────────── */
 @keyframes btn-spin {
   to { transform: rotate(360deg); }
@@ -287,13 +296,6 @@ body {
   box-shadow: var(--shadow-hover) !important;
   border-color: var(--border-strong) !important;
 }
-/* ── Accent stripe at top of content area ────────────────────────── */
-.content-stripe {
-  height: 2px;
-  background: var(--color-accent);
-  flex-shrink: 0;
-}
-
 /* ── Button hover states ────────────────────────────────────────── */
 .btn-primary:hover:not(:disabled) {
   background: var(--color-cta-hover) !important;

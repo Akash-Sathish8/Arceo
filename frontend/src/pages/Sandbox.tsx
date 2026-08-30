@@ -478,10 +478,10 @@ export default function Sandbox() {
 
   if (loading) {
     return (
-      <div className="p-6">
+      <div style={{ padding: 'var(--page-pad)' }}>
         <div className="flex flex-col items-center justify-center h-64 gap-3 text-gray-500">
           <div className="w-6 h-6 border-2 border-gray-200 border-t-gray-700 rounded-full animate-spin" />
-          <p className="text-sm">Loading sandbox...</p>
+          <p className="text-sm">Loading sandbox…</p>
         </div>
       </div>
     )
@@ -489,7 +489,7 @@ export default function Sandbox() {
 
   if (error) {
     return (
-      <div className="p-6">
+      <div style={{ padding: 'var(--page-pad)' }}>
         <div className="flex flex-col items-center justify-center h-64 gap-3 text-center">
           <AlertTriangle size={32} className="text-red-500" />
           <h2 className="font-semibold text-gray-900">Failed to load sandbox</h2>
@@ -503,7 +503,7 @@ export default function Sandbox() {
   const sel = agents.find((a) => a.id === selectedAgent)
 
   return (
-    <div className="space-y-8" style={{ padding: '34px 40px 64px', maxWidth: 1140, margin: '0 auto', fontFamily: 'var(--font-sans)' }}>
+    <div className="space-y-8" style={{ padding: 'var(--page-pad)', maxWidth: 1140, margin: '0 auto', fontFamily: 'var(--font-sans)' }}>
       {/* Page header */}
       <div>
         <h1 style={{ fontSize: 'var(--fs-page)', fontWeight: 600, color: 'var(--ink-900)', letterSpacing: -0.3, margin: 0 }}>Sandbox</h1>
@@ -600,7 +600,7 @@ export default function Sandbox() {
                       </div>
                     </>
                   ) : (
-                    <span className="text-gray-400">Select an agent...</span>
+                    <span className="text-gray-400">Select an agent…</span>
                   )}
                 </button>
                 {agentOpen && (
@@ -649,8 +649,8 @@ export default function Sandbox() {
             <Play size={13} />
             {running && lastRunMode === 'dry-run'
               ? runProgress && runProgress.total > 1
-                ? `Running ${runProgress.current} of ${runProgress.total}...`
-                : 'Running...'
+                ? `Running ${runProgress.current} of ${runProgress.total}…`
+                : 'Running…'
               : selectedScenarios.length > 1
               ? `Test (mock APIs) · ${selectedScenarios.length}`
               : 'Test (mock APIs)'}
@@ -666,8 +666,8 @@ export default function Sandbox() {
             <Cpu size={13} />
             {running && lastRunMode === 'llm'
               ? runProgress && runProgress.total > 1
-                ? `Running ${runProgress.current} of ${runProgress.total}...`
-                : 'Running...'
+                ? `Running ${runProgress.current} of ${runProgress.total}…`
+                : 'Running…'
               : selectedScenarios.length > 1
               ? `Test (real LLM) · ${selectedScenarios.length}`
               : 'Test (real LLM)'}
@@ -681,7 +681,7 @@ export default function Sandbox() {
             title="Run every scenario against mock APIs — free, takes 30–60 seconds"
           >
             <Zap size={13} />
-            {sweeping ? 'Sweeping... (30–60 seconds)' : 'Sweep all scenarios'}
+            {sweeping ? 'Sweeping… (30–60 seconds)' : 'Sweep all scenarios'}
           </button>
         </div>
 
@@ -729,7 +729,7 @@ export default function Sandbox() {
                 </div>
                 <div className="h-1.5 bg-gray-200 rounded-full overflow-hidden">
                   <div
-                    className="h-full rounded-full transition-all"
+                    className="h-full rounded-full transition-[width]"
                     style={{ background: 'var(--color-cta)', width: `${(runProgress.current / runProgress.total) * 100}%` }}
                   />
                 </div>
@@ -791,12 +791,12 @@ export default function Sandbox() {
               {queuedCustomPrompts.map((_p, i) => (
                 <span
                   key={`custom-${i}`}
-                  className="inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full border border-indigo-200 bg-indigo-50 text-indigo-700"
+                  className="inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full border border-blue-200 bg-blue-50 text-blue-700"
                 >
-                  <span className="w-2 h-2 rounded-full flex-shrink-0 bg-indigo-500" />
+                  <span className="w-2 h-2 rounded-full flex-shrink-0 bg-blue-500" />
                   Custom prompt {queuedCustomPrompts.length > 1 ? i + 1 : ''}
                   <button
-                    className="ml-0.5 text-indigo-400 hover:text-indigo-700"
+                    className="ml-0.5 text-blue-400 hover:text-blue-700"
                     onClick={() => setQueuedCustomPrompts((prev) => prev.filter((_, j) => j !== i))}
                     title="Remove"
                   >
@@ -916,7 +916,7 @@ export default function Sandbox() {
                 return (
                   <div
                     key={s.id}
-                    className={`bg-white border border-gray-200 rounded-xl shadow-sm p-5 cursor-pointer hover:border-gray-300 hover:shadow-md transition-all ${
+                    className={`bg-white border border-gray-200 rounded-xl shadow-sm p-5 cursor-pointer hover:border-gray-300 hover:shadow-md transition-[border-color,box-shadow] ${
                       isSelected ? 'ring-2 ring-gray-900 ring-offset-1' : ''
                     }`}
                     onClick={() => toggleScenario(s)}
@@ -971,7 +971,7 @@ export default function Sandbox() {
           <div className="flex flex-wrap gap-2 mb-3">
             <div style={{ flex: 1, minWidth: 200 }}>
               <Input
-                placeholder="Search by scenario or agent..."
+                placeholder="Search by scenario or agent…"
                 value={simSearch}
                 onChange={(e) => setSimSearch(e.target.value)}
                 icon={<Search size={13} />}

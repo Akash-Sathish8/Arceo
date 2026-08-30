@@ -3,6 +3,8 @@ import { Eye, EyeOff, Copy, Check, Users, KeyRound, UserCircle, Banknote, Bell, 
 import { apiFetch, getUser, getToken } from "@/lib/api";
 import { Button } from "@/components/ui/Button";
 import { toast } from "@/components/shared/Toast";
+import CodeTabs from "@/components/shared/CodeTabs";
+import PageHeader from "@/components/shared/PageHeader";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -10,12 +12,6 @@ interface NavSection {
   id: string;
   label: string;
   icon: React.ReactNode;
-}
-
-interface CodeTab {
-  label: string;
-  code: string;
-  lang: string;
 }
 
 // ── CopyButton ────────────────────────────────────────────────────────────────
@@ -41,109 +37,6 @@ function CopyButton({ text }: CopyButtonProps) {
     >
       {copied ? "Copied!" : "Copy"}
     </Button>
-  );
-}
-
-// ── CodeBlock ─────────────────────────────────────────────────────────────────
-
-interface CodeBlockProps {
-  code: string;
-  language?: string;
-}
-
-function CodeBlock({ code, language = "bash" }: CodeBlockProps) {
-  return (
-    <div
-      style={{
-        background: "var(--bg-sunken)",
-        border: "1px solid var(--border)",
-        borderRadius: "var(--radius-lg)",
-        overflow: "hidden",
-      }}
-    >
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          padding: "8px 12px",
-          borderBottom: "1px solid var(--border)",
-          background: "var(--bg-sunken)",
-        }}
-      >
-        <span
-          style={{
-            fontSize: 11,
-            fontWeight: 600,
-            color: "var(--text-muted)",
-          }}
-        >
-          {language}
-        </span>
-        <CopyButton text={code} />
-      </div>
-      <pre
-        style={{
-          overflowX: "auto",
-          padding: 16,
-          fontSize: 12,
-          fontFamily: "monospace",
-          color: "var(--text-primary)",
-          background: "var(--bg-sunken)",
-          lineHeight: 1.6,
-          margin: 0,
-        }}
-      >
-        <code>{code}</code>
-      </pre>
-    </div>
-  );
-}
-
-// ── CodeSnippetTabs ───────────────────────────────────────────────────────────
-
-interface CodeSnippetTabsProps {
-  tabs: CodeTab[];
-}
-
-function CodeSnippetTabs({ tabs }: CodeSnippetTabsProps) {
-  const [active, setActive] = useState(0);
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
-      <div
-        style={{
-          display: "flex",
-          gap: 4,
-          padding: "4px",
-          background: "var(--bg-sunken)",
-          borderRadius: "var(--radius-full)",
-          width: "fit-content",
-          marginBottom: 8,
-        }}
-      >
-        {tabs.map((t, i) => (
-          <button
-            key={i}
-            onClick={() => setActive(i)}
-            style={{
-              padding: "5px 14px",
-              fontSize: 13,
-              fontWeight: active === i ? 600 : 400,
-              borderRadius: "var(--radius-full)",
-              border: "none",
-              cursor: "pointer",
-              background: active === i ? "var(--color-cta)" : "transparent",
-              color: active === i ? "var(--text-inverse)" : "var(--text-secondary)",
-              transition: "background 0.15s, color 0.15s",
-              fontFamily: "inherit",
-            }}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
-      <CodeBlock code={tabs[active].code} language={tabs[active].lang} />
-    </div>
   );
 }
 
@@ -270,7 +163,7 @@ function CostOverridesSection({ inputStyle }: { inputStyle: React.CSSProperties 
     height: 34,
     padding: "0 10px",
     fontSize: 12.5,
-    fontFamily: "ui-monospace, monospace",
+    fontFamily: "var(--font-mono)",
     width: 130,
   };
   const thStyle: React.CSSProperties = {
@@ -302,7 +195,7 @@ function CostOverridesSection({ inputStyle }: { inputStyle: React.CSSProperties 
           <tbody>
             {Object.entries(defaults.models).map(([modelKey, pricing]) => (
               <tr key={modelKey}>
-                <td style={{ fontSize: 13, color: "var(--text-primary)", padding: "6px 24px 6px 0", fontFamily: "ui-monospace, monospace" }}>
+                <td style={{ fontSize: 13, color: "var(--text-primary)", padding: "6px 24px 6px 0", fontFamily: "var(--font-mono)" }}>
                   {modelKey}
                 </td>
                 {MODEL_PRICE_COLUMNS.map(({ sub }) => {
@@ -325,7 +218,7 @@ function CostOverridesSection({ inputStyle }: { inputStyle: React.CSSProperties 
                           title={ov ? `Custom rate (list: ${def})` : "List rate"}
                         />
                         {ov && (
-                          <span style={{ position: "absolute", top: -7, right: -6, fontSize: 9, fontWeight: 700, background: "var(--severity-safe-bg, #dcfce7)", color: "var(--severity-safe, var(--safe))", borderRadius: 6, padding: "1px 5px" }}>
+                          <span style={{ position: "absolute", top: -7, right: -6, fontSize: 9, fontWeight: 700, background: "var(--severity-safe-bg)", color: "var(--severity-safe, var(--safe))", borderRadius: 6, padding: "1px 5px" }}>
                             CUSTOM
                           </span>
                         )}
@@ -373,7 +266,7 @@ function CostOverridesSection({ inputStyle }: { inputStyle: React.CSSProperties 
         {toolOverrides.length > 0 && (
           <div style={{ marginBottom: 12, display: "flex", flexDirection: "column", gap: 6 }}>
             {toolOverrides.map((o) => (
-              <div key={o.id} style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 13, fontFamily: "ui-monospace, monospace", color: "var(--text-primary)" }}>
+              <div key={o.id} style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 13, fontFamily: "var(--font-mono)", color: "var(--text-primary)" }}>
                 <span>{o.key}.{o.sub_key}</span>
                 <span style={{ color: "var(--text-secondary)" }}>${o.value}</span>
                 <button
@@ -473,7 +366,7 @@ function TeamMembers({ reloadKey }: { reloadKey: number }) {
               width: 32,
               height: 32,
               borderRadius: "50%",
-              background: m.active ? "var(--color-cta)" : "#9ca3af",
+              background: m.active ? "var(--color-cta)" : "var(--ink-400)",
               color: "var(--text-inverse)",
               fontSize: 13,
               fontWeight: 600,
@@ -510,7 +403,7 @@ function TeamMembers({ reloadKey }: { reloadKey: number }) {
                 fontWeight: 600,
                 padding: "2px 8px",
                 borderRadius: "var(--radius-full)",
-                background: "#e5e7eb",
+                background: "var(--line)",
                 color: "var(--text-secondary)",
               }}
             >
@@ -843,10 +736,10 @@ if (await enforce("Stripe", "create_refund", { amount: 500 })) {
   };
 
   return (
-    <div style={{ padding: 40, minHeight: "100%" }}>
+    <div style={{ padding: "var(--page-pad)", minHeight: "100%" }}>
       <div style={{ marginBottom: 32 }}>
-        <h1 style={{ fontSize: 24, fontWeight: 700, color: "var(--text-primary)", margin: 0, letterSpacing: "-0.02em" }}>Settings</h1>
-        <div style={{ display: "flex", marginTop: 24 }}>
+        <PageHeader title="Settings" />
+        <div style={{ display: "flex" }}>
           {sections.map((s) => (
             <button
               key={s.id}
@@ -931,7 +824,7 @@ if (await enforce("Stripe", "create_refund", { amount: 500 })) {
                     style={{
                       flex: 1,
                       fontSize: 12,
-                      fontFamily: "monospace",
+                      fontFamily: "var(--font-mono)",
                       color: "var(--text-primary)",
                       overflow: "hidden",
                       textOverflow: "ellipsis",
@@ -986,7 +879,7 @@ if (await enforce("Stripe", "create_refund", { amount: 500 })) {
                   a decision instantly.
                 </p>
 
-                <CodeSnippetTabs
+                <CodeTabs
                   tabs={[
                     { label: "Python",  code: enforceSnippetPython, lang: "python" },
                     { label: "curl",    code: enforceSnippetCurl,   lang: "bash" },
@@ -1124,7 +1017,7 @@ if (await enforce("Stripe", "create_refund", { amount: 500 })) {
                 {inviteSent ? (
                   <div
                     style={{
-                      border: "1px solid #bbf7d0",
+                      border: "1px solid var(--safe-line)",
                       background: "var(--safe-bg)",
                       borderRadius: "var(--radius-lg)",
                       padding: 16,
@@ -1133,12 +1026,12 @@ if (await enforce("Stripe", "create_refund", { amount: 500 })) {
                       gap: 8,
                     }}
                   >
-                    <div style={{ fontSize: 13, fontWeight: 600, color: "#166534" }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: "var(--safe)" }}>
                       {createdEmail} added to your workspace
                     </div>
                     {tempPass ? (
                       <>
-                        <p style={{ fontSize: 12, color: "#15803d", margin: 0 }}>
+                        <p style={{ fontSize: 12, color: "var(--safe)", margin: 0 }}>
                           Share these login credentials with them:
                         </p>
                         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
@@ -1147,7 +1040,7 @@ if (await enforce("Stripe", "create_refund", { amount: 500 })) {
                               style={{
                                 fontSize: 11,
                                 fontWeight: 600,
-                                color: "#15803d",
+                                color: "var(--safe)",
                                 width: 64,
                               }}
                             >
@@ -1157,10 +1050,10 @@ if (await enforce("Stripe", "create_refund", { amount: 500 })) {
                               style={{
                                 fontSize: 12,
                                 background: "var(--bg-card)",
-                                border: "1px solid #bbf7d0",
+                                border: "1px solid var(--safe-line)",
                                 borderRadius: "var(--radius-md)",
                                 padding: "2px 8px",
-                                color: "#166534",
+                                color: "var(--safe)",
                               }}
                             >
                               {createdEmail}
@@ -1171,7 +1064,7 @@ if (await enforce("Stripe", "create_refund", { amount: 500 })) {
                               style={{
                                 fontSize: 11,
                                 fontWeight: 600,
-                                color: "#15803d",
+                                color: "var(--safe)",
                                 width: 64,
                               }}
                             >
@@ -1181,10 +1074,10 @@ if (await enforce("Stripe", "create_refund", { amount: 500 })) {
                               style={{
                                 fontSize: 12,
                                 background: "var(--bg-card)",
-                                border: "1px solid #bbf7d0",
+                                border: "1px solid var(--safe-line)",
                                 borderRadius: "var(--radius-md)",
                                 padding: "2px 8px",
-                                color: "#166534",
+                                color: "var(--safe)",
                               }}
                             >
                               {tempPass}
@@ -1241,7 +1134,7 @@ if (await enforce("Stripe", "create_refund", { amount: 500 })) {
                         loading={inviteSending}
                         style={{ whiteSpace: "nowrap" }}
                       >
-                        {inviteSending ? "Inviting..." : "Send Invite"}
+                        {inviteSending ? "Inviting…" : "Send Invite"}
                       </Button>
                     </form>
                     <p style={{ fontSize: 12, color: "var(--text-muted)", margin: "8px 0 0" }}>
@@ -1256,9 +1149,9 @@ if (await enforce("Stripe", "create_refund", { amount: 500 })) {
                         role="alert"
                         style={{
                           marginTop: 10,
-                          border: "1px solid var(--severity-critical-border, #fecaca)",
+                          border: "1px solid var(--severity-critical-border)",
                           background: "var(--severity-critical-bg, var(--critical-bg))",
-                          color: "var(--severity-critical, #b91c1c)",
+                          color: "var(--severity-critical)",
                           borderRadius: "var(--radius-lg)",
                           padding: "10px 12px",
                           fontSize: 13,

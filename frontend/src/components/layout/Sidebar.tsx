@@ -245,7 +245,7 @@ export default function Sidebar(): React.ReactElement {
                           width: 7,
                           height: 7,
                           borderRadius: 999,
-                          background: "var(--critical-ring)",
+                          background: "var(--caution)",
                           border: `1.5px solid ${C.bg}`,
                         }}
                       />
@@ -255,7 +255,7 @@ export default function Sidebar(): React.ReactElement {
                   {!collapsed && item.badge !== undefined && item.badge > 0 && (
                     <span
                       style={{
-                        background: "var(--critical-ring)",
+                        background: "var(--caution)",
                         color: "#fff",
                         fontSize: 10,
                         fontWeight: 700,

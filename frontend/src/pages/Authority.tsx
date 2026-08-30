@@ -20,6 +20,7 @@ import { Input } from '@/components/ui/Input'
 import NewAgentCard, { type AgentCardData } from '@/components/agents/AgentCard'
 import PageHeader from '@/components/shared/PageHeader'
 import ErrorState from '@/components/shared/ErrorState'
+import StatTile from '@/components/shared/StatTile'
 import { pluralize } from '@/lib/strings'
 import { formatMoney } from '@/lib/format'
 import FleetStrip from '@/components/agents/FleetStrip'
@@ -530,7 +531,7 @@ export default function Authority() {
 
   if (loading) {
     return (
-      <div style={{ padding: '34px 40px 64px' }} aria-busy="true" aria-label="Loading agents">
+      <div style={{ padding: 'var(--page-pad)' }} aria-busy="true" aria-label="Loading agents">
         {/* Mirrors the real page: header row → spend trend card → tabs → catalog grid */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div className="skeleton" style={{ height: 30, width: 220 }} />
@@ -569,7 +570,7 @@ export default function Authority() {
   // that, not the raw showCreate flag (which can be true on Overview).
   const formVisible = showCreate && agentTab === 'agents'
   return (
-    <div style={{ padding: '34px 40px 64px', fontFamily: 'var(--font-sans)' }}>
+    <div style={{ padding: 'var(--page-pad)', fontFamily: 'var(--font-sans)' }}>
       <PageHeader
         title="Agents"
         description="Every action your AI agents can take — scored, chained, and governed before production."
@@ -583,7 +584,7 @@ export default function Authority() {
             className="ag-btn"
             style={{
               display: 'inline-flex', alignItems: 'center', gap: 8, whiteSpace: 'nowrap',
-              background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: 'var(--radius-md)',
+              background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: 'var(--radius-full)',
               padding: '10px 16px', fontSize: 'var(--fs-body)', fontWeight: 600, fontFamily: 'var(--font-sans)',
               cursor: 'pointer', boxShadow: 'var(--shadow-card-new)',
             }}
@@ -1231,62 +1232,37 @@ export default function Authority() {
           })
         }
 
-        const tile = (
-          label: string, value: React.ReactNode,
-          opts?: { valueColor?: string; note?: string; onClick?: () => void }
-        ) => (
-          <button
-            type="button"
-            onClick={opts?.onClick}
-            className={opts?.onClick ? 'ag-card' : undefined}
-            style={{
-              textAlign: 'left', width: '100%', font: 'inherit',
-              background: 'var(--card)',
-              border: '1px solid var(--line)',
-              borderRadius: 'var(--radius-lg)',
-              padding: '18px 20px',
-              boxShadow: 'var(--shadow-card-new)',
-              cursor: opts?.onClick ? 'pointer' : 'default',
-            }}
-          >
-            <div style={{ fontSize: 'var(--fs-micro)', fontWeight: 600, letterSpacing: 0.5, textTransform: 'uppercase', color: 'var(--ink-400)' }}>
-              {label}
-            </div>
-            <div
-              className="mono"
-              style={{ fontSize: 28, fontWeight: 600, color: opts?.valueColor ?? 'var(--ink-900)', letterSpacing: -0.6, marginTop: 8 }}
-            >
-              {value}
-            </div>
-            {opts?.note && (
-              <div style={{ fontSize: 'var(--fs-small)', color: 'var(--ink-500)', marginTop: 6 }}>{opts.note}</div>
-            )}
-          </button>
-        )
-
         return (
           <section>
             {/* 4 stat tiles — clickable, each routes to the relevant view */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16 }}>
-              {tile('Agents', totalAgents, {
-                note: `${pluralize(totalAgents, 'agent')} governed`,
-                onClick: () => setAgentTab('agents'),
-              })}
-              {tile('Forecast spend / mo', sumSpend !== null ? formatMoney(sumSpend) : '—', {
-                valueColor: 'var(--accent)',
-                note: sumSpend === null ? 'Awaiting forecasts' : `Across ${pluralize(forecastRows.length, 'agent')}`,
-                onClick: () => navigate('/spend'),
-              })}
-              {tile('Critical chains', criticalChainsCount, {
-                valueColor: criticalChainsCount > 0 ? 'var(--critical)' : 'var(--ink-900)',
-                note: criticalChainsCount > 0 ? 'Review and add policies' : 'None outstanding',
-                onClick: () => setAgentTab('chains'),
-              })}
-              {tile('Unguarded agents', unguardedCount, {
-                valueColor: unguardedCount > 0 ? 'var(--caution)' : 'var(--ink-900)',
-                note: unguardedCount > 0 ? 'No policy set' : 'All covered',
-                onClick: () => setAgentTab('agents'),
-              })}
+              <StatTile
+                label="Agents"
+                value={totalAgents}
+                note={`${pluralize(totalAgents, 'agent')} governed`}
+                onClick={() => setAgentTab('agents')}
+              />
+              <StatTile
+                label="Forecast spend / mo"
+                value={sumSpend !== null ? formatMoney(sumSpend) : '—'}
+                valueColor="var(--accent)"
+                note={sumSpend === null ? 'Awaiting forecasts' : `Across ${pluralize(forecastRows.length, 'agent')}`}
+                onClick={() => navigate('/spend')}
+              />
+              <StatTile
+                label="Critical chains"
+                value={criticalChainsCount}
+                valueColor={criticalChainsCount > 0 ? 'var(--critical)' : 'var(--ink-900)'}
+                note={criticalChainsCount > 0 ? 'Review and add policies' : 'None outstanding'}
+                onClick={() => setAgentTab('chains')}
+              />
+              <StatTile
+                label="Unguarded agents"
+                value={unguardedCount}
+                valueColor={unguardedCount > 0 ? 'var(--caution)' : 'var(--ink-900)'}
+                note={unguardedCount > 0 ? 'No policy set' : 'All covered'}
+                onClick={() => setAgentTab('agents')}
+              />
             </div>
 
             {/* Two panels */}

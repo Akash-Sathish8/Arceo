@@ -18,6 +18,8 @@ import type { LucideIcon } from "lucide-react"
 import { lazy, Suspense } from "react"
 import { apiFetch } from "@/lib/api"
 import ErrorState from "@/components/shared/ErrorState"
+import PageHeader from "@/components/shared/PageHeader"
+import StatTile from "@/components/shared/StatTile"
 import { agentIcon, scoreBand, timeAgo } from "@/lib/utils"
 import type { MockSpend } from "@/lib/mockSpend"
 import { fetchBatchSpendForecasts } from "@/lib/spendApi"
@@ -83,21 +85,12 @@ function deltaTone(delta: number): string {
   return "var(--text-muted)"
 }
 
-function StatCard({ label, value, delta, deltaTone: tone = "var(--text-muted)" }: { label: string; value: string; delta?: string; deltaTone?: string }) {
-  return (
-    <div className="panel-card" style={{ padding: 16 }}>
-      <div className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">{label}</div>
-      <div className="text-2xl font-bold tabular-nums mt-1 tracking-tight mono">{value}</div>
-      {delta && <div className="text-[11px] mt-1" style={{ color: tone }}>{delta}</div>}
-    </div>
-  )
-}
-
+// The page's one hero number — deliberately larger than the shared StatTile.
 function AnchorStat({ label, value, delta, deltaTone: tone = "var(--text-muted)" }: { label: string; value: string; delta?: string; deltaTone?: string }) {
   return (
     <div className="panel-card flex flex-col justify-center" style={{ padding: 28 }}>
       <div className="text-xs font-bold text-gray-400 uppercase tracking-wider">{label}</div>
-      <div className="font-bold tabular-nums mt-2 tracking-tight text-gray-900 leading-none" style={{ fontSize: 48 }}>{value}</div>
+      <div className="mono font-bold tabular-nums mt-2 tracking-tight leading-none" style={{ fontSize: 48, color: "var(--ink-900)" }}>{value}</div>
       {delta && <div className="text-sm mt-2" style={{ color: tone }}>{delta}</div>}
     </div>
   )
@@ -172,7 +165,7 @@ export default function SpendDashboard() {
   const composition = [
     { label: "AI model usage", amount: llmTotal,   pct: pctOf(llmTotal),   color: "var(--chart-tokens)" },
     { label: "Software fees",  amount: toolTotal,  pct: pctOf(toolTotal),  color: "var(--chart-tools)"  },
-    { label: "Infrastructure", amount: infraTotal, pct: pctOf(infraTotal), color: "var(--text-secondary)" },
+    { label: "Infrastructure", amount: infraTotal, pct: pctOf(infraTotal), color: "var(--chart-infra)" },
   ]
 
   // By model — split each agent's LLM-token spend across the models it ACTUALLY
@@ -182,14 +175,15 @@ export default function SpendDashboard() {
   // and this figure also feeds the fleet CFO PDF. Agents with nothing captured
   // fall back to their declared model, and an agent reporting no model at all
   // lands in "Unspecified" so we never silently double-count.
-  const MODEL_COLORS: Record<string, string> = {
-    "claude-opus-4-8":   "var(--severity-critical)",
-    "claude-sonnet-4-6": "var(--chart-tokens)",
-    "claude-haiku-4-5":  "var(--chart-tools)",
-    "gpt-4o":            "var(--severity-safe)",
-    "gpt-4o-mini":       "var(--severity-high)",
-    "gpt-5":             "var(--severity-medium)",
-  }
+  // Neutral categorical palette, assigned in fixed order 1→5 (severity tokens
+  // are semantically reserved for risk and never color a model series).
+  const CHART_CATS = [
+    "var(--chart-cat-1)",
+    "var(--chart-cat-2)",
+    "var(--chart-cat-3)",
+    "var(--chart-cat-4)",
+    "var(--chart-cat-5)",
+  ]
   const byModelMap = new Map<string, number>()
   for (const r of withForecast) {
     const spend = r.forecast?.tokensUsd ?? 0
@@ -208,9 +202,11 @@ export default function SpendDashboard() {
       name,
       amount,
       pctOfLlm: llmTotal > 0 ? Math.round((amount / llmTotal) * 100) : 0,
-      color: MODEL_COLORS[name] ?? "var(--text-muted)",
     }))
     .sort((a, b) => b.amount - a.amount)
+    // Colors attach after the sort so the assignment is stable per model list —
+    // first series cat-1, second cat-2, … — never cycled or reshuffled.
+    .map((entry, i) => ({ ...entry, color: CHART_CATS[i] ?? "var(--text-muted)" }))
 
   const sortedFleet = [...withForecast].sort(
     (a, b) => (b.forecast?.point ?? 0) - (a.forecast?.point ?? 0),
@@ -275,17 +271,36 @@ export default function SpendDashboard() {
   }
 
   return (
-    <div className="min-h-screen p-8" style={{ background: "var(--bg-page)" }}>
-      <h1 className="text-2xl font-bold tracking-tight">AI Spend</h1>
-      <p className="text-sm text-gray-600 mt-1">
-        {loading
+    <div style={{ padding: "var(--page-pad)" }}>
+      <PageHeader
+        title="AI Spend"
+        description={loading
           ? "Loading fleet…"
           : loadError
             ? "Couldn't load the fleet."
             : agents.length === 0
             ? "No agents connected yet."
             : `Fleet-wide forecast across ${withForecast.length} ${pluralize(withForecast.length, "agent")}${noForecast.length > 0 ? ` · ${noForecast.length} more need sandbox runs` : ""}`}
-      </p>
+        actions={!loading && sortedFleet.length > 0 ? (
+          <>
+            <button
+              type="button"
+              onClick={handleExportCsv}
+              className="text-sm px-4 py-2 rounded-lg border bg-white text-gray-900 font-medium inline-flex items-center gap-2"
+              style={{ borderColor: "var(--border)" }}
+            >
+              <Download size={14} /> Export CSV
+            </button>
+            <Suspense fallback={
+              <span className="text-sm px-4 py-2 rounded-lg bg-gray-900 text-white font-medium inline-flex items-center gap-2 opacity-60">
+                <FileText size={14} /> Preparing export…
+              </span>
+            }>
+              <FleetCFODownloadLink data={fleetReportData} fileName={`arceo-fleet-cfo-report-${todayIso()}.pdf`} />
+            </Suspense>
+          </>
+        ) : undefined}
+      />
       {!loading && agents.length > 0 && (
         <div className="flex items-center gap-3 text-xs text-gray-500 mt-2 relative">
           {loadedAt && <span>Updated {timeAgo(loadedAt)}</span>}
@@ -371,21 +386,20 @@ export default function SpendDashboard() {
               />
             </div>
             <div className="flex flex-col gap-3">
-              <StatCard
+              <StatTile
                 label="Annual run rate"
                 value={`$${annualRunRate.toLocaleString()}`}
-                delta={annualRunRate > 0 ? `~${withForecast.length} ${pluralize(withForecast.length, "agent")} active` : undefined}
+                note={annualRunRate > 0 ? `~${withForecast.length} ${pluralize(withForecast.length, "agent")} active` : undefined}
               />
-              <StatCard
+              <StatTile
                 label="Confidence band"
                 value={withForecast.length > 0 ? fleetBandLabel : "—"}
-                delta={withForecast.length > 0 ? `$${fleetLow.toLocaleString()} – $${fleetHigh.toLocaleString()}` : "needs more data"}
+                note={withForecast.length > 0 ? `$${fleetLow.toLocaleString()} – $${fleetHigh.toLocaleString()}` : "needs more data"}
               />
-              <StatCard
+              <StatTile
                 label="Agents forecasted"
                 value={`${withForecast.length} of ${fleet.length}`}
-                delta={noForecast.length > 0 ? `${noForecast.length} need sandbox runs` : "all calibrated"}
-                deltaTone={noForecast.length > 0 ? "var(--color-cta)" : "var(--severity-safe)"}
+                note={noForecast.length > 0 ? `${noForecast.length} need sandbox runs` : "all calibrated"}
               />
             </div>
           </div>
@@ -505,25 +519,6 @@ export default function SpendDashboard() {
             </div>
           )}
 
-          {sortedFleet.length > 0 && (
-            <div className="flex gap-2 mt-4 justify-end">
-              <button
-                type="button"
-                onClick={handleExportCsv}
-                className="text-sm px-4 py-2 rounded-lg border bg-white text-gray-900 font-medium inline-flex items-center gap-2"
-                style={{ borderColor: "var(--border)" }}
-              >
-                <Download size={14} /> Export CSV
-              </button>
-              <Suspense fallback={
-                <span className="text-sm px-4 py-2 rounded-lg bg-gray-900 text-white font-medium inline-flex items-center gap-2 opacity-60">
-                  <FileText size={14} /> Preparing export…
-                </span>
-              }>
-                <FleetCFODownloadLink data={fleetReportData} fileName={`arceo-fleet-cfo-report-${todayIso()}.pdf`} />
-              </Suspense>
-            </div>
-          )}
         </>
       )}
     </div>

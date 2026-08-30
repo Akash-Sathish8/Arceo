@@ -87,6 +87,8 @@ createRoot(document.getElementById('root')!).render(
             />
             <Route path="/executions" element={<Navigate to="/history" replace />} />
             <Route path="/audit" element={<Navigate to="/history?view=audit" replace />} />
+            {/* The fleet page lives at "/" — alias the intuitive URL. */}
+            <Route path="/agents" element={<Navigate to="/" replace />} />
             <Route
               path="/workflows"
               element={

@@ -3,8 +3,10 @@ import { useSearchParams } from "react-router-dom";
 import { Download, Search } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { parseTimestamp } from "@/lib/time";
+import { riskLabelColor } from "@/lib/utils";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
+import PageHeader from "@/components/shared/PageHeader";
 
 // Offset-safe CSV timestamp: backend emits naive SQLite datetimes that raw
 // `new Date().toISOString()` throws on (RangeError: Invalid time value),
@@ -62,12 +64,12 @@ const RISK_META: Record<
     label: "Destructive — permanently deletes or cancels something",
   },
   financial: {
-    dot: "var(--color-accent)",
+    dot: riskLabelColor("moves_money"),
     rowBg: null,
     label: "Financial — moves or modifies money",
   },
   sends: {
-    dot: "var(--label-touches-pii)",
+    dot: riskLabelColor("sends_external"),
     rowBg: null,
     label: "Sends message — emails, SMS, or webhooks",
   },
@@ -94,14 +96,14 @@ const TIME_FILTERS: { value: TimeFilter; label: string }[] = [
 
 const TOOL_CHIP_COLORS: Record<string, { bg: string; color: string }> = {
   stripe: { bg: "#ede9fe", color: "#6d28d9" },
-  zendesk: { bg: "#fef3c7", color: "var(--severity-high)" },
+  zendesk: { bg: "var(--high-bg)", color: "var(--severity-high)" },
   salesforce: { bg: "#dbeafe", color: "#1e40af" },
   sendgrid: { bg: "#d1fae5", color: "#065f46" },
-  github: { bg: "#f3f4f6", color: "#111827" },
-  slack: { bg: "#fef3c7", color: "var(--severity-high)" },
-  aws: { bg: "var(--high-bg)", color: "#c2410c" },
+  github: { bg: "var(--paper-2)", color: "var(--ink-900)" },
+  slack: { bg: "var(--high-bg)", color: "var(--severity-high)" },
+  aws: { bg: "var(--high-bg)", color: "var(--high)" },
   hubspot: { bg: "#fce7f3", color: "#9d174d" },
-  pagerduty: { bg: "var(--critical-bg)", color: "#991b1b" },
+  pagerduty: { bg: "var(--critical-bg)", color: "var(--critical)" },
 };
 
 const AUDIT_ACTION_LABELS: Record<string, string> = {
@@ -422,36 +424,39 @@ export default function History(): React.ReactElement {
   ];
 
   return (
-    <div className="p-10 space-y-8">
+    <div className="space-y-8" style={{ padding: "var(--page-pad)" }}>
       {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight text-gray-900">History</h1>
-        <div className="flex items-center mt-6">
-          {([
-            { id: 'executions' as const, label: 'Agent Actions' },
-            { id: 'audit' as const, label: 'Audit Log' },
-          ]).map((t) => (
-            <button
-              key={t.id}
-              style={{
-                background: 'transparent',
-                border: 'none',
-                padding: '8px 16px 10px',
-                fontWeight: view === t.id ? 600 : 400,
-                fontSize: 13,
-                color: view === t.id ? 'var(--text-primary)' : 'var(--text-secondary)',
-                borderBottom: view === t.id ? '2px solid var(--text-primary)' : '2px solid transparent',
-                marginBottom: '-1px',
-                cursor: 'pointer',
-                fontFamily: 'inherit',
-              }}
-              onClick={() => { setView(t.id); setFilterStatus("all"); setSearch(""); }}
-            >
-              {t.label}
-            </button>
-          ))}
-        </div>
-      </div>
+      <PageHeader
+        title="History"
+        description="Every agent action and account change, logged for review and compliance."
+        actions={
+          <div className="flex items-center">
+            {([
+              { id: 'executions' as const, label: 'Agent Actions' },
+              { id: 'audit' as const, label: 'Audit Log' },
+            ]).map((t) => (
+              <button
+                key={t.id}
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  padding: '8px 16px 10px',
+                  fontWeight: view === t.id ? 600 : 400,
+                  fontSize: 13,
+                  color: view === t.id ? 'var(--text-primary)' : 'var(--text-secondary)',
+                  borderBottom: view === t.id ? '2px solid var(--text-primary)' : '2px solid transparent',
+                  marginBottom: '-1px',
+                  cursor: 'pointer',
+                  fontFamily: 'inherit',
+                }}
+                onClick={() => { setView(t.id); setFilterStatus("all"); setSearch(""); }}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+        }
+      />
 
       {/* Search + time filter */}
       <div className="flex items-center gap-3 flex-wrap">
@@ -555,28 +560,28 @@ export default function History(): React.ReactElement {
             <span className="flex items-center gap-1.5">
               <span
                 className="inline-block w-3 h-3 rounded-sm border"
-                style={{ background: "#fff5f5", borderColor: "var(--critical-line)" }}
+                style={{ background: "var(--severity-critical-bg)", borderColor: "var(--critical-line)" }}
               />
               Destructive
             </span>
             <span className="flex items-center gap-1.5">
               <span
                 className="inline-block w-2.5 h-2.5 rounded-full"
-                style={{ background: "#2563eb" }}
+                style={{ background: riskLabelColor("moves_money") }}
               />
               Financial
             </span>
             <span className="flex items-center gap-1.5">
               <span
                 className="inline-block w-2.5 h-2.5 rounded-full"
-                style={{ background: "#7c3aed" }}
+                style={{ background: riskLabelColor("sends_external") }}
               />
               Sends message
             </span>
             <span className="flex items-center gap-1.5">
               <span
                 className="inline-block w-2.5 h-2.5 rounded-full"
-                style={{ background: "#9ca3af" }}
+                style={{ background: "var(--text-muted)" }}
               />
               Read-only
             </span>
@@ -610,7 +615,7 @@ export default function History(): React.ReactElement {
                     <tr
                       key={e.id}
                       style={meta.rowBg ? { background: meta.rowBg } : {}}
-                      className="hover:brightness-95 transition-all"
+                      className="hover:brightness-95 transition-[filter]"
                     >
                       <td className="px-4 py-4 whitespace-nowrap">
                         <span
@@ -638,7 +643,7 @@ export default function History(): React.ReactElement {
                             style={
                               toolChip
                                 ? { background: toolChip.bg, color: toolChip.color }
-                                : { background: "#f3f4f6", color: "#374151" }
+                                : { background: "var(--paper-2)", color: "var(--ink-700)" }
                             }
                           >
                             {e.tool.toUpperCase()}
