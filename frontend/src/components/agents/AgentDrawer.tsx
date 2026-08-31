@@ -172,6 +172,9 @@ export default function AgentDrawer({
   const a = agent ?? lastRef.current;
   const open = !!agent;
 
+  const closeBtnRef = useRef<HTMLButtonElement | null>(null);
+  const prevFocusRef = useRef<HTMLElement | null>(null);
+
   const [chains, setChains] = useState<Chain[] | null>(null);
   const [, setBlast] = useState<BlastRadius | null>(null);
   const [policiesLen, setPoliciesLen] = useState<number | null>(null);
@@ -224,6 +227,21 @@ export default function AgentDrawer({
     document.body.style.overflow = "hidden";
     return () => { document.body.style.overflow = prev; };
   }, [agent]);
+
+  // Move focus into the dialog on open (the opener card is otherwise left
+  // stranded behind the aria-modal wall) and restore it to the opener on close.
+  useEffect(() => {
+    if (open) {
+      prevFocusRef.current =
+        document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      // rAF: wait for the render that removed `inert` before focusing.
+      const id = requestAnimationFrame(() => closeBtnRef.current?.focus());
+      return () => cancelAnimationFrame(id);
+    }
+    const prev = prevFocusRef.current;
+    prevFocusRef.current = null;
+    if (prev && document.contains(prev)) prev.focus();
+  }, [open]);
 
   if (!a) return null;
 
@@ -283,6 +301,7 @@ export default function AgentDrawer({
           }}
         >
           <button
+            ref={closeBtnRef}
             type="button"
             onClick={onClose}
             style={{

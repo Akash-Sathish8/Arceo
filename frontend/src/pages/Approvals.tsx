@@ -41,6 +41,9 @@ const SOURCE_BADGE: Record<string, { label: string; bg: string; color: string }>
 }
 const UNKNOWN_SOURCE_BADGE = { label: 'Unlabeled (recorded before source tracking)', bg: 'var(--bg-sunken)', color: 'var(--text-muted)' }
 
+// Sources whose decisions only update the record — no paused agent executes.
+const SIMULATION_SOURCES = ['sandbox', 'boundary_test', 'replay']
+
 interface ApprovalsResponse {
   approvals: ApprovalItem[]
 }
@@ -48,7 +51,9 @@ interface ApprovalsResponse {
 type DecisionMap = Record<string, 'approve' | 'reject'>
 type NotesMap = Record<string, string>
 
-function formatAction(s: string): string {
+function formatAction(s: string | null | undefined): string {
+  // A malformed item without an action must not crash the whole queue.
+  if (typeof s !== 'string' || s === '') return 'Unknown action'
   return s.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
 }
 
@@ -95,7 +100,7 @@ function scenarioLine(a: ApprovalItem): { pre: string; money: string | null; pos
   const reasonKey = REASON_KEYS.find((k) => k in p && typeof p[k] === 'string' && p[k] !== '')
   if (!moneyKey && !targetKey && !reasonKey) return null
 
-  const actionPhrase = a.action.replace(/_/g, ' ')
+  const actionPhrase = typeof a.action === 'string' ? a.action.replace(/_/g, ' ') : 'take an unknown action'
   let post = ''
   if (targetKey) post += ` for ${String(p[targetKey])}`
   if (reasonKey) post += ` — “${String(p[reasonKey])}”`
@@ -115,6 +120,8 @@ export default function Approvals() {
   const [loadError, setLoadError] = useState<string | null>(null)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [bulkRunning, setBulkRunning] = useState<'approve' | 'reject' | null>(null)
+  // Two-step inline confirm for bulk decisions (same pattern as policy delete).
+  const [bulkConfirm, setBulkConfirm] = useState<'approve' | 'reject' | null>(null)
   const [rawOpen, setRawOpen] = useState<Set<string>>(new Set())
   const selectAllRef = useRef<HTMLInputElement>(null)
 
@@ -191,6 +198,8 @@ export default function Approvals() {
   }
 
   const toggleSelected = (id: string) => {
+    // Any change to the selection invalidates a pending bulk confirmation.
+    setBulkConfirm(null)
     setSelected((prev) => {
       const next = new Set(prev)
       if (next.has(id)) next.delete(id)
@@ -200,6 +209,7 @@ export default function Approvals() {
   }
 
   const toggleSelectAll = () => {
+    setBulkConfirm(null)
     setSelected((prev) =>
       prev.size === approvals.length ? new Set() : new Set(approvals.map((a) => a.id))
     )
@@ -213,6 +223,7 @@ export default function Approvals() {
   }, [selected, approvals])
 
   const bulkDecide = async (decision: 'approve' | 'reject') => {
+    if (bulkRunning != null) return
     const ids = [...selected].filter((id) => !(id in deciding))
     if (ids.length === 0) return
     setBulkRunning(decision)
@@ -251,6 +262,11 @@ export default function Approvals() {
       })
     }, 2000)
   }
+
+  // How many selected items are real, live actions — simulations only update a record.
+  const liveSelectedCount = approvals.filter(
+    (a) => selected.has(a.id) && !SIMULATION_SOURCES.includes(a.source ?? '')
+  ).length
 
   if (loading) {
     return (
@@ -326,28 +342,56 @@ export default function Approvals() {
             </label>
             {selected.size > 0 && (
               <div className="flex items-center gap-2 ml-auto">
-                <Button
-                  size="sm"
-                  onClick={() => bulkDecide('approve')}
-                  disabled={bulkRunning != null}
-                  loading={bulkRunning === 'approve'}
-                  icon={<Check size={14} />}
-                >
-                  {bulkRunning === 'approve' ? 'Approving…' : `Approve ${selected.size}`}
-                </Button>
-                <Button
-                  variant="destructive"
-                  size="sm"
-                  onClick={() => bulkDecide('reject')}
-                  disabled={bulkRunning != null}
-                  loading={bulkRunning === 'reject'}
-                  icon={<X size={14} />}
-                >
-                  {bulkRunning === 'reject' ? 'Rejecting…' : `Reject ${selected.size}`}
-                </Button>
-                <Button variant="ghost" size="sm" onClick={() => setSelected(new Set())} disabled={bulkRunning != null}>
-                  Clear
-                </Button>
+                {bulkConfirm != null ? (
+                  <>
+                    <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+                      {bulkConfirm === 'approve' && liveSelectedCount > 0
+                        ? `Executes ${liveSelectedCount} real agent action${liveSelectedCount !== 1 ? 's' : ''} immediately.`
+                        : "This can't be undone from here."}
+                    </span>
+                    <Button
+                      size="sm"
+                      variant={bulkConfirm === 'reject' ? 'destructive' : undefined}
+                      onClick={async () => {
+                        await bulkDecide(bulkConfirm)
+                        setBulkConfirm(null)
+                      }}
+                      disabled={bulkRunning != null}
+                      loading={bulkRunning === bulkConfirm}
+                      icon={bulkConfirm === 'approve' ? <Check size={14} /> : <X size={14} />}
+                    >
+                      {bulkRunning === bulkConfirm
+                        ? (bulkConfirm === 'approve' ? 'Approving…' : 'Rejecting…')
+                        : `Confirm ${bulkConfirm} ${selected.size}`}
+                    </Button>
+                    <Button variant="ghost" size="sm" onClick={() => setBulkConfirm(null)} disabled={bulkRunning != null}>
+                      Cancel
+                    </Button>
+                  </>
+                ) : (
+                  <>
+                    <Button
+                      size="sm"
+                      onClick={() => setBulkConfirm('approve')}
+                      disabled={bulkRunning != null}
+                      icon={<Check size={14} />}
+                    >
+                      {`Approve ${selected.size}`}
+                    </Button>
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      onClick={() => setBulkConfirm('reject')}
+                      disabled={bulkRunning != null}
+                      icon={<X size={14} />}
+                    >
+                      {`Reject ${selected.size}`}
+                    </Button>
+                    <Button variant="ghost" size="sm" onClick={() => setSelected(new Set())} disabled={bulkRunning != null}>
+                      Clear
+                    </Button>
+                  </>
+                )}
               </div>
             )}
           </div>
@@ -542,7 +586,7 @@ export default function Approvals() {
                     </div>
                   </div>
                   <p className="text-[11px] m-0" style={{ color: 'var(--text-muted)' }}>
-                    {['sandbox', 'boundary_test', 'replay'].includes(a.source ?? '')
+                    {SIMULATION_SOURCES.includes(a.source ?? '')
                       ? 'This came from a simulation — deciding updates the record for reporting; no agent is waiting to execute.'
                       : 'Approving marks this action allowed — the paused agent proceeds with exactly the arguments shown. Rejecting records it as blocked.'}
                   </p>

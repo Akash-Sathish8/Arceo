@@ -4,6 +4,7 @@ import { apiFetch, getUser, getToken } from "@/lib/api";
 import { Button } from "@/components/ui/Button";
 import { toast } from "@/components/shared/Toast";
 import CodeTabs from "@/components/shared/CodeTabs";
+import ErrorState from "@/components/shared/ErrorState";
 import PageHeader from "@/components/shared/PageHeader";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -67,6 +68,7 @@ const MODEL_PRICE_COLUMNS: Array<{ sub: string; label: string }> = [
 function CostOverridesSection({ inputStyle }: { inputStyle: React.CSSProperties }) {
   const [overrides, setOverrides] = useState<CostOverrideRow[]>([]);
   const [defaults, setDefaults] = useState<CostDefaultsCatalog | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [toolName, setToolName] = useState("");
   const [toolAction, setToolAction] = useState("");
@@ -78,8 +80,11 @@ function CostOverridesSection({ inputStyle }: { inputStyle: React.CSSProperties 
         setOverrides(d.overrides ?? []);
         setDefaults(d.defaults ?? null);
         setDrafts({});
+        setLoadError(null);
       })
-      .catch(() => {});
+      .catch((e: unknown) => {
+        setLoadError(e instanceof Error ? e.message : "Couldn't load cost settings");
+      });
   }, []);
 
   useEffect(() => { load(); }, [load]);
@@ -150,6 +155,7 @@ function CostOverridesSection({ inputStyle }: { inputStyle: React.CSSProperties 
     }
   };
 
+  if (loadError) return <ErrorState message={loadError} onRetry={load} />;
   if (!defaults) return null;
 
   const cardStyle: React.CSSProperties = {
@@ -311,12 +317,18 @@ interface TeamMember {
 function TeamMembers({ reloadKey }: { reloadKey: number }) {
   const [members, setMembers] = useState<TeamMember[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
 
   const load = useCallback(() => {
     apiFetch<{ members: TeamMember[] }>("/api/team")
-      .then((d) => setMembers(d.members || []))
-      .catch(() => {})
+      .then((d) => {
+        setMembers(d.members || []);
+        setLoadError(null);
+      })
+      .catch((e: unknown) => {
+        setLoadError(e instanceof Error ? e.message : "Couldn't load team members");
+      })
       .finally(() => setLoading(false));
   }, []);
 
@@ -344,6 +356,7 @@ function TeamMembers({ reloadKey }: { reloadKey: number }) {
   };
 
   if (loading) return null;
+  if (loadError) return <ErrorState message={loadError} onRetry={load} compact />;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>

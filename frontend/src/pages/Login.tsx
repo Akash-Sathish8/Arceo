@@ -336,6 +336,7 @@ export default function Login() {
   const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+  const [demoLoading, setDemoLoading] = useState(false)
   const [autoLogging, setAutoLogging] = useState(false)
   const navigate = useNavigate()
 
@@ -386,6 +387,14 @@ export default function Login() {
 
   const handleLoginSubmit = async (e: React.FormEvent) => { e.preventDefault(); await doLogin() }
 
+  // Demo button wrapper — doLogin already routes failures into the shared
+  // inline error banner; this only adds a distinct in-flight state.
+  const doDemoLogin = async () => {
+    setDemoLoading(true)
+    await doLogin()
+    setDemoLoading(false)
+  }
+
   const doGetStarted = async () => {
     setLoading(true); setError(null)
     const loginEmail    = email    || 'admin@actiongate.io'
@@ -407,6 +416,7 @@ export default function Login() {
       })
       setToken(data.token); setUser(data.user)
       markDemoSession(!email.trim())
+      if (!email.trim()) toast('Using the shared demo workspace — sign up with an email to get your own.')
       let created = 0
       for (const typeId of selectedTypes.filter((id) => id !== 'custom' && AGENT_TYPE_TEMPLATES[id])) {
         const tmpl = AGENT_TYPE_TEMPLATES[typeId]
@@ -652,10 +662,12 @@ export default function Login() {
 
           {/* Email */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '7px' }}>
-            <label style={{ fontSize: '14px', fontWeight: 600, color: 'var(--ink-700)', fontFamily: fontSans }}>Email</label>
+            <label htmlFor="login-email" style={{ fontSize: '14px', fontWeight: 600, color: 'var(--ink-700)', fontFamily: fontSans }}>Email</label>
             {/* type="text" (not "email") so the magic "demo" value isn't rejected
                 by native validation — inputMode still brings up the email keyboard. */}
             <input
+              id="login-email"
+              name="email"
               type="text"
               inputMode="email"
               autoComplete="email"
@@ -670,9 +682,12 @@ export default function Login() {
 
           {/* Password */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '7px' }}>
-            <label style={{ fontSize: '14px', fontWeight: 600, color: 'var(--ink-700)', fontFamily: fontSans }}>Password</label>
+            <label htmlFor="login-password" style={{ fontSize: '14px', fontWeight: 600, color: 'var(--ink-700)', fontFamily: fontSans }}>Password</label>
             <div style={{ position: 'relative' }}>
               <input
+                id="login-password"
+                name="password"
+                autoComplete="current-password"
                 type={showPassword ? 'text' : 'password'}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
@@ -718,13 +733,13 @@ export default function Login() {
         {/* Demo */}
         <button
           type="button"
-          onClick={doLogin}
+          onClick={doDemoLogin}
           disabled={loading}
           style={{ display: 'block', width: '100%', marginTop: '12px', padding: '11px', fontSize: '13px', fontWeight: 500, fontFamily: fontSans, background: 'none', border: '1.5px dashed var(--line)', borderRadius: '10px', color: 'var(--ink-400)', cursor: loading ? 'not-allowed' : 'pointer', textAlign: 'center', transition: 'border-color 0.15s, color 0.15s', opacity: loading ? 0.4 : 1 }}
           onMouseEnter={(e) => { if (!loading) { e.currentTarget.style.borderColor = 'var(--ink-400)'; e.currentTarget.style.color = 'var(--ink-700)' } }}
           onMouseLeave={(e) => { if (!loading) { e.currentTarget.style.borderColor = 'var(--line)'; e.currentTarget.style.color = 'var(--ink-400)' } }}
         >
-          Try demo account
+          {demoLoading ? 'Connecting…' : 'Try demo account'}
         </button>
 
       </div>

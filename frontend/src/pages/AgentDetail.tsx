@@ -291,7 +291,7 @@ function AuthorityMap({ graph, serviceFilter }: AuthorityMapProps) {
     <div className="space-y-2">
       <div className="flex gap-2 mb-3 flex-wrap">
         <input
-          style={{ background: 'var(--bg-sunken)', border: '2px solid transparent', borderRadius: 'var(--radius-full)', color: 'var(--text-primary)', padding: '0 16px', height: '36px', fontSize: 13, outline: 'none', flex: 1, minWidth: 0, fontFamily: 'inherit' }}
+          style={{ background: 'var(--bg-sunken)', border: '2px solid transparent', borderRadius: 'var(--radius-full)', color: 'var(--text-primary)', padding: '0 16px', height: '36px', fontSize: 13, flex: 1, minWidth: 0, fontFamily: 'inherit' }}
           onFocus={e => (e.currentTarget.style.borderColor = 'var(--border-focus)')}
           onBlur={e => (e.currentTarget.style.borderColor = 'transparent')}
           placeholder="Search actions…"
@@ -355,8 +355,17 @@ function AuthorityMap({ graph, serviceFilter }: AuthorityMapProps) {
             style={{ borderLeftWidth: 3, borderLeftColor: accentColor }}
           >
             <div
+              role="button"
+              tabIndex={0}
+              aria-expanded={isOpen}
               className="flex items-center justify-between px-4 py-2.5 cursor-pointer hover:bg-gray-50 transition-colors"
               onClick={() => toggle(tool.id)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  if (e.key === ' ') e.preventDefault()
+                  toggle(tool.id)
+                }
+              }}
             >
               <span className="font-medium text-sm text-gray-800">{tool.label}</span>
               <div className="flex items-center gap-2">
@@ -745,7 +754,7 @@ function ActionPicker({ tools, selectedPatterns, onAdd }: ActionPickerProps) {
     <div className="relative" ref={ref}>
       <button
         type="button"
-        style={{ background: 'var(--bg-sunken)', border: open ? '2px solid var(--border-focus)' : '2px solid transparent', borderRadius: 'var(--radius-full)', color: 'var(--text-primary)', padding: '0 16px', height: '42px', width: '100%', fontSize: 13, outline: 'none', display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontFamily: 'inherit', cursor: 'pointer', transition: 'border-color 0.15s' }}
+        style={{ background: 'var(--bg-sunken)', border: open ? '2px solid var(--border-focus)' : '2px solid transparent', borderRadius: 'var(--radius-full)', color: 'var(--text-primary)', padding: '0 16px', height: '42px', width: '100%', fontSize: 13, display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontFamily: 'inherit', cursor: 'pointer', transition: 'border-color 0.15s' }}
         onClick={() => setOpen((o) => !o)}
       >
         <span style={{ color: 'var(--text-secondary)' }}>
@@ -762,7 +771,7 @@ function ActionPicker({ tools, selectedPatterns, onAdd }: ActionPickerProps) {
           <div className="p-2 border-b border-gray-100">
             <input
               autoFocus
-              style={{ background: 'var(--bg-sunken)', border: '2px solid transparent', borderRadius: 'var(--radius-full)', color: 'var(--text-primary)', padding: '0 14px', height: '36px', width: '100%', fontSize: 13, outline: 'none', fontFamily: 'inherit' }}
+              style={{ background: 'var(--bg-sunken)', border: '2px solid transparent', borderRadius: 'var(--radius-full)', color: 'var(--text-primary)', padding: '0 14px', height: '36px', width: '100%', fontSize: 13, fontFamily: 'inherit' }}
               onFocus={e => (e.currentTarget.style.borderColor = 'var(--border-focus)')}
               onBlur={e => (e.currentTarget.style.borderColor = 'transparent')}
               placeholder="Search actions…"
@@ -900,7 +909,7 @@ function ConditionBuilder({ conditions, onChange }: ConditionBuilderProps) {
                 requires prior action
               </span>
               <input
-                style={{ background: 'var(--bg-sunken)', border: '2px solid transparent', borderRadius: 'var(--radius-full)', color: 'var(--text-primary)', padding: '0 14px', height: '36px', flex: 1, fontSize: 13, outline: 'none', fontFamily: 'inherit' }}
+                style={{ background: 'var(--bg-sunken)', border: '2px solid transparent', borderRadius: 'var(--radius-full)', color: 'var(--text-primary)', padding: '0 14px', height: '36px', flex: 1, fontSize: 13, fontFamily: 'inherit' }}
                 onFocus={e => (e.currentTarget.style.borderColor = 'var(--border-focus)')}
                 onBlur={e => (e.currentTarget.style.borderColor = 'transparent')}
                 placeholder="e.g. pagerduty.get_incident"
@@ -911,7 +920,7 @@ function ConditionBuilder({ conditions, onChange }: ConditionBuilderProps) {
           ) : (
             <>
               <input
-                style={{ background: 'var(--bg-sunken)', border: '2px solid transparent', borderRadius: 'var(--radius-full)', color: 'var(--text-primary)', padding: '0 14px', height: '36px', width: '8rem', fontSize: 13, outline: 'none', fontFamily: 'inherit' }}
+                style={{ background: 'var(--bg-sunken)', border: '2px solid transparent', borderRadius: 'var(--radius-full)', color: 'var(--text-primary)', padding: '0 14px', height: '36px', width: '8rem', fontSize: 13, fontFamily: 'inherit' }}
                 onFocus={e => (e.currentTarget.style.borderColor = 'var(--border-focus)')}
                 onBlur={e => (e.currentTarget.style.borderColor = 'transparent')}
                 placeholder="field (e.g. amount)"
@@ -919,7 +928,7 @@ function ConditionBuilder({ conditions, onChange }: ConditionBuilderProps) {
                 onChange={(e) => update(i, 'field', e.target.value)}
               />
               <select
-                style={{ background: 'var(--bg-sunken)', border: '2px solid transparent', borderRadius: 'var(--radius-full)', color: 'var(--text-primary)', padding: '0 12px', height: '36px', fontSize: 13, outline: 'none', fontFamily: 'inherit' }}
+                style={{ background: 'var(--bg-sunken)', border: '2px solid transparent', borderRadius: 'var(--radius-full)', color: 'var(--text-primary)', padding: '0 12px', height: '36px', fontSize: 13, fontFamily: 'inherit' }}
                 onFocus={e => (e.currentTarget.style.borderColor = 'var(--border-focus)')}
                 onBlur={e => (e.currentTarget.style.borderColor = 'transparent')}
                 value={c.op}
@@ -932,7 +941,7 @@ function ConditionBuilder({ conditions, onChange }: ConditionBuilderProps) {
                 ))}
               </select>
               <input
-                style={{ background: 'var(--bg-sunken)', border: '2px solid transparent', borderRadius: 'var(--radius-full)', color: 'var(--text-primary)', padding: '0 14px', height: '36px', width: '7rem', fontSize: 13, outline: 'none', fontFamily: 'inherit' }}
+                style={{ background: 'var(--bg-sunken)', border: '2px solid transparent', borderRadius: 'var(--radius-full)', color: 'var(--text-primary)', padding: '0 14px', height: '36px', width: '7rem', fontSize: 13, fontFamily: 'inherit' }}
                 onFocus={e => (e.currentTarget.style.borderColor = 'var(--border-focus)')}
                 onBlur={e => (e.currentTarget.style.borderColor = 'transparent')}
                 placeholder="value (e.g. 100)"
@@ -1150,6 +1159,16 @@ export default function AgentDetail() {
   // Delete state
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [headerMenuOpen, setHeaderMenuOpen] = useState(false)
+
+  // Close the header ⋯ menu on Escape while it is open
+  useEffect(() => {
+    if (!headerMenuOpen) return
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setHeaderMenuOpen(false)
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [headerMenuOpen])
 
   // Chain collapse
   const [collapsedChains, setCollapsedChains] = useState<Record<string, boolean>>({})
@@ -1788,7 +1807,7 @@ export default function AgentDetail() {
           {editMode ? (
             <form className="flex-1 space-y-2" onSubmit={handleEdit}>
               <input
-                style={{ background: 'var(--bg-sunken)', border: '2px solid transparent', borderRadius: 'var(--radius-full)', color: 'var(--text-primary)', padding: '0 16px', height: '42px', width: '100%', fontSize: 16, fontWeight: 600, outline: 'none', fontFamily: 'inherit' }}
+                style={{ background: 'var(--bg-sunken)', border: '2px solid transparent', borderRadius: 'var(--radius-full)', color: 'var(--text-primary)', padding: '0 16px', height: '42px', width: '100%', fontSize: 16, fontWeight: 600, fontFamily: 'inherit' }}
                 onFocus={e => (e.currentTarget.style.borderColor = 'var(--border-focus)')}
                 onBlur={e => (e.currentTarget.style.borderColor = 'transparent')}
                 value={editName}
@@ -1797,7 +1816,7 @@ export default function AgentDetail() {
                 required
               />
               <input
-                style={{ background: 'var(--bg-sunken)', border: '2px solid transparent', borderRadius: 'var(--radius-full)', color: 'var(--text-primary)', padding: '0 16px', height: '42px', width: '100%', fontSize: 13, outline: 'none', fontFamily: 'inherit' }}
+                style={{ background: 'var(--bg-sunken)', border: '2px solid transparent', borderRadius: 'var(--radius-full)', color: 'var(--text-primary)', padding: '0 16px', height: '42px', width: '100%', fontSize: 13, fontFamily: 'inherit' }}
                 onFocus={e => (e.currentTarget.style.borderColor = 'var(--border-focus)')}
                 onBlur={e => (e.currentTarget.style.borderColor = 'transparent')}
                 value={editDesc}
@@ -2424,7 +2443,7 @@ export default function AgentDetail() {
               </div>
 
               <input
-                style={{ background: 'var(--bg-sunken)', border: '2px solid transparent', borderRadius: 'var(--radius-full)', color: 'var(--text-primary)', padding: '0 16px', height: '42px', width: '100%', fontSize: 13, outline: 'none', fontFamily: 'inherit' }}
+                style={{ background: 'var(--bg-sunken)', border: '2px solid transparent', borderRadius: 'var(--radius-full)', color: 'var(--text-primary)', padding: '0 16px', height: '42px', width: '100%', fontSize: 13, fontFamily: 'inherit' }}
                 onFocus={e => (e.currentTarget.style.borderColor = 'var(--border-focus)')}
                 onBlur={e => (e.currentTarget.style.borderColor = 'transparent')}
                 placeholder={
@@ -2616,8 +2635,17 @@ export default function AgentDetail() {
                   style={{ borderLeftWidth: 3, borderLeftColor: sev.color }}
                 >
                   <div
+                    role="button"
+                    tabIndex={0}
+                    aria-expanded={isOpen}
                     className="flex items-center justify-between px-4 py-3 cursor-pointer hover:bg-gray-50 transition-colors"
                     onClick={() => toggleChain(c.id)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        if (e.key === ' ') e.preventDefault()
+                        toggleChain(c.id)
+                      }
+                    }}
                   >
                     <div className="flex items-center gap-2">
                       <span
