@@ -62,10 +62,10 @@ def load_defaults(org_id: Optional[str] = None) -> dict:
             # scripts/gen_cost_defaults_fallback.py). The old hand-maintained
             # fallback dict had drifted to a fraction of the catalog with
             # stale rates — generation + a sync test make that impossible.
-            with open(_FALLBACK_JSON_PATH) as f:
+            with open(_FALLBACK_JSON_PATH, encoding="utf-8") as f:
                 _DEFAULTS_CACHE = json.load(f)
         else:
-            with open(_DEFAULTS_PATH) as f:
+            with open(_DEFAULTS_PATH, encoding="utf-8") as f:
                 _DEFAULTS_CACHE = yaml.safe_load(f)
     if not org_id:
         return _DEFAULTS_CACHE
