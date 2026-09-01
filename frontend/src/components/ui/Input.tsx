@@ -35,7 +35,6 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
             height: 36,
             width: "100%",
             fontSize: 13,
-            outline: "none",
             fontFamily: "inherit",
             transition: "border-color 100ms",
             ...style,

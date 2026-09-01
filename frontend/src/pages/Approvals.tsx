@@ -613,6 +613,7 @@ export default function Approvals() {
                     <div style={{ flex: 1 }}>
                       <Input
                         type="text"
+                        aria-label="Decision note (optional)"
                         placeholder="Add a note (optional)…"
                         value={notes[a.id] ?? ''}
                         onChange={(e) => handleNoteChange(a.id, e.target.value)}

@@ -48,7 +48,6 @@ const itemStyle: React.CSSProperties = {
   fontSize: 13,
   color: "var(--ink-700)",
   cursor: "pointer",
-  outline: "none",
   border: "none",
   background: "transparent",
   width: "100%",
@@ -160,11 +159,11 @@ export default function CommandPalette() {
               <Search size={14} style={{ color: "var(--ink-400)", flexShrink: 0 }} />
               <Command.Input
                 autoFocus
+                aria-label="Search pages and agents"
                 placeholder="Search pages and agents…"
                 style={{
                   flex: 1,
                   fontSize: 14,
-                  outline: "none",
                   border: "none",
                   background: "transparent",
                   color: "var(--ink-900)",

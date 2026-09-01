@@ -1163,7 +1163,6 @@ export default function Workflows() {
     fontSize: 12,
     padding: 10,
     color: "var(--text-primary)",
-    outline: "none",
     resize: "none",
     boxSizing: "border-box",
     fontFamily: "inherit",
@@ -1535,6 +1534,7 @@ export default function Workflows() {
                     </div>
                     <textarea
                       style={textareaStyle}
+                      aria-label="Describe a scenario to simulate"
                       value={customPrompt}
                       onChange={(e) => setCustomPrompt(e.target.value)}
                       placeholder={`Describe a scenario to simulate across ${allAgentIds.length} agents…\n\nExample: "Process a bulk refund for customers affected by the outage, then notify the team and update all records."`}
@@ -1618,6 +1618,7 @@ export default function Workflows() {
               </div>
               <textarea
                 style={textareaStyle}
+                aria-label="Describe what the workflow should do"
                 value={workflowDesc}
                 onChange={(e) => setWorkflowDesc(e.target.value)}
                 placeholder={`Example: "Handle customer refund requests — look up order, check eligibility, issue refund if under $500, escalate otherwise."`}

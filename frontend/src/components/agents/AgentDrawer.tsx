@@ -11,6 +11,7 @@ import { useEffect, useRef, useState } from "react";
 import { ArrowLeft, FlaskConical, AlertTriangle, Lock, Link2, Bot, TrendingUp } from "lucide-react";
 import { Link } from "react-router-dom";
 import { apiFetch } from "@/lib/api";
+import { useMediaQuery } from "@/lib/useMediaQuery";
 import RiskRing from "@/components/shared/RiskRing";
 import {
   band,
@@ -174,6 +175,7 @@ export default function AgentDrawer({
 
   const closeBtnRef = useRef<HTMLButtonElement | null>(null);
   const prevFocusRef = useRef<HTMLElement | null>(null);
+  const prefersReducedMotion = useMediaQuery("(prefers-reduced-motion: reduce)");
 
   const [chains, setChains] = useState<Chain[] | null>(null);
   const [, setBlast] = useState<BlastRadius | null>(null);
@@ -281,7 +283,9 @@ export default function AgentDrawer({
           background: "var(--paper)",
           boxShadow: "-18px 0 48px rgba(26,24,18,.18)",
           transform: open ? "translateX(0)" : "translateX(102%)",
-          transition: "transform .32s cubic-bezier(.22,.61,.36,1)",
+          // Reduced motion: jump between the same end states, no slide.
+          // (The backdrop's opacity fade stays — a cross-fade isn't motion.)
+          transition: prefersReducedMotion ? "none" : "transform .32s cubic-bezier(.22,.61,.36,1)",
           zIndex: 61,
           display: "flex",
           flexDirection: "column",

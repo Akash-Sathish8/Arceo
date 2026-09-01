@@ -687,9 +687,10 @@ export default function Sandbox() {
 
         {/* Custom prompt input */}
         <div>
-          <p className="text-xs font-semibold text-gray-500 mb-1.5">Or describe your own scenario</p>
+          <p id="custom-scenario-label" className="text-xs font-semibold text-gray-500 mb-1.5">Or describe your own scenario</p>
           <textarea
-            className="w-full text-sm resize-none focus:outline-none placeholder-gray-400"
+            aria-labelledby="custom-scenario-label"
+            className="w-full text-sm resize-none placeholder-gray-400"
             style={{ background: 'var(--bg-sunken)', border: '2px solid transparent', borderRadius: 'var(--radius-md)', color: 'var(--text-primary)', padding: '10px 16px', fontFamily: 'inherit' }}
             onFocus={(e) => { e.currentTarget.style.borderColor = 'var(--border-focus)' }}
             onBlur={(e) => { e.currentTarget.style.borderColor = 'transparent' }}
@@ -971,6 +972,7 @@ export default function Sandbox() {
           <div className="flex flex-wrap gap-2 mb-3">
             <div style={{ flex: 1, minWidth: 200 }}>
               <Input
+                aria-label="Search by scenario or agent"
                 placeholder="Search by scenario or agent…"
                 value={simSearch}
                 onChange={(e) => setSimSearch(e.target.value)}
@@ -979,7 +981,8 @@ export default function Sandbox() {
               />
             </div>
             <select
-              className="text-sm focus:outline-none"
+              aria-label="Sort simulations"
+              className="text-sm"
               style={{ background: 'var(--bg-sunken)', border: '2px solid transparent', borderRadius: 'var(--radius-md)', color: 'var(--text-primary)', padding: '0 16px', height: '42px', fontFamily: 'inherit', cursor: 'pointer' }}
               onFocus={(e) => { e.currentTarget.style.borderColor = 'var(--border-focus)' }}
               onBlur={(e) => { e.currentTarget.style.borderColor = 'transparent' }}

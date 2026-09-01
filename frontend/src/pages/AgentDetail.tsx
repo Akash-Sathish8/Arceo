@@ -296,6 +296,7 @@ function AuthorityMap({ graph, serviceFilter }: AuthorityMapProps) {
           style={{ background: 'var(--bg-sunken)', border: '2px solid transparent', borderRadius: 'var(--radius-full)', color: 'var(--text-primary)', padding: '0 16px', height: '36px', fontSize: 13, flex: 1, minWidth: 0, fontFamily: 'inherit' }}
           onFocus={e => (e.currentTarget.style.borderColor = 'var(--border-focus)')}
           onBlur={e => (e.currentTarget.style.borderColor = 'transparent')}
+          aria-label="Search actions"
           placeholder="Search actions…"
           value={graphSearch}
           onChange={(e) => setGraphSearch(e.target.value)}
@@ -777,6 +778,7 @@ function ActionPicker({ tools, selectedPatterns, onAdd }: ActionPickerProps) {
               style={{ background: 'var(--bg-sunken)', border: '2px solid transparent', borderRadius: 'var(--radius-full)', color: 'var(--text-primary)', padding: '0 14px', height: '36px', width: '100%', fontSize: 13, fontFamily: 'inherit' }}
               onFocus={e => (e.currentTarget.style.borderColor = 'var(--border-focus)')}
               onBlur={e => (e.currentTarget.style.borderColor = 'transparent')}
+              aria-label="Search actions"
               placeholder="Search actions…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
@@ -915,6 +917,7 @@ function ConditionBuilder({ conditions, onChange }: ConditionBuilderProps) {
                 style={{ background: 'var(--bg-sunken)', border: '2px solid transparent', borderRadius: 'var(--radius-full)', color: 'var(--text-primary)', padding: '0 14px', height: '36px', flex: 1, fontSize: 13, fontFamily: 'inherit' }}
                 onFocus={e => (e.currentTarget.style.borderColor = 'var(--border-focus)')}
                 onBlur={e => (e.currentTarget.style.borderColor = 'transparent')}
+                aria-label="Required prior action"
                 placeholder="e.g. pagerduty.get_incident"
                 value={c.value}
                 onChange={(e) => update(i, 'value', e.target.value)}
@@ -926,6 +929,7 @@ function ConditionBuilder({ conditions, onChange }: ConditionBuilderProps) {
                 style={{ background: 'var(--bg-sunken)', border: '2px solid transparent', borderRadius: 'var(--radius-full)', color: 'var(--text-primary)', padding: '0 14px', height: '36px', width: '8rem', fontSize: 13, fontFamily: 'inherit' }}
                 onFocus={e => (e.currentTarget.style.borderColor = 'var(--border-focus)')}
                 onBlur={e => (e.currentTarget.style.borderColor = 'transparent')}
+                aria-label="Condition field"
                 placeholder="field (e.g. amount)"
                 value={c.field ?? ''}
                 onChange={(e) => update(i, 'field', e.target.value)}
@@ -934,6 +938,7 @@ function ConditionBuilder({ conditions, onChange }: ConditionBuilderProps) {
                 style={{ background: 'var(--bg-sunken)', border: '2px solid transparent', borderRadius: 'var(--radius-full)', color: 'var(--text-primary)', padding: '0 12px', height: '36px', fontSize: 13, fontFamily: 'inherit' }}
                 onFocus={e => (e.currentTarget.style.borderColor = 'var(--border-focus)')}
                 onBlur={e => (e.currentTarget.style.borderColor = 'transparent')}
+                aria-label="Condition operator"
                 value={c.op}
                 onChange={(e) => update(i, 'op', e.target.value)}
               >
@@ -947,6 +952,7 @@ function ConditionBuilder({ conditions, onChange }: ConditionBuilderProps) {
                 style={{ background: 'var(--bg-sunken)', border: '2px solid transparent', borderRadius: 'var(--radius-full)', color: 'var(--text-primary)', padding: '0 14px', height: '36px', width: '7rem', fontSize: 13, fontFamily: 'inherit' }}
                 onFocus={e => (e.currentTarget.style.borderColor = 'var(--border-focus)')}
                 onBlur={e => (e.currentTarget.style.borderColor = 'transparent')}
+                aria-label="Condition value"
                 placeholder="value (e.g. 100)"
                 value={c.value}
                 onChange={(e) => update(i, 'value', e.target.value)}
@@ -1829,6 +1835,7 @@ export default function AgentDetail() {
                 onBlur={e => (e.currentTarget.style.borderColor = 'transparent')}
                 value={editName}
                 onChange={(e) => setEditName(e.target.value)}
+                aria-label="Agent name"
                 placeholder="Agent name"
                 required
               />
@@ -1838,6 +1845,7 @@ export default function AgentDetail() {
                 onBlur={e => (e.currentTarget.style.borderColor = 'transparent')}
                 value={editDesc}
                 onChange={(e) => setEditDesc(e.target.value)}
+                aria-label="Description"
                 placeholder="Description"
               />
               <div className="flex gap-2">
@@ -2501,6 +2509,7 @@ export default function AgentDetail() {
                 style={{ background: 'var(--bg-sunken)', border: '2px solid transparent', borderRadius: 'var(--radius-full)', color: 'var(--text-primary)', padding: '0 16px', height: '42px', width: '100%', fontSize: 13, fontFamily: 'inherit' }}
                 onFocus={e => (e.currentTarget.style.borderColor = 'var(--border-focus)')}
                 onBlur={e => (e.currentTarget.style.borderColor = 'transparent')}
+                aria-label="Reason"
                 placeholder={
                   newEffect === 'BLOCK'
                     ? 'Why should this be blocked? (e.g. No refunds over $500 without manager sign-off)'

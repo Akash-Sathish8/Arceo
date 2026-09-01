@@ -1042,8 +1042,9 @@ export default function Authority() {
               </p>
               <form onSubmit={handleGithubScan} className="space-y-3">
                 <div>
-                  <label className="text-xs font-medium text-gray-700 block mb-1">GitHub repository URL</label>
+                  <label htmlFor="github-repo-url" className="text-xs font-medium text-gray-700 block mb-1">GitHub repository URL</label>
                   <Input
+                    id="github-repo-url"
                     type="url"
                     value={githubUrl}
                     onChange={(e) => setGithubUrl(e.target.value)}
@@ -1114,8 +1115,9 @@ export default function Authority() {
               </p>
 
               <div>
-                <label className="text-xs font-medium text-gray-700 block mb-1">What do you call this agent? (used as <code className="text-[11px] bg-gray-100 px-1 rounded">X-Agent-ID</code> header)</label>
+                <label htmlFor="proxy-agent-name" className="text-xs font-medium text-gray-700 block mb-1">What do you call this agent? (used as <code className="text-[11px] bg-gray-100 px-1 rounded">X-Agent-ID</code> header)</label>
                 <Input
+                  id="proxy-agent-name"
                   type="text" value={proxyName} onChange={(e) => setProxyName(e.target.value)}
                   placeholder="e.g. production-support-agent"
                   style={{ height: 40 }}
@@ -1163,16 +1165,18 @@ export default function Authority() {
               </p>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="text-xs font-medium text-gray-700 block mb-1">MCP Server URL</label>
+                  <label htmlFor="mcp-server-url" className="text-xs font-medium text-gray-700 block mb-1">MCP Server URL</label>
                   <Input
+                    id="mcp-server-url"
                     type="url" value={mcpUrl} onChange={(e) => setMcpUrl(e.target.value)}
                     placeholder="https://your-mcp-server.example.com" required
                     style={{ height: 40 }}
                   />
                 </div>
                 <div>
-                  <label className="text-xs font-medium text-gray-700 block mb-1">Agent Name</label>
+                  <label htmlFor="mcp-agent-name" className="text-xs font-medium text-gray-700 block mb-1">Agent Name</label>
                   <Input
+                    id="mcp-agent-name"
                     type="text" value={mcpAgentName} onChange={(e) => setMcpAgentName(e.target.value)}
                     placeholder="e.g. My Production Agent" required
                     style={{ height: 40 }}
@@ -1529,6 +1533,7 @@ export default function Authority() {
           <div className="flex items-center gap-3">
             <Input
               type="text" value={search} onChange={(e) => setSearch(e.target.value)}
+              aria-label="Search agents"
               placeholder="Search agents, tools…"
               icon={<Search size={13} />}
               style={{ width: 196 }}
@@ -1540,7 +1545,8 @@ export default function Authority() {
               <span className="text-[11px] text-gray-400 whitespace-nowrap">Sort:</span>
               <select
                 value={sortBy} onChange={(e) => setSortBy(e.target.value)}
-                style={{ background: 'var(--bg-sunken)', border: '2px solid transparent', borderRadius: 'var(--radius-md)', color: 'var(--text-primary)', padding: '0 12px', height: '36px', fontSize: 13, outline: 'none', fontFamily: 'inherit' }}
+                aria-label="Sort agents"
+                style={{ background: 'var(--bg-sunken)', border: '2px solid transparent', borderRadius: 'var(--radius-md)', color: 'var(--text-primary)', padding: '0 12px', height: '36px', fontSize: 13, fontFamily: 'inherit' }}
                 onFocus={e => (e.currentTarget.style.borderColor = 'var(--border-focus)')}
                 onBlur={e => (e.currentTarget.style.borderColor = 'transparent')}
               >

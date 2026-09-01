@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Shield, ArrowRight, ArrowLeft, Check, Eye, EyeOff, AlertCircle } from 'lucide-react'
 import { apiFetch, setToken, setUser } from '@/lib/api'
+import { useMediaQuery } from '@/lib/useMediaQuery'
 import { toast } from '@/components/shared/Toast'
 import type { User } from '@/lib/types'
 
@@ -171,6 +172,14 @@ const GRAPH_STYLES = `
   .lgn-red-edge {
     animation: lgn-edge-flicker 3s ease-in-out infinite;
   }
+
+  @media (prefers-reduced-motion: reduce) {
+    .lgn-pulse,
+    .lgn-red-pulse,
+    .lgn-red-edge {
+      animation: none;
+    }
+  }
 `
 
 // ── Node label chip (rendered below the circle in SVG space) ──────────────
@@ -226,11 +235,18 @@ function ShieldLogo({ size = 52, color = "var(--ink-900)" }: { size?: number; co
 
 function NodeGraph() {
   const svgRef = useRef<SVGSVGElement>(null)
+  // Reactive: the effect re-runs (starting or stopping the loop) if the OS
+  // setting flips while the page is open.
+  const prefersReducedMotion = useMediaQuery('(prefers-reduced-motion: reduce)')
 
   useEffect(() => {
     const svg = svgRef.current
     if (!svg) return
     let rafId: number
+
+    // Positions are only ever set here (edges mount at 0,0), so reduced
+    // motion still needs one zero-drift layout pass — just no ongoing loop.
+    const drift = prefersReducedMotion ? 0 : 1
 
     const animate = (ts: number) => {
       const t = ts / 1000
@@ -238,8 +254,8 @@ function NodeGraph() {
       const vh = svg.clientHeight || window.innerHeight
 
       const pos = GRAPH_NODES.map((n) => ({
-        x: (n.xPct / 100) * vw + n.driftXAmp * Math.sin(t * n.driftXFreq + n.driftXPhase),
-        y: (n.yPct / 100) * vh + n.driftYAmp * Math.sin(t * n.driftYFreq + n.driftYPhase),
+        x: (n.xPct / 100) * vw + drift * n.driftXAmp * Math.sin(t * n.driftXFreq + n.driftXPhase),
+        y: (n.yPct / 100) * vh + drift * n.driftYAmp * Math.sin(t * n.driftYFreq + n.driftYPhase),
       }))
 
       GRAPH_NODES.forEach((_, i) => {
@@ -257,12 +273,25 @@ function NodeGraph() {
         }
       })
 
-      rafId = requestAnimationFrame(animate)
+      if (!prefersReducedMotion) rafId = requestAnimationFrame(animate)
     }
 
     rafId = requestAnimationFrame(animate)
+    if (prefersReducedMotion) {
+      // The running loop re-measures every frame; the static layout has to
+      // re-run on resize instead.
+      const onResize = () => {
+        cancelAnimationFrame(rafId)
+        rafId = requestAnimationFrame(animate)
+      }
+      window.addEventListener('resize', onResize)
+      return () => {
+        window.removeEventListener('resize', onResize)
+        cancelAnimationFrame(rafId)
+      }
+    }
     return () => cancelAnimationFrame(rafId)
-  }, [])
+  }, [prefersReducedMotion])
 
   return (
     <svg
@@ -674,7 +703,7 @@ export default function Login() {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="you@example.com"
-              style={{ width: '100%', height: '48px', padding: '0 16px', fontSize: '15px', fontFamily: fontSans, border: '1px solid var(--line)', borderRadius: '10px', background: 'var(--paper)', color: 'var(--ink-900)', boxSizing: 'border-box', outline: 'none', transition: 'border-color 0.15s' }}
+              style={{ width: '100%', height: '48px', padding: '0 16px', fontSize: '15px', fontFamily: fontSans, border: '1px solid var(--line)', borderRadius: '10px', background: 'var(--paper)', color: 'var(--ink-900)', boxSizing: 'border-box', transition: 'border-color 0.15s' }}
               onFocus={(e) => { e.currentTarget.style.borderColor = 'var(--ink-900)' }}
               onBlur={(e)  => { e.currentTarget.style.borderColor = 'var(--line)' }}
             />
@@ -691,7 +720,7 @@ export default function Login() {
                 type={showPassword ? 'text' : 'password'}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                style={{ width: '100%', height: '48px', padding: '0 44px 0 16px', fontSize: '15px', fontFamily: fontSans, border: '1px solid var(--line)', borderRadius: '10px', background: 'var(--paper)', color: 'var(--ink-900)', boxSizing: 'border-box', outline: 'none', transition: 'border-color 0.15s' }}
+                style={{ width: '100%', height: '48px', padding: '0 44px 0 16px', fontSize: '15px', fontFamily: fontSans, border: '1px solid var(--line)', borderRadius: '10px', background: 'var(--paper)', color: 'var(--ink-900)', boxSizing: 'border-box', transition: 'border-color 0.15s' }}
                 onFocus={(e) => { e.currentTarget.style.borderColor = 'var(--ink-900)' }}
                 onBlur={(e)  => { e.currentTarget.style.borderColor = 'var(--line)' }}
               />

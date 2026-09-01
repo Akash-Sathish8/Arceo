@@ -205,7 +205,7 @@ function CostOverridesSection({ inputStyle }: { inputStyle: React.CSSProperties 
                 <td style={{ fontSize: 13, color: "var(--text-primary)", padding: "6px 24px 6px 0", fontFamily: "var(--font-mono)" }}>
                   {modelKey}
                 </td>
-                {MODEL_PRICE_COLUMNS.map(({ sub }) => {
+                {MODEL_PRICE_COLUMNS.map(({ sub, label }) => {
                   const def = Number(pricing[sub] ?? 0);
                   const ov = findOverride("model", modelKey, sub);
                   const draftKey = `model|${modelKey}|${sub}`;
@@ -214,6 +214,7 @@ function CostOverridesSection({ inputStyle }: { inputStyle: React.CSSProperties 
                     <td key={sub} style={{ padding: "6px 12px 6px 0" }}>
                       <div style={{ position: "relative", display: "inline-block" }}>
                         <input
+                          aria-label={`${modelKey} ${label}`}
                           style={{
                             ...cellInputStyle,
                             border: ov ? "2px solid var(--severity-safe, var(--safe))" : cellInputStyle.border,
@@ -254,6 +255,7 @@ function CostOverridesSection({ inputStyle }: { inputStyle: React.CSSProperties 
           Added to every agent call to cover compute, observability, and plumbing. Default ${infraDefault}.
         </p>
         <input
+          aria-label="Infrastructure overhead per call"
           style={{ ...cellInputStyle, width: 160, border: infraOverride ? "2px solid var(--severity-safe, var(--safe))" : cellInputStyle.border }}
           value={drafts["infra|per_call_overhead_usd|"] ?? String(infraOverride?.value ?? infraDefault)}
           onChange={(e) => setDrafts((d) => ({ ...d, "infra|per_call_overhead_usd|": e.target.value }))}
@@ -288,9 +290,9 @@ function CostOverridesSection({ inputStyle }: { inputStyle: React.CSSProperties 
           </div>
         )}
         <form onSubmit={addToolOverride} style={{ display: "flex", gap: 8 }}>
-          <input style={{ ...cellInputStyle, width: 140 }} placeholder="tool (e.g. internal_api)" value={toolName} onChange={(e) => setToolName(e.target.value)} />
-          <input style={{ ...cellInputStyle, width: 140 }} placeholder="action (e.g. lookup)" value={toolAction} onChange={(e) => setToolAction(e.target.value)} />
-          <input style={{ ...cellInputStyle, width: 110 }} placeholder="$ per call" value={toolCost} onChange={(e) => setToolCost(e.target.value)} />
+          <input aria-label="Tool name" style={{ ...cellInputStyle, width: 140 }} placeholder="tool (e.g. internal_api)" value={toolName} onChange={(e) => setToolName(e.target.value)} />
+          <input aria-label="Action name" style={{ ...cellInputStyle, width: 140 }} placeholder="action (e.g. lookup)" value={toolAction} onChange={(e) => setToolAction(e.target.value)} />
+          <input aria-label="Cost per call" style={{ ...cellInputStyle, width: 110 }} placeholder="$ per call" value={toolCost} onChange={(e) => setToolCost(e.target.value)} />
           <Button type="submit" variant="secondary">Add</Button>
         </form>
       </div>
@@ -529,8 +531,9 @@ function NotificationsSection({ inputStyle }: { inputStyle: React.CSSProperties 
       </p>
 
       <div style={{ marginBottom: 16 }}>
-        <label style={labelStyle}>Slack incoming webhook URL</label>
+        <label style={labelStyle} htmlFor="slack-webhook-url">Slack incoming webhook URL</label>
         <input
+          id="slack-webhook-url"
           style={fieldInput}
           value={slackUrl}
           onChange={(e) => setSlackUrl(e.target.value)}
@@ -553,8 +556,9 @@ function NotificationsSection({ inputStyle }: { inputStyle: React.CSSProperties 
       </div>
 
       <div style={{ marginBottom: 16 }}>
-        <label style={labelStyle}>Weekly digest email</label>
+        <label style={labelStyle} htmlFor="weekly-digest-email">Weekly digest email</label>
         <input
+          id="weekly-digest-email"
           style={fieldInput}
           value={alertEmail}
           onChange={(e) => setAlertEmail(e.target.value)}
@@ -744,7 +748,6 @@ if (await enforce("Stripe", "create_refund", { amount: 500 })) {
     height: 42,
     fontSize: 13,
     width: "100%",
-    outline: "none",
     boxSizing: "border-box",
     fontFamily: "inherit",
   };
@@ -1104,6 +1107,7 @@ if (await enforce("Stripe", "create_refund", { amount: 500 })) {
                     <form onSubmit={sendInvite} style={{ display: "flex", gap: 8 }}>
                       <input
                         type="email"
+                        aria-label="Teammate email"
                         placeholder="teammate@company.com"
                         value={inviteEmail}
                         onChange={(e) => setInviteEmail(e.target.value)}

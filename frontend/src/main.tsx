@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client'
 import '@/index.css'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { MotionConfig } from 'framer-motion'
 import AppShell from '@/components/layout/AppShell'
 import CommandPalette from '@/components/layout/CommandPalette'
 import { ToastContainer } from '@/components/shared/Toast'
@@ -55,6 +56,9 @@ createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
+        {/* reducedMotion="user": every framer-motion animation in the tree
+            (route fade, command palette) honors the OS reduced-motion setting. */}
+        <MotionConfig reducedMotion="user">
         <AppShell>
           <Suspense fallback={<RouteFallback />}>
           <Routes>
@@ -165,6 +169,7 @@ createRoot(document.getElementById('root')!).render(
         </AppShell>
         <CommandPalette />
         <ToastContainer />
+        </MotionConfig>
       </BrowserRouter>
     </QueryClientProvider>
   </StrictMode>,

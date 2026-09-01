@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useRef, useDeferredValue } from "react";
 import { useSearchParams } from "react-router-dom";
 import { Download, Search } from "lucide-react";
 import { apiFetch } from "@/lib/api";
+import { useMediaQuery } from "@/lib/useMediaQuery";
 import { parseTimestamp } from "@/lib/time";
 import { riskLabelColor } from "@/lib/utils";
 import { Button } from "@/components/ui/Button";
@@ -200,8 +201,11 @@ function useCountUp(target: number, enabled: boolean): number {
   const [val, setVal] = useState(0);
   const rafRef = useRef<number | undefined>(undefined);
   const startRef = useRef<number | undefined>(undefined);
+  // Reduced motion: no count-up — the target value renders immediately.
+  const prefersReducedMotion = useMediaQuery("(prefers-reduced-motion: reduce)");
+  const animate = enabled && !prefersReducedMotion;
   useEffect(() => {
-    if (!enabled) return;
+    if (!animate) return;
     startRef.current = undefined;
     function tick(ts: number) {
       if (startRef.current === undefined) startRef.current = ts;
@@ -212,8 +216,8 @@ function useCountUp(target: number, enabled: boolean): number {
     }
     rafRef.current = requestAnimationFrame(tick);
     return () => { if (rafRef.current !== undefined) cancelAnimationFrame(rafRef.current); };
-  }, [target, enabled]);
-  return enabled ? val : target;
+  }, [target, animate]);
+  return animate ? val : target;
 }
 
 // Render cap per page of rows — tables grow with account history; slicing
@@ -474,6 +478,7 @@ export default function History(): React.ReactElement {
         <div className="flex-1 min-w-48">
           <Input
             type="text"
+            aria-label="Search history"
             icon={<Search size={14} />}
             placeholder={
               view === "executions"

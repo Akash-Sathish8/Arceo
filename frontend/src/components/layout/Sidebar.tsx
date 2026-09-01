@@ -21,7 +21,7 @@ import { apiFetch, isLoggedIn, getUser, logout } from "@/lib/api";
 import { deriveOrgName } from "@/lib/orgName";
 import { useSidebarStore } from "@/store/sidebar";
 import { useCommandPaletteStore } from "@/store/commandPalette";
-import { useIsMobile } from "@/lib/useMediaQuery";
+import { useIsMobile, useMediaQuery } from "@/lib/useMediaQuery";
 
 interface NavItem {
   id: string;
@@ -49,6 +49,7 @@ export default function Sidebar(): React.ReactElement {
   const collapsedPref = useSidebarStore((s) => s.collapsed);
   const toggle = useSidebarStore((s) => s.toggle);
   const isMobile = useIsMobile();
+  const prefersReducedMotion = useMediaQuery("(prefers-reduced-motion: reduce)");
   const mobileOpen = useSidebarStore((s) => s.mobileOpen);
   const setMobileOpen = useSidebarStore((s) => s.setMobileOpen);
   // The drawer always renders expanded — collapse is a desktop-rail concept.
@@ -213,7 +214,8 @@ export default function Sidebar(): React.ReactElement {
               paddingLeft: "calc(14px + env(safe-area-inset-left))",
               paddingTop: "calc(22px + env(safe-area-inset-top))",
               transform: mobileOpen ? "translateX(0)" : "translateX(-100%)",
-              transition: "transform 0.2s ease",
+              // Reduced motion: jump between the same end states, no slide.
+              transition: prefersReducedMotion ? "none" : "transform 0.2s ease",
               boxShadow: mobileOpen ? "var(--shadow-lg)" : "none",
               overflowY: "auto",
             }
@@ -339,6 +341,9 @@ export default function Sidebar(): React.ReactElement {
               onClick={closeDrawer}
               className={({ isActive }) => `ag-nav${isActive ? " ag-nav--active" : ""}`}
               title={collapsed ? item.label : undefined}
+              // SR users hear the pending count — the collapsed-mode badge is
+              // a purely decorative dot, and the expanded pill is bare digits.
+              aria-label={item.badge ? `${item.label} — ${item.badge} pending` : undefined}
               style={({ isActive }) => ({
                 display: "flex",
                 alignItems: "center",
