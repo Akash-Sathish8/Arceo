@@ -296,3 +296,462 @@ code, .mono {
 
 /* ── Divider ──────────────────────────────────────────────── */
 .divider { height: 1px; background: var(--clay-border); }
+
+/* ══════════════════════════════════════════════════════════════════
+   Landing-page design system (appended 2026-09-01)
+
+   The clay tokens above still dress /security and /book-demo. Everything
+   below dresses the landing page: graphite for what an agent costs, red
+   for what it can break, and nothing else saturated. Kept additive on
+   purpose — replacing the file outright would have stripped the tokens
+   Positioning.tsx and Proof.tsx are still written against.
+   ══════════════════════════════════════════════════════════════════ */
+
+
+/* ════════════════════════════════════════════════════════════════
+   Arceo product design tokens
+   Cool white surfaces, navy ink, hairline rules, flat shadows.
+   Schibsted Grotesk for words, JetBrains Mono for every number.
+   Light theme only.
+
+   Colour rule: saturated colour ALWAYS means risk and never decoration.
+   Two scales carry it, and they are not interchangeable — a label hue
+   says what kind of risk a capability carries, a severity colour says
+   how bad it is. Headings, buttons, borders and backgrounds are ink,
+   paper and rule; none of them ever borrow a risk colour.
+   ════════════════════════════════════════════════════════════════ */
+:root {
+  /* ── Surfaces ──────────────────────────────────────────────── */
+  --paper:        #FFFFFF;   /* cards, panels, raised surfaces */
+  --ground:       #F7F8FA;   /* page ground, alt sections */
+  --ground-2:     #F1F3F5;   /* hover, wells, inset areas */
+  --ground-3:     #E9ECEF;   /* deeper wells, track fills */
+
+  /* ── Ink / text ────────────────────────────────────────────── */
+  --ink:          #111827;   /* headings, primary button, logo */
+  --ink-strong:   #0B1220;   /* darkest surface (announcement, footer) */
+  --muted:        #6B7280;   /* body copy */
+  --muted-2:      #9CA3AF;   /* meta, captions, eyebrows */
+  --disabled:     #D1D5DB;
+
+  /* ── Rules ─────────────────────────────────────────────────── */
+  --rule:         #E5E7EB;   /* default hairline */
+  --rule-light:   #F0F2F4;   /* faintest divider */
+  --rule-strong:  #111827;   /* deliberate dark edge */
+
+  /* ── Risk labels — the only saturated colour in the system ───
+     These four hues are the product's own, lifted verbatim from
+     frontend/src/pages/AgentDetail.tsx. A capability is coloured by
+     WHAT KIND of risk it carries; how bad it is, is a number, not a
+     hue. Nothing decorative is ever given one of these.            */
+  --label-money:      #dc2626;   /* moves_money    */
+  --label-money-fill: #FEF2F2;
+  --label-delete:     #ea580c;   /* deletes_data   */
+  --label-delete-fill:#FFF7ED;
+  --label-external:   #2563eb;   /* sends_external */
+  --label-external-fill:#EFF6FF;
+  --label-pii:        #7c3aed;   /* touches_pii    */
+  --label-pii-fill:   #FAF5FF;
+
+  /* ── The two channels ────────────────────────────────────────
+     Every data graphic on this site is drawn in exactly two inks, and
+     the reader learns the code once: GRAPHITE is what it costs, RED is
+     what it can break. A forecast band, a spend line, an axis, a total
+     — graphite. A chain, a blast-radius score, a blocked action — red.
+     Nothing on the page is coloured for any other reason.            */
+  --cost:        #111827;
+  --cost-soft:   #6B7280;
+  --cost-wash:   rgba(17,24,39,0.07);
+  --risk:        #dc2626;
+  --risk-soft:   #FCA5A5;
+  --risk-wash:   rgba(220,38,38,0.07);
+
+  /* Severity ramp — used for scores and bars, not for labels */
+  --risk-critical:        #dc2626;
+  --risk-critical-fill:   #FEF2F2;
+  --risk-critical-border: #FCA5A5;
+  --risk-elevated:        #f59e0b;
+  --risk-elevated-fill:   #FFFBEB;
+  --risk-elevated-border: #FDE68A;
+  --risk-safe:            #9ca3af;
+  --risk-safe-fill:       #F7F8FA;
+  --risk-safe-border:     #E5E7EB;
+  --risk-clear:           #16a34a;   /* "connected" / "passed" states */
+  --risk-clear-fill:      #DCFCE7;
+
+  /* ── Radius — product app scale, not clay pills ───────────── */
+  --r-lg:   20px;   /* large feature surfaces */
+  --r-md:   14px;   /* standard cards */
+  --r-sm:   10px;   /* inputs, small controls */
+  --r-xs:   6px;    /* chips, inline tags */
+  --r-pill: 999px;  /* primary CTA only — matches the app's Sign in */
+
+  /* ── Shadows — flat and quiet. One soft lift, no inner glow. ─ */
+  --shadow-xs:  0 1px 2px rgba(17,24,39,0.04);
+  --shadow-sm:  0 1px 3px rgba(17,24,39,0.06), 0 1px 2px rgba(17,24,39,0.04);
+  --shadow-md:  0 4px 16px -8px rgba(17,24,39,0.14), 0 1px 2px rgba(17,24,39,0.04);
+  --shadow-lg:  0 8px 40px rgba(17,24,39,0.10);
+  --shadow-xl:  0 16px 56px -16px rgba(17,24,39,0.18);
+
+}
+
+/* ── Reset ────────────────────────────────────────────────── */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html { scroll-behavior: smooth; overflow-x: clip; }
+
+body {
+  font-family: var(--font-sans), system-ui, -apple-system, sans-serif;
+  background: var(--ground);
+  color: var(--muted);
+  overflow-x: clip;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-size: 16px;
+  line-height: 1.65;
+}
+
+/* ── Headings ─────────────────────────────────────────────────
+   Schibsted Grotesk carries enough character at 600 that 800 just
+   shouts. The app tops out at 700; the site matches it.           */
+h1, h2, h3, h4, .display {
+  font-family: var(--font-sans), system-ui, sans-serif;
+  color: var(--ink);
+  line-height: 1.1;
+  font-weight: 600;
+}
+h1 { font-weight: 600; letter-spacing: -0.03em; }
+h2 { font-weight: 600; letter-spacing: -0.02em; }
+h3, h4 { font-weight: 600; letter-spacing: -0.01em; }
+
+a { color: inherit; text-decoration: none; }
+button { cursor: pointer; font-family: inherit; }
+
+/* ── Numerals ─────────────────────────────────────────────────
+   The type rule of this site: a number is never set in the sans.
+   Costs, scores, percentages and tool identifiers all render mono,
+   so the page reads like an instrument rather than a brochure.     */
+code, .mono, .num {
+  font-family: var(--font-mono), "SF Mono", "Fira Code", monospace;
+  font-variant-ligatures: none;
+}
+.num {
+  font-feature-settings: "tnum" 1;   /* tabular figures — columns align */
+  letter-spacing: -0.02em;
+}
+
+/* ── Layout ───────────────────────────────────────────────── */
+.container {
+  max-width: 1152px;
+  margin: 0 auto;
+  padding: 0 24px;
+}
+
+.section { padding: 88px 0; }
+
+/* ── Buttons ──────────────────────────────────────────────────
+   Primary keeps the pill, matching the app's Sign in button — the
+   one shape carried over from the product on purpose.             */
+.btn-black {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: var(--ink);
+  color: #fff;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  padding: 13px 26px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--ink);
+  box-shadow: var(--shadow-sm);
+  transition: background 0.15s, transform 0.1s, box-shadow 0.15s;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.btn-black:hover {
+  background: #1f2937;
+  border-color: #1f2937;
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
+}
+
+.btn-outline {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: var(--paper);
+  color: var(--ink);
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  padding: 13px 26px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--rule);
+  transition: background 0.15s, border-color 0.15s, transform 0.1s;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.btn-outline:hover {
+  background: var(--ground);
+  border-color: var(--muted-2);
+  transform: translateY(-1px);
+}
+
+/* Light button on the dark CTA surface */
+.btn-white {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: #fff;
+  /* Literal, not var(--ink): this button only ever sits on a dark
+     surface, where --ink inverts to near-white and would render white
+     text on a white button. */
+  color: #111827;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  padding: 13px 26px;
+  border-radius: var(--r-pill);
+  border: 1px solid #fff;
+  transition: background 0.15s, transform 0.1s;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.btn-white:hover { background: #E9ECEF; transform: translateY(-1px); }
+
+.btn-white-outline {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: transparent;
+  color: #fff;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  padding: 13px 26px;
+  border-radius: var(--r-pill);
+  border: 1px solid rgba(255,255,255,0.28);
+  transition: border-color 0.15s, background 0.15s, transform 0.1s;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.btn-white-outline:hover {
+  border-color: rgba(255,255,255,0.6);
+  background: rgba(255,255,255,0.08);
+  transform: translateY(-1px);
+}
+
+/* ── Cards ────────────────────────────────────────────────── */
+.card {
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+
+/* ── Chip / badge ─────────────────────────────────────────────
+   Squared off, not pill — chips carry data (a risk tier, a state),
+   and the pill is reserved for actions.                            */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: var(--font-mono), monospace;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  padding: 3px 8px;
+  border-radius: var(--r-xs);
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+
+/* ── Section label ────────────────────────────────────────────
+   Mono uppercase. Reads as a readout label, not a marketing kicker. */
+.eyebrow {
+  display: block;
+  font-family: var(--font-mono), monospace;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted-2);
+  margin-bottom: 14px;
+}
+
+/* ── Dot field ────────────────────────────────────────────── */
+.halftone {
+  background-image: radial-gradient(circle, rgba(17,24,39,0.05) 1px, transparent 1px);
+  background-size: 12px 12px;
+}
+
+/* ── Fade-in on scroll ────────────────────────────────────── */
+.fade-up {
+  opacity: 0;
+  transform: translateY(20px);
+  transition: opacity 0.6s cubic-bezier(0.22, 1, 0.36, 1),
+              transform 0.6s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.fade-up.visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* ── Hover helpers ────────────────────────────────────────── */
+.nav-link {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--muted);
+  padding: 8px 12px;
+  border-radius: var(--r-sm);
+  transition: color 0.12s, background 0.12s;
+}
+.nav-link:hover { color: var(--ink); background: var(--ground-2); }
+
+.footer-link {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--muted-2);
+  transition: color 0.12s;
+}
+.footer-link:hover { color: var(--ink); }
+
+.social-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: var(--r-sm);
+  color: var(--muted-2);
+  transition: color 0.12s, background 0.12s;
+}
+.social-btn:hover { color: var(--ink); background: var(--ground-2); }
+
+/* ── Divider ──────────────────────────────────────────────── */
+.divider { height: 1px; background: var(--rule); }
+
+/* ── Quality floor ────────────────────────────────────────── */
+:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+  .fade-up { opacity: 1; transform: none; }
+}
+
+/* ════════════════════════════════════════════════════════════════
+   Materiality
+   Flat vector surfaces read as sterile. These three layers give the
+   page physical presence without adding a single image request.
+   ════════════════════════════════════════════════════════════════ */
+
+/* Grain. A fixed, non-interactive film over the whole page. Kept very
+   low contrast; it should register as texture, never as noise. */
+.grain::after {
+  content: "";
+  position: fixed;
+  inset: -50%;
+  z-index: 1;
+  pointer-events: none;
+  opacity: 0.035;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* Engineering grid. The substrate the whole product sits on: a faint
+   ruled plane, denser than a dot field, that reads as drafting paper. */
+.ruled {
+  background-image:
+    linear-gradient(to right, rgba(17,24,39,0.045) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(17,24,39,0.045) 1px, transparent 1px);
+  background-size: 56px 56px;
+}
+.ruled-dark {
+  background-image:
+    linear-gradient(to right, rgba(255,255,255,0.055) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255,255,255,0.055) 1px, transparent 1px);
+  background-size: 56px 56px;
+}
+
+/* Ambient wash. A soft off-centre radial, never a 45-degree linear fade. */
+.wash-light { background-image: radial-gradient(80% 60% at 72% 8%, rgba(17,24,39,0.05), transparent 62%); }
+.wash-dark  { background-image: radial-gradient(70% 55% at 22% 0%, rgba(220,38,38,0.16), transparent 58%); }
+
+/* ── The dark act ─────────────────────────────────────────────────
+   One deliberate dark chapter, not a random dark band. It gets its own
+   full token set so every child reads correctly against it rather than
+   inheriting light-mode colours and going invisible. */
+.act-dark {
+  --paper:    #151B26;
+  --ground:   #0E131C;
+  --ground-2: #1C2331;
+  --ground-3: #262F40;
+  --ink:      #F4F6F8;
+  --muted:    #9AA6B8;
+  --muted-2:  #6B7688;
+  --rule:     rgba(255,255,255,0.10);
+  --rule-light: rgba(255,255,255,0.06);
+  background: #0E131C;
+  color: var(--muted);
+}
+.act-dark h1, .act-dark h2, .act-dark h3, .act-dark h4 { color: var(--ink); }
+
+/* ── Staggered entry ──────────────────────────────────────────────
+   Elements cascade rather than mounting all at once. Spring-ish easing
+   with a slight overshoot, translate + opacity only so it stays on the
+   compositor. --i is the child's index, set inline. */
+.rise {
+  opacity: 0;
+  transform: translate3d(0, 22px, 0);
+  transition:
+    opacity 0.7s cubic-bezier(0.16, 1, 0.3, 1),
+    transform 0.7s cubic-bezier(0.16, 1, 0.3, 1);
+  transition-delay: calc(var(--i, 0) * 90ms);
+  will-change: transform, opacity;
+}
+.rise.in { opacity: 1; transform: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  .rise { opacity: 1; transform: none; transition: none; }
+  .grain::after { display: none; }
+}
+
+/* ── Skip link ────────────────────────────────────────────────────
+   Keyboard users get a way past the nav. Visible only on focus. */
+.skip-link {
+  position: fixed;
+  left: 16px;
+  top: 16px;
+  z-index: 100;
+  /* Off-canvas until focused. clip-path beats a negative offset here:
+     it does not depend on a containing block that an ancestor's
+     overflow:clip can quietly redefine. */
+  clip-path: inset(50%);
+  opacity: 0;
+  background: var(--ink);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  padding: 10px 18px;
+  border-radius: var(--r-sm);
+  transition: opacity 0.18s ease;
+}
+.skip-link:focus-visible { clip-path: none; opacity: 1; }

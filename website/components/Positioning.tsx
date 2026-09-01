@@ -25,13 +25,13 @@ function Column({
   delay: number;
 }) {
   const { ref, className } = useFadeInOnScroll(delay);
-  const accent = tone === "is" ? "var(--clay-brand-strong)" : "var(--clay-body-subtle)";
+  const accent = tone === "is" ? "var(--ink)" : "var(--muted-2)";
 
   return (
     <div ref={ref} className={className}>
       <div style={{
         fontSize: 12,
-        fontWeight: 700,
+        fontWeight: 600,
         letterSpacing: "0.1em",
         textTransform: "uppercase",
         color: accent,
@@ -45,11 +45,11 @@ function Column({
           <li key={t} style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
             <span style={{ flexShrink: 0, marginTop: 5 }}>
               {tone === "is" ? (
-                <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="var(--clay-brand-strong)" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="var(--ink)" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
                   <polyline points="3 8.5 6.5 12 13 4" />
                 </svg>
               ) : (
-                <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="var(--clay-body-subtle)" strokeWidth="2.2" strokeLinecap="round">
+                <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="var(--muted-2)" strokeWidth="2.2" strokeLinecap="round">
                   <path d="M4 4l8 8M12 4l-8 8" />
                 </svg>
               )}
@@ -57,7 +57,7 @@ function Column({
             <span style={{
               fontSize: 15.5,
               lineHeight: 1.6,
-              color: tone === "is" ? "var(--clay-heading)" : "var(--clay-body)",
+              color: tone === "is" ? "var(--ink)" : "var(--muted)",
               fontWeight: tone === "is" ? 500 : 400,
             }}>
               {t}
@@ -73,7 +73,7 @@ export default function Positioning() {
   const { ref: headRef, className: headClass } = useFadeInOnScroll();
 
   return (
-    <section id="positioning" style={{ padding: "112px 0", background: "var(--clay-cream-2)" }}>
+    <section id="positioning" style={{ padding: "104px 0", background: "var(--paper)" }}>
       <div className="container">
         <div ref={headRef} className={headClass} style={{ textAlign: "center", marginBottom: 56 }}>
           <span className="eyebrow">Where we fit</span>
@@ -81,13 +81,13 @@ export default function Positioning() {
             fontSize: 44,
             fontWeight: 600,
             letterSpacing: "-0.4px",
-            color: "var(--clay-heading)",
+            color: "var(--ink)",
             maxWidth: 760,
             margin: "0 auto 16px",
           }}>
             Everyone else measures agents after you deploy them
           </h2>
-          <p style={{ fontSize: 20, color: "var(--clay-body)", maxWidth: 620, margin: "0 auto", lineHeight: 1.6 }}>
+          <p style={{ fontSize: 20, color: "var(--muted)", maxWidth: 620, margin: "0 auto", lineHeight: 1.6 }}>
             Observability tells you what you already spent. Security tooling tells you what
             already broke. The decision that actually gates deployment happens before either,
             and nobody owns it.
@@ -110,7 +110,7 @@ export default function Positioning() {
           marginTop: 56,
           fontSize: 22,
           fontWeight: 600,
-          color: "var(--clay-heading)",
+          color: "var(--ink)",
           letterSpacing: "-0.2px",
         }}>
           We don&apos;t build agents. We govern them.

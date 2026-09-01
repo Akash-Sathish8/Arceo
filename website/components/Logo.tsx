@@ -1,4 +1,5 @@
-export function LogoIcon({ size = 24, color = "#2C2215" }: { size?: number; color?: string }) {
+import { C } from "@/lib/palette";
+export function LogoIcon({ size = 24, color = C.ink }: { size?: number; color?: string }) {
   return (
     <svg
       width={size}
@@ -25,7 +26,7 @@ export function LogoIcon({ size = 24, color = "#2C2215" }: { size?: number; colo
 
 export default function Logo({
   size = 24,
-  color = "#2C2215",
+  color = C.ink,
   showWord = true,
   wordSize,
 }: {
@@ -39,7 +40,7 @@ export default function Logo({
       <LogoIcon size={size} color={color} />
       {showWord && (
         <span style={{
-          fontFamily: "var(--font-poppins), system-ui, sans-serif",
+          fontFamily: "var(--font-sans), system-ui, sans-serif",
           fontSize: wordSize ?? Math.round(size * 0.85),
           fontWeight: 800,
           letterSpacing: "-0.02em",
