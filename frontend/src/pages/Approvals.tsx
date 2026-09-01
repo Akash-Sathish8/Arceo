@@ -44,6 +44,16 @@ const UNKNOWN_SOURCE_BADGE = { label: 'Unlabeled (recorded before source trackin
 // Sources whose decisions only update the record — no paused agent executes.
 const SIMULATION_SOURCES = ['sandbox', 'boundary_test', 'replay']
 
+// How long an armed live decision waits before its POST(s) fire.
+const UNDO_WINDOW_S = 5
+
+interface PendingDecision {
+  ids: string[]
+  verb: 'approve' | 'reject'
+  bulk: boolean
+  secondsLeft: number
+}
+
 interface ApprovalsResponse {
   approvals: ApprovalItem[]
 }
@@ -122,9 +132,14 @@ export default function Approvals() {
   const [bulkRunning, setBulkRunning] = useState<'approve' | 'reject' | null>(null)
   // Two-step inline confirm for bulk decisions (same pattern as policy delete).
   const [bulkConfirm, setBulkConfirm] = useState<'approve' | 'reject' | null>(null)
-  // Same two-step confirm for single decisions on LIVE items — simulation
-  // sources stay one-click (nothing real executes on decide).
-  const [singleConfirm, setSingleConfirm] = useState<{ id: string; verb: 'approve' | 'reject' } | null>(null)
+  // Undo window: a LIVE decision arms a short countdown and the POST(s) fire
+  // only when it expires — Undo disarms it. One window at a time; arming a new
+  // one flushes the previous immediately. Simulation decisions stay instant
+  // (nothing real executes). Singles arm directly (the window replaces the
+  // old confirm step); bulk arms after its confirm.
+  const [pendingDecision, setPendingDecision] = useState<PendingDecision | null>(null)
+  const pendingRef = useRef<PendingDecision | null>(null)
+  pendingRef.current = pendingDecision
   const [rawOpen, setRawOpen] = useState<Set<string>>(new Set())
   const selectAllRef = useRef<HTMLInputElement>(null)
 
@@ -200,13 +215,45 @@ export default function Approvals() {
     setNotes((prev) => ({ ...prev, [id]: value }))
   }
 
-  // Live items get a confirm step; simulation decisions are record-keeping.
+  const executeDecision = (p: PendingDecision) => {
+    if (p.bulk) void bulkDecide(p.verb, p.ids)
+    else void decide(p.ids[0], p.verb)
+  }
+  const executeRef = useRef(executeDecision)
+  executeRef.current = executeDecision
+
+  const armDecision = (ids: string[], verb: 'approve' | 'reject', bulk: boolean) => {
+    // Arming a new window flushes the previous one — nothing is ever dropped.
+    if (pendingRef.current) executeRef.current(pendingRef.current)
+    setPendingDecision({ ids, verb, bulk, secondsLeft: UNDO_WINDOW_S })
+  }
+
+  // Countdown tick; at zero the decision executes for real.
+  useEffect(() => {
+    if (!pendingDecision) return
+    if (pendingDecision.secondsLeft <= 0) {
+      setPendingDecision(null)
+      executeRef.current(pendingDecision)
+      return
+    }
+    const t = setTimeout(() => {
+      setPendingDecision((p) => (p ? { ...p, secondsLeft: p.secondsLeft - 1 } : null))
+    }, 1000)
+    return () => clearTimeout(t)
+  }, [pendingDecision])
+
+  // Leaving the page must not silently drop an armed decision — flush it.
+  useEffect(() => () => {
+    if (pendingRef.current) executeRef.current(pendingRef.current)
+  }, [])
+
+  // Live items get an undo window; simulation decisions are record-keeping.
   const requestDecide = (a: ApprovalItem, verb: 'approve' | 'reject') => {
     if (SIMULATION_SOURCES.includes(a.source ?? '')) {
       void decide(a.id, verb)
       return
     }
-    setSingleConfirm({ id: a.id, verb })
+    armDecision([a.id], verb, false)
   }
 
   const toggleSelected = (id: string) => {
@@ -234,9 +281,9 @@ export default function Approvals() {
     }
   }, [selected, approvals])
 
-  const bulkDecide = async (decision: 'approve' | 'reject') => {
+  const bulkDecide = async (decision: 'approve' | 'reject', idsToDecide?: string[]) => {
     if (bulkRunning != null) return
-    const ids = [...selected].filter((id) => !(id in deciding))
+    const ids = (idsToDecide ?? [...selected]).filter((id) => !(id in deciding))
     if (ids.length === 0) return
     setBulkRunning(decision)
     setDeciding((prev) => ({ ...prev, ...Object.fromEntries(ids.map((id) => [id, decision])) }))
@@ -354,19 +401,30 @@ export default function Approvals() {
             </label>
             {selected.size > 0 && (
               <div className="flex items-center gap-2 ml-auto">
-                {bulkConfirm != null ? (
+                {pendingDecision?.bulk ? (
+                  <>
+                    <span className="text-[13px] font-medium" style={{ color: 'var(--text-primary)' }} aria-live="polite">
+                      {pendingDecision.verb === 'approve' ? 'Approving' : 'Rejecting'}{' '}
+                      {pendingDecision.ids.length} in {pendingDecision.secondsLeft}s
+                    </span>
+                    <Button variant="secondary" size="sm" onClick={() => setPendingDecision(null)}>
+                      Undo
+                    </Button>
+                  </>
+                ) : bulkConfirm != null ? (
                   <>
                     <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>
                       {bulkConfirm === 'approve' && liveSelectedCount > 0
-                        ? `Executes ${liveSelectedCount} real agent action${liveSelectedCount !== 1 ? 's' : ''} immediately.`
-                        : "This can't be undone from here."}
+                        ? `Executes ${liveSelectedCount} real agent action${liveSelectedCount !== 1 ? 's' : ''}.`
+                        : "This can't be undone once it runs."}
                     </span>
                     <Button
                       size="sm"
                       variant={bulkConfirm === 'reject' ? 'destructive' : undefined}
-                      onClick={async () => {
-                        await bulkDecide(bulkConfirm)
+                      onClick={() => {
+                        const ids = [...selected].filter((id) => !(id in deciding))
                         setBulkConfirm(null)
+                        if (ids.length > 0) armDecision(ids, bulkConfirm, true)
                       }}
                       disabled={bulkRunning != null}
                       loading={bulkRunning === bulkConfirm}
@@ -566,27 +624,15 @@ export default function Approvals() {
 
                 {/* Action buttons + optional note */}
                 <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                  {singleConfirm?.id === a.id ? (
-                    <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                      <span className="text-[12px]" style={{ color: 'var(--text-secondary)' }}>
-                        {singleConfirm.verb === 'approve'
-                          ? 'Executes this real agent action immediately.'
-                          : 'Permanently blocks this action.'}
+                  {pendingDecision && !pendingDecision.bulk && pendingDecision.ids[0] === a.id ? (
+                    <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }} aria-live="polite">
+                      <span className="text-[13px] font-medium" style={{ color: 'var(--text-primary)' }}>
+                        {pendingDecision.verb === 'approve'
+                          ? `Approving in ${pendingDecision.secondsLeft}s — the real action executes.`
+                          : `Rejecting in ${pendingDecision.secondsLeft}s — the action is blocked.`}
                       </span>
-                      <Button
-                        variant={singleConfirm.verb === 'reject' ? 'destructive' : undefined}
-                        size="sm"
-                        onClick={() => {
-                          setSingleConfirm(null)
-                          void decide(a.id, singleConfirm.verb)
-                        }}
-                        disabled={isBusy}
-                        icon={singleConfirm.verb === 'approve' ? <Check size={14} /> : <X size={14} />}
-                      >
-                        {singleConfirm.verb === 'approve' ? 'Confirm approve' : 'Confirm reject'}
-                      </Button>
-                      <Button variant="ghost" size="sm" onClick={() => setSingleConfirm(null)} disabled={isBusy}>
-                        Cancel
+                      <Button variant="secondary" size="sm" onClick={() => setPendingDecision(null)}>
+                        Undo
                       </Button>
                     </div>
                   ) : (

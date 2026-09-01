@@ -21,9 +21,28 @@ function notify(): void {
   subscribers.forEach((sub) => sub([...queue]));
 }
 
+// Dismissal timers, keyed by toast id, so hover can pause them — an error
+// toast is often the only record of a failure and must be readable in full.
+const timers = new Map<number, ReturnType<typeof setTimeout>>();
+
 function dismiss(id: number): void {
-  queue = queue.filter((t) => t.id !== id);
+  const t = timers.get(id);
+  if (t) clearTimeout(t);
+  timers.delete(id);
+  queue = queue.filter((t2) => t2.id !== id);
   notify();
+}
+
+function pauseDismiss(id: number): void {
+  const t = timers.get(id);
+  if (t) clearTimeout(t);
+  timers.delete(id);
+}
+
+function resumeDismiss(id: number): void {
+  if (!queue.some((t) => t.id === id)) return;
+  // Short grace after the pointer leaves, regardless of original duration.
+  timers.set(id, setTimeout(() => dismiss(id), 2000));
 }
 
 export function toast(message: string, type: ToastType = "success"): void {
@@ -35,7 +54,7 @@ export function toast(message: string, type: ToastType = "success"): void {
   notify();
 
   const duration = type === "error" ? 6000 : 3000;
-  setTimeout(() => dismiss(id), duration);
+  timers.set(id, setTimeout(() => dismiss(id), duration));
 }
 
 const ICON: Record<ToastType, React.ReactNode> = {
@@ -73,6 +92,8 @@ export function ToastContainer(): React.ReactElement {
           key={t.id}
           className={`flex items-center gap-2 px-3 py-2.5 rounded-xl border shadow-md text-sm font-medium ${COLOR[t.type]}`}
           style={{ animation: "toast-in 0.2s ease-out" }}
+          onMouseEnter={() => pauseDismiss(t.id)}
+          onMouseLeave={() => resumeDismiss(t.id)}
         >
           {ICON[t.type]}
           <span className="flex-1">{t.message}</span>
