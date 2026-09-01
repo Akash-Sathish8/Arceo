@@ -358,7 +358,15 @@ function TeamMembers({ reloadKey }: { reloadKey: number }) {
     setBusyId(null);
   };
 
-  if (loading) return null;
+  if (loading) {
+    // Layout-shaped placeholders matching the member-row footprint (avatar + 2 lines).
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        <div className="skeleton" style={{ height: 54, borderRadius: "var(--radius-lg)" }} />
+        <div className="skeleton" style={{ height: 54, borderRadius: "var(--radius-lg)" }} />
+      </div>
+    );
+  }
   if (loadError) return <ErrorState message={loadError} onRetry={load} compact />;
 
   return (
@@ -453,8 +461,10 @@ function NotificationsSection({ inputStyle }: { inputStyle: React.CSSProperties 
   // unchanged is understood server-side as "leave it alone", so saving other fields
   // is safe; typing over it replaces the secret, and clearing it turns alerts off.
   const [webhookConfigured, setWebhookConfigured] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
-  useEffect(() => {
+  const load = useCallback(() => {
+    setLoading(true);
     apiFetch<{
       slack_webhook_url: string;
       slack_webhook_configured?: boolean;
@@ -466,10 +476,16 @@ function NotificationsSection({ inputStyle }: { inputStyle: React.CSSProperties 
         setWebhookConfigured(Boolean(d.slack_webhook_configured));
         setAlertEmail(d.alert_email || "");
         setNotifyOnBlock(d.notify_on_block);
+        setLoadError(null);
       })
-      .catch(() => {})
+      .catch((e: unknown) => {
+        // Doctrine: a failed load must not render defaults as if they were saved.
+        setLoadError(e instanceof Error ? e.message : "Couldn't load notification settings");
+      })
       .finally(() => setLoading(false));
   }, []);
+
+  useEffect(() => { load(); }, [load]);
 
   const save = async () => {
     setSaving(true);
@@ -517,8 +533,10 @@ function NotificationsSection({ inputStyle }: { inputStyle: React.CSSProperties 
   };
 
   if (loading) {
-    return <div style={{ fontSize: 13, color: "var(--text-muted)" }}>Loading…</div>;
+    // Layout-shaped placeholder matching the settings card footprint below.
+    return <div className="skeleton" style={{ height: 420, maxWidth: 640, borderRadius: "var(--radius-lg)" }} />;
   }
+  if (loadError) return <ErrorState message={loadError} onRetry={load} compact />;
 
   return (
     <div style={cardStyle}>
@@ -613,17 +631,24 @@ export default function Settings() {
 
   const [activeSection, setActiveSection] = useState("api");
   const [firstAgentId, setFirstAgentId] = useState("your-agent-id");
+  const [agentsError, setAgentsError] = useState<string | null>(null);
 
-  useEffect(() => {
+  const loadAgents = useCallback(() => {
     apiFetch<{ agents?: Array<{ id: string }> } | Array<{ id: string }>>("/api/authority/agents")
       .then((data) => {
         const agents =
           (data as { agents?: Array<{ id: string }> }).agents ||
           (Array.isArray(data) ? data : []);
         if (agents.length > 0) setFirstAgentId(agents[0].id);
+        setAgentsError(null);
       })
-      .catch(() => {});
+      .catch((e: unknown) => {
+        // Doctrine: don't silently fall back to the placeholder id as if it were real.
+        setAgentsError(e instanceof Error ? e.message : "Couldn't load your agents");
+      });
   }, []);
+
+  useEffect(() => { loadAgents(); }, [loadAgents]);
 
   // A single-use temp password the admin hands over. crypto.getRandomValues,
   // not Math.random — this is a credential, and Math.random is a predictable
@@ -769,6 +794,14 @@ if (await enforce("Stripe", "create_refund", { amount: 500 })) {
           {/* ── API & Integration ── */}
           {activeSection === "api" && (
             <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
+              {agentsError && (
+                <ErrorState
+                  title="Couldn't load your agents"
+                  message={`${agentsError} — the code samples below show a placeholder agent id.`}
+                  onRetry={loadAgents}
+                  compact
+                />
+              )}
               <div
                 style={{
                   background: "var(--bg-card)",

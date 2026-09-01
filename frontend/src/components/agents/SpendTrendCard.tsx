@@ -118,13 +118,16 @@ export default function SpendTrendCard(): React.ReactElement {
               {formatMoney(last)}
               <span style={{ fontSize: 13, fontWeight: 500, color: "var(--ink-500)" }}> / mo</span>
             </span>
+            <span style={{ fontSize: 12, fontWeight: 500, color: "var(--ink-400)" }}>illustrative</span>
             <span
               style={{
                 display: "inline-flex", alignItems: "center", gap: 4,
                 fontSize: 12, fontWeight: 600,
-                color: rising ? "var(--caution)" : "var(--safe)",
-                background: rising ? "var(--caution-bg)" : "var(--safe-bg)",
-                border: `1px solid ${rising ? "var(--caution-line)" : "var(--safe-line)"}`,
+                // Deliberately neutral: this is a sample series, and caution/amber
+                // read as a live warning next to the fleet's real dollar stats.
+                color: "var(--ink-600)",
+                background: "var(--paper-2)",
+                border: "1px solid var(--line)",
                 borderRadius: 7, padding: "2px 8px",
               }}
             >

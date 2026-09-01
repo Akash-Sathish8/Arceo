@@ -241,12 +241,12 @@ const CONF_STYLE: Record<string, { background: string; color: string; label: str
 const formatExecTime = (ts: string): string => {
   const d = new Date(ts)
   const now = new Date()
-  const time = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+  const time = d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
   if (d.toDateString() === now.toDateString()) return `Today ${time}`
   const yesterday = new Date(now)
   yesterday.setDate(yesterday.getDate() - 1)
   if (d.toDateString() === yesterday.toDateString()) return `Yesterday ${time}`
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + ` ${time}`
+  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) + ` ${time}`
 }
 
 

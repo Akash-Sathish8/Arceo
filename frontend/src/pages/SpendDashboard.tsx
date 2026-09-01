@@ -252,7 +252,7 @@ export default function SpendDashboard() {
   const fleetReportData: FleetReportData = {
     org: currentOrgName(),
     tierMix,
-    dateString: new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" }),
+    dateString: new Date().toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" }),
     agentCount: withForecast.length,
     uncalibrated: noForecast.length,
     totalMonthly: totalSpend,

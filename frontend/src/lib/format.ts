@@ -13,7 +13,7 @@ export function formatMoney(n: number | null | undefined, opts?: { compact?: boo
     if (Math.abs(n) >= 1_000) return `$${(n / 1_000).toFixed(1)}k`;
     return `$${Math.round(n)}`;
   }
-  return `$${n.toLocaleString("en-US", {
+  return `$${n.toLocaleString(undefined, {
     minimumFractionDigits: opts?.cents ? 2 : 0,
     maximumFractionDigits: opts?.cents ? 2 : 0,
   })}`;

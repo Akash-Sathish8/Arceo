@@ -35,7 +35,7 @@ export function timeAgo(ts: string): string {
 export function formatDateTime(ts: string): string {
   const d = parseTimestamp(ts);
   if (isNaN(d.getTime())) return "—";
-  return d.toLocaleString("en-US", {
+  return d.toLocaleString(undefined, {
     month: "short", day: "numeric", year: "numeric",
     hour: "numeric", minute: "2-digit", hour12: true,
   });
@@ -44,5 +44,5 @@ export function formatDateTime(ts: string): string {
 export function formatDateShort(ts: string): string {
   const d = parseTimestamp(ts);
   if (isNaN(d.getTime())) return "—";
-  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }

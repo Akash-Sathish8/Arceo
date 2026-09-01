@@ -151,14 +151,14 @@ function relativeTime(ts: string): string {
   if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
   if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
   if (diff < 7 * 86400) return `${Math.floor(diff / 86400)}d ago`;
-  return parseTs(ts).toLocaleDateString("en-US", {
+  return parseTs(ts).toLocaleDateString(undefined, {
     month: "short",
     day: "numeric",
   });
 }
 
 function fullTime(ts: string): string {
-  return parseTs(ts).toLocaleString("en-US", {
+  return parseTs(ts).toLocaleString(undefined, {
     month: "short",
     day: "numeric",
     year: "numeric",
