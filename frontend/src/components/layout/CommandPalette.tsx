@@ -70,12 +70,18 @@ export default function CommandPalette() {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [agentError, setAgentError] = useState(false);
 
-  // Global Cmd+K / Ctrl+K shortcut
+  // Global Cmd+K / Ctrl+K shortcut; Escape closes while open (cmdk's plain
+  // <Command> doesn't handle it — only <Command.Dialog> would).
   useEffect(() => {
     function handler(e: KeyboardEvent) {
       if ((e.metaKey || e.ctrlKey) && e.key === "k") {
         e.preventDefault();
         setOpen(true);
+        return;
+      }
+      if (e.key === "Escape" && useCommandPaletteStore.getState().open) {
+        e.preventDefault();
+        setOpen(false);
       }
     }
     window.addEventListener("keydown", handler);
@@ -119,6 +125,9 @@ export default function CommandPalette() {
       <div
         className="fixed inset-x-0 z-50 px-4"
         style={{ top: 112 }}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Command palette"
       >
         <div className="mx-auto max-w-xl">
         <motion.div

@@ -122,6 +122,9 @@ export default function Approvals() {
   const [bulkRunning, setBulkRunning] = useState<'approve' | 'reject' | null>(null)
   // Two-step inline confirm for bulk decisions (same pattern as policy delete).
   const [bulkConfirm, setBulkConfirm] = useState<'approve' | 'reject' | null>(null)
+  // Same two-step confirm for single decisions on LIVE items — simulation
+  // sources stay one-click (nothing real executes on decide).
+  const [singleConfirm, setSingleConfirm] = useState<{ id: string; verb: 'approve' | 'reject' } | null>(null)
   const [rawOpen, setRawOpen] = useState<Set<string>>(new Set())
   const selectAllRef = useRef<HTMLInputElement>(null)
 
@@ -195,6 +198,15 @@ export default function Approvals() {
 
   const handleNoteChange = (id: string, value: string) => {
     setNotes((prev) => ({ ...prev, [id]: value }))
+  }
+
+  // Live items get a confirm step; simulation decisions are record-keeping.
+  const requestDecide = (a: ApprovalItem, verb: 'approve' | 'reject') => {
+    if (SIMULATION_SOURCES.includes(a.source ?? '')) {
+      void decide(a.id, verb)
+      return
+    }
+    setSingleConfirm({ id: a.id, verb })
   }
 
   const toggleSelected = (id: string) => {
@@ -554,10 +566,34 @@ export default function Approvals() {
 
                 {/* Action buttons + optional note */}
                 <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {singleConfirm?.id === a.id ? (
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                      <span className="text-[12px]" style={{ color: 'var(--text-secondary)' }}>
+                        {singleConfirm.verb === 'approve'
+                          ? 'Executes this real agent action immediately.'
+                          : 'Permanently blocks this action.'}
+                      </span>
+                      <Button
+                        variant={singleConfirm.verb === 'reject' ? 'destructive' : undefined}
+                        size="sm"
+                        onClick={() => {
+                          setSingleConfirm(null)
+                          void decide(a.id, singleConfirm.verb)
+                        }}
+                        disabled={isBusy}
+                        icon={singleConfirm.verb === 'approve' ? <Check size={14} /> : <X size={14} />}
+                      >
+                        {singleConfirm.verb === 'approve' ? 'Confirm approve' : 'Confirm reject'}
+                      </Button>
+                      <Button variant="ghost" size="sm" onClick={() => setSingleConfirm(null)} disabled={isBusy}>
+                        Cancel
+                      </Button>
+                    </div>
+                  ) : (
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                     <Button
                       size="sm"
-                      onClick={() => decide(a.id, 'approve')}
+                      onClick={() => requestDecide(a, 'approve')}
                       disabled={isBusy}
                       loading={deciding[a.id] === 'approve'}
                       icon={<Check size={14} />}
@@ -567,7 +603,7 @@ export default function Approvals() {
                     <Button
                       variant="destructive"
                       size="sm"
-                      onClick={() => decide(a.id, 'reject')}
+                      onClick={() => requestDecide(a, 'reject')}
                       disabled={isBusy}
                       loading={deciding[a.id] === 'reject'}
                       icon={<X size={14} />}
@@ -585,6 +621,7 @@ export default function Approvals() {
                       />
                     </div>
                   </div>
+                  )}
                   <p className="text-[11px] m-0" style={{ color: 'var(--text-muted)' }}>
                     {SIMULATION_SOURCES.includes(a.source ?? '')
                       ? 'This came from a simulation — deciding updates the record for reporting; no agent is waiting to execute.'

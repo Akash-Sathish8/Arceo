@@ -12,6 +12,7 @@ import {
   LogOut,
   PanelLeftClose,
   PanelLeftOpen,
+  Search,
   X,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
@@ -19,6 +20,7 @@ import LogoMark from "@/components/shared/LogoMark";
 import { apiFetch, isLoggedIn, getUser, logout } from "@/lib/api";
 import { deriveOrgName } from "@/lib/orgName";
 import { useSidebarStore } from "@/store/sidebar";
+import { useCommandPaletteStore } from "@/store/commandPalette";
 import { useIsMobile } from "@/lib/useMediaQuery";
 
 interface NavItem {
@@ -31,6 +33,8 @@ interface NavItem {
 }
 
 const ACCENT = "var(--accent)";
+
+const IS_MAC = typeof navigator !== "undefined" && /Mac/i.test(navigator.platform);
 
 // deriveOrgName (with its demo-session / consumer-domain rules) lives in
 // @/lib/orgName so the CFO PDF exports print the same org name as the chrome.
@@ -50,6 +54,7 @@ export default function Sidebar(): React.ReactElement {
   // The drawer always renders expanded — collapse is a desktop-rail concept.
   const collapsed = isMobile ? false : collapsedPref;
   const closeDrawer = () => { if (isMobile) setMobileOpen(false); };
+  const openPalette = useCommandPaletteStore((s) => s.setOpen);
 
   useEffect(() => {
     if (!isMobile || !mobileOpen) return;
@@ -251,6 +256,55 @@ export default function Sidebar(): React.ReactElement {
           {toggleBtn}
         </div>
       )}
+
+      {/* The palette's only visible trigger — ⌘K alone is pure recall. */}
+      <button
+        onClick={() => {
+          closeDrawer();
+          openPalette(true);
+        }}
+        className="ag-nav"
+        aria-label="Search pages and agents"
+        title={collapsed ? "Search" : undefined}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: collapsed ? "center" : "flex-start",
+          gap: collapsed ? 0 : 11,
+          padding: collapsed ? "9px 0" : "8px 9px",
+          borderRadius: 8,
+          marginBottom: 10,
+          border: "none",
+          background: "transparent",
+          color: C.txt,
+          fontWeight: 450,
+          fontSize: 14,
+          fontFamily: "var(--font-sans)",
+          cursor: "pointer",
+          width: "100%",
+        }}
+      >
+        <span style={{ color: C.icon, display: "flex" }}>
+          <Search size={17} strokeWidth={1.7} />
+        </span>
+        {!collapsed && <span style={{ flex: 1, textAlign: "left" }}>Search</span>}
+        {!collapsed && !isMobile && (
+          <kbd
+            style={{
+              fontSize: 10,
+              color: "var(--sidebar-text-dim)",
+              backgroundColor: "var(--paper)",
+              border: `1px solid ${C.border}`,
+              borderRadius: 4,
+              padding: "1px 5px",
+              fontFamily: "var(--font-mono)",
+              lineHeight: "16px",
+            }}
+          >
+            {IS_MAC ? "⌘K" : "Ctrl K"}
+          </kbd>
+        )}
+      </button>
 
       {groups.map((g, gi) => (
         <div key={gi} style={{ marginBottom: 4 }}>
