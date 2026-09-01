@@ -13,6 +13,7 @@ import {
   Copy,
   Plus,
   MoreHorizontal,
+  Link2,
 } from 'lucide-react'
 import { apiFetch, getToken } from '@/lib/api'
 import { toast } from '@/components/shared/Toast'
@@ -576,7 +577,8 @@ function WorstCasePanel({
               : { background: 'var(--paper)', borderColor: 'var(--caution-line)' }
           }
         >
-          <span className="text-base leading-none mt-0.5 flex-shrink-0">⛓</span>
+          <Link2 size={15} className="mt-0.5 flex-shrink-0" />
+
           <div className="space-y-1 flex-1 min-w-0">
             <div className="text-sm font-medium text-gray-800">{chainText}</div>
             <div className="flex items-center gap-2 flex-wrap">
@@ -1184,6 +1186,8 @@ export default function AgentDetail() {
   const [appliedRecIndices, setAppliedRecIndices] = useState<Set<number>>(new Set())
 
   const [activeStatFilter, setActiveStatFilter] = useState<string | null>(null)
+  // Collapsed by default: Total + top categories + Irreversible; "+N more" reveals the rest.
+  const [statsExpanded, setStatsExpanded] = useState(false)
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
   const [changingEffectId, setChangingEffectId] = useState<string | null>(null)
   const [showAddPolicyForm, setShowAddPolicyForm] = useState(false)
@@ -1659,9 +1663,21 @@ export default function AgentDetail() {
       riskKey: 'irreversible',
     },
   ]
-  const visibleStats = statItems.filter(
-    (s, i) => i === 0 || i === statItems.length - 1 || s.value > 0
-  )
+  // Anchors (Total, Irreversible) always show. Categories cap at the top 4 by
+  // value until expanded — a 10-column rainbow row is unscannable. The active
+  // filter is never hidden by the cap.
+  const MAX_COLLAPSED_CATEGORIES = 4
+  const categoryStats = statItems.slice(1, -1).filter((s) => s.value > 0)
+  const shownCategories = (() => {
+    if (statsExpanded || categoryStats.length <= MAX_COLLAPSED_CATEGORIES) return categoryStats
+    const top = [...categoryStats].sort((a, b) => b.value - a.value).slice(0, MAX_COLLAPSED_CATEGORIES)
+    const keep = new Set(top.map((s) => s.riskKey))
+    if (activeStatFilter) keep.add(activeStatFilter)
+    return categoryStats.filter((s) => keep.has(s.riskKey))
+  })()
+  const hiddenStatCount = categoryStats.length - shownCategories.length
+  const showStatsToggle = statsExpanded || hiddenStatCount > 0
+  const visibleStats = [statItems[0], ...shownCategories, statItems[statItems.length - 1]]
 
   const noPolicyCount =
     executions?.filter((e) => e.detail === 'No matching policy').length || 0
@@ -1920,7 +1936,7 @@ export default function AgentDetail() {
 
         <div
           className="grid mt-6"
-          style={{ gridTemplateColumns: `repeat(${visibleStats.length}, 1fr)` }}
+          style={{ gridTemplateColumns: `repeat(${visibleStats.length + (showStatsToggle ? 1 : 0)}, 1fr)` }}
         >
           {visibleStats.map((s) => {
             const clickable = s.value > 0
@@ -1930,6 +1946,7 @@ export default function AgentDetail() {
                 <button
                   type="button"
                   disabled={!clickable}
+                  aria-pressed={clickable ? isActive : undefined}
                   onClick={() => setActiveStatFilter(isActive ? null : s.riskKey)}
                   style={{
                     background: isActive ? (s.bg ?? 'var(--paper-2)') : 'transparent',
@@ -1956,6 +1973,28 @@ export default function AgentDetail() {
               </div>
             )
           })}
+          {showStatsToggle && (
+            <div className="flex flex-col items-center justify-center">
+              <button
+                type="button"
+                onClick={() => setStatsExpanded(!statsExpanded)}
+                aria-expanded={statsExpanded}
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  color: 'var(--accent-ink)',
+                  fontSize: 12.5,
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  padding: '4px 8px',
+                  borderRadius: 6,
+                  fontFamily: 'var(--font-sans)',
+                }}
+              >
+                {statsExpanded ? 'Show less' : `+${hiddenStatCount} more`}
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Coverage caveat — the score is only as good as our catalog coverage */}
@@ -2062,11 +2101,27 @@ export default function AgentDetail() {
       />
 
       {agentId && (
-        <DeploymentContextEditor
-          agentId={agentId}
-          context={br.exposure_context}
-          onSaved={loadData}
-        />
+        <details className="mb-4">
+          <summary
+            style={{
+              cursor: 'pointer',
+              fontSize: 'var(--fs-small)',
+              color: 'var(--ink-500)',
+              width: 'fit-content',
+              borderRadius: 6,
+              padding: '2px 4px',
+            }}
+          >
+            Deployment context — tune the score to where this agent actually runs
+          </summary>
+          <div style={{ marginTop: 8 }}>
+            <DeploymentContextEditor
+              agentId={agentId}
+              context={br.exposure_context}
+              onSaved={loadData}
+            />
+          </div>
+        </details>
       )}
 
       {/* Tab bar */}
