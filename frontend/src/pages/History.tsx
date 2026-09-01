@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useMemo, useRef, useDeferredValue } from "react";
 import { useSearchParams } from "react-router-dom";
 import { Download, Search } from "lucide-react";
 import { apiFetch } from "@/lib/api";
@@ -216,6 +216,10 @@ function useCountUp(target: number, enabled: boolean): number {
   return enabled ? val : target;
 }
 
+// Render cap per page of rows — tables grow with account history; slicing
+// keeps the DOM sane without a virtualization dependency.
+const ROW_PAGE = 100;
+
 export default function History(): React.ReactElement {
   const [searchParams] = useSearchParams();
   // /audit redirects here with ?view=audit — honor it so the audit tab is deep-linkable.
@@ -231,6 +235,13 @@ export default function History(): React.ReactElement {
   const [timeFilter, setTimeFilter] = useState<TimeFilter>("all");
   const [search, setSearch] = useState("");
   const [hideSystem, setHideSystem] = useState(true);
+  // Typing stays responsive: filtering keys off the deferred value.
+  const deferredSearch = useDeferredValue(search);
+  const [rowLimit, setRowLimit] = useState(ROW_PAGE);
+
+  useEffect(() => {
+    setRowLimit(ROW_PAGE);
+  }, [view, filterStatus, timeFilter, deferredSearch, hideSystem]);
 
   useEffect(() => {
     Promise.all([
@@ -279,8 +290,8 @@ export default function History(): React.ReactElement {
         ? executions
         : executions.filter((e) => e.status === filterStatus);
     result = applyTimeFilter(result);
-    if (search.trim()) {
-      const q = search.toLowerCase();
+    if (deferredSearch.trim()) {
+      const q = deferredSearch.toLowerCase();
       result = result.filter(
         (e) =>
           (agentMap[e.agent_id] ?? e.agent_id ?? "").toLowerCase().includes(q) ||
@@ -290,12 +301,12 @@ export default function History(): React.ReactElement {
     }
     return result;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [executions, filterStatus, timeFilter, search, agentMap]);
+  }, [executions, filterStatus, timeFilter, deferredSearch, agentMap]);
 
   const filteredAudit = useMemo(() => {
     let result = applyTimeFilter(auditEntries);
-    if (search.trim()) {
-      const q = search.toLowerCase();
+    if (deferredSearch.trim()) {
+      const q = deferredSearch.toLowerCase();
       result = result.filter(
         (e) =>
           (e.user_email ?? "").toLowerCase().includes(q) ||
@@ -306,7 +317,7 @@ export default function History(): React.ReactElement {
     }
     return result;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [auditEntries, timeFilter, search]);
+  }, [auditEntries, timeFilter, deferredSearch]);
 
   const groupedAudit = useMemo<AuditEntry[]>(() => {
     let entries = filteredAudit;
@@ -605,7 +616,7 @@ export default function History(): React.ReactElement {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200">
-                {filteredExecs.map((e) => {
+                {filteredExecs.slice(0, rowLimit).map((e) => {
                   const st = STATUS_CONFIG[e.status];
                   const risk = actionRiskCategory(e.tool, e.action);
                   const meta = RISK_META[risk];
@@ -669,6 +680,15 @@ export default function History(): React.ReactElement {
                     </tr>
                   );
                 })}
+                {filteredExecs.length > rowLimit && (
+                  <tr>
+                    <td colSpan={5} style={{ padding: "12px 0", textAlign: "center" }}>
+                      <Button variant="secondary" size="sm" onClick={() => setRowLimit((n) => n + ROW_PAGE)}>
+                        Show more — {filteredExecs.length - rowLimit} remaining
+                      </Button>
+                    </td>
+                  </tr>
+                )}
                 {filteredExecs.length === 0 && (
                   <tr>
                     <td colSpan={5} className="px-4 py-12 text-center">
@@ -752,7 +772,7 @@ export default function History(): React.ReactElement {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200">
-                {groupedAudit.map((e) => (
+                {groupedAudit.slice(0, rowLimit).map((e) => (
                   <tr key={e.id} className="hover:bg-gray-50 transition-colors">
                     <td className="px-4 py-3 whitespace-nowrap">
                       <span
@@ -791,6 +811,15 @@ export default function History(): React.ReactElement {
                     </td>
                   </tr>
                 ))}
+                {groupedAudit.length > rowLimit && (
+                  <tr>
+                    <td colSpan={5} style={{ padding: "12px 0", textAlign: "center" }}>
+                      <Button variant="secondary" size="sm" onClick={() => setRowLimit((n) => n + ROW_PAGE)}>
+                        Show more — {groupedAudit.length - rowLimit} remaining
+                      </Button>
+                    </td>
+                  </tr>
+                )}
                 {groupedAudit.length === 0 && (
                   <tr>
                     <td colSpan={5} className="px-4 py-12 text-center">

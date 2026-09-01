@@ -1,4 +1,4 @@
-import { StrictMode } from 'react'
+import { StrictMode, Suspense, lazy } from 'react'
 import { createRoot } from 'react-dom/client'
 import '@/index.css'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
@@ -8,19 +8,32 @@ import CommandPalette from '@/components/layout/CommandPalette'
 import { ToastContainer } from '@/components/shared/Toast'
 import { isLoggedIn } from '@/lib/api'
 import Login from '@/pages/Login'
-import Authority from '@/pages/Authority'
-import AgentDetail from '@/pages/AgentDetail'
-import History from '@/pages/History'
-import Workflows from '@/pages/Workflows'
-import Sandbox from '@/pages/Sandbox'
-import SimulationDetail from '@/pages/SimulationDetail'
-import SweepDetail from '@/pages/SweepDetail'
-import Comparison from '@/pages/Comparison'
-import Settings from '@/pages/Settings'
-import Approvals from '@/pages/Approvals'
-import CostPortfolio from '@/pages/CostPortfolio'
-import SpendDashboard from '@/pages/SpendDashboard'
-import NotFound from '@/pages/NotFound'
+
+// Route-level code splitting: each page's chunk loads on first visit.
+// Login stays eager — it's the entry surface and must paint instantly.
+const Authority = lazy(() => import('@/pages/Authority'))
+const AgentDetail = lazy(() => import('@/pages/AgentDetail'))
+const History = lazy(() => import('@/pages/History'))
+const Workflows = lazy(() => import('@/pages/Workflows'))
+const Sandbox = lazy(() => import('@/pages/Sandbox'))
+const SimulationDetail = lazy(() => import('@/pages/SimulationDetail'))
+const SweepDetail = lazy(() => import('@/pages/SweepDetail'))
+const Comparison = lazy(() => import('@/pages/Comparison'))
+const Settings = lazy(() => import('@/pages/Settings'))
+const Approvals = lazy(() => import('@/pages/Approvals'))
+const CostPortfolio = lazy(() => import('@/pages/CostPortfolio'))
+const SpendDashboard = lazy(() => import('@/pages/SpendDashboard'))
+const NotFound = lazy(() => import('@/pages/NotFound'))
+
+// Layout-shaped placeholder while a route chunk loads.
+function RouteFallback() {
+  return (
+    <div style={{ padding: 'var(--page-pad)' }} aria-busy="true">
+      <div className="skeleton" style={{ height: 28, width: 220, marginBottom: 18 }} />
+      <div className="skeleton" style={{ height: 140 }} />
+    </div>
+  )
+}
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -43,6 +56,7 @@ createRoot(document.getElementById('root')!).render(
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
         <AppShell>
+          <Suspense fallback={<RouteFallback />}>
           <Routes>
             <Route path="/login" element={<Login />} />
             <Route
@@ -147,6 +161,7 @@ createRoot(document.getElementById('root')!).render(
             />
             <Route path="*" element={<ProtectedRoute><NotFound /></ProtectedRoute>} />
           </Routes>
+          </Suspense>
         </AppShell>
         <CommandPalette />
         <ToastContainer />
