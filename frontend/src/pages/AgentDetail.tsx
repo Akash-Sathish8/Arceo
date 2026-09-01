@@ -21,6 +21,7 @@ import type { RiskLabel } from '@/lib/types'
 import Tooltip from '@/components/shared/Tooltip'
 import ErrorState from '@/components/shared/ErrorState'
 import CodeTabs, { type CodeTab } from '@/components/shared/CodeTabs'
+import Tabs from '@/components/shared/Tabs'
 import { RISK_SCORE_METHODOLOGY } from '@/lib/methodology'
 
 // ── Local types ───────────────────────────────────────────────────────────────
@@ -1129,7 +1130,7 @@ const { decision } = await response.json();
 export default function AgentDetail() {
   const { agentId } = useParams<{ agentId: string }>()
   const navigate = useNavigate()
-  const [searchParams] = useSearchParams()
+  const [searchParams, setSearchParams] = useSearchParams()
   const policySectionRef = useRef<HTMLDivElement>(null)
 
   // Feed the Authority page's "Recently Viewed" sort.
@@ -1706,9 +1707,9 @@ export default function AgentDetail() {
 
   const TABS = [
     { id: 'graph' as const, label: 'Tool Map', dot: false },
-    { id: 'policies' as const, label: `Policies (${sortedPolicies.length})`, dot: false },
-    { id: 'executions' as const, label: `Executions (${executions?.length ?? 0})`, dot: false },
-    { id: 'chains' as const, label: `Chains (${chains.length})`, dot: hasCriticalChain },
+    { id: 'policies' as const, label: 'Policies', count: sortedPolicies.length, dot: false },
+    { id: 'executions' as const, label: 'Executions', count: executions?.length ?? 0, dot: false },
+    { id: 'chains' as const, label: 'Chains', count: chains.length, dot: hasCriticalChain },
   ]
 
   // ── Render ───────────────────────────────────────────────────────────────
@@ -2069,24 +2070,23 @@ export default function AgentDetail() {
       )}
 
       {/* Tab bar */}
-      <div className="flex gap-1 border-b border-gray-200 mb-4">
-        {TABS.map((t) => (
-          <button
-            key={t.id}
-            className={`px-4 py-2 text-sm transition-colors border-b-2 -mb-px flex items-center gap-1.5 ${
-              activeTab === t.id
-                ? 'border-gray-900 text-gray-900 font-medium'
-                : 'border-transparent text-gray-500 hover:text-gray-700'
-            }`}
-            onClick={() => { setActiveTab(t.id); if (t.id !== 'graph') setSelectedGraphService(null) }}
-          >
-            {t.label}
-            {t.dot && (
-              <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--critical)', flexShrink: 0, display: 'inline-block' }} />
-            )}
-          </button>
-        ))}
-      </div>
+      <Tabs
+        tabs={TABS}
+        active={activeTab}
+        onChange={(id) => {
+          setActiveTab(id)
+          if (id !== 'graph') setSelectedGraphService(null)
+          setSearchParams(
+            (prev) => {
+              const next = new URLSearchParams(prev)
+              next.set('tab', id)
+              return next
+            },
+            { replace: true }
+          )
+        }}
+        style={{ margin: '0 0 16px' }}
+      />
 
       {activeTab === 'graph' && (
         <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-6 mb-6">

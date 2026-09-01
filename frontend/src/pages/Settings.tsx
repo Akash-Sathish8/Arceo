@@ -6,6 +6,7 @@ import { toast } from "@/components/shared/Toast";
 import CodeTabs from "@/components/shared/CodeTabs";
 import ErrorState from "@/components/shared/ErrorState";
 import PageHeader from "@/components/shared/PageHeader";
+import Tabs from "@/components/shared/Tabs";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -752,28 +753,12 @@ if (await enforce("Stripe", "create_refund", { amount: 500 })) {
     <div style={{ padding: "var(--page-pad)", minHeight: "100%" }}>
       <div style={{ marginBottom: 32 }}>
         <PageHeader title="Settings" />
-        <div style={{ display: "flex" }}>
-          {sections.map((s) => (
-            <button
-              key={s.id}
-              onClick={() => setActiveSection(s.id)}
-              style={{
-                background: "transparent",
-                border: "none",
-                padding: "8px 16px 10px",
-                fontSize: 13,
-                fontWeight: activeSection === s.id ? 600 : 400,
-                color: activeSection === s.id ? "var(--text-primary)" : "var(--text-secondary)",
-                borderBottom: activeSection === s.id ? "2px solid var(--text-primary)" : "2px solid transparent",
-                marginBottom: "-1px",
-                cursor: "pointer",
-                fontFamily: "inherit",
-              }}
-            >
-              {s.label}
-            </button>
-          ))}
-        </div>
+        <Tabs
+          tabs={sections.map(({ id, label }) => ({ id, label }))}
+          active={activeSection}
+          onChange={setActiveSection}
+          style={{ margin: "4px 0 0" }}
+        />
       </div>
 
       <div>

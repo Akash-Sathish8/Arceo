@@ -26,6 +26,7 @@ import { formatMoney } from '@/lib/format'
 import FleetStrip from '@/components/agents/FleetStrip'
 import SpendTrendCard from '@/components/agents/SpendTrendCard'
 import AgentDrawer from '@/components/agents/AgentDrawer'
+import Tabs from '@/components/shared/Tabs'
 
 // ─── Local interfaces ─────────────────────────────────────────────────────────
 
@@ -265,6 +266,68 @@ export default function Authority() {
       )
     }
   }, [searchParams])
+
+  // Single AgentListItem → AgentCardData mapping — the same construction the
+  // catalog card click uses; shared with the URL-driven drawer sync below.
+  const toCardData = (a: AgentListItem): AgentCardData => {
+    const br = a.blast_radius
+    return {
+      id: a.id,
+      name: a.name,
+      description: a.description,
+      tools: a.tools,
+      score: br.score,
+      residual: br.residual_score,
+      band: br.band,
+      unclassified: br.coverage?.unclassifiedActions,
+      caps: {
+        money:    br.moves_money,
+        pii:      br.touches_pii,
+        delete:   br.deletes_data,
+        external: br.sends_external,
+        prod:     br.changes_production,
+      },
+      spend: spendForecasts[a.id]?.point ?? null,
+      actions: br.total_actions,
+      irreversible: br.irreversible_actions,
+      chains: a.chain_count,
+      critical: a.critical_chains,
+      policies: a.policy_count,
+      policiesByEffect: a.policies_by_effect,
+    }
+  }
+
+  // Drawer opens push a new history entry (non-replace) so the browser Back
+  // button closes the drawer.
+  const setAgentParam = (id: string) => {
+    if (searchParams.get('agent') === id) return
+    const next = new URLSearchParams(searchParams)
+    next.set('agent', id)
+    setSearchParams(next)
+  }
+
+  // URL → drawer sync: the `agent` search param is the source of truth for
+  // WHICH agent drawer is open (mirrors ?connect=true above and /sandbox?agent=).
+  // Handles Back/Forward and deep links; opens wait for the fleet to load.
+  useEffect(() => {
+    const agentId = searchParams.get('agent')
+    if (!agentId) {
+      if (drawerAgent) setDrawerAgent(null)
+      return
+    }
+    if (drawerAgent?.id === agentId) return
+    if (loading || error) return // fleet unknown yet — re-runs once it loads
+    const target = agents.find((a) => a.id === agentId)
+    if (!target) {
+      // Stale/unknown id (e.g. old deep link) — drop the param silently.
+      const next = new URLSearchParams(searchParams)
+      next.delete('agent')
+      setSearchParams(next, { replace: true })
+      return
+    }
+    setDrawerAgent(toCardData(target))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams, agents, loading, error, drawerAgent])
 
   useEffect(() => {
     if (!loading && !animReadyRef.current) {
@@ -597,45 +660,22 @@ export default function Authority() {
 
       <SpendTrendCard />
 
-      <div style={{ display: 'flex', gap: 26, borderBottom: '1px solid var(--line)', margin: '24px 0 26px' }}>
-        {(agents.length === 0
+      <Tabs
+        tabs={agents.length === 0
           ? [
-              { id: 'overview' as const, label: 'Overview', count: undefined },
-              { id: 'agents' as const,   label: 'Agents',     count: agents.length },
-              { id: 'chains' as const,   label: 'Risk chains',count: chains.length },
+              { id: 'overview' as const, label: 'Overview' },
+              { id: 'agents' as const,   label: 'Agents',      count: agents.length },
+              { id: 'chains' as const,   label: 'Risk chains', count: chains.length },
             ]
           : [
-              { id: 'agents' as const,   label: 'Agents',     count: agents.length },
-              { id: 'chains' as const,   label: 'Risk chains',count: chains.length },
-              { id: 'overview' as const, label: 'Overview',   count: undefined },
-            ]
-        ).map((t) => {
-          const active = agentTab === t.id
-          return (
-            <button
-              key={t.id}
-              onClick={() => setAgentTab(t.id)}
-              className="ag-tab"
-              style={{
-                background: 'transparent', border: 'none', padding: '11px 2px',
-                fontSize: 14.5, fontWeight: active ? 600 : 500,
-                color: active ? 'var(--accent)' : 'var(--ink-500)',
-                borderBottom: active ? '2px solid var(--accent)' : '2px solid transparent',
-                marginBottom: -1,
-                cursor: 'pointer', fontFamily: 'var(--font-sans)',
-                display: 'inline-flex', alignItems: 'center', gap: 7,
-              }}
-            >
-              {t.label}
-              {t.count !== undefined && (
-                <span className="mono" style={{ fontSize: 12.5, color: active ? 'var(--accent-ink)' : 'var(--ink-400)' }}>
-                  {t.count}
-                </span>
-              )}
-            </button>
-          )
-        })}
-      </div>
+              { id: 'agents' as const,   label: 'Agents',      count: agents.length },
+              { id: 'chains' as const,   label: 'Risk chains', count: chains.length },
+              { id: 'overview' as const, label: 'Overview' },
+            ]}
+        active={agentTab}
+        onChange={setAgentTab}
+        style={{ margin: '24px 0 26px' }}
+      />
 
       {/* Create agent panel */}
       <AnimatePresence mode="wait" initial={false}>
@@ -1230,6 +1270,7 @@ export default function Authority() {
             policies: a.policy_count,
             policiesByEffect: a.policies_by_effect,
           })
+          setAgentParam(a.id)
         }
 
         return (
@@ -1550,31 +1591,7 @@ export default function Authority() {
         ) : (
           <div className={`agent-rail${agentView === 'vscroll' ? ' agent-rail--v' : agentView === 'grid' ? ' agent-rail--grid' : ''}`}>
             {filteredAgents.map((a) => {
-              const br = a.blast_radius
-              const data: AgentCardData = {
-                id: a.id,
-                name: a.name,
-                description: a.description,
-                tools: a.tools,
-                score: br.score,
-                residual: br.residual_score,
-                band: br.band,
-                unclassified: br.coverage?.unclassifiedActions,
-                caps: {
-                  money:    br.moves_money,
-                  pii:      br.touches_pii,
-                  delete:   br.deletes_data,
-                  external: br.sends_external,
-                  prod:     br.changes_production,
-                },
-                spend: spendForecasts[a.id]?.point ?? null,
-                actions: br.total_actions,
-                irreversible: br.irreversible_actions,
-                chains: a.chain_count,
-                critical: a.critical_chains,
-                policies: a.policy_count,
-                policiesByEffect: a.policies_by_effect,
-              }
+              const data = toCardData(a)
               return (
                 <div key={a.id} className="agent-rail-item">
                   <NewAgentCard
@@ -1583,6 +1600,7 @@ export default function Authority() {
                       recordAgentView(agent.id)
                       setViewBump((n) => n + 1)
                       setDrawerAgent(agent)
+                      setAgentParam(agent.id)
                     }}
                   />
                 </div>
@@ -1639,6 +1657,7 @@ export default function Authority() {
             policies: target.policy_count,
             policiesByEffect: target.policies_by_effect,
           })
+          setAgentParam(target.id)
         }
 
         return (
@@ -1750,7 +1769,15 @@ export default function Authority() {
 
       <AgentDrawer
         agent={drawerAgent}
-        onClose={() => setDrawerAgent(null)}
+        onClose={() => {
+          setDrawerAgent(null)
+          // replace: true — an explicit close is a dismissal, not navigation,
+          // so it shouldn't stack a history entry the Back button would then
+          // have to step back through.
+          const next = new URLSearchParams(searchParams)
+          next.delete('agent')
+          setSearchParams(next, { replace: true })
+        }}
         onSimulate={(agentId) => navigate(`/sandbox?agent=${agentId}`)}
       />
     </div>
