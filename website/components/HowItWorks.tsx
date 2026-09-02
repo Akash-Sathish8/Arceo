@@ -1,226 +1,188 @@
 "use client";
 
-import { useFadeInOnScroll } from "../lib/useFadeIn";
+import { useEffect, useState } from "react";
+import AuthorityGraph from "./AuthorityGraph";
+import { useReveal } from "@/lib/useReveal";
+import { useArmed } from "@/lib/useArmed";
+
+/* The dark act.
+ *
+ * One committed dark chapter in the middle of a light page, not a stray dark
+ * band. It carries its own full token set (.act-dark), runs full bleed, and is
+ * where the authority graph stops being wallpaper and becomes the subject —
+ * labelled, full size, with three calls in flight instead of two.
+ *
+ * The steps are a timeline on a rule, not three more cards. The rule draws
+ * itself when the act is reached, left to right, and ends in red: the process
+ * runs from "connect an agent" to "here is the number somebody has to sign",
+ * and the colour arrives exactly where the risk figure does. */
 
 const STEPS = [
   {
     n: "01",
-    icon: (
-      <svg width="22" height="22" viewBox="0 0 22 22" fill="none" stroke="#2C2215" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M11 2a9 9 0 100 18A9 9 0 0011 2z"/>
-        <path d="M7 11l3 3 5-5"/>
-      </svg>
-    ),
     title: "Connect any agent",
-    desc: "Point Arceo at your agent, whether it's built on the Anthropic SDK, OpenAI, an MCP server, or a GitHub repo. It's read-only, there's no code to change, and nothing leaves your stack. Takes a couple of minutes.",
-    mockup: (
-      <div className="card" style={{ padding: "16px 18px" }}>
-        <div style={{ fontSize: 10.5, fontWeight: 700, color: "#87786A", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 10 }}>
-          Agent Sources
-        </div>
-        {[
-          { label: "Anthropic SDK",        status: "Connected", c: "#16a34a", bg: "#dcfce7" },
-          { label: "OpenAI Assistants",    status: "Connected", c: "#16a34a", bg: "#dcfce7" },
-          { label: "MCP server / GitHub",  status: "Connected", c: "#16a34a", bg: "#dcfce7" },
-          { label: "Write / modify access", status: "Not requested", c: "#87786A", bg: "#EBE4D8" },
-        ].map((p) => (
-          <div key={p.label} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 0", borderBottom: "1px solid #EBE4D8", gap: 10 }}>
-            <div style={{ fontSize: 11.5, fontWeight: 500, color: "#2C2215", minWidth: 0, flex: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.label}</div>
-            <span style={{ fontSize: 9, fontWeight: 700, color: p.c, background: p.bg, padding: "2px 7px", borderRadius: 4, flexShrink: 0 }}>{p.status}</span>
-          </div>
-        ))}
-        <div style={{ marginTop: 10, fontSize: 10.5, color: "#87786A", textAlign: "center" }}>Nothing leaves your stack · Read-only</div>
-      </div>
-    ),
+    body: "Point Arceo at an agent built on the Anthropic SDK, OpenAI, an MCP server, or a public GitHub repo. It reads only. No code changes, nothing leaves your stack.",
   },
   {
     n: "02",
-    icon: (
-      <svg width="22" height="22" viewBox="0 0 22 22" fill="none" stroke="#2C2215" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
-        <circle cx="11" cy="11" r="3"/>
-        <circle cx="4"  cy="5"  r="2"/>
-        <circle cx="18" cy="5"  r="2"/>
-        <circle cx="4"  cy="17" r="2"/>
-        <circle cx="18" cy="17" r="2"/>
-        <line x1="8" y1="10" x2="6" y2="6.5"/>
-        <line x1="14" y1="10" x2="16" y2="6.5"/>
-        <line x1="8" y1="12" x2="6" y2="15.5"/>
-        <line x1="14" y1="12" x2="16" y2="15.5"/>
-      </svg>
-    ),
-    title: "Map capabilities, forecast cost",
-    desc: "Arceo lists every tool the agent can call, sorts each by risk, and works out the monthly cost from its model, how much it runs, and real traces. The longer it watches, the tighter the number gets.",
-    mockup: (
-      <div className="card" style={{ padding: "18px 20px" }}>
-        <div style={{ fontSize: 10.5, fontWeight: 700, color: "#87786A", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 14 }}>
-          Capability Inventory
-        </div>
-        {[
-          { name: "payments.refund",   type: "Payments", label: "moves_money",    labelColor: "#dc2626", labelBg: "#fef2f2" },
-          { name: "db.delete_records", type: "Database", label: "deletes_data",   labelColor: "#ea580c", labelBg: "#fff7ed" },
-          { name: "email.send",        type: "Email",    label: "sends_external", labelColor: "#2563eb", labelBg: "#eff6ff" },
-          { name: "contacts.read",     type: "CRM",      label: "touches_pii",    labelColor: "#7c3aed", labelBg: "#faf5ff" },
-        ].map((a) => (
-          <div key={a.name} style={{
-            display: "flex", alignItems: "center", justifyContent: "space-between",
-            padding: "9px 0", borderBottom: "1px solid #EBE4D8", gap: 10,
-          }}>
-            <div style={{ minWidth: 0, flex: 1 }}>
-              <div style={{ fontSize: 13, fontWeight: 700, color: "#2C2215", fontFamily: '"SF Mono", monospace', whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{a.name}</div>
-              <div style={{ fontSize: 11, color: "#87786A", marginTop: 1 }}>{a.type}</div>
-            </div>
-            <span style={{
-              fontSize: 10, fontWeight: 700, color: a.labelColor,
-              background: a.labelBg, padding: "2px 8px", borderRadius: 4,
-              whiteSpace: "nowrap", flexShrink: 0,
-            }}>{a.label}</span>
-          </div>
-        ))}
-      </div>
-    ),
+    title: "Map what it can reach",
+    body: "Arceo lists every tool the agent can call, sorts each by risk, and works out the monthly cost from the model, the call volume, and real traces.",
   },
   {
     n: "03",
-    icon: (
-      <svg width="22" height="22" viewBox="0 0 22 22" fill="none" stroke="#2C2215" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M11 2L4 5.5v5c0 4.5 3.2 7.5 7 8.5 3.8-1 7-4 7-8.5v-5L11 2z"/>
-        <path d="M8 11l2 2 4-4"/>
-      </svg>
-    ),
-    title: "Get the danger/cost report",
-    desc: "You get the monthly cost with a confidence range, the worst case in dollars if a risky chain fires, and a budget cap you can actually enforce. It's one report, written so a CFO can sign it.",
-    mockup: (
-      <div className="card" style={{ padding: "18px 20px" }}>
-        <div style={{ fontSize: 10.5, fontWeight: 700, color: "#87786A", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 12, display: "flex", alignItems: "center", gap: 6 }}>
-          <span>Monthly forecast</span>
-          <span style={{
-            fontSize: 8, fontWeight: 700, letterSpacing: "0.06em", color: "#A99880",
-            background: "#F3EDE4", border: "1px solid #E0D7C9", borderRadius: 999, padding: "1px 6px",
-          }}>
-            Example
-          </span>
-        </div>
-        <div style={{ display: "flex", alignItems: "baseline", gap: 5, marginBottom: 5 }}>
-          <span style={{ fontSize: 52, fontWeight: 800, color: "#2C6E9E", fontFamily: "var(--font-poppins), system-ui", letterSpacing: "-2px", lineHeight: 1 }}>$20</span>
-          <span style={{ fontSize: 16, color: "#C9BBA8" }}>/mo</span>
-        </div>
-        <div style={{ fontSize: 11, fontWeight: 700, color: "#2C6E9E", letterSpacing: "0.04em", marginBottom: 18 }}>±15% · HIGH CONFIDENCE</div>
-        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10.5, color: "#87786A", marginBottom: 6 }}>
-          <span>Projected range</span><span>$17 to $23 / mo</span>
-        </div>
-        <div style={{ height: 8, background: "#EBE4D8", borderRadius: 999, overflow: "hidden", marginBottom: 16, position: "relative" }}>
-          <div style={{ position: "absolute", left: "20%", width: "32%", top: 0, bottom: 0, background: "linear-gradient(90deg, #7BC0E8, #2C6E9E)", borderRadius: 999 }}/>
-        </div>
-        <div style={{ paddingTop: 12, borderTop: "1px solid #EBE4D8", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <span style={{ fontSize: 11, fontWeight: 600, color: "#BE123C" }}>Worst case if a chain fires</span>
-          <span style={{ fontSize: 14, fontWeight: 800, color: "#BE123C" }}>up to $50k</span>
-        </div>
-      </div>
-    ),
+    title: "Hand the CFO one number",
+    body: "A monthly cost with a confidence range, a blast-radius score out of 100, and every dangerous chain the agent can run — including the ones that cross between agents.",
   },
 ];
 
-function StepCard({ step, i }: { step: typeof STEPS[0]; i: number }) {
-  const { ref, className } = useFadeInOnScroll(i * 120);
-  return (
-    <div
-      ref={ref}
-      className={className}
-      style={{
-        position: "relative",
-        zIndex: 1,
-        background: "#FAF6F0",
-        border: "1px solid #E0D7C9",
-        borderRadius: 36,
-        padding: "32px",
-        boxShadow: "var(--shadow-md)",
-        display: "flex",
-        flexDirection: "column",
-        height: "100%",
-      }}
-    >
-      <div style={{
-        fontSize: 48,
-        fontWeight: 800,
-        color: "#BFDDF0",
-        lineHeight: 1,
-        letterSpacing: "-0.02em",
-        marginBottom: 20,
-        userSelect: "none",
-      }}>
-        {step.n}
-      </div>
-
-      <div style={{
-        width: 48,
-        height: 48,
-        background: "#EBE4D8",
-        border: "1px solid #E0D7C9",
-        borderRadius: 999,
-        boxShadow: "var(--shadow-xs)",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        marginBottom: 16,
-      }}>
-        {step.icon}
-      </div>
-
-      <h3 style={{ fontSize: 20, fontWeight: 600, color: "#2C2215", letterSpacing: "-0.02em", marginBottom: 10 }}>
-        {step.title}
-      </h3>
-      <p style={{ fontSize: 14, color: "#6B5C4A", lineHeight: 1.7, marginBottom: 22 }}>
-        {step.desc}
-      </p>
-      <div style={{ marginTop: "auto" }}>{step.mockup}</div>
-    </div>
-  );
-}
-
 export default function HowItWorks() {
+  const ref = useReveal<HTMLElement>(0.1);
+  const [railRef, drawn] = useArmed<HTMLDivElement>(0.4);
+
+  /* The rule takes 1.25s to cross. Rather than lighting all three markers
+     with it, each one wakes as the line reaches it — so the timeline reads
+     left to right the way the process actually runs. */
+  const [reached, setReached] = useState(-1);
+  useEffect(() => {
+    if (!drawn) return;
+    const timers = [0, 1, 2].map((i) =>
+      setTimeout(() => setReached(i), 260 + i * 400),
+    );
+    return () => timers.forEach(clearTimeout);
+  }, [drawn]);
+
   return (
-    <section id="how-it-works" style={{ padding: "112px 0", background: "#FAF6F0", borderTop: "1px solid #E0D7C9" }}>
-      <div className="container">
-        <div style={{ textAlign: "center", marginBottom: 56 }}>
-          <span className="eyebrow">How It Works</span>
-          <h2 style={{ fontSize: 44, fontWeight: 600, letterSpacing: "-0.4px", color: "#2C2215" }}>
-            From connected agent, to a report you can read. In minutes.
+    <section
+      ref={ref}
+      className="act-dark ruled-dark"
+      style={{ position: "relative", overflow: "hidden", padding: "108px 0 116px" }}
+    >
+      <div className="wash-dark" style={{ position: "absolute", inset: 0, pointerEvents: "none" }} />
+
+      {/* The graph as subject: unmasked, labelled, filling the act. */}
+      <div style={{ position: "absolute", inset: 0, opacity: 0.5, pointerEvents: "none" }}>
+        <AuthorityGraph tone="dark" mask={false} packets={3} variant="subject" />
+      </div>
+
+      <div style={{ position: "relative", zIndex: 2, maxWidth: 1240, margin: "0 auto", padding: "0 32px" }}>
+        <div style={{ maxWidth: 640, marginBottom: 76 }}>
+          <span className="eyebrow rise" style={{ "--i": 0 } as React.CSSProperties}>
+            How it works
+          </span>
+          <h2
+            className="rise"
+            style={
+              {
+                "--i": 1,
+                fontSize: "clamp(30px, 3.6vw, 46px)",
+                fontWeight: 600,
+                letterSpacing: "-0.034em",
+                lineHeight: 1.08,
+                textWrap: "balance",
+              } as React.CSSProperties
+            }
+          >
+            From connected agent to a signed-off number, in minutes.
           </h2>
         </div>
 
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 24, alignItems: "stretch", position: "relative" }} className="steps-grid">
-          <div style={{
-            position: "absolute",
-            top: 56,
-            left: "calc(33.33% + 12px)",
-            right: "calc(33.33% + 12px)",
-            height: 1,
-            background: "#E0D7C9",
-            zIndex: 0,
-            display: "none",
-          }} className="step-connector"/>
+        {/* Timeline. The rule runs behind the markers and ties the three beats
+            into one movement instead of three separate boxes. */}
+        <div className="tl" ref={railRef}>
+          <div className="tl-rail" aria-hidden="true">
+            <span className="tl-rule" style={{ transform: drawn ? "scaleX(1)" : "scaleX(0)" }} />
+          </div>
 
-          {STEPS.map((step, i) => (
-            <StepCard key={step.n} step={step} i={i} />
+          {STEPS.map((s, i) => (
+            <div
+              key={s.n}
+              className={`tl-step rise${i <= reached ? " lit" : ""}`}
+              style={{ "--i": i + 2 } as React.CSSProperties}
+            >
+              <div className="tl-marker">
+                <span className="tl-dot" />
+                <span className="mono tl-n">{s.n}</span>
+              </div>
+              <h3 className="tl-title">{s.title}</h3>
+              <p className="tl-body">{s.body}</p>
+            </div>
           ))}
         </div>
       </div>
+
       <style>{`
-        @media (min-width: 900px) {
-          .step-connector { display: block !important; }
-          .step-connector::after {
-            content: '';
-            position: absolute;
-            right: -5px;
-            top: -4px;
-            width: 0;
-            height: 0;
-            border-top: 4px solid transparent;
-            border-bottom: 4px solid transparent;
-            border-left: 6px solid #C9BBA8;
-          }
+        .tl {
+          position: relative;
+          display: grid;
+          grid-template-columns: repeat(3, 1fr);
+          gap: 56px;
         }
-        @media (max-width: 768px) { .steps-grid { grid-template-columns: 1fr !important; } }
+
+        .tl-rail {
+          position: absolute;
+          top: 5px; left: 0; right: 0; height: 1px;
+          overflow: hidden;
+        }
+        .tl-rule {
+          display: block; height: 100%; width: 100%;
+          transform-origin: left;
+          transition: transform 1.25s cubic-bezier(.22,1,.36,1) .1s;
+          background: linear-gradient(
+            to right,
+            rgba(255,255,255,0.24) 0%,
+            rgba(255,255,255,0.24) 62%,
+            rgba(220,38,38,0.75) 100%
+          );
+        }
+
+        .tl-marker { display: flex; align-items: center; gap: 10px; margin-bottom: 22px; }
+        .tl-dot {
+          width: 11px; height: 11px; border-radius: 50%;
+          background: #0E131C;
+          box-shadow: inset 0 0 0 2px rgba(255,255,255,0.28);
+          flex-shrink: 0;
+          transition: box-shadow .45s ease, transform .45s cubic-bezier(.16,1,.3,1);
+        }
+        /* Reached: the marker fills and takes a ring, the way a station on a
+           line lights as the train passes it. */
+        .tl-step.lit .tl-dot {
+          box-shadow: inset 0 0 0 3px rgba(255,255,255,0.85), 0 0 0 4px rgba(255,255,255,0.07);
+          transform: scale(1.1);
+        }
+        /* The last beat is the one that produces the risk number, so its
+           marker carries the money red. */
+        .tl-step:last-child .tl-dot { box-shadow: inset 0 0 0 2px rgba(220,38,38,0.4); }
+        .tl-step:last-child.lit .tl-dot {
+          box-shadow: inset 0 0 0 3px #dc2626, 0 0 0 4px rgba(220,38,38,0.15);
+        }
+
+        .tl-n, .tl-title { transition: color .45s ease; }
+        .tl-step:not(.lit) .tl-title { color: var(--muted); }
+        .tl-step.lit .tl-n { color: var(--ink); }
+
+        .tl-n {
+          font-size: 11px; font-weight: 500; letter-spacing: 0.18em;
+          color: var(--muted-2);
+        }
+
+        .tl-title {
+          font-size: 19px; font-weight: 600; letter-spacing: -0.016em;
+          margin-bottom: 12px;
+        }
+        .tl-body {
+          font-size: 14.5px; line-height: 1.62; color: var(--muted);
+          max-width: 42ch;
+        }
+
+        @media (max-width: 900px) {
+          .tl { grid-template-columns: 1fr; gap: 40px; }
+          .tl-rail { display: none; }
+          .tl-step { border-top: 1px solid var(--rule); padding-top: 26px; }
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .tl-rule { transition: none; transform: scaleX(1) !important; }
+          .tl-dot, .tl-n, .tl-title { transition: none; }
+        }
       `}</style>
     </section>
   );
