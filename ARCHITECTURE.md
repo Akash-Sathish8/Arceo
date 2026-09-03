@@ -112,7 +112,28 @@ flowchart TB
 Single container (multi-stage `Dockerfile`): Node builds the SPA into
 `backend/static/`, then `python:3.11-slim` runs uvicorn on `:8000` as a non-root
 user and serves both the API and the SPA. Designed to run inside a customer VPC.
-SQLite lives on a mounted volume at `ARCEO_DB_PATH`. Health check: `GET /api/health`.
+Health check: `GET /api/health`.
+
+**Two backing services are required, and neither is optional:**
+
+- **Postgres** (`DATABASE_URL`) — owns all schema via Alembic. The app refuses to
+  boot without it unless `ARCEO_ENV` names a dev environment.
+- **Redis** (`REDIS_URL`) — rate limiting, live-trace fan-out across workers, and
+  the scheduler's leader lock. There is deliberately **no in-memory fallback**;
+  one would silently reintroduce the multi-worker bugs it replaced. Rate limiting
+  fails **closed**, so an unreachable Redis 429s login, `/api/enforce`,
+  `/api/scan`, the LLM proxy and live-trace ingest while `/api/health` keeps
+  answering 200. The app refuses to boot without it outside dev, because
+  "up but rejecting everything" is a worse state than "not up".
+
+⚠️ On Google Cloud that means Cloud SQL and **Memorystore plus a Serverless VPC
+connector** — a prerequisite of the deployment, not an add-on to it.
+
+Migrations run on startup only when `ARCEO_RUN_MIGRATIONS_ON_BOOT` is on
+(default: dev only). In production the app runs as the restricted `arceo_app`
+role while migrations need the owner role, so they are a deploy step; the app
+still refuses to serve a schema that is behind the code. See
+`docs/MIGRATION_RUNBOOK.md`.
 
 ## Known limitations
 

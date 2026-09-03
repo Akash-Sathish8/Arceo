@@ -7,7 +7,7 @@ step summary, and exits non-zero if the verdict is "fail".
 
 Env vars (set by action.yml):
     ARCEO_API_KEY       — required, X-API-Key header value
-    ARCEO_API_URL       — base URL (default https://api.arceo.dev)
+    ARCEO_API_URL       — base URL of your Arceo instance (REQUIRED, no default)
     ARCEO_THRESHOLD     — blast-radius cutoff (default 60)
     ARCEO_COMMENT_MODE  — "pr-comment" | "none"
     ARCEO_PATHS         — comma-separated file extensions
@@ -32,7 +32,12 @@ from pathlib import Path
 # ── Config ────────────────────────────────────────────────────────────────
 
 API_KEY = os.environ.get("ARCEO_API_KEY", "").strip()
-API_URL = os.environ.get("ARCEO_API_URL", "https://api.arceo.dev").rstrip("/")
+# No default. `https://api.arceo.dev` used to sit here and that host has never
+# existed — it is delegated to Route 53 with no A/AAAA/CNAME record at all — so
+# the out-of-box experience was a DNS failure against a hostname we published.
+# An empty value is caught explicitly below with an instruction; a dead default
+# just fails somewhere further in with a confusing message.
+API_URL = os.environ.get("ARCEO_API_URL", "").strip().rstrip("/")
 THRESHOLD = int(os.environ.get("ARCEO_THRESHOLD", "60"))
 COMMENT_MODE = os.environ.get("ARCEO_COMMENT_MODE", "pr-comment")
 PATHS = [p.strip() for p in os.environ.get("ARCEO_PATHS", ".py,.ts,.tsx,.js,.jsx,.mjs").split(",") if p.strip()]
@@ -135,6 +140,28 @@ def call_scan(files: list[dict]) -> dict:
 
     headers = {"X-API-Key": API_KEY, "Content-Type": "application/json"}
     body = {"files": files, "threshold": THRESHOLD}
+
+    # ⚠️ Check this BEFORE building the request. `urllib.request.Request()` in
+    # _post_json sits outside its own try, and on a relative URL it raises
+    # ValueError("unknown url type: '/api/scan'") — which `except TransportError`
+    # does not catch. That surfaced as an unhandled Python traceback in the
+    # CUSTOMER's CI logs.
+    #
+    # And empty is not hypothetical: a workflow that passes
+    # `api-url: ${{ secrets.ARCEO_API_URL }}` with the secret unset supplies an
+    # explicit empty string, which GitHub does NOT backfill with the action's
+    # default. So the documented wiring produced exactly this case.
+    if not API_URL.startswith(("http://", "https://")):
+        print(
+            "::error::ARCEO_API_URL is not set to an absolute http(s) URL "
+            f"(got {API_URL!r}). Point the action's `api-url` input at your Arceo "
+            "instance. Note that passing `api-url: ${{ secrets.ARCEO_API_URL }}` "
+            "with the secret unset sends an empty string, which does NOT fall "
+            "back to the action default.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
     url = f"{API_URL}/api/scan"
 
     try:
@@ -318,7 +345,9 @@ def render_markdown(result: dict) -> str:
 
     # Footer
     lines.append("---")
-    lines.append("_Posted by [Arceo Agent Security](https://arceo.dev). Tune the threshold or comment-mode in your workflow inputs._")
+    # arceo.dev has no DNS records; arceo.io is the canonical site (it is what
+    # the marketing site sets as its canonical/og:url) and it resolves.
+    lines.append("_Posted by [Arceo Agent Security](https://arceo.io). Tune the threshold or comment-mode in your workflow inputs._")
     return "\n".join(lines)
 
 

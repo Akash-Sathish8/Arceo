@@ -19,16 +19,40 @@ import json
 from psycopg.rows import dict_row
 from psycopg_pool import ConnectionPool
 
+from envcheck import is_dev_env
+
 # Production guard: refuse to boot on a real deploy without an explicit
 # DATABASE_URL — the localhost default below only exists to pair with the
 # docker-compose postgres service for development.
-_PROD_MARKERS = ("RAILWAY_ENVIRONMENT", "FLY_APP_NAME", "RENDER", "PRODUCTION")
+#
+# This used to whitelist four PaaS environment variables
+# (RAILWAY_ENVIRONMENT / FLY_APP_NAME / RENDER / PRODUCTION) and treat anything
+# else as a laptop. Google Cloud Run sets none of them — it sets K_SERVICE — so
+# the guard no-opped on exactly the platform we are deploying to, and the URL
+# fell through to the localhost default.
+#
+# ⚠️ The fix is NOT to add K_SERVICE. `auth.py:26-29` records that this repo
+# already abandoned platform whitelists, because they fail open on every
+# platform they have not heard of; both sibling guards (auth.py's default-JWT
+# check and encryption.py's at-rest check) were inverted then and this was the
+# last one left. See envcheck.py.
+#
+# Why it matters more than "the app won't start": on most misconfigured deploys
+# this is loud — init_db() runs `alembic upgrade head` against the bogus URL and
+# the revision dies. The dangerous case is a topology where something DOES
+# answer on 127.0.0.1:5432, and the Cloud SQL Auth Proxy sidecar pattern binds
+# exactly there. Then nothing crashes: we silently attach to an unintended
+# database and run migrations on it.
 DATABASE_URL = os.environ.get("DATABASE_URL")
 if not DATABASE_URL:
-    if any(os.getenv(k) for k in _PROD_MARKERS):
+    if not is_dev_env():
         raise RuntimeError(
-            "DATABASE_URL is not set on a production deploy. Point it at the "
-            "production Postgres instance."
+            "DATABASE_URL is not set and ARCEO_ENV does not name a development "
+            "environment, so refusing to fall back to the local docker-compose "
+            "database — on a host running a Cloud SQL Auth Proxy that fallback "
+            "would connect to the wrong database and migrate it. Point "
+            "DATABASE_URL at your Postgres instance, or set ARCEO_ENV=dev for "
+            "local work."
         )
     # Dev default: matches docker-compose.yml (`docker compose up -d postgres`).
     DATABASE_URL = "postgresql://postgres:postgres@localhost:5432/arceo"
@@ -101,14 +125,83 @@ def get_db():
         _POOL.putconn(conn)
 
 
+_TRUTHY = {"1", "true", "yes", "on"}
+_FALSY = {"0", "false", "no", "off"}
+
+
+def run_migrations_on_boot() -> bool:
+    """Whether startup should run `alembic upgrade head` itself (Tier 2.9).
+
+    Default ON in dev — `docker compose up -d && boot` has to keep working, and
+    the runbook's "fresh start" path depends on it. Default OFF everywhere else,
+    because production runs the app as the restricted `arceo_app` role while
+    migrations need the owner role (see docs/MIGRATION_RUNBOOK.md).
+
+    That mismatch is a RELEASE-ORDERING hazard rather than a steady-state one:
+    at head, alembic degenerates to a `SELECT version_num` and `arceo_app` can do
+    that fine. It is the FIRST boot of a release carrying an unapplied revision
+    that raises permission-denied — so the container that fails is the one
+    shipping the change, and it never serves.
+
+    `ARCEO_RUN_MIGRATIONS_ON_BOOT` overrides in both directions, matching the
+    convention of `ARCEO_PROXY_REQUIRE_KEY` and `ARCEO_BUDGET_ENFORCE`.
+    """
+    flag = os.getenv("ARCEO_RUN_MIGRATIONS_ON_BOOT", "").strip().lower()
+    if flag in _TRUTHY:
+        return True
+    if flag in _FALSY:
+        return False
+    return is_dev_env()
+
+
+def _assert_schema_at_head(cfg) -> None:
+    """Refuse to serve against a database that is behind the code.
+
+    ⚠️ This is the half that makes skipping migrations safe. Turning the upgrade
+    off without it would trade a loud failure (permission denied, container does
+    not start) for a silent one (container starts, then 500s on the first query
+    touching a column the migration was supposed to add). The whole point of
+    2.9 is to move the failure earlier, not to hide it.
+    """
+    from alembic.script import ScriptDirectory
+
+    head = ScriptDirectory.from_config(cfg).get_current_head()
+    try:
+        with get_db() as conn:
+            row = conn.execute("SELECT version_num FROM alembic_version").fetchone()
+        current = row["version_num"] if row else None
+    except Exception as exc:  # no alembic_version table at all = never migrated
+        raise RuntimeError(
+            "ARCEO_RUN_MIGRATIONS_ON_BOOT is off and this database has no Alembic "
+            f"version table ({type(exc).__name__}). Run `alembic upgrade head` under "
+            "the owner role before starting the app — see docs/MIGRATION_RUNBOOK.md."
+        ) from exc
+
+    if current != head:
+        raise RuntimeError(
+            f"Database schema is at revision {current!r} but this release expects "
+            f"{head!r}, and ARCEO_RUN_MIGRATIONS_ON_BOOT is off. Run `alembic upgrade "
+            "head` under the OWNER role (not arceo_app), then restart. Refusing to "
+            "serve against a schema the code does not match."
+        )
+
+
 def init_db():
-    """Apply Alembic migrations (they own ALL schema) and seed baseline rows."""
+    """Apply Alembic migrations (they own ALL schema) and seed baseline rows.
+
+    Whether the upgrade runs here is `run_migrations_on_boot()`; when it does
+    not, the schema is still verified to be at head so a mismatch fails at boot
+    instead of at the first query.
+    """
     from alembic import command
     from alembic.config import Config
 
     os.environ["DATABASE_URL"] = DATABASE_URL  # alembic/env.py reads it
     cfg = Config(str(Path(__file__).parent / "alembic.ini"))
-    command.upgrade(cfg, "head")
+    if run_migrations_on_boot():
+        command.upgrade(cfg, "head")
+    else:
+        _assert_schema_at_head(cfg)
 
     with get_db() as conn:
         org_count = conn.execute("SELECT COUNT(*) AS n FROM organizations").fetchone()["n"]

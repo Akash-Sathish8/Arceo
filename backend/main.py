@@ -21,7 +21,7 @@ import psycopg
 from dotenv import load_dotenv
 load_dotenv()
 
-from fastapi import FastAPI, HTTPException, Depends, Query, Request, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Depends, Query, Request, Response, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -52,25 +52,49 @@ from llm_models import FAST_MODEL, DEEP_MODEL, verify_models_at_startup, anthrop
 import redis  # for RedisError; the client itself lives in shared_state
 import shared_state
 import approvals
+import envcheck
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup (migrated from the deprecated @app.on_event("startup")). The
     # scheduler helpers are defined later in the module but resolved at call time.
-    # Warn loudly if running on the dev-default database URL — a real deploy
-    # must point DATABASE_URL at the production Postgres (db.py refuses to
-    # boot on known prod platforms without it). Checked before init_db(),
-    # which exports the resolved URL for alembic.
+    # Note if running on the dev-default database URL. This is now only
+    # reachable in a DEV environment: db.py refuses to import at all without
+    # DATABASE_URL unless ARCEO_ENV names one, so by the time this runs the
+    # fallback has already been sanctioned.
+    #
+    # It used to read "db.py refuses to boot on known prod platforms" — that was
+    # the platform-whitelist framing, and it was wrong on Cloud Run, which is
+    # what 2.1 fixed. Kept as a dev-only breadcrumb rather than deleted, because
+    # "which database am I actually on?" is a real question when a compose stack
+    # and a proxy are both listening on 5432.
     if not os.environ.get("DATABASE_URL"):
         logging.getLogger("arceo").warning(
             "DATABASE_URL is not set — using the docker-compose default "
-            "(postgresql://postgres:postgres@localhost:5432/arceo). Set "
-            "DATABASE_URL explicitly in production."
+            "(postgresql://postgres:postgres@localhost:5432/arceo), allowed "
+            "because ARCEO_ENV=%s.", envcheck.arceo_env() or "(unset)",
         )
     # LOW-006: in a non-dev environment, refuse to boot unless encryption-at-rest
     # is on (sensitive columns must not be cleartext in prod). No-op in dev/test.
     encryption.enforce_prod_encryption_policy()
+    # 2.3: Redis is a hard dependency, and rate limiting fails CLOSED — an
+    # unreachable Redis does not degrade the product, it 429s every login,
+    # enforcement check and repo scan while the health check still passes.
+    # Checked here so that state is a failed boot rather than a live-but-useless
+    # instance. Warns rather than raises in dev.
+    shared_state.enforce_redis_reachable()
+    # 2.10: ARCEO_FAIL_MODE=allow turns every enforcement error into an ALLOW.
+    # It is a documented break-glass ("an Arceo outage must not halt customer
+    # agents"), but it is read per-exception deep inside safe_enforce_check, so
+    # an instance can run for months in fail-open with nothing anywhere saying
+    # so. Say it once, loudly, at boot.
+    if os.environ.get("ARCEO_FAIL_MODE", "block").strip().lower() == "allow":
+        logging.getLogger("arceo").warning(
+            "ARCEO_FAIL_MODE=allow — enforcement FAILS OPEN. Any error mid-decision "
+            "returns ALLOW instead of BLOCK. This is the break-glass setting; it "
+            "must not be the steady state on a deploy that enforces policy."
+        )
     init_db()
     verify_models_at_startup(os.environ.get("ANTHROPIC_API_KEY"))
     if not _snapshot_scheduler_disabled():
@@ -189,11 +213,30 @@ RATE_LIMIT_GLOBAL_WINDOW = int(os.getenv("RATE_LIMIT_GLOBAL_WINDOW", "60"))
 # LLM-invoking endpoints (ingest + LLM proxy) get their own per-agent ceiling so a
 # single agent id can't be used to amplify spend (HIGH-003). Generous by default;
 # tune down for stricter cost control.
+# 2.6: the extraction endpoints were the only Arceo-BILLED LLM paths with no
+# per-endpoint limiter — every peer has one (the LLM proxy, /api/scan, LLM
+# capture, /api/enforce, live-trace ingest, the mock sandbox). The 1000/60s
+# global backstop is not a substitute: it is IP-keyed for bearer callers and
+# fail_open=True, i.e. DoS hygiene rather than a cost control. Default worst
+# case without this was 1000 extract-github requests/min x 25 files =
+# 25,000 Haiku extractions per minute on OUR key.
+#
+# Keyed per ORG, not per IP: the cost lands on us per tenant, and an IP key
+# would let one customer's CI runners rotate their way around it.
+# Deliberately tighter than RATE_LIMIT_LLM_MAX — one extract-github request is
+# up to 25 Haiku calls at max_tokens=8000, so these are not comparable units.
+RATE_LIMIT_EXTRACT_MAX = int(os.getenv("RATE_LIMIT_EXTRACT_MAX", "20"))
+RATE_LIMIT_EXTRACT_WINDOW = int(os.getenv("RATE_LIMIT_EXTRACT_WINDOW", "60"))
+
 RATE_LIMIT_LLM_MAX = int(os.getenv("RATE_LIMIT_LLM_MAX", "120"))
 RATE_LIMIT_LLM_WINDOW = int(os.getenv("RATE_LIMIT_LLM_WINDOW", "60"))
 # Liveness/config probes must never be throttled (dashboards + load balancers
 # poll them); everything else under /api is covered.
-_RATE_LIMIT_EXEMPT_PATHS = {"/api/health", "/api/demo-mode"}
+# /api/ready is exempt for the same reason as /api/health: a probe that gets
+# 429'd marks the instance unready and sheds its traffic onto siblings, which is
+# how a rate limit becomes an outage. Its DB hit is bounded by
+# _READY_CACHE_SECONDS rather than by the limiter.
+_RATE_LIMIT_EXEMPT_PATHS = {"/api/health", "/api/ready", "/api/demo-mode"}
 
 # MED-006: cap the overall request body so an oversized payload can't exhaust
 # memory / drive unbounded work before per-model validation runs. Generous enough
@@ -281,20 +324,86 @@ class BodySizeLimitMiddleware:
 app.add_middleware(BodySizeLimitMiddleware)
 
 
-# MED-009: derive the caller IP for rate-limit keys. Behind a trusted proxy/ingress
-# (TRUSTED_PROXY set) every client shares the ingress socket IP, which collapses
-# them into one rate-limit bucket; honor the left-most X-Forwarded-For hop in that
-# case. Default OFF → identical to the prior request.client.host behavior, so an
-# untrusted deploy can't spoof its way past a limit with a forged header.
+# Derive the caller IP for rate-limit keys. (This block used to cite "MED-009";
+# that ID is the Content-Length body-size finding — Medium_Vulnerabilities.md:270
+# — and has nothing to do with client IPs. Label removed rather than replaced
+# with a guess.)
+#
+# Two mutually exclusive failure states, not one compound bug:
+#
+#   OFF  — every caller behind any ingress shares one socket IP, so they share
+#          one `auth-ip:` bucket at 10 per 900s. The eleventh login from ANYONE
+#          is refused. An availability defect, and the state we ship in today.
+#   ON,  — the old implementation took the LEFT-MOST X-Forwarded-For entry, which
+#   naive  is the one the caller writes. An attacker rotates it per request and
+#          mints a fresh bucket each time. Per-account stuffing is unchanged
+#          (the `auth-email:` limiter is unspoofable), so what it buys is
+#          enumeration and evasion of the global backstop.
+#
+# XFF is append-only left-to-right: `client, proxy1, proxy2`, each hop appending
+# the peer it heard from. So the only trustworthy entries are the ones YOUR
+# infrastructure wrote, counted from the right. ARCEO_TRUSTED_PROXY_HOPS says how
+# many of those there are:
+#
+#   0 → right-most entry      (direct *.run.app: the frontend appends the client)
+#   1 → second from the right (GCLB in front of Cloud Run)
+#
+# ⚠️ There is deliberately NO default. Either value is a security bug on the
+# other topology, so a deploy that opts into TRUSTED_PROXY has to say which one
+# it is. Guessing here would be worse than the bug we are fixing.
 TRUSTED_PROXY = os.getenv("TRUSTED_PROXY", "").lower() in ("1", "true", "yes", "on")
+
+def resolve_trusted_proxy_hops(trusted: bool, raw: str) -> int:
+    """How many forwarded hops to skip, or refuse to start.
+
+    Split out so the refusal is testable without re-importing the module: the
+    check runs at import time on purpose (a misconfigured deploy should fail
+    before it serves a request), which makes it awkward to exercise in place.
+    """
+    raw = (raw or "").strip()
+    if not trusted:
+        return 0
+    if not raw:
+        raise RuntimeError(
+            "TRUSTED_PROXY is on but ARCEO_TRUSTED_PROXY_HOPS is unset. Set it to "
+            "the number of proxies YOU control in front of this app: 0 for direct "
+            "Cloud Run (the client IP is the right-most X-Forwarded-For entry), 1 "
+            "for a Google Cloud Load Balancer in front of it. There is no safe "
+            "default — the wrong value either lets a caller forge their own "
+            "rate-limit bucket or collapses every caller into one."
+        )
+    try:
+        hops = int(raw)
+    except ValueError:
+        raise RuntimeError(
+            f"ARCEO_TRUSTED_PROXY_HOPS must be an integer, got {raw!r}."
+        ) from None
+    if hops < 0:
+        raise RuntimeError("ARCEO_TRUSTED_PROXY_HOPS cannot be negative.")
+    return hops
+
+
+TRUSTED_PROXY_HOPS = resolve_trusted_proxy_hops(
+    TRUSTED_PROXY, os.getenv("ARCEO_TRUSTED_PROXY_HOPS", ""))
 
 
 def client_ip(request: Request) -> str:
-    if TRUSTED_PROXY:
-        xff = request.headers.get("x-forwarded-for", "")
-        if xff:
-            return xff.split(",")[0].strip()
-    return request.client.host if request.client else "unknown"
+    """The caller identity rate limits are keyed on.
+
+    Falls back to the socket address whenever the forwarded chain is shorter than
+    the configured hop count. That is the safe direction: a short header means
+    fewer proxies than we were told to expect — someone reached us by a path that
+    bypasses one — and the socket address is the one thing the caller cannot
+    choose.
+    """
+    socket_ip = request.client.host if request.client else "unknown"
+    if not TRUSTED_PROXY:
+        return socket_ip
+    parts = [p.strip() for p in request.headers.get("x-forwarded-for", "").split(",") if p.strip()]
+    idx = len(parts) - 1 - TRUSTED_PROXY_HOPS
+    if idx < 0:
+        return socket_ip
+    return parts[idx]
 
 
 @app.middleware("http")
@@ -332,7 +441,9 @@ async def _global_rate_limit(request: Request, call_next):
 # A host is "dev-like" only if it says so explicitly (same convention as auth.py).
 # HSTS is withheld in dev/test/ci so local + HTTP-pilot instances aren't forced
 # onto https; it's sent everywhere else.
-_IS_DEV_ENV = os.getenv("ARCEO_ENV", "").lower() in {"dev", "local", "test", "ci"}
+# Same definition of "dev" as every other boot guard — see envcheck.py. Kept as
+# a module-level snapshot because the proxy/budget defaults read it per request.
+_IS_DEV_ENV = envcheck.is_dev_env()
 
 _SECURITY_HEADERS = {
     "X-Content-Type-Options": "nosniff",
@@ -620,7 +731,29 @@ def _snapshot_scheduler_loop():
         # passes (and N Slack digests) every interval. TTL > poll interval so
         # the holder keeps re-winning; if it dies the lock lapses and another
         # worker takes over on the next tick.
-        if not shared_state.try_acquire_leader("scheduler", _SNAPSHOT_POLL_SECONDS + 30):
+        #
+        # ⚠️ 2.8: this call MUST be inside a try. Every job body below carries
+        # "except Exception — scheduler must never die", but the leader-lock
+        # acquire sat outside all of them, and it is the one call that reaches
+        # Redis on its own (`try_acquire_leader` does a bare `_client.set` with
+        # no fallback, by design). So a single RedisError from a restart or
+        # failover propagated out of `while True:` and killed the thread
+        # permanently — until the process was restarted, with no supervision and
+        # no ERROR log. What died with it: forecast snapshots, the weekly
+        # digest, and the ONLY automated data-retention control we have
+        # (purge_llm_captures, which deletes captured prompt and response
+        # bodies past their retention window). A PII retention control that
+        # stops running silently is the worst item on that list.
+        try:
+            got_lock = shared_state.try_acquire_leader(
+                "scheduler", _SNAPSHOT_POLL_SECONDS + 30)
+        except Exception as e:  # noqa: BLE001 — a Redis blip must not be fatal
+            # ERROR, not warning: unlike the job failures below, this means the
+            # scheduler accomplished nothing this tick.
+            logger.error("scheduler leader-lock check failed, skipping this tick: %s", e)
+            time.sleep(_SNAPSHOT_POLL_SECONDS)
+            continue
+        if not got_lock:
             time.sleep(_SNAPSHOT_POLL_SECONDS)
             continue
         try:
@@ -2344,6 +2477,8 @@ def set_agent_context(agent_id: str, req: ExposureContextInput, user: dict = Dep
 
 @app.delete("/api/authority/agent/{agent_id}")
 def delete_agent(agent_id: str, user: dict = Depends(get_current_user)):
+    from jobs.purge_llm_captures import erase_captures_for_agent
+
     org_id = _org(user)
     with get_db() as conn:
         existing = conn.execute("SELECT name FROM agents WHERE id = %s AND org_id = %s", (agent_id, org_id)).fetchone()
@@ -2355,15 +2490,30 @@ def delete_agent(agent_id: str, user: dict = Depends(get_current_user)):
         sweep_count = conn.execute("SELECT COUNT(*) AS n FROM sweeps WHERE agent_id = %s", (agent_id,)).fetchone()["n"]
         exec_count = conn.execute("SELECT COUNT(*) AS n FROM execution_log WHERE agent_id = %s", (agent_id,)).fetchone()["n"]
 
+        # 3.2: the captured prompt/response BODIES are the densest customer PII in
+        # the product, and `llm_captures.agent_id` is a bare Text column with an
+        # index but NO foreign key and NO cascade (0014_llm_captures.py:38) — so
+        # deleting an agent orphaned them. Nothing referenced them afterwards and
+        # only the age sweep would ever have removed them, which is a poor place
+        # to put a deletion guarantee: that sweep runs on the scheduler thread,
+        # which until Tier 2.8 died permanently on a single Redis error.
+        #
+        # `erase_captures_for_agent` is the same per-subject GDPR path the
+        # retention job uses. The audit rows survive with their metadata and
+        # digest, so the hash chain never notices a body went away.
+        captures = erase_captures_for_agent(conn, org_id, agent_id)
+
         conn.execute("DELETE FROM simulations WHERE agent_id = %s", (agent_id,))
         conn.execute("DELETE FROM sweeps WHERE agent_id = %s", (agent_id,))
         conn.execute("DELETE FROM execution_log WHERE agent_id = %s", (agent_id,))
         conn.execute("DELETE FROM agents WHERE id = %s", (agent_id,))  # cascades to tools, actions, policies, test_data
 
         log_audit(conn, user["sub"], user["email"], "DELETE_AGENT", resource=agent_id,
-                  detail=f"Deleted agent '{existing['name']}' + {sim_count} simulations, {sweep_count} sweeps, {exec_count} executions")
+                  detail=f"Deleted agent '{existing['name']}' + {sim_count} simulations, "
+                         f"{sweep_count} sweeps, {exec_count} executions, {captures} captured bodies")
 
-    return {"message": "Agent deleted", "cleaned": {"simulations": sim_count, "sweeps": sweep_count, "executions": exec_count}}
+    return {"message": "Agent deleted", "cleaned": {"simulations": sim_count, "sweeps": sweep_count,
+                                                    "executions": exec_count, "captures": captures}}
 
 
 class BulkDeleteRequest(BaseModel):
@@ -2373,8 +2523,11 @@ class BulkDeleteRequest(BaseModel):
 @app.post("/api/authority/agents/delete")
 def bulk_delete_agents(req: BulkDeleteRequest, user: dict = Depends(get_current_user)):
     """Delete multiple agents and all their history in one call."""
+    from jobs.purge_llm_captures import erase_captures_for_agent
+
     deleted = []
     not_found = []
+    captures = 0
     org_id = _org(user)
     with get_db() as conn:
         for agent_id in req.agent_ids:
@@ -2382,6 +2535,11 @@ def bulk_delete_agents(req: BulkDeleteRequest, user: dict = Depends(get_current_
             if not existing:
                 not_found.append(agent_id)
                 continue
+
+            # Same erasure as the single-agent path (3.2). Bulk delete is the one
+            # a customer offboarding a fleet actually uses, so it must not be the
+            # path that leaves the PII behind.
+            captures += erase_captures_for_agent(conn, org_id, agent_id)
 
             conn.execute("DELETE FROM simulations WHERE agent_id = %s", (agent_id,))
             conn.execute("DELETE FROM sweeps WHERE agent_id = %s", (agent_id,))
@@ -2391,9 +2549,10 @@ def bulk_delete_agents(req: BulkDeleteRequest, user: dict = Depends(get_current_
 
         if deleted:
             log_audit(conn, user["sub"], user["email"], "BULK_DELETE_AGENTS",
-                      detail=f"Deleted {len(deleted)} agents: {', '.join(deleted)}")
+                      detail=f"Deleted {len(deleted)} agents ({captures} captured bodies): "
+                             f"{', '.join(deleted)}")
 
-    return {"deleted": deleted, "not_found": not_found}
+    return {"deleted": deleted, "not_found": not_found, "captures_erased": captures}
 
 
 # ── Agent Discovery: Register + Import ─────────────────────────────────────
@@ -2776,6 +2935,9 @@ def _extract_and_register(content: str, filename: str = "", agent_name_hint: str
 @app.post("/api/authority/agents/extract")
 def extract_agent_from_code(req: ExtractInput, user: dict = Depends(get_current_user)):
     """Use Haiku to extract agent structure from pasted/uploaded code."""
+    # 2.6: this call is billed to ARCEO, not the caller — see RATE_LIMIT_EXTRACT_MAX.
+    check_rate_limit(f"extract:{_org(user)}",
+                     RATE_LIMIT_EXTRACT_MAX, RATE_LIMIT_EXTRACT_WINDOW)
     return _extract_and_register(req.content, req.filename, req.agent_name_hint, org_id=_org(user))
 
 
@@ -2806,11 +2968,18 @@ class GithubExtractInput(BaseModel):
 async def extract_agents_from_github(req: GithubExtractInput, user: dict = Depends(get_current_user)):
     """Scan a public GitHub repo for agent files and register every one found.
 
+    ⚠️ Rate-limited per org (2.6): ONE request here is up to max_files (25) Haiku
+    extractions on Arceo's key, which made this the most expensive unguarded
+    endpoint in the product.
+
     Walks the repo tree, picks files that import an LLM SDK (anthropic / openai /
     langchain / etc.), and runs Haiku extraction on each. Returns per-file
     results. Requires auth; public repos only for now — capped at max_files Haiku
     calls per request to bound cost.
     """
+    check_rate_limit(f"extract:{_org(user)}",
+                     RATE_LIMIT_EXTRACT_MAX, RATE_LIMIT_EXTRACT_WINDOW)
+
     import re as _re
     import httpx as _httpx
 
@@ -2837,7 +3006,7 @@ async def extract_agents_from_github(req: GithubExtractInput, user: dict = Depen
     )
 
     headers = {"Accept": "application/vnd.github+json", "User-Agent": "arceo-scanner"}
-    gh_token = os.getenv("GITHUB_TOKEN")
+    gh_token, gh_token_source = _github_scan_token(_org(user))
     if gh_token:
         headers["Authorization"] = f"Bearer {gh_token}"
 
@@ -2861,15 +3030,35 @@ async def extract_agents_from_github(req: GithubExtractInput, user: dict = Depen
                 break
             last_status = r.status_code
             if r.status_code == 403:
-                raise HTTPException(status_code=429, detail="GitHub API rate limit hit. Set GITHUB_TOKEN env var on the backend to raise to 5000/hr.")
+                # 3.1: never print operator instructions for OUR backend at a
+                # tenant. They cannot set an env var on a shared instance, and
+                # telling them to is both useless and a disclosure about how the
+                # service is run.
+                raise HTTPException(status_code=429, detail=(
+                    "GitHub's API rate limit was hit. Add a GitHub token under "
+                    "Settings → API & Integration → Credentials to scan with your "
+                    "own rate limit (5000/hr) instead of the shared one."
+                    if gh_token_source == "server" else
+                    "GitHub's API rate limit was hit for the token on your "
+                    "workspace credential. Try again shortly."))
         if not tree_data:
             # GitHub returns 404 for a private repo to an unauthenticated caller —
             # indistinguishable from truly-missing without a token. Say so instead
             # of a flat "Repo not found".
             if last_status == 404 and not gh_token:
-                raise HTTPException(status_code=404, detail=f"{owner}/{repo} not found. If it is private, set GITHUB_TOKEN on the backend — GitHub returns 404 for private repos to unauthenticated callers.")
+                raise HTTPException(status_code=404, detail=(
+                    f"{owner}/{repo} not found. GitHub returns 404 rather than 403 "
+                    "for repositories a token cannot see, so this also means "
+                    "'private, and the credential in use has no access'. To scan a "
+                    "private repository, add a GitHub token with read access under "
+                    "Settings → API & Integration → Credentials."))
             if last_status in (401, 403):
-                raise HTTPException(status_code=403, detail=f"Access to {owner}/{repo} denied — the configured GITHUB_TOKEN lacks access to this (private?) repo.")
+                raise HTTPException(status_code=403, detail=(
+                    f"Access to {owner}/{repo} was denied by GitHub — "
+                    + ("your workspace's GitHub credential does not have access to it."
+                       if gh_token_source == "org" else
+                       "add a GitHub token with access to it under Settings → "
+                       "API & Integration → Credentials.")))
             raise HTTPException(status_code=404, detail=f"Repo not found or no main/master branch: {owner}/{repo}")
 
         candidates: list[str] = []
@@ -2971,7 +3160,9 @@ async def extract_agents_from_github(req: GithubExtractInput, user: dict = Depen
     if max_files_reached:
         notes.append(f"stopped at the {req.max_files}-file limit — more agents may exist")
     if fetch_errors:
-        notes.append(f"{fetch_errors} file(s) could not be fetched" + (" (GitHub rate limit — set GITHUB_TOKEN)" if rate_limited else ""))
+        notes.append(f"{fetch_errors} file(s) could not be fetched"
+                     + (" (GitHub rate limit — add your own GitHub credential in Settings"
+                        " to scan on your own limit)" if rate_limited else ""))
     if oversized_files:
         shown = ", ".join(oversized_files[:3])
         notes.append(f"{len(oversized_files)} file(s) skipped over the "
@@ -3295,11 +3486,27 @@ def scan_files(req: ScanRequest, request: Request):
     }
 
 
-# Spend-anomaly check debounce — agent_id -> unix ts of last check. In-memory
-# (lost on restart) like the LLM classification cache; at worst a restart means
-# one extra check per agent.
+# Spend-anomaly check debounce (2.7). TWO layers, and they are not redundant.
+#
+# The comment here used to reason only about RESTART — "at worst a restart means
+# one extra check per agent" — which says nothing about concurrency. With N
+# instances an in-process dict gives N checks and N Slack messages per hour, and
+# it also grew one entry per agent forever.
+#
+# Redis is the cross-instance truth. The local dict stays as a cheap PRE-FILTER,
+# because this debounce does not merely suppress a notification — it guards an
+# 8-day audit_log scan with per-row AES-GCM decryption, on the hot path of
+# ingest_llm_call, i.e. once per captured LLM call. `should_fire_once` fails
+# toward FIRING when Redis is unreachable (the right call for an alert, and the
+# convention enforcement.py:283-290 already sets), but applying that posture to
+# this one unguarded would turn every capture into a decrypting 8-day scan
+# during a Redis outage. The local filter bounds that blast radius to one check
+# per agent per hour per instance.
 _ANOMALY_CHECK_LAST: dict[str, float] = {}
 _ANOMALY_CHECK_INTERVAL_SECONDS = 3600
+# Bound the pre-filter. It is a cache, not a ledger; dropping the oldest entries
+# costs at most one extra check for those agents.
+_ANOMALY_CHECK_MAX_TRACKED = 5000
 
 
 def _maybe_fire_spend_anomaly_alert(agent_id: str):
@@ -3308,9 +3515,25 @@ def _maybe_fire_spend_anomaly_alert(agent_id: str):
     failures must not break ingestion."""
     try:
         now = time.time()
+        # Layer 1 — local, free, and the only thing standing between a Redis
+        # outage and an 8-day decrypting scan per captured call.
         if now - _ANOMALY_CHECK_LAST.get(agent_id, 0.0) < _ANOMALY_CHECK_INTERVAL_SECONDS:
             return
+        if len(_ANOMALY_CHECK_LAST) >= _ANOMALY_CHECK_MAX_TRACKED:
+            for stale in sorted(_ANOMALY_CHECK_LAST, key=_ANOMALY_CHECK_LAST.get)[:1000]:
+                _ANOMALY_CHECK_LAST.pop(stale, None)
         _ANOMALY_CHECK_LAST[agent_id] = now
+
+        # Layer 2 — cross-instance. Without this, N instances each run the scan
+        # and each send their own Slack message for the same hour.
+        try:
+            import shared_state as _ss
+            if not _ss.should_fire_once(f"anomaly:{agent_id}", _ANOMALY_CHECK_INTERVAL_SECONDS):
+                return
+        except Exception:
+            # Same posture as enforcement.py: worse to go silent than to
+            # double-send. Layer 1 already bounds the cost of getting here.
+            pass
 
         from analysis.spend_forecast import detect_spend_anomaly, load_defaults
 
@@ -3428,9 +3651,17 @@ def ingest_llm_call(agent_id: str, payload: dict, request: Request):
     return {"ok": True}
 
 
-# Budget-cap alert debounce — fires at most once per agent per calendar month
-# (keyed agent_id -> "YYYY-MM" already alerted). In-memory like the anomaly one.
-_BUDGET_ALERT_FIRED: dict[str, str] = {}
+# Budget-cap alert debounce — at most once per agent per calendar month (2.7).
+#
+# Redis-only, unlike the anomaly debounce above, and deliberately so: this gates
+# a NOTIFICATION, not a computation, so there is nothing expensive to protect
+# against on the failure path. The in-process dict this replaces gave one alert
+# PER INSTANCE per month — a CFO seeing the same budget warning N times, where N
+# is however many instances happened to be up.
+#
+# The key carries the month, so a fixed TTL comfortably longer than a month is
+# correct and self-cleaning; the next month is simply a different key.
+_BUDGET_ALERT_TTL_SECONDS = 40 * 24 * 3600
 
 
 def _maybe_fire_budget_alert(agent_id: str):
@@ -3441,8 +3672,16 @@ def _maybe_fire_budget_alert(agent_id: str):
         from analysis.spend_forecast import compute_month_to_date_spend, load_defaults
 
         month_key = datetime.utcnow().strftime("%Y-%m")
-        if _BUDGET_ALERT_FIRED.get(agent_id) == month_key:
-            return
+        alert_key = f"budgetalert:{agent_id}:{month_key}"
+        # Peek, don't claim. This runs on the hot path of every captured LLM
+        # call and the work below is a month-to-date audit scan with per-row
+        # decryption — the in-process dict this replaces existed to skip it.
+        try:
+            import shared_state as _ss
+            if _ss.fired_recently(alert_key):
+                return
+        except Exception:
+            pass
 
         with get_db() as conn:
             row = conn.execute(
@@ -3471,7 +3710,15 @@ def _maybe_fire_budget_alert(agent_id: str):
         mtd = compute_month_to_date_spend(rows, defaults=load_defaults(org_id))
         if budget <= 0 or mtd < budget * threshold_pct / 100.0:
             return
-        _BUDGET_ALERT_FIRED[agent_id] = month_key
+        # Claim it. Two instances can both reach here in the same instant; only
+        # one wins the SET NX, so the CFO gets one message rather than N.
+        try:
+            import shared_state as _ss
+            if not _ss.should_fire_once(alert_key, _BUDGET_ALERT_TTL_SECONDS):
+                return
+        except Exception:
+            # enforcement.py's convention: worse to go silent than to double-send.
+            pass
 
         pct = round(mtd / budget * 100)
         # MED-010: guarded egress (see _maybe_fire_spend_anomaly_alert).
@@ -4326,7 +4573,47 @@ def send_test_digest(user: dict = Depends(get_current_user)):
 # that would silently never be injected.
 # zendesk/salesforce are per-tenant: their vaulted credential carries the
 # subdomain/instance that fills the SERVICE_BASE_URLS placeholder at forward time.
-VAULT_SUPPORTED_PROVIDERS = {"stripe", "github", "sendgrid", "zendesk", "salesforce"}
+#: `github_scan` is deliberately DISTINCT from `github` (3.1). The `github` row
+#: is injected into the agent's RUNTIME GitHub calls, and those include
+#: force_push, merge_pull_request and delete_branch — so reusing it for repo
+#: READS would mean every scan runs with a production write credential. Two
+#: purposes, two secrets, and a customer can grant the scan one read-only scope.
+VAULT_SUPPORTED_PROVIDERS = {"stripe", "github", "github_scan", "sendgrid", "zendesk", "salesforce"}
+
+
+def _github_scan_token(org_id: str) -> tuple[str | None, str]:
+    """The token to use for this org's repo scan, and where it came from.
+
+    3.1: this used one server-wide `GITHUB_TOKEN` for every tenant. On a
+    single-tenant self-host that is unremarkable; on a shared hosted instance it
+    means one credential — ours — reads whatever repository any customer names,
+    with `owner/repo` supplied by the caller and only editor-rank gating.
+
+    Bound the exposure honestly: the endpoint never returns file bytes. What
+    crosses the boundary is private file PATHS, the Haiku-derived tool inventory
+    persisted into the caller's org, and up to 8000 characters of verbatim
+    extracted system-prompt text. Derived disclosure, not a source dump — but
+    still another tenant's private repository, read on a credential they never
+    granted.
+
+    Falls back to the server token so self-host and local dev keep working
+    unchanged; the returned source lets the caller say which one failed rather
+    than printing operator instructions at a tenant.
+    """
+    try:
+        with get_db() as conn:
+            row = conn.execute(
+                "SELECT encrypted_config, wrapped_dek FROM provider_credentials "
+                "WHERE org_id = %s AND provider = %s", (org_id, "github_scan"),
+            ).fetchone()
+        if row:
+            cfg = vault.decrypt_credential(row["wrapped_dek"], row["encrypted_config"])
+            secret = (cfg or {}).get("secret")
+            if secret:
+                return secret, "org"
+    except Exception as e:  # noqa: BLE001 — a broken credential must not 500 the scan
+        logger.warning("github_scan credential unusable for org %s: %s", org_id, e)
+    return os.getenv("GITHUB_TOKEN") or None, "server"
 
 
 def _vault_require_on() -> bool:
@@ -4413,17 +4700,103 @@ def delete_credential(provider: str, user: dict = Depends(get_current_user)):
 
 # ── Audit Log ───────────────────────────────────────────────────────────────
 
+#: Page size for the two history endpoints. Bounded because the audit table is
+#: append-only and grows a row per LLM call — an unbounded read is 3.3.
+_HISTORY_PAGE_MAX = 500
+_HISTORY_PAGE_DEFAULT = 100
+
+
 @app.get("/api/audit")
-def get_audit_log(user: dict = Depends(get_current_user)):
-    # MED-001: the audit trail carries captured LLM prompts/responses in `detail`.
-    # It's a compliance/integrity surface — admin-only, matching /api/audit/verify.
+def get_audit_log(user: dict = Depends(get_current_user),
+                  limit: int = Query(default=_HISTORY_PAGE_DEFAULT, ge=1, le=_HISTORY_PAGE_MAX),
+                  offset: int = Query(default=0, ge=0)):
+    """Audit entries, newest first.
+
+    MED-001: the audit trail carries captured LLM prompts/responses in `detail`.
+    It's a compliance/integrity surface — admin-only, matching /api/audit/verify.
+
+    3.2: this was hard-capped at 100 with no way to ask for more, which would be
+    a defensible product decision on its own — except History.tsx's "Export CSV"
+    reads exactly this endpoint and presents the result as a full export. A
+    customer asking for their audit trail (a compliance request, or a
+    pre-deletion copy) silently received the most recent 100 rows and no
+    indication that was not all of it.
+
+    `total` is returned so the caller can tell. That matters more than the
+    pagination: a truncated export that KNOWS it is truncated is a UI problem, a
+    truncated export that does not is a wrong answer to a compliance question.
+    """
     require_role(user, "admin")
+    org_id = _org(user)
     with get_db() as conn:
+        total = conn.execute(
+            "SELECT COUNT(*) AS n FROM audit_log WHERE org_id = %s", (org_id,)
+        ).fetchone()["n"]
         rows = conn.execute(
-            "SELECT * FROM audit_log WHERE org_id = %s ORDER BY timestamp DESC LIMIT 100",
-            (_org(user),)
+            "SELECT * FROM audit_log WHERE org_id = %s ORDER BY timestamp DESC "
+            "LIMIT %s OFFSET %s",
+            (org_id, limit, offset),
         ).fetchall()
-    return {"entries": _hydrate_audit_rows(rows)}
+    return {
+        "entries": _hydrate_audit_rows(rows),
+        "total": int(total),
+        "limit": limit,
+        "offset": offset,
+        "hasMore": offset + len(rows) < int(total),
+    }
+
+
+@app.get("/api/cogs")
+def org_cogs(user: dict = Depends(get_current_user)):
+    """What ARCEO spent on ARCEO's key for this org this month, and the margin.
+
+    Tier 2.6 exists because we could not answer this. Metering it without a way
+    to read it would leave the same gap with more code, so this is the surface.
+
+    ⚠️ Read the two numbers carefully, they are not the same currency of claim:
+
+      `arceoSpendUsd`    — OUR cost. Every LLM call made on the server key doing
+                           work for this org: classification, extraction,
+                           sandbox runs, sweeps, red teams, scenario generation,
+                           mocks, summaries, /api/scan. Redis-only, so a flush
+                           loses the month — see cogs.total(). Not billable
+                           truth; a margin indicator.
+      `customerSpendUsd` — what the CUSTOMER's agents spent on the CUSTOMER's
+                           key, from the audit log. This one IS reconstructible
+                           and is the system of record.
+
+    So `margin` answers "what does serving this account cost us relative to the
+    volume they run through us" — it is NOT revenue margin, because Arceo does
+    not bill per token today (see 0.4). Naming it anything shorter would invite
+    exactly that misreading.
+
+    Admin-only: it is commercial data about the account.
+    """
+    require_admin(user)
+    import cogs as _cogs
+
+    org_id = _org(user)
+    arceo_usd = _cogs.total(org_id)
+    with get_db() as conn:
+        customer_usd = _mtd_spend_from_audit(conn, org_id, None)
+
+    ratio = None
+    if arceo_usd is not None and customer_usd:
+        ratio = round(arceo_usd / customer_usd, 4)
+
+    return {
+        "month": datetime.utcnow().strftime("%Y-%m"),
+        "arceoSpendUsd": None if arceo_usd is None else round(arceo_usd, 4),
+        "customerSpendUsd": round(customer_usd, 4),
+        "costRatio": ratio,
+        "basis": (
+            "arceoSpendUsd is Arceo's own LLM cost for this org this month, "
+            "counted in Redis and lost on a flush — an indicator, not a ledger. "
+            "customerSpendUsd is the customer's captured spend from the audit "
+            "log and is reconstructible. costRatio is our cost per dollar of "
+            "customer volume, not revenue margin: Arceo does not bill per token."
+        ),
+    }
 
 
 @app.get("/api/audit/verify")
@@ -4469,13 +4842,28 @@ def verify_audit_chain(user: dict = Depends(get_current_user)):
 # ── Execution Log ───────────────────────────────────────────────────────────
 
 @app.get("/api/executions")
-def get_execution_log(user: dict = Depends(get_current_user)):
+def get_execution_log(user: dict = Depends(get_current_user),
+                      limit: int = Query(default=_HISTORY_PAGE_DEFAULT, ge=1, le=_HISTORY_PAGE_MAX),
+                      offset: int = Query(default=0, ge=0)):
+    """Execution entries, newest first. Same pagination contract as /api/audit
+    and for the same reason — History.tsx exports both together (3.2)."""
+    org_id = _org(user)
     with get_db() as conn:
+        total = conn.execute(
+            "SELECT COUNT(*) AS n FROM execution_log WHERE org_id = %s", (org_id,)
+        ).fetchone()["n"]
         rows = conn.execute(
-            "SELECT * FROM execution_log WHERE org_id = %s ORDER BY timestamp DESC LIMIT 100",
-            (_org(user),)
+            "SELECT * FROM execution_log WHERE org_id = %s ORDER BY timestamp DESC "
+            "LIMIT %s OFFSET %s",
+            (org_id, limit, offset),
         ).fetchall()
-    return {"entries": [encryption.hydrate(dict(r), "params") for r in rows]}
+    return {
+        "entries": [encryption.hydrate(dict(r), "params") for r in rows],
+        "total": int(total),
+        "limit": limit,
+        "offset": offset,
+        "hasMore": offset + len(rows) < int(total),
+    }
 
 
 @app.get("/api/executions/{agent_id}")
@@ -4987,6 +5375,11 @@ def _run_multi_agent_simulation_impl(req: MultiSimulateRequest, user: dict):
     from sandbox.prompts.scenarios import get_scenario, Scenario
     from dataclasses import asdict as _asdict
 
+    # 2.6: single-agent /simulate has gated since HIGH-003; this one never did,
+    # and it is the MORE expensive of the two — N agents each running their own
+    # LLM loop, with dispatch between them.
+    _budget_gate(req.coordinator_id, _org(user))
+
     if req.coordinator_id not in req.agent_ids:
         raise HTTPException(status_code=400, detail="coordinator_id must be in agent_ids")
 
@@ -5090,6 +5483,12 @@ def optimize_workflow_permissions(req: WorkflowOptimizeRequest, user: dict = Dep
     - approval_gates: cross-agent chains that need REQUIRE_APPROVAL policies
     - per-agent optimization score (0-100, lower = better optimized)
     """
+    # 2.6: this endpoint had NO gate, NO _run_heavy_job wrapper, and no dry_run
+    # guard on the LLM path — with ANTHROPIC_API_KEY set it ALWAYS ran the full
+    # multi-agent loop on our key. It is the same shape of work as
+    # /sandbox/simulate/multi, so it gets the same gate.
+    _budget_gate(req.coordinator_id, _org(user))
+
     from sandbox.multi_runner import run_multi_simulation, run_multi_simulation_dry
     from sandbox.prompts.scenarios import Scenario
     from authority.chain_detector import LABEL_TRANSITIONS
@@ -5924,6 +6323,42 @@ def _clamp_forecast_overrides(overrides: dict) -> dict:
     return overrides
 
 
+def _sandbox_traces_for_tier(conn, agent_id: str, org_id: str) -> list:
+    """The agent's live sandbox traces — the argument every `forecast_spend`
+    caller must pass, because the CONFIDENCE TIER is derived from it.
+
+    `_detect_tier(sandbox_traces, live_trace_count_7d, ...)` reads this to decide
+    LOW vs MEDIUM, and the band multipliers follow the tier. Omitting it does not
+    merely lose a forecast input — it silently demotes the agent, so the same
+    agent rendered LOW on one endpoint and MEDIUM on another, on one screen.
+    That is why the query lives here once instead of being hand-rolled per
+    caller: a third copy is how the two got out of step in the first place.
+
+    `run_mode = 'live'` matches the risk path (`_latest_sim_evidence`) and is not
+    optional — a dry run appends no `turn_usage`, so it is not a weaker
+    measurement but no measurement at all, while still counting toward the tier.
+    See test_dry_runs_and_forecast_tier.
+
+    `ORDER BY created_at DESC` is likewise load-bearing, not tidiness: `LIMIT 10`
+    without an order picks arbitrary rows, so for an agent with more than ten
+    sims two callers could select different traces and derive different token
+    averages for the same agent.
+    """
+    sims = conn.execute(
+        "SELECT trace_json FROM simulations WHERE agent_id = %s AND status = 'completed' "
+        "AND run_mode = 'live' AND org_id = %s ORDER BY created_at DESC LIMIT 10",
+        (agent_id, org_id),
+    ).fetchall()
+    traces = []
+    for s in sims:
+        try:
+            if s["trace_json"]:
+                traces.append(json.loads(s["trace_json"]))
+        except (json.JSONDecodeError, TypeError):
+            continue
+    return traces
+
+
 def _prev_snapshot_point(conn, agent_id: str, org_id: str, before_iso: str) -> Optional[float]:
     """Most recent forecast snapshot >= 30 days old — but only if it was computed
     with the CURRENT formula version, so vs-last-month isn't a bogus cross-formula
@@ -5980,14 +6415,9 @@ def get_spend_forecast(
         agent = get_agent_from_db(conn, agent_id, org_id=_org(user))
         if not agent:
             raise HTTPException(status_code=404, detail=f"Agent '{agent_id}' not found")
-        # Pull any sandbox traces (for medium tier upgrade). Live runs only —
-        # a dry run never records turn_usage, so it measures nothing and must
-        # not promote the tier. Mirrors the risk path's run_mode filter.
-        sims = conn.execute(
-            "SELECT trace_json FROM simulations WHERE agent_id = %s AND status = 'completed' "
-            "AND run_mode = 'live' AND org_id = %s ORDER BY created_at DESC LIMIT 10",
-            (agent_id, _org(user)),
-        ).fetchall()
+        # Sandbox traces for the tier — see _sandbox_traces_for_tier for why the
+        # run_mode filter and the ordering are both load-bearing.
+        sandbox_traces = _sandbox_traces_for_tier(conn, agent_id, _org(user))
         # Count live traces in last 7 days (for high tier)
         seven_days_ago = (datetime.utcnow() - timedelta(days=7)).isoformat()
         live_count_row = conn.execute(
@@ -6027,14 +6457,6 @@ def get_spend_forecast(
             oldest_snapshot_days = (datetime.utcnow() - datetime.fromisoformat(oldest_snapshot_iso)).days
         except (ValueError, TypeError):
             oldest_snapshot_days = None
-
-    sandbox_traces = []
-    for s in sims:
-        try:
-            if s["trace_json"]:
-                sandbox_traces.append(json.loads(s["trace_json"]))
-        except (json.JSONDecodeError, TypeError):
-            continue
 
     # Live rolling averages form the baseline; explicit query params (slider
     # what-ifs) still win on top. Priced at the ORG's rates — see the note on
@@ -6245,7 +6667,14 @@ def delete_agent_budget(agent_id: str, user: dict = Depends(get_current_user)):
 
 
 # Cache for the batch endpoint — keyed by (org_id, agent_id), 10-min TTL.
-_BATCH_FORECAST_CACHE: dict[tuple[str, str], tuple[float, dict]] = {}
+# 2.7: unlike the sensitivity cache this one always had a TTL, so cross-instance
+# staleness was bounded at 10 minutes and self-healing — which is why the plan
+# ranks it below that one. Ten minutes is still the wrong answer on the CFO
+# surface for the specific case that matters: a customer enters their negotiated
+# rate, refreshes the Spend Dashboard, and is quoted LIST price by whichever
+# instance answers. The override version marker makes that immediate, so it is
+# included in the key here for the same cost as reading it.
+_BATCH_FORECAST_CACHE: dict[tuple, tuple[float, dict]] = {}
 _BATCH_CACHE_TTL_SECONDS = 600
 
 
@@ -6261,7 +6690,7 @@ def get_spend_forecasts_batch(user: dict = Depends(get_current_user)):
     """
     from analysis.spend_forecast import (
         forecast_spend, compute_live_rolling_averages, load_defaults,
-        LIVE_TRACE_MIN_CALLS_FORECAST,
+        LIVE_TRACE_MIN_CALLS_FORECAST, _overrides_version,
     )
 
     org_id = _org(user)
@@ -6279,7 +6708,7 @@ def get_spend_forecasts_batch(user: dict = Depends(get_current_user)):
         forecasts: dict[str, Any] = {}
         for row in agent_rows:
             aid = row["id"]
-            cache_key = (org_id, aid)
+            cache_key = (org_id, aid, _overrides_version(org_id))
             cached = _BATCH_FORECAST_CACHE.get(cache_key)
             if cached and (now - cached[0] < _BATCH_CACHE_TTL_SECONDS):
                 forecasts[aid] = cached[1]
@@ -6290,19 +6719,11 @@ def get_spend_forecasts_batch(user: dict = Depends(get_current_user)):
                 forecasts[aid] = None
                 continue
 
-            # Sandbox traces for tier — live runs only (see the per-agent path)
-            sims = conn.execute(
-                "SELECT trace_json FROM simulations WHERE agent_id = %s AND status = 'completed' "
-                "AND run_mode = 'live' AND org_id = %s LIMIT 10",
-                (aid, org_id),
-            ).fetchall()
-            sandbox_traces = []
-            for s in sims:
-                try:
-                    if s["trace_json"]:
-                        sandbox_traces.append(json.loads(s["trace_json"]))
-                except (json.JSONDecodeError, TypeError):
-                    continue
+            # Sandbox traces for tier — live runs only. Shares the per-agent
+            # card's query so the fleet row and the card cannot disagree; this
+            # path previously had no ORDER BY, so with >10 sims it could pick a
+            # different ten and derive different token averages.
+            sandbox_traces = _sandbox_traces_for_tier(conn, aid, org_id)
 
             # vsLastMonth — most recent snapshot ≥30 days old (same formula version)
             thirty_days_ago = (datetime.utcnow() - timedelta(days=30)).isoformat()
@@ -6410,6 +6831,11 @@ def get_spend_timeseries(agent_id: str, user: dict = Depends(get_current_user)):
             (agent_id, seven_days_ago),
         ).fetchone()["n"])
         live_rows = [r for r in rows if r["timestamp"] > seven_days_ago]
+        # The chart's projection band comes from the SAME forecast the card
+        # shows, so it needs the same tier inputs. Without this the band beneath
+        # the chart was computed at a demoted tier — see the forecast_spend call
+        # below.
+        sandbox_traces = _sandbox_traces_for_tier(conn, agent_id, _org(user))
 
     org_defaults = load_defaults(_org(user))
     series = compute_spend_timeseries(rows, days=30, defaults=org_defaults)
@@ -6420,8 +6846,16 @@ def get_spend_timeseries(agent_id: str, user: dict = Depends(get_current_user)):
     # forecast beneath it at list.
     overrides = compute_live_rolling_averages(
         live_rows, defaults=org_defaults) if live_count >= LIVE_TRACE_MIN_CALLS_FORECAST else {}
+    # `sandbox_traces` is not optional here. `_detect_tier` derives the
+    # confidence tier from it, and the band multipliers follow the tier — so
+    # omitting it did not just drop a forecast input, it DEMOTED the agent.
+    # An agent with live sandbox runs and under 50 captured calls rendered the
+    # projection band at LOW (x0.50-x3.00) directly beneath a card showing
+    # MEDIUM (x0.70-x2.00): two different bands for one agent on one screen, on
+    # the CFO-facing surface. Pinned by test_forecast_band_agrees_across_surfaces.
     forecast = forecast_spend(
         agent,
+        sandbox_traces=sandbox_traces or None,
         live_trace_count_7d=live_count,
         overrides=overrides or None,
         org_id=_org(user),
@@ -6544,11 +6978,16 @@ def _validate_cost_override(req: CostOverrideInput, defaults: dict) -> None:
         raise HTTPException(status_code=400, detail="scope must be model, tool, infra, or breach")
 
 
-def _bust_forecast_caches() -> None:
-    """Override writes change pricing — drop every derived forecast cache."""
+def _bust_forecast_caches(org_id: str | None = None) -> None:
+    """Override writes change pricing — drop every derived forecast cache.
+
+    ⚠️ Pass org_id (2.7). Without it this only fixes the instance that took the
+    write; every other instance keeps serving that org's OLD pricing, and the
+    sensitivity cache had no TTL, so "old" meant indefinitely.
+    """
     from analysis.spend_forecast import clear_override_caches
     _BATCH_FORECAST_CACHE.clear()
-    clear_override_caches()
+    clear_override_caches(org_id)
 
 
 @app.get("/api/cost/models")
@@ -6607,7 +7046,7 @@ def set_org_default_model(req: DefaultModelInput, user: dict = Depends(get_curre
                 (model, org_id, now),
             )
         log_audit(conn, user["sub"], user["email"], "SET_DEFAULT_MODEL", detail=str(model), org_id=org_id)
-    _bust_forecast_caches()
+    _bust_forecast_caches(_org(user))
     return {"ok": True, "default_model": model}
 
 
@@ -6838,7 +7277,7 @@ def upsert_cost_override(req: CostOverrideInput, user: dict = Depends(get_curren
         )
         log_audit(conn, user["sub"], user["email"], "COST_OVERRIDE_SET",
                   resource=f"{req.scope}:{req.key}:{req.sub_key}", detail=str(req.value), org_id=_org(user))
-    _bust_forecast_caches()
+    _bust_forecast_caches(_org(user))
     return {"ok": True}
 
 
@@ -6855,7 +7294,7 @@ def delete_cost_override(override_id: int, user: dict = Depends(get_current_user
         conn.execute("DELETE FROM cost_overrides WHERE id = %s AND org_id = %s", (override_id, _org(user)))
         log_audit(conn, user["sub"], user["email"], "COST_OVERRIDE_DELETE",
                   resource=f"{row['scope']}:{row['key']}:{row['sub_key']}", org_id=_org(user))
-    _bust_forecast_caches()
+    _bust_forecast_caches(_org(user))
     return {"ok": True}
 
 
@@ -7552,7 +7991,62 @@ def revoke_api_key(key_id: str, user: dict = Depends(get_current_user)):
 
 @app.get("/api/health")
 def health():
+    """LIVENESS. Deliberately checks nothing.
+
+    "Is this process running and able to answer?" — nothing more. It is
+    rate-limit exempt (`_RATE_LIMIT_EXEMPT_PATHS`) and pinned under load by
+    test_concurrency_and_timeouts, and it must stay that way: a liveness probe
+    that depends on Postgres restarts the container during a database blip,
+    which is the opposite of what you want. Readiness is `/api/ready`.
+    """
     return {"status": "ok"}
+
+
+# How long a readiness result is reused. `/api/ready` is unauthenticated and
+# rate-limit exempt (a probe that gets 429'd marks the instance unready, which
+# sheds traffic onto its siblings and cascades), so without this it is an
+# unauthenticated way to make the app open a database connection as fast as you
+# can send requests — against a pool bounded at DB_POOL_MAX=10. The cache means
+# the real cost is one `SELECT 1` per interval no matter the request rate, and
+# it bounds recovery detection to the same interval.
+_READY_CACHE_SECONDS = 5.0
+_ready_cache: tuple[float, bool, str] | None = None
+
+
+@app.get("/api/ready")
+def readiness(response: Response):
+    """READINESS. "Should this instance be sent traffic?"
+
+    Split from `/api/health` because a static 200 hid the failure that actually
+    happens after a successful boot: Postgres fails over, credentials rotate, or
+    the bounded pool wedges — and the container stays green while every real
+    endpoint 500s. The Dockerfile HEALTHCHECK polls liveness; an orchestrator
+    should poll this.
+
+    ⚠️ This deliberately does NOT probe Redis. The global per-caller limiter
+    fails OPEN precisely so a Redis outage degrades rate limiting instead of
+    taking the API down (`shared_state.rate_limit_ok`, MED-007). Gating
+    readiness on Redis would convert that designed partial degradation into a
+    full outage — every instance would report unready at once. The Redis
+    dependency is enforced at BOOT instead, where it belongs.
+    """
+    global _ready_cache
+    now = time.time()
+    if _ready_cache is not None and now - _ready_cache[0] < _READY_CACHE_SECONDS:
+        _, ok, detail = _ready_cache
+    else:
+        try:
+            with get_db() as conn:
+                conn.execute("SELECT 1")
+            ok, detail = True, "database reachable"
+        except Exception as e:  # noqa: BLE001 — any failure means "do not route here"
+            ok, detail = False, f"database unreachable: {type(e).__name__}"
+            logger.warning("readiness probe failed: %s", e)
+        _ready_cache = (now, ok, detail)
+
+    if not ok:
+        response.status_code = 503
+    return {"status": "ready" if ok else "not ready", "detail": detail}
 
 
 
@@ -7582,7 +8076,18 @@ if STATIC_DIR.exists():
 
     @app.get("/{full_path:path}")
     def serve_frontend(full_path: str):
-        """Serve the React SPA for any non-API route (path-traversal safe)."""
+        """Serve the React SPA for any non-API route (path-traversal safe).
+
+        ⚠️ API paths must 404 here, not fall through to the SPA. This catch-all
+        matched ANY unmatched GET including `/api/...`, returning index.html with
+        a 200 — and `frontend/src/lib/api.ts` turns a non-JSON 200 into
+        `{} as T`. So a typo'd or removed endpoint reached the caller as an empty
+        object rather than an error: the client saw "no agents", "no policies",
+        "no spend" and rendered an empty state instead of failing. A wrong URL
+        must look wrong.
+        """
+        if full_path.startswith("api/"):
+            raise HTTPException(status_code=404, detail="Not found")
         safe = _safe_static_path(STATIC_DIR, full_path)
         if safe is not None:
             return FileResponse(str(safe))

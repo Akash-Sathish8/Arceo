@@ -315,8 +315,17 @@ function generateRecommendations(
   }
 
   // 2. Spend cap = forecast point + ~35% safety margin, rounded to nearest $100.
+  // TWO mechanisms at TWO thresholds — do not merge them into one sentence again.
+  // This previously read "the agent will pause and notify if it approaches this
+  // limit", which was true of neither:
+  //   · Enforcement is a 429 rejection at 100% of the cap (`_budget_gate`,
+  //     main.py:3569-3572), not a pause on approach, and it only exists once an
+  //     `agent_budgets` row does (`_budget_caps`, :3592-3593) — hence "Once set".
+  //   · The Slack warning fires at `alert_threshold_pct` (80% default) and returns
+  //     silently when no webhook is configured (:3460-3461) — hence "Connect Slack",
+  //     stated as a condition rather than a promise.
   recs.push(
-    `Cap monthly spend at $${budgetCap.toLocaleString()} (forecast plus a safety margin that covers the upper end of our confidence range). The agent will pause and notify if it approaches this limit.`,
+    `Cap monthly spend at $${budgetCap.toLocaleString()} (forecast plus a safety margin that covers the upper end of our confidence range). Once set, Arceo stops the agent's paid model calls when it reaches the cap. Connect Slack and it will warn you earlier — at 80% by default.`,
   )
 
   // 3. Re-review with live data — only relevant while confidence is below high.

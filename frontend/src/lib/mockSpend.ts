@@ -48,7 +48,24 @@ export interface MockSpend {
   model?: string
   topTools: { tool: string; callsPerMonth: number; costPer: number; monthly: number }[]
   unitEcon: { label: string; value: string | null }[]   // null = not measured (no canned $)
+  /** Each row is a +/-20% perturbation of ONE input, so the percentages are
+   * comparable to each other and to nothing else. Model choice is deliberately
+   * NOT in here (see `modelChoice`) -- it used to be, at 1500-2200%, where it
+   * out-sorted every real driver and fed the panel caption a dollar figure
+   * ~22x the agent's own forecast. */
   sensitivity: { label: string; pct: number; color: string }[]
+  /** Model choice, reported as the two dollar figures it actually is rather
+   * than a percentage on a scale it does not belong to. Null when there is no
+   * baseline to compare against. `cheapestModel` skips `status: retired` rows,
+   * so it never names a model the vendor is sunsetting. */
+  modelChoice?: {
+    currentModel: string
+    currentPoint: number
+    cheapestModel: string
+    cheapestPoint: number
+    cheapestProvider?: string | null
+    changesProvider?: boolean
+  } | null
   confidence: "low" | "medium" | "high"
   /** Days of live traffic behind a live-fed forecast (any tier — early live
    * traffic runs at the wide band) — caption the number with it so a
@@ -85,6 +102,13 @@ export interface MockSpend {
     observedModels?: { model: string; calls: number; costShare: number }[]
   }
   lastCalibrated?: string
+  /** Set when a priced or observed model's rate changes on a KNOWN date (a
+   * vendor promo ending). The forecast itself never moves that day — it is
+   * already at the standard rate — but the customer's bill does, and observed
+   * spend before the date is priced at what was actually billed. Without this
+   * caption the resulting step in the chart reads as a bug. Null when no priced
+   * model has a dated rate. */
+  pricingNote?: string | null
   capturedAt?: string
   /** Seeded demo agent: the traffic behind these numbers is synthetic.
    * Rendered as a "Demo data" chip so illustrative numbers can never pass

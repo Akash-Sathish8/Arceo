@@ -11,7 +11,7 @@ import { useEffect, useRef, useState } from "react"
 import {
   Banknote, Sliders, PieChart, Target,
   TrendingUp, Shield, Search, FileText, Plus, HelpCircle, X,
-  AlertTriangle, Check, ArrowRight,
+  AlertTriangle, Check, ArrowRight, Info,
 } from "lucide-react"
 import type { MockSpend } from "@/lib/mockSpend"
 import { fetchSpendForecast, fetchSpendTimeseries, fetchSpendAnomalies, fetchBudgetFit, fetchSavedBudget, saveBudget, applyGatePolicy, setForecastInputs, runSweep } from "@/lib/spendApi"
@@ -884,6 +884,18 @@ function CostPortfolioContent({
               </span>
             )}
           </div>
+          {/* A vendor rate that changes on a known date. Renders above the
+              confidence guidance because it is the one caption that explains a
+              step the customer will otherwise see in the chart and read as a
+              bug — observed spend is priced at what was billed, the forecast at
+              the standard rate. Backend decides whether there is anything to
+              say (spend_forecast._pricing_note); null the rest of the time. */}
+          {m.pricingNote && (
+            <div className="mt-2 flex items-start gap-2 text-xs text-gray-600 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2">
+              <Info size={13} className="mt-0.5 flex-shrink-0 text-gray-400" />
+              <span>{m.pricingNote}</span>
+            </div>
+          )}
           {m.confidence !== "high" && (
             <div className="mt-2 text-xs text-gray-500">
               To raise confidence: connect production traces and let live data accumulate (biggest gain). Detail in <button
@@ -1138,6 +1150,26 @@ function CostPortfolioContent({
               <span className="text-right mono font-semibold text-xs" style={{ color: "var(--ink-700)" }}>{s.pct}%</span>
             </div>
           ))}
+          {/* Model choice sits BELOW the bars and carries no bar of its own,
+              because it is not the same kind of quantity: every row above is one
+              input moved +/-20%, this is a different product. It used to be a
+              row up there at 1500-2200%, which won the sort, fed the caption a
+              dollar figure many times the agent's own forecast, and buried the
+              real top driver. Dollars are the honest unit for a choice. */}
+          {m.modelChoice && m.modelChoice.cheapestPoint < m.modelChoice.currentPoint && (
+            <div className="mt-3 pt-3 border-t border-gray-100 text-xs text-gray-600">
+              <span className="font-semibold text-gray-700">Model choice</span> is the largest lever
+              and is not on the scale above. This agent runs{" "}
+              <strong className="mono text-gray-900">${m.modelChoice.currentPoint.toLocaleString()}</strong>/mo
+              on <span className="mono">{m.modelChoice.currentModel}</span>; the cheapest model we
+              price is <span className="mono">{m.modelChoice.cheapestModel}</span>
+              {m.modelChoice.changesProvider && m.modelChoice.cheapestProvider
+                ? ` (${m.modelChoice.cheapestProvider}, a different provider)` : ""} at{" "}
+              <strong className="mono text-gray-900">${m.modelChoice.cheapestPoint.toLocaleString()}</strong>/mo.
+              <span className="text-gray-400"> Cheaper models are not equivalent — this is the size
+              of the choice, not a recommendation.</span>
+            </div>
+          )}
         </PanelCard>
 
         <PanelCard title="30-day actuals + 90-day projection" icon={<TrendingUp size={14} />} help="Solid line = observed daily LLM token cost from live traces — tool and infrastructure costs aren't in these traces, so the forecast (which includes them) can sit above the line. Shaded band = forward forecast range." fullWidth>

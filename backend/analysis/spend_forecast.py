@@ -13,6 +13,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import time as _time
 from pathlib import Path
 from typing import Any, Optional
 
@@ -87,6 +88,29 @@ def load_defaults(org_id: Optional[str] = None) -> dict:
             # for a key with no base pricing) can't be priced.
             if key in merged.get("models", {}):
                 merged["models"][key][sub_key] = value
+                # A NEGOTIATED rate beats a public SCHEDULE — in both dimensions.
+                # Overrides can only set the sticker fields
+                # (_OVERRIDE_MODEL_SUBKEYS in main.py), so a vendor's
+                # `effective_price` would otherwise survive the merge and reprice
+                # this org's observed calls at the PUBLIC discount — overriding
+                # the contract rate they actually pay. Same defect class as #176:
+                # list price silently winning over a negotiated one.
+                #
+                # `price_tiers` is dropped for the same reason and one more. The
+                # override form has no tier dimension at all — a customer can
+                # enter exactly one input rate and one output rate — so what they
+                # typed IS, by construction, "this is what I pay". Keeping the
+                # public 2x step on top of it would invent a contract term they
+                # were never given a field to express, and would overstate a
+                # long-context contract customer's spend by up to 2x.
+                #
+                # ⚠️ The converse limitation is real and known: an org whose
+                # contract IS tiered cannot say so, and we will under-price their
+                # long prompts. That is the graduated-schedule storage gap (3.6),
+                # deferred — not something to paper over by guessing here.
+                if sub_key in ("input_per_mtok", "output_per_mtok"):
+                    merged["models"][key].pop("effective_price", None)
+                    merged["models"][key].pop("price_tiers", None)
         elif scope == "tool":
             merged.setdefault("tool_action_costs", {}).setdefault(key, {})[sub_key] = value
         elif scope == "infra":
@@ -136,10 +160,17 @@ def _fetch_org_overrides(org_id: str) -> tuple[list[tuple], bool]:
         return [], False
 
 
-def clear_override_caches() -> None:
+def clear_override_caches(org_id: Optional[str] = None) -> None:
     """Bust derived caches after a cost_overrides write. The defaults cache
-    itself holds only pristine YAML and never needs busting."""
+    itself holds only pristine YAML and never needs busting.
+
+    ⚠️ Clearing the local dict only ever fixed the instance that took the write.
+    Pass `org_id` so the other instances are invalidated too (2.7) — without it
+    they keep quoting this org's OLD pricing until their entries age out.
+    """
     _SENSITIVITY_CACHE.clear()
+    if org_id:
+        bump_overrides_version(org_id)
 
 
 def _first_set(*vals, default):
@@ -596,6 +627,12 @@ def compute_live_rolling_averages(audit_rows: list, defaults: Optional[dict] = N
         # Real per-call $ using THIS call's own model (blends a mixed-model fleet).
         _tin, _cached, _cc, _out = u
         _mk = _resolve_model_key(detail.get("model"), defaults)
+        # NO `at=` here, deliberately. This function looks backward but its output
+        # is a FORECAST input — `llm_cost_per_call` below is what forecast_spend
+        # projects forward at the live tier. Pricing these calls at a promotional
+        # rate would carry the promo into next month's forecast and under-forecast
+        # by the full discount the day it lapses. Sticker is the forward truth;
+        # the "what did we spend" callers are the ones that pass a date.
         _cost = _call_cost_usd(_tin, _cached, _out, _mk, defaults, cache_creation=_cc)
         per_call_costs.append(_cost)
         model_cost[_mk] = model_cost.get(_mk, 0.0) + _cost
@@ -740,8 +777,10 @@ def compute_spend_timeseries(
             continue
         total_in, cached, cache_creation, out = u
         model_key = _resolve_model_key(detail.get("model"), defaults)
-        usd = _call_cost_usd(total_in, cached, out, model_key, defaults, cache_creation=cache_creation)
         date = str(ts)[:10]
+        # Observed spend — price each day at the rate actually billed that day.
+        usd = _call_cost_usd(total_in, cached, out, model_key, defaults,
+                             cache_creation=cache_creation, at=date)
         b = buckets.setdefault(date, [0.0, 0.0])
         b[0] += usd
         b[1] += 1
@@ -785,26 +824,37 @@ def compute_month_to_date_spend(
             continue
         total_in, cached, cache_creation, out = u
         model_key = _resolve_model_key(detail.get("model"), defaults)
-        total += _call_cost_usd(total_in, cached, out, model_key, defaults, cache_creation=cache_creation)
+        # Real money already spent — bill each call at its own date's rate.
+        total += _call_cost_usd(total_in, cached, out, model_key, defaults,
+                                cache_creation=cache_creation, at=ts)
     return round(total, 2)
 
 
-def call_cost_from_detail(detail: dict, *, defaults: Optional[dict] = None) -> float:
+def call_cost_from_detail(
+    detail: dict, *, defaults: Optional[dict] = None, at=None
+) -> float:
     """Dollar cost of one captured call, from the same audit-log `detail` blob the
     month-to-date sum reads. Returns 0.0 when the call carries no usable usage.
 
     Same arithmetic as `compute_month_to_date_spend` on a single row, exposed so
     the budget counter can be settled to the real cost as each call lands instead
     of re-summing the month (MED-004). Keep the two on one code path — a drift
-    between them would let the counter and the reported spend disagree.
+    between them would let the counter and the reported spend disagree. That is
+    why `at` defaults to NOW rather than to sticker: the counter measures real
+    money against a real cap, and the month-to-date figure it is reconciled
+    against prices every call at its own date. Callers settling a historical row
+    should pass that row's timestamp.
     """
     u = _extract_usage(detail)
     if u is None:
         return 0.0
+    from datetime import datetime as _dt
+
     defaults = defaults or load_defaults()
     total_in, cached, cache_creation, out = u
     model_key = _resolve_model_key(detail.get("model"), defaults)
-    return _call_cost_usd(total_in, cached, out, model_key, defaults, cache_creation=cache_creation)
+    return _call_cost_usd(total_in, cached, out, model_key, defaults,
+                          cache_creation=cache_creation, at=at or _dt.utcnow())
 
 
 # Anthropic bills a cache WRITE (cache_creation) at ~1.25x the input rate; a
@@ -813,16 +863,167 @@ def call_cost_from_detail(detail: dict, *, defaults: Optional[dict] = None) -> f
 CACHE_WRITE_MULTIPLIER = 1.25
 
 
+# Host in a row's `source_url` -> the vendor a customer would be contracting with.
+# Derived rather than stored: `source_url` is already required on every row and
+# pinned by test_price_hygiene, so there is one field to keep correct instead of
+# two that can disagree.
+# Every host is one actually present in the catalog today, not a guess at what a
+# vendor's docs domain might be. test_every_model_row_resolves_a_provider fails
+# the build when a new row arrives on an unmapped host, so this cannot silently
+# fall back to "unknown provider" and drop the disclosure.
+_PROVIDER_BY_HOST = {
+    "platform.claude.com": "Anthropic",
+    "docs.claude.com": "Anthropic",
+    "developers.openai.com": "OpenAI",
+    "platform.openai.com": "OpenAI",
+    "ai.google.dev": "Google",
+    "cloud.google.com": "Google",
+    "api-docs.deepseek.com": "DeepSeek",
+    "docs.x.ai": "xAI",
+    "www.together.ai": "Together",
+    "together.ai": "Together",
+    "mistral.ai": "Mistral",
+    "docs.mistral.ai": "Mistral",
+    "cohere.com": "Cohere",
+    "docs.cohere.com": "Cohere",
+}
+
+
+def model_provider(mp: dict) -> Optional[str]:
+    """The vendor behind a model row, from its `source_url` host, or None."""
+    url = str(mp.get("source_url") or "")
+    host = url.split("//", 1)[-1].split("/", 1)[0].lower()
+    return _PROVIDER_BY_HOST.get(host)
+
+
+def is_recommendable(mp: dict) -> bool:
+    """Whether this model may be OFFERED as a switching option.
+
+    False for `status: retired`. Such rows still price normally, because
+    historical captured calls that used them must still reprice correctly; what
+    they must never do is show up as advice. The catalog carries nine of them and
+    one, gemini-1-5-flash, is the second-cheapest row in the file, so the
+    budget-fit recommender's "cheapest model when nothing fits" branch reached a
+    model Google no longer lists.
+    """
+    return mp.get("status") != "retired"
+
+
+def _as_iso_date(at) -> Optional[str]:
+    """`at` (datetime, date, or ISO-ish string) as 'YYYY-MM-DD', or None.
+
+    ISO dates compare correctly as plain strings, so nothing here needs to parse
+    a date to decide which rate was in force.
+    """
+    if at is None:
+        return None
+    if isinstance(at, str):
+        return at[:10] or None
+    iso = getattr(at, "isoformat", None)
+    return iso()[:10] if callable(iso) else None
+
+
+def _effective_rates(mp: dict, at=None, input_tokens: Optional[int] = None) -> tuple[float, float]:
+    """($/MTok in, $/MTok out) in force for a call made on `at` with a prompt of
+    `input_tokens` tokens.
+
+    A row's `input_per_mtok`/`output_per_mtok` are the STICKER rate. A rate can
+    vary along two independent dimensions, each an optional block on the row (see
+    the schema notes at the top of cost_defaults_operational.yaml):
+
+        effective_price: {input_per_mtok, output_per_mtok, until}   # until INCLUSIVE
+        price_tiers: [{above_input_tokens, input_per_mtok, output_per_mtok}, ...]
+
+    ── TIME (`at`) ────────────────────────────────────────────────────────────
+    `at=None` means "price at the standing rate" and is what every FORWARD-looking
+    caller must pass. A forecast is about money not yet spent, so it prices at
+    sticker — projecting a promo that expires would under-forecast the moment it
+    lapses. Backward-looking callers ("what did we actually spend") pass the
+    call's own timestamp and get the rate that was really billed.
+
+    Only `until` is honoured, not a start date: every observed-spend window in
+    this module is at most 30 days, so no caller can reach back past the start of
+    a currently-running promo. A rate needing a start bound wants a `from` key
+    here, not a different mechanism.
+
+    ── LENGTH (`input_tokens`) ────────────────────────────────────────────────
+    The opposite rule applies, and the asymmetry is the point. A promo expires,
+    so it must not be projected forward; a prompt-length tier does not — an agent
+    whose requests cross 200k tokens is billed at the high tier today and will be
+    next month too. So `input_tokens` is passed by BOTH observed and forecast
+    callers, and omitting it is what under-forecasts a long-context agent by up
+    to 2x, not what protects against it.
+
+    Both vendors that tier bill EVERY token in the request at the higher rate
+    once the prompt crosses, so the tier is selected once and applied to input
+    and output together. Tiers are matched highest-boundary-first, so a future
+    row with more than two tiers needs no ordering guarantee from the YAML.
+    `cache_discount` is not tiered — the cached-input price scales by the same
+    factor as input on every tiered row, so the ratio is invariant.
+
+    A row carrying both blocks would need an invented interaction rule; the
+    catalog forbids it and `test_price_hygiene` fails the build for it, so the
+    two branches below cannot both fire.
+    """
+    rates = (
+        float(mp.get("input_per_mtok", 0.0)),
+        float(mp.get("output_per_mtok", 0.0)),
+    )
+
+    tiers = mp.get("price_tiers")
+    if isinstance(tiers, list) and input_tokens is not None:
+        for tier in sorted(
+            (t for t in tiers if isinstance(t, dict)),
+            key=lambda t: float(t.get("above_input_tokens", 0)),
+            reverse=True,
+        ):
+            try:
+                boundary = float(tier["above_input_tokens"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            if input_tokens > boundary:
+                rates = (
+                    float(tier.get("input_per_mtok", rates[0])),
+                    float(tier.get("output_per_mtok", rates[1])),
+                )
+                break
+
+    ep = mp.get("effective_price")
+    if not isinstance(ep, dict):
+        return rates
+    day = _as_iso_date(at)
+    until = _as_iso_date(ep.get("until"))
+    if day is None or until is None or day > until:
+        return rates
+    return (
+        float(ep.get("input_per_mtok", rates[0])),
+        float(ep.get("output_per_mtok", rates[1])),
+    )
+
+
 def _call_cost_usd(
     total_input: int, cached_input: int, output: int, model_key: str, defaults: dict,
     cache_creation: int = 0,
+    at=None,
 ) -> float:
     """Dollar cost of a single captured call: cache reads get the discount, cache
-    writes get the write premium, the rest is billed at the input rate."""
+    writes get the write premium, the rest is billed at the input rate.
+
+    `at` is the call's own date; omit it to price at the standing (sticker) rate.
+    See `_effective_rates` — the omit-by-default keeps every forward-looking
+    caller, and the ground-truth backtest, on published rates.
+
+    The prompt-length tier is NOT opt-in the same way: `total_input` is already
+    the size of the request this call actually made, so every caller gets the
+    tier it was really billed at without passing anything. Cached and
+    cache-creation tokens count toward the boundary because both vendors tier on
+    the whole prompt, not on the uncached remainder.
+    """
     models = defaults.get("models", {})
     mp = models.get(model_key) or models.get(defaults.get("default_model")) or {}
-    in_price = float(mp.get("input_per_mtok", 0.0)) / 1_000_000.0
-    out_price = float(mp.get("output_per_mtok", 0.0)) / 1_000_000.0
+    in_rate, out_rate = _effective_rates(mp, at, input_tokens=total_input)
+    in_price = in_rate / 1_000_000.0
+    out_price = out_rate / 1_000_000.0
     cache_discount = float(mp.get("cache_discount", 0.5))
     non_cached = max(0, total_input - cached_input - cache_creation)
     return (
@@ -831,6 +1032,114 @@ def _call_cost_usd(
         + cache_creation * in_price * CACHE_WRITE_MULTIPLIER
         + output * out_price
     )
+
+
+def catalog_calibration_date(defaults: dict) -> Optional[str]:
+    """The date to SHOW for "price catalog last calibrated" — the oldest thing
+    behind the number, not the newest.
+
+    `last_calibrated` is hand-set when the YAML body is materially recalibrated,
+    so it tracks the newest work done on the file. Publishing it alone let one
+    freshly-verified row drag the customer-visible date forward while most of the
+    catalog stayed old: with `last_calibrated: 2026-08-09` and 45 of 59 rows still
+    at `verified_on: 2026-07-12`, the CFO PDF printed "Price catalog last
+    calibrated 2026-08-09" — false for 76% of the rows it priced with.
+
+    Taking the minimum makes the published date mean the only thing a reader can
+    safely assume it means: EVERYTHING behind this number has been verified at
+    least since this date. A row with no (or an unparseable) `verified_on` is
+    skipped here rather than treated as fresh — `test_price_hygiene` already
+    fails the build for that, and silently reading it as today's date is the
+    failure mode this function exists to remove.
+    """
+    dates = [d for d in (
+        [defaults.get("last_calibrated")]
+        + [row.get("verified_on") for row in (defaults.get("models") or {}).values()]
+    ) if isinstance(d, str) and len(d) >= 10 and d[4] == d[7] == "-"]
+    return min(dates) if dates else defaults.get("last_calibrated")
+
+
+# ── Dated-pricing disclosure ─────────────────────────────────────────────────
+
+# How long after a promo lapses we keep explaining it. The observed-spend windows
+# in this module reach back 30 days, so for that long the chart still contains
+# calls billed at the old rate and the step in it needs a caption.
+PRICING_NOTE_TRAILING_DAYS = 30
+
+
+def _pricing_note(
+    model_name: str, defaults: dict, observed_models=None, today=None
+) -> Optional[str]:
+    """One plain-English sentence when a priced model's rate changes on a date.
+
+    Exists because fixing the arithmetic ALONE makes the product look broken.
+    Once observed calls price at a promotional rate and the forecast prices at
+    sticker, a CFO sees spend step up the day the promo lapses with nothing on
+    screen saying why. The step is real — their bill genuinely rises — so the
+    honest move is to name it before it happens, not to hide it by pricing both
+    sides wrong (which is what we did until now).
+
+    Covers the model the forecast priced at AND every model the agent was
+    observed running, since a model-switching agent's cost can move on a date
+    that has nothing to do with its declared model.
+    """
+    from datetime import date as _date, datetime as _dt, timedelta as _td
+
+    if today is None:
+        today = _dt.utcnow().date()
+    elif isinstance(today, str):
+        today = _date.fromisoformat(today[:10])
+    elif isinstance(today, _dt):
+        today = today.date()
+
+    keys: list[str] = []
+    for k in [model_name] + [m.get("model") for m in (observed_models or [])]:
+        if k and k not in keys:
+            keys.append(k)
+
+    for key in keys:
+        mp = (defaults.get("models") or {}).get(key) or {}
+        ep = mp.get("effective_price")
+        if not isinstance(ep, dict) or not ep.get("until"):
+            continue
+        try:
+            until = _date.fromisoformat(str(ep["until"])[:10])
+        except ValueError:
+            continue
+
+        e_in = float(ep.get("input_per_mtok", 0.0))
+        e_out = float(ep.get("output_per_mtok", 0.0))
+        s_in = float(mp.get("input_per_mtok", 0.0))
+        s_out = float(mp.get("output_per_mtok", 0.0))
+        if e_in <= 0 or e_out <= 0:
+            continue
+
+        rates = (f"${e_in:.2f}/${e_out:.2f} per million tokens in/out, "
+                 f"against the standard ${s_in:.2f}/${s_out:.2f}")
+
+        if today <= until:
+            # Quote a single percentage only when both sides move by the same
+            # factor; otherwise "about X%" would be true of one rate and not the
+            # other, which is the class of claim this whole item exists to stop.
+            pct_in = round((s_in / e_in - 1) * 100)
+            pct_out = round((s_out / e_out - 1) * 100)
+            rise = (f"about {pct_in}% more expensive"
+                    if pct_in == pct_out else
+                    f"{pct_in}% more expensive on input and {pct_out}% on output")
+            return (
+                f"Introductory pricing on {key} ends {until.isoformat()} ({rates}). "
+                f"Spend already recorded is priced at what was actually billed, and the "
+                f"forecast above already uses the standard rate — so no forecast changes "
+                f"that day, but this model becomes {rise} to run from "
+                f"{(until + _td(days=1)).isoformat()}."
+            )
+        if (today - until).days <= PRICING_NOTE_TRAILING_DAYS:
+            return (
+                f"Introductory pricing on {key} ended {until.isoformat()} ({rates}). "
+                f"Spend recorded on or before that date is priced at the introductory "
+                f"rate, which is why earlier days in the chart read lower."
+            )
+    return None
 
 
 # ── Spend anomaly detection (last 24h vs trailing baseline) ──────────────────
@@ -888,7 +1197,13 @@ def detect_spend_anomaly(
             continue
         total_in, cached, cache_creation, out = u
         model_key = _resolve_model_key(detail.get("model"), defaults)
-        usd = _call_cost_usd(total_in, cached, out, model_key, defaults, cache_creation=cache_creation)
+        # Observed dollars on both sides of the comparison, each at its own date's
+        # rate. A rate change inside the 8-day window does move the ratio (a
+        # lapsing promo makes the recent side dearer for identical traffic), but
+        # by the size of the price step — far under SPEND_ANOMALY_RATIO — and it
+        # is a real cost increase the CFO should see, not an artefact.
+        usd = _call_cost_usd(total_in, cached, out, model_key, defaults,
+                             cache_creation=cache_creation, at=ts)
         call = (usd, total_in + out, model_key)
         (recent if ts >= cutoff_recent else baseline).append(call)
 
@@ -1129,8 +1444,74 @@ def _estimate_tool_cost_per_call(
 
 
 # ── Per-agent sensitivity (±20% perturbation) ────────────────────────────────
+#
+# 2.7: this was an unbounded, TTL-less dict busted only by an in-process call.
+# Two defects, and the second is the one that costs money:
+#
+#   1. It grew forever. The key includes a hash of the agent config, so every
+#      edit to every agent added a permanent entry.
+#   2. `clear_override_caches()` runs on ONE instance. An org saving a negotiated
+#      rate cleared that instance and no other, so every other instance kept
+#      quoting LIST PRICE for that org — with no TTL, indefinitely. A customer
+#      who just told us their contract rate would keep seeing the wrong number
+#      depending on which instance answered.
+#
+# The fix for (2) is a version marker rather than cross-instance invalidation
+# messaging: an override write bumps a per-org counter in Redis, and the counter
+# is part of the cache key, so every instance misses on its next read without
+# anyone having to be told. The marker itself is cached locally for a few seconds
+# so a cache HIT does not cost a network round trip; that bounds staleness at
+# seconds instead of forever.
+_SENSITIVITY_CACHE: dict[tuple, tuple[float, list[dict]]] = {}
+_SENSITIVITY_TTL_SECONDS = 900
+#: Hard ceiling. This is a cache, not a ledger — evicting the oldest entries
+#: costs a recomputation, which is exactly what it costs on a cold instance.
+_SENSITIVITY_MAX_ENTRIES = 2000
 
-_SENSITIVITY_CACHE: dict[tuple[str, str, str], list[dict]] = {}
+_OVERRIDES_VERSION_LOCAL: dict[str, tuple[float, str]] = {}
+_OVERRIDES_VERSION_TTL_SECONDS = 5.0
+
+
+def _overrides_version(org_id: Optional[str]) -> str:
+    """A marker that changes whenever ANY instance writes this org's overrides.
+
+    Read through a short local TTL so the common path (cache hit) stays free.
+    Degrades to a constant when Redis is unavailable — that restores the old
+    per-instance behaviour rather than breaking forecasts, which is the right
+    trade for a pricing cache.
+    """
+    if not org_id:
+        return "-"
+    now = _time.time()
+    hit = _OVERRIDES_VERSION_LOCAL.get(org_id)
+    if hit is not None and now - hit[0] < _OVERRIDES_VERSION_TTL_SECONDS:
+        return hit[1]
+    version = "0"
+    try:
+        import shared_state
+
+        version = str(shared_state.client().get(f"overrides_ver:{org_id}") or "0")
+    except Exception:
+        pass
+    _OVERRIDES_VERSION_LOCAL[org_id] = (now, version)
+    return version
+
+
+def bump_overrides_version(org_id: Optional[str]) -> None:
+    """Invalidate every instance's sensitivity cache for one org.
+
+    Called on an override write. Cheap, and it does not need to reach the other
+    instances — they read the marker themselves.
+    """
+    if not org_id:
+        return
+    try:
+        import shared_state
+
+        shared_state.client().incr(f"overrides_ver:{org_id}")
+    except Exception:
+        pass
+    _OVERRIDES_VERSION_LOCAL.pop(org_id, None)
 
 
 # ── Data sources panel ───────────────────────────────────────────────────────
@@ -1293,20 +1674,15 @@ def _compute_per_agent_sensitivity(
         {_volume_key: max(1, int(round(base_calls * 0.8)))},
     )))
 
-    # Model choice — spread across all available models (categorical, no ±20%)
-    model_points = [baseline_point]
-    for m_name in defaults.get("models", {}).keys():
-        if m_name == base_model:
-            continue
-        try:
-            model_points.append(_point_with(model=m_name))
-        except Exception:
-            continue
-    if len(model_points) > 1:
-        model_pct = int(round((max(model_points) - min(model_points)) / baseline_point * 100))
-    else:
-        model_pct = 0
-    sensitivities.append(("Model choice", model_pct))
+    # Model choice is deliberately NOT in `sensitivities`. Every row in that list
+    # answers "what if this input moves +/-20%"; model choice answers "what if you
+    # used a different product". Reporting them on one scale was a category error
+    # with real consequences: the categorical spread ran to 1514-2170% on the
+    # reference agents, so it won `sensitivities.sort()` every time, became
+    # sensitivity[0], and the UI multiplies sensitivity[0].pct by the forecast to
+    # caption the panel -- telling the owner of a $714/mo agent that a swing moves
+    # cost by ~$15,494/mo, while burying the real top driver. It is reported
+    # separately below, as the two concrete dollar figures it actually is.
 
     sensitivities.append(("Cache hit rate", _avg_pct_change(
         {"cache_hit": min(100.0, base_cache * 1.2)},
@@ -1325,10 +1701,49 @@ def _compute_per_agent_sensitivity(
 
     sensitivities.sort(key=lambda t: t[1], reverse=True)
 
-    return [
-        {"label": label, "pct": pct, "color": _color_for_rank(i, len(sensitivities))}
-        for i, (label, pct) in enumerate(sensitivities)
-    ]
+    # Cheapest and dearest RECOMMENDABLE alternatives, as dollars rather than a
+    # percentage. Retired rows are excluded for the same reason Lever 1 excludes
+    # them: naming a sunset model as the cheap option is advice we would not give.
+    priced: list[tuple[str, float]] = []
+    for m_name, m_row in (defaults.get("models") or {}).items():
+        if m_name == base_model or not is_recommendable(m_row):
+            continue
+        try:
+            priced.append((m_name, _point_with(model=m_name)))
+        except Exception:
+            continue
+
+    model_choice = None
+    if priced:
+        cheapest = min(priced, key=lambda t: t[1])
+        cheapest_row = (defaults.get("models") or {}).get(cheapest[0]) or {}
+        cur_provider = model_provider((defaults.get("models") or {}).get(base_model) or {})
+        new_provider = model_provider(cheapest_row)
+        model_choice = {
+            "currentModel": base_model,
+            "currentPoint": round(baseline_point),
+            "cheapestModel": cheapest[0],
+            "cheapestPoint": round(cheapest[1]),
+            # Same disclosure Lever 1 makes: a cost figure that quietly assumes a
+            # different vendor is not a cost figure a governance product should
+            # hand over without saying so.
+            "cheapestProvider": new_provider,
+            "changesProvider": bool(new_provider and new_provider != cur_provider),
+        }
+        # Deliberately NOT reported: the DEAREST alternative and a spread ratio.
+        # Both were tried and both reproduce the defect this change exists to fix
+        # -- across 50 recommendable models the spread reaches 871x, which is the
+        # 2170% number wearing a different unit. Nobody switches model to spend
+        # more, so the ceiling is noise; the floor is the only end of the range
+        # that answers a question anyone is asking.
+
+    return {
+        "rows": [
+            {"label": label, "pct": pct, "color": _color_for_rank(i, len(sensitivities))}
+            for i, (label, pct) in enumerate(sensitivities)
+        ],
+        "modelChoice": model_choice,
+    }
 
 
 def _cached_sensitivity(
@@ -1339,23 +1754,30 @@ def _cached_sensitivity(
     baseline_point: float,
     defaults: dict,
     org_id: Optional[str] = None,
-) -> list[dict]:
+) -> dict:
     agent_id = str(agent_config.get("id") or agent_config.get("name") or "unknown")
     key = (
         agent_id,
         _stable_hash(agent_config),
         # org_id is in the key because per-org cost overrides shift the
-        # perturbation results; clear_override_caches() busts on writes.
-        _stable_hash({"overrides": overrides, "org": org_id, "tier_inputs": [bool(sandbox_traces), live_trace_count_7d > 0]}),
+        # perturbation results. The overrides VERSION is in it too, so a write on
+        # any instance changes this key everywhere — see _overrides_version.
+        _stable_hash({"overrides": overrides, "org": org_id,
+                      "ver": _overrides_version(org_id),
+                      "tier_inputs": [bool(sandbox_traces), live_trace_count_7d > 0]}),
     )
+    now = _time.time()
     cached = _SENSITIVITY_CACHE.get(key)
-    if cached is not None:
-        return cached
+    if cached is not None and now - cached[0] < _SENSITIVITY_TTL_SECONDS:
+        return cached[1]
     result = _compute_per_agent_sensitivity(
         agent_config, sandbox_traces, live_trace_count_7d, overrides, baseline_point, defaults,
         org_id=org_id,
     )
-    _SENSITIVITY_CACHE[key] = result
+    if len(_SENSITIVITY_CACHE) >= _SENSITIVITY_MAX_ENTRIES:
+        for stale in sorted(_SENSITIVITY_CACHE, key=lambda k: _SENSITIVITY_CACHE[k][0])[:500]:
+            _SENSITIVITY_CACHE.pop(stale, None)
+    _SENSITIVITY_CACHE[key] = (now, result)
     return result
 
 
@@ -1494,7 +1916,7 @@ def forecast_spend(
                 # the declared model was measured.
                 "observedModels": [],
             },
-            "lastCalibrated": defaults.get("last_calibrated"),
+            "lastCalibrated": catalog_calibration_date(defaults),
         }
 
     # ── Volume: runs/day × turns/run = LLM calls/day ──
@@ -1616,8 +2038,17 @@ def forecast_spend(
         in_tokens, out_tokens = _estimate_tokens_per_call(agent_config, defaults, inflation, turns_per_run)
 
     # ── Per-call LLM cost ──
-    in_price = model_pricing["input_per_mtok"] / 1_000_000.0
-    out_price = model_pricing["output_per_mtok"] / 1_000_000.0
+    # Priced through `_effective_rates` rather than off the row's sticker fields,
+    # so a declared long-context agent is forecast at the tier it will actually
+    # be billed at. `at=None` is deliberate and unchanged: a DATED promo still
+    # must not be projected forward. Length is the dimension that must be, and
+    # reading `input_per_mtok` directly here was the last place a >200k prompt
+    # was priced at the low tier — under-forecasting those agents by up to 2x,
+    # and quoting model-switch savings (Lever 1 reprices through this function)
+    # at a tier the agent's own prompts would not have qualified for.
+    _in_rate, _out_rate = _effective_rates(model_pricing, None, input_tokens=in_tokens)
+    in_price = _in_rate / 1_000_000.0
+    out_price = _out_rate / 1_000_000.0
     cache_discount = float(model_pricing.get("cache_discount", 0.5))
     cache_factor = 1.0 - (cache_hit_rate * cache_discount)
     retry_factor = 1.0 + retry_rate
@@ -1751,6 +2182,15 @@ def forecast_spend(
         "toolMix": "measured" if tool_mix_measured else "default",
     }
 
+    _sens = (
+        {"rows": [], "modelChoice": None}  # never canned; real per-agent or absent
+        if _skip_sensitivity
+        else _cached_sensitivity(
+            agent_config, sandbox_traces, live_trace_count_7d, overrides, monthly_point, defaults,
+            org_id=org_id,
+        )
+    )
+
     return {
         "available": True,
         "point": round(monthly_point),
@@ -1787,14 +2227,11 @@ def forecast_spend(
         "topTools": top_tools,
         # Unit econ outcomes are per-RUN (sandbox occurrences are per run) → pass runs_per_day, not llm_calls.
         "unitEcon": _compute_unit_econ(agent_config, sandbox_traces, monthly_point, runs_per_day),
-        "sensitivity": (
-            []  # never canned; sensitivity is real per-agent or absent
-            if _skip_sensitivity
-            else _cached_sensitivity(
-                agent_config, sandbox_traces, live_trace_count_7d, overrides, monthly_point, defaults,
-                org_id=org_id,
-            )
-        ),
+        "sensitivity": _sens["rows"],
+        # Reported apart from `sensitivity` on purpose: the rows there are +/-20%
+        # perturbations of one input, this is a different product entirely. Two
+        # dollar figures, not a percentage that would out-sort every real driver.
+        "modelChoice": _sens["modelChoice"],
         "inputSources": input_sources,
         "confidence": tier,
         "model": model_name,
@@ -1811,7 +2248,14 @@ def forecast_spend(
             # this is the measurement, and the UI must not conflate them.
             "observedModels": overrides.get("by_model") or [],
         },
-        "lastCalibrated": defaults.get("last_calibrated"),
+        "lastCalibrated": catalog_calibration_date(defaults),
+        # Null unless a priced or observed model's rate moves on a known date.
+        # The forecast never changes on that date (it is already at sticker) —
+        # what changes is the customer's bill, which is exactly why it is worth
+        # saying out loud before it happens.
+        "pricingNote": _pricing_note(
+            model_name, defaults, observed_models=overrides.get("by_model")
+        ),
     }
 
 
@@ -1875,9 +2319,17 @@ def compute_budget_fit(
 
     # ── Lever 1: model tier — least-aggressive downgrade that fits, else cheapest
     cur_model = base_overrides.get("model") or base["model"]
+    _catalog = load_defaults(org_id).get("models", {})
+    cur_provider = model_provider(_catalog.get(cur_model) or {})
     cheaper: list[tuple[str, int]] = []
-    for m_name in (load_defaults(org_id).get("models", {})):
+    for m_name, m_row in _catalog.items():
         if m_name == cur_model:
+            continue
+        # Never advise migrating ONTO a model the vendor is sunsetting. Retired
+        # rows stay priced (historical calls need them) but are not advice.
+        # Without this the "cheapest when nothing fits" branch below reached
+        # gemini-1-5-flash, which Google no longer lists.
+        if not is_recommendable(m_row):
             continue
         p, _ = _point({"model": m_name})
         if p < base_point:
@@ -1887,9 +2339,19 @@ def compute_budget_fit(
         # Among models that fit, prefer the most expensive (smallest change);
         # if none fit, take the cheapest (max saving).
         pick = max(fitting, key=lambda c: c[1]) if fitting else min(cheaper, key=lambda c: c[1])
+        # Say so when the cheapest option is a different vendor. We have no
+        # residency policy to enforce against, so this discloses rather than
+        # blocks: a governance product must not quietly route an Anthropic
+        # customer's traffic to another provider inside a cost tip.
+        new_provider = model_provider(_catalog.get(pick[0]) or {})
+        _switch = f"Switch the model to {pick[0]}"
+        if new_provider and new_provider != cur_provider:
+            _switch += f" ({new_provider}, a different provider)"
         cost_recs.append({
             "lever": "model",
-            "label": f"Switch the model to {pick[0]}",
+            "newProvider": new_provider,
+            "changesProvider": bool(new_provider and new_provider != cur_provider),
+            "label": _switch,
             "projectedSaving": round(base_point - pick[1]),
             "newPoint": pick[1],
             "tradeoff": "Cheaper per token — verify quality on your evals before switching.",

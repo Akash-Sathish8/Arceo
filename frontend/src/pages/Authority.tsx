@@ -959,7 +959,7 @@ export default function Authority() {
               <ol className="space-y-4 text-xs text-gray-700" style={{ marginTop: 16 }}>
                 <li className="flex gap-3">
                   <span className="flex-shrink-0 w-5 h-5 rounded-full bg-gray-900 text-white text-[11px] font-semibold flex items-center justify-center">1</span>
-                  <div><strong className="text-gray-900">Generate an API key.</strong>{' '}<a href="/settings" className="underline text-gray-900 hover:text-indigo-600">Settings → API Keys → New Key</a>. Copy it once — you won't see it again.</div>
+                  <div><strong className="text-gray-900">Generate an API key.</strong>{' '}<a href="/settings" className="underline text-gray-900 hover:text-indigo-600">Settings → API &amp; Integration → API Keys</a>. Copy it once — you won't see it again.</div>
                 </li>
                 <li className="flex gap-3">
                   <span className="flex-shrink-0 w-5 h-5 rounded-full bg-gray-900 text-white text-[11px] font-semibold flex items-center justify-center">2</span>
@@ -1070,8 +1070,13 @@ export default function Authority() {
 
           {connectTab === 'proxy' && (
             <div className="space-y-4">
+              {/* Was "Point one environment variable at Arceo — no code changes,
+                  no SDK install." Two env vars and a header, and the header is
+                  not optional: _proxy_requires_key() defaults to ON outside dev
+                  (main.py:523-532), so the old instructions produced a 401 on
+                  every call in exactly the environment that matters. */}
               <p style={{ fontSize: 13, color: 'var(--text-secondary)', background: 'var(--bg-sunken)', borderRadius: 8, padding: '10px 14px', margin: 0 }}>
-                Point one environment variable at Arceo — no code changes, no SDK install. Every LLM call flows through us and appears in the dashboard. <span style={{ color: 'var(--text-primary)', fontWeight: 500 }}>~2 minutes to set up.</span>
+                Point your SDK's base URL at Arceo and add two headers — no code changes beyond your client config, no SDK install. Every LLM call flows through us and appears in the dashboard. <span style={{ color: 'var(--text-primary)', fontWeight: 500 }}>~2 minutes to set up.</span>
               </p>
 
               <div>
@@ -1081,7 +1086,11 @@ export default function Authority() {
                   placeholder="e.g. production-support-agent"
                   style={{ height: 40 }}
                 />
-                <p className="text-[11px] text-gray-500 mt-1">No registration needed — Arceo auto-creates the agent on the first call.</p>
+                {/* Was "No registration needed — Arceo auto-creates the agent on
+                    the first call." True only WITH a key: the auto-create branch
+                    is gated on key_info and 404s without it (main.py:812-816),
+                    in dev too. The key is the registration. */}
+                <p className="text-[11px] text-gray-500 mt-1">No need to create the agent first — your API key registers it automatically on its first call.</p>
               </div>
 
               <div className="bg-gray-900 text-gray-100 rounded-lg p-4 font-mono text-[12px] leading-relaxed overflow-x-auto">
@@ -1089,9 +1098,13 @@ export default function Authority() {
                 <div>export ANTHROPIC_BASE_URL=<span className="text-amber-300">"https://api.arceo.io/proxy/llm/anthropic"</span></div>
                 <div className="mt-3 text-gray-500"># OpenAI SDK</div>
                 <div>export OPENAI_BASE_URL=<span className="text-amber-300">"https://api.arceo.io/proxy/llm/openai"</span></div>
-                <div className="mt-3 text-gray-500"># Default header (set in your shared client config)</div>
+                <div className="mt-3 text-gray-500"># Default headers (set in your shared client config)</div>
                 <div>X-Agent-ID: <span className="text-amber-300">"{proxyName || '<your-agent-name>'}"</span></div>
-                <div className="mt-3 text-gray-500"># That's it. No SDK install, no code change. Restart your service —</div>
+                {/* Not optional. _proxy_requires_key() is ON by default outside
+                    dev (main.py:523-532), and the auto-create branch needs it
+                    too (:812-816) — without this header the whole flow 401s. */}
+                <div>X-API-Key: <span className="text-amber-300">"{'<your-arceo-api-key>'}"</span> <span className="text-gray-500">{'# Settings → API & Integration'}</span></div>
+                <div className="mt-3 text-gray-500"># That's it. No SDK install. Restart your service —</div>
                 <div className="text-gray-500"># every messages.create() and chat.completions.create() now flows</div>
                 <div className="text-gray-500"># through Arceo and appears in the dashboard.</div>
               </div>
@@ -1102,7 +1115,10 @@ export default function Authority() {
                   variant="secondary"
                   onClick={() => {
                     const name = proxyName.trim() || '<your-agent-name>'
-                    const snippet = `export ANTHROPIC_BASE_URL="https://api.arceo.io/proxy/llm/anthropic"\nexport OPENAI_BASE_URL="https://api.arceo.io/proxy/llm/openai"\n# Set on every outbound request from your agent:\n#   X-Agent-ID: ${name}\n`
+                    // The clipboard string is what actually gets pasted into a
+                    // customer's config, so it has to carry the key too — it
+                    // silently omitted X-API-Key while the proxy required it.
+                    const snippet = `export ANTHROPIC_BASE_URL="https://api.arceo.io/proxy/llm/anthropic"\nexport OPENAI_BASE_URL="https://api.arceo.io/proxy/llm/openai"\n# Set on every outbound request from your agent:\n#   X-Agent-ID: ${name}\n#   X-API-Key:  <your-arceo-api-key>   # Settings -> API & Integration -> API Keys\n`
                     navigator.clipboard.writeText(snippet)
                     toast('Proxy config copied')
                   }}

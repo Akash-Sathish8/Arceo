@@ -19,6 +19,8 @@ import uuid
 
 import redis
 
+import envcheck
+
 logger = logging.getLogger(__name__)
 
 REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
@@ -40,6 +42,56 @@ _client = redis.Redis.from_url(
 
 def client() -> "redis.Redis":
     return _client
+
+
+def enforce_redis_reachable() -> None:
+    """Tier 2.3: refuse to boot a real deploy that cannot reach Redis.
+
+    Redis is a HARD dependency, not a cache — the module docstring above explains
+    why there is deliberately no in-memory fallback. The consequence is easy to
+    under-read: `rate_limit_ok` fails CLOSED (MED-007), so an unreachable Redis
+    does not degrade the product, it **bricks** it. Signup and login 429
+    (main.py:1633, :1710), and so do `/api/enforce`, `/api/scan` — the GitHub
+    Action's endpoint — the LLM proxy, LLM capture, live-trace ingest and the
+    mock sandbox.
+
+    A container in that state passes its health check and answers 429 to every
+    real request, which is the worst failure shape available: it looks deployed.
+    Better to never come up, and on Cloud Run a revision that fails to start is
+    rolled back automatically rather than taking traffic.
+
+    ⚠️ Do NOT "fix" the fail-closed behaviour instead — it is MED-007, pinned by
+    `test_login_still_refuses_when_redis_is_down`. A limiter that cannot count
+    must not wave brute-force traffic through. This function exists so that
+    posture is discovered at boot rather than by a customer at login.
+
+    Dev warns instead of raising: a laptop mid-`docker compose up` should get a
+    readable warning, not a stack trace, and the same warning is what tells you
+    why login is 429ing.
+    """
+    try:
+        _client.ping()
+        return
+    except redis.RedisError as exc:
+        detail = f"{type(exc).__name__}: {exc}"
+
+    if envcheck.is_dev_env():
+        logger.warning(
+            "Redis is unreachable at %s (%s). Rate limiting fails CLOSED, so login, "
+            "signup, /api/enforce and /api/scan will all return 429 until it is up. "
+            "Start it with `docker compose up -d redis`.",
+            REDIS_URL, detail,
+        )
+        return
+
+    raise RuntimeError(
+        f"Redis is unreachable at {REDIS_URL} ({detail}). It is a hard dependency, "
+        "not a cache: rate limiting fails closed, so this instance would answer 429 "
+        "to every login, enforcement check and repo scan while still passing its "
+        "health check. Set REDIS_URL to a reachable instance — on Google Cloud that "
+        "means Memorystore plus a Serverless VPC connector, which is a prerequisite "
+        "rather than an add-on."
+    )
 
 
 # ── Rate limiting: atomic sliding window ──────────────────────────────────────
@@ -165,8 +217,24 @@ def try_acquire_leader(name: str, ttl_seconds: int) -> bool:
 
 def should_fire_once(key: str, ttl_seconds: int) -> bool:
     """True the first time this key is seen within the TTL, False after — so two
-    workers deciding the same BLOCK don't both fire a notification."""
+    workers deciding the same BLOCK don't both fire a notification.
+
+    ⚠️ This CLAIMS the key. Callers that want to skip expensive work before
+    deciding whether they even have something to fire must peek with
+    `fired_recently` first — claiming early would burn the token on a call that
+    then decides not to alert, and nothing would ever be sent."""
     return bool(_client.set(f"once:{key}", "1", nx=True, ex=ttl_seconds))
+
+
+def fired_recently(key: str) -> bool:
+    """Whether `should_fire_once(key, ...)` has already been claimed and not yet
+    expired. Read-only — it does NOT claim.
+
+    Exists so a caller can bail out before doing costly work: the budget alert's
+    dedupe guards a month-to-date audit scan with per-row decryption, on the hot
+    path of every captured LLM call, so "have we already alerted this month?"
+    has to be answerable without a database read."""
+    return bool(_client.exists(f"once:{key}"))
 
 
 # ── Spend counters: atomic month-to-date totals (MED-004) ─────────────────────
@@ -245,6 +313,41 @@ def spend_adjust(scope: str, delta: float) -> None:
     """Apply a correction to a live counter (settle a reservation to its real cost,
     or release it entirely with the negative of what was reserved)."""
     _SPEND_ADJUST(keys=[_spend_key(scope)], args=[repr(float(delta)), _SPEND_TTL])
+
+
+#: Accrual, as opposed to reservation-settlement. `_SPEND_ADJUST` above returns
+#: early when the key does not exist, which is correct for its job — settling a
+#: hold that must already be there, where creating one would invent money in the
+#: customer's budget ledger. Arceo's own COGS has no reservation step: the cost
+#: is only known after the call returns, and the first call of the month is
+#: exactly the case where the key is cold. Hence a separate script rather than
+#: relaxing the existing one.
+_SPEND_ACCRUE = _client.register_script(
+    """
+    local key = KEYS[1]
+    local total = redis.call('INCRBYFLOAT', key, ARGV[1])
+    redis.call('EXPIRE', key, tonumber(ARGV[2]))
+    return total
+    """
+)
+
+
+def spend_accrue(scope: str, amount: float) -> float | None:
+    """Add to a counter, creating it if cold. Returns the new total.
+
+    Used for Arceo's own LLM spend (see cogs.py), which is measured after the
+    fact and never reserved. Do NOT use this to settle a customer budget
+    reservation — `spend_adjust` refuses a cold key on purpose.
+    """
+    try:
+        return float(_SPEND_ACCRUE(keys=[_spend_key(scope)],
+                                   args=[repr(float(amount)), _SPEND_TTL]))
+    except (redis.RedisError, ValueError, TypeError):
+        # Metering is best-effort: losing a COGS data point must never fail the
+        # work that produced it. Unlike the rate limiter there is nothing to
+        # fail closed ABOUT — refusing the call would not protect anything.
+        logger.warning("spend_accrue failed for %s; COGS under-counted", scope)
+        return None
 
 
 def spend_total(scope: str) -> float | None:
