@@ -1,17 +1,27 @@
 import { useState, useEffect, useCallback } from "react";
 import { Link } from "react-router-dom";
-import { Link2, CheckCircle, Square, CheckSquare } from "lucide-react";
+import { Link2, CheckCircle, Square, CheckSquare, ArrowUpDown, X, Plus, Clock, Route, MoreVertical } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { toast } from "@/components/shared/Toast";
-import { scoreBand, scoreToColor } from "@/lib/utils";
+import { scoreBand, scoreToColor, timeAgo } from "@/lib/utils";
 import { chainShortLabel, chainNarrative } from "@/lib/chainLabels";
 import Tooltip from "@/components/shared/Tooltip";
 import ErrorState from "@/components/shared/ErrorState";
+import PageHeader from "@/components/shared/PageHeader";
 import { RISK_SCORE_METHODOLOGY, OVER_PERMISSION_METHODOLOGY } from "@/lib/methodology";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const AGENT_COLORS = ["#2563eb", "#16a34a", "#ea580c", "#7c3aed", "#0d9488"] as const;
+/* Agent-identity colors (trace steps, chips). Deliberately distinct from the
+   severity palette — the old set reused safe-green and high-orange, which made
+   agent chips read as status. Order validated for CVD + normal-vision
+   separation (dataviz six-checks, 2026-08-27); agent names always accompany
+   the color, so identity is never color-alone.
+   2026-09-02: member 2 moved from Carolina #2E7BB0 to brand deep blue #0E3C90.
+   Re-checked rather than assumed — separation improved on both axes: minimum
+   pairwise ΔE 44.0 → 45.9 normal vision, and 17.0 → 24.1 under simulated
+   deuteranopia. The other three members are untouched. */
+const AGENT_COLORS = ["#c2417f", "#0E3C90", "#8b5cf6", "#0d9488"] as const;
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -36,6 +46,8 @@ interface AgentData {
   /** The list endpoint returns tool service names as plain strings. */
   tools?: string[];
   blast_radius?: AgentBlastRadius;
+  /** Last time this agent actually called the enforcement API, if ever. */
+  last_execution_at?: string | null;
 }
 
 interface CrossAgentChain {
@@ -221,10 +233,10 @@ function OptimizeResult({ result, onApply, applying, appliedCount }: OptimizeRes
 
   const verdictColor =
     overall_optimization_score < 20
-      ? "#16a34a"
+      ? "var(--safe)"
       : overall_optimization_score < 50
-      ? "#ea580c"
-      : "#dc2626";
+      ? "var(--high)"
+      : "var(--critical)";
 
   return (
     <div
@@ -262,57 +274,61 @@ function OptimizeResult({ result, onApply, applying, appliedCount }: OptimizeRes
       >
         <div style={{ textAlign: "center" }}>
           <div
+            className="mono"
             style={{
               fontSize: 20,
               fontWeight: 700,
-              color: total_overprivileged > 0 ? "#dc2626" : "#16a34a",
+              color: total_overprivileged > 0 ? "var(--critical)" : "var(--safe)",
             }}
           >
             {total_overprivileged}
           </div>
-          <div style={{ fontSize: 11, color: "#6b7280" }}>Permissions not needed</div>
+          <div style={{ fontSize: 11, color: "var(--ink-500)" }}>Permissions not needed</div>
         </div>
         <div style={{ textAlign: "center" }}>
           <div
+            className="mono"
             style={{
               fontSize: 20,
               fontWeight: 700,
-              color: total_permission_gaps > 0 ? "#ea580c" : "#16a34a",
+              color: total_permission_gaps > 0 ? "var(--high)" : "var(--safe)",
             }}
           >
             {total_permission_gaps}
           </div>
-          <div style={{ fontSize: 11, color: "#6b7280" }}>Permissions missing</div>
+          <div style={{ fontSize: 11, color: "var(--ink-500)" }}>Permissions missing</div>
         </div>
         <div style={{ textAlign: "center" }}>
           <div
+            className="mono"
             style={{
               fontSize: 20,
               fontWeight: 700,
-              color: totalApprovalGates > 0 ? "#ca8a04" : "#16a34a",
+              color: totalApprovalGates > 0 ? "var(--caution)" : "var(--safe)",
             }}
           >
             {totalApprovalGates}
           </div>
-          <div style={{ fontSize: 11, color: "#6b7280" }}>Steps needing sign-off</div>
+          <div style={{ fontSize: 11, color: "var(--ink-500)" }}>Steps needing sign-off</div>
         </div>
         <Tooltip content={OVER_PERMISSION_METHODOLOGY}>
           <div style={{ textAlign: "center", cursor: "help" }}>
             <div
+              className="mono"
               style={{
                 fontSize: 20,
                 fontWeight: 700,
                 color:
                   overall_optimization_score > 50
-                    ? "#dc2626"
+                    ? "var(--critical)"
                     : overall_optimization_score > 20
-                    ? "#ea580c"
-                    : "#16a34a",
+                    ? "var(--high)"
+                    : "var(--safe)",
               }}
             >
               {overall_optimization_score}
             </div>
-            <div style={{ fontSize: 11, color: "#6b7280" }}>Excess-permission score</div>
+            <div style={{ fontSize: 11, color: "var(--ink-500)" }}>Excess permissions</div>
           </div>
         </Tooltip>
       </div>
@@ -339,7 +355,7 @@ function OptimizeResult({ result, onApply, applying, appliedCount }: OptimizeRes
             <span style={{ fontSize: 13, fontWeight: 600, color: "var(--text-primary)" }}>
               {agent.agent_name}
             </span>
-            <span style={{ fontSize: 12, color: "#6b7280" }}>{agent.summary}</span>
+            <span style={{ fontSize: 12, color: "var(--ink-500)" }}>{agent.summary}</span>
           </div>
 
           {agent.overprivileged && agent.overprivileged.length > 0 && (
@@ -350,7 +366,7 @@ function OptimizeResult({ result, onApply, applying, appliedCount }: OptimizeRes
                   fontWeight: 600,
                   textTransform: "uppercase",
                   letterSpacing: "0.05em",
-                  color: "#dc2626",
+                  color: "var(--critical)",
                   marginBottom: 4,
                 }}
               >
@@ -368,8 +384,8 @@ function OptimizeResult({ result, onApply, applying, appliedCount }: OptimizeRes
                       padding: "2px 6px",
                       borderRadius: 4,
                       ...(item.severity === "high"
-                        ? { background: "#fef2f2", color: "#dc2626" }
-                        : { background: "#fff7ed", color: "#ea580c" }),
+                        ? { background: "var(--critical)", color: "#fff" }
+                        : { background: "var(--high-bg)", color: "var(--high)" }),
                     }}
                   >
                     {item.severity?.toUpperCase()}
@@ -378,7 +394,7 @@ function OptimizeResult({ result, onApply, applying, appliedCount }: OptimizeRes
                     <code style={{ fontSize: 12, fontFamily: "monospace", color: "#1f2937" }}>
                       {item.action}
                     </code>
-                    <span style={{ fontSize: 12, color: "#6b7280", marginLeft: 8 }}>
+                    <span style={{ fontSize: 12, color: "var(--ink-500)", marginLeft: 8 }}>
                       {item.reason}
                     </span>
                   </div>
@@ -388,8 +404,8 @@ function OptimizeResult({ result, onApply, applying, appliedCount }: OptimizeRes
                       fontWeight: 700,
                       padding: "2px 6px",
                       borderRadius: 4,
-                      background: "#fef2f2",
-                      color: "#dc2626",
+                      background: "var(--critical-bg)",
+                      color: "var(--critical)",
                     }}
                   >
                     BLOCK
@@ -407,7 +423,7 @@ function OptimizeResult({ result, onApply, applying, appliedCount }: OptimizeRes
                   fontWeight: 600,
                   textTransform: "uppercase",
                   letterSpacing: "0.05em",
-                  color: "#ea580c",
+                  color: "var(--high)",
                   marginBottom: 4,
                 }}
               >
@@ -422,7 +438,7 @@ function OptimizeResult({ result, onApply, applying, appliedCount }: OptimizeRes
                     <code style={{ fontSize: 12, fontFamily: "monospace", color: "#1f2937" }}>
                       {item.action}
                     </code>
-                    <span style={{ fontSize: 12, color: "#6b7280", marginLeft: 8 }}>
+                    <span style={{ fontSize: 12, color: "var(--ink-500)", marginLeft: 8 }}>
                       {item.reason}
                     </span>
                   </div>
@@ -432,8 +448,8 @@ function OptimizeResult({ result, onApply, applying, appliedCount }: OptimizeRes
                       fontWeight: 700,
                       padding: "2px 6px",
                       borderRadius: 4,
-                      background: "#fff7ed",
-                      color: "#ea580c",
+                      background: "var(--high-bg)",
+                      color: "var(--high)",
                     }}
                   >
                     REVIEW
@@ -469,7 +485,7 @@ function OptimizeResult({ result, onApply, applying, appliedCount }: OptimizeRes
                       padding: "2px 6px",
                       borderRadius: 4,
                       background: "#fefce8",
-                      color: "#ca8a04",
+                      color: "var(--caution)",
                     }}
                   >
                     {chain.severity?.toUpperCase()}
@@ -478,7 +494,7 @@ function OptimizeResult({ result, onApply, applying, appliedCount }: OptimizeRes
                     <span style={{ fontSize: 12, fontWeight: 500, color: "#1f2937" }}>
                       {chainShortLabel(chain.chain_id ?? chain.chain_name)}
                     </span>
-                    <span style={{ fontSize: 12, color: "#6b7280", marginLeft: 8 }}>
+                    <span style={{ fontSize: 12, color: "var(--ink-500)", marginLeft: 8 }}>
                       {agent.agent_name} → {chain.to_agent} — a person approves before this handoff runs
                     </span>
                   </div>
@@ -489,7 +505,7 @@ function OptimizeResult({ result, onApply, applying, appliedCount }: OptimizeRes
                       padding: "2px 6px",
                       borderRadius: 4,
                       background: "#fefce8",
-                      color: "#ca8a04",
+                      color: "var(--caution)",
                       whiteSpace: "nowrap",
                     }}
                   >
@@ -509,7 +525,7 @@ function OptimizeResult({ result, onApply, applying, appliedCount }: OptimizeRes
                   alignItems: "center",
                   gap: 6,
                   fontSize: 12,
-                  color: "#16a34a",
+                  color: "var(--safe)",
                   fontWeight: 500,
                 }}
               >
@@ -530,7 +546,7 @@ function OptimizeResult({ result, onApply, applying, appliedCount }: OptimizeRes
                 alignItems: "center",
                 gap: 6,
                 fontSize: 13,
-                color: "#16a34a",
+                color: "var(--safe)",
                 fontWeight: 500,
               }}
             >
@@ -601,7 +617,7 @@ function WorkflowResult({ result, agentNames, agentColors, mode }: WorkflowResul
             borderRadius: "var(--radius-full)",
             ...(mode === "llm"
               ? { background: "var(--accent-soft)", color: "var(--accent-ink)" }
-              : { background: "var(--bg-sunken)", color: "#6b7280" }),
+              : { background: "var(--bg-sunken)", color: "var(--ink-500)" }),
           }}
         >
           {mode === "llm" ? "Driven by Claude" : "Capability sweep — no LLM"}
@@ -619,43 +635,46 @@ function WorkflowResult({ result, agentNames, agentColors, mode }: WorkflowResul
       >
         <div style={{ textAlign: "center" }}>
           <div
+            className="mono"
             style={{
               fontSize: 20,
               fontWeight: 700,
-              color: violations.length > 0 ? "#dc2626" : "#16a34a",
+              color: violations.length > 0 ? "var(--critical)" : "var(--safe)",
             }}
           >
             {violations.length}
           </div>
-          <div style={{ fontSize: 11, color: "#6b7280" }}>Rules broken</div>
+          <div style={{ fontSize: 11, color: "var(--ink-500)" }}>Rules broken</div>
         </div>
         <div style={{ textAlign: "center" }}>
           <div
+            className="mono"
             style={{
               fontSize: 20,
               fontWeight: 700,
-              color: allChains.length > 0 ? "#ea580c" : "#16a34a",
+              color: allChains.length > 0 ? "var(--high)" : "var(--safe)",
             }}
           >
             {allChains.length}
           </div>
-          <div style={{ fontSize: 11, color: "#6b7280" }}>Risky sequences</div>
+          <div style={{ fontSize: 11, color: "var(--ink-500)" }}>Risky sequences</div>
         </div>
         <div style={{ textAlign: "center" }}>
           <div style={{ fontSize: 20, fontWeight: 700, color: "var(--text-primary)" }}>{steps.length}</div>
-          <div style={{ fontSize: 11, color: "#6b7280" }}>Steps taken</div>
+          <div style={{ fontSize: 11, color: "var(--ink-500)" }}>Steps taken</div>
         </div>
         <div style={{ textAlign: "center" }}>
           <div
+            className="mono"
             style={{
               fontSize: 20,
               fontWeight: 700,
-              color: crossChains.length > 0 ? "#dc2626" : "#16a34a",
+              color: crossChains.length > 0 ? "var(--critical)" : "var(--safe)",
             }}
           >
             {crossChains.length}
           </div>
-          <div style={{ fontSize: 11, color: "#6b7280" }}>Risky handoffs</div>
+          <div style={{ fontSize: 11, color: "var(--ink-500)" }}>Risky handoffs</div>
         </div>
       </div>
 
@@ -681,7 +700,7 @@ function WorkflowResult({ result, agentNames, agentColors, mode }: WorkflowResul
               marginBottom: 8,
             }}
           >
-            <Link2 size={14} style={{ color: "#dc2626" }} />
+            <Link2 size={14} style={{ color: "var(--critical)" }} />
             Risky handoffs that happened in this test
           </div>
           {crossChains.map((c, i) => (
@@ -691,8 +710,7 @@ function WorkflowResult({ result, agentNames, agentColors, mode }: WorkflowResul
                 display: "flex",
                 alignItems: "flex-start",
                 gap: 8,
-                padding: "6px 0 6px 8px",
-                borderLeft: `2px solid ${c.severity === "critical" ? "#dc2626" : "#ea580c"}`,
+                padding: "6px 0",
               }}
             >
               <span
@@ -702,8 +720,8 @@ function WorkflowResult({ result, agentNames, agentColors, mode }: WorkflowResul
                   padding: "2px 6px",
                   borderRadius: 4,
                   ...(c.severity === "critical"
-                    ? { background: "#fef2f2", color: "#dc2626" }
-                    : { background: "#fff7ed", color: "#ea580c" }),
+                    ? { background: "var(--critical)", color: "#fff" }
+                    : { background: "var(--high-bg)", color: "var(--high)" }),
                 }}
               >
                 {c.severity?.toUpperCase()}
@@ -712,12 +730,12 @@ function WorkflowResult({ result, agentNames, agentColors, mode }: WorkflowResul
                 <span style={{ fontSize: 12, fontWeight: 500, color: "#1f2937" }}>
                   {chainShortLabel(c.chain_id ?? c.chain_name)}
                   {c.from_agent && c.to_agent && (
-                    <span style={{ fontWeight: 400, color: "#6b7280" }}>
+                    <span style={{ fontWeight: 400, color: "var(--ink-500)" }}>
                       {" "}· {c.from_agent} → {c.to_agent}
                     </span>
                   )}
                 </span>
-                <span style={{ fontSize: 12, color: "#6b7280" }}>
+                <span style={{ fontSize: 12, color: "var(--ink-500)" }}>
                   {chainNarrative(c.chain_id ?? c.chain_name)}
                 </span>
               </div>
@@ -735,7 +753,7 @@ function WorkflowResult({ result, agentNames, agentColors, mode }: WorkflowResul
               fontWeight: 600,
               textTransform: "uppercase",
               letterSpacing: "0.05em",
-              color: "#9ca3af",
+              color: "var(--ink-400)",
               marginBottom: 8,
             }}
           >
@@ -752,8 +770,8 @@ function WorkflowResult({ result, agentNames, agentColors, mode }: WorkflowResul
                   fontWeight: 700,
                   padding: "2px 6px",
                   borderRadius: 4,
-                  background: "#fef2f2",
-                  color: "#dc2626",
+                  background: "var(--critical-bg)",
+                  color: "var(--critical)",
                 }}
               >
                 {v.severity?.toUpperCase() || "HIGH"}
@@ -762,7 +780,7 @@ function WorkflowResult({ result, agentNames, agentColors, mode }: WorkflowResul
             </div>
           ))}
           {violations.length > 5 && (
-            <span style={{ fontSize: 12, color: "#9ca3af" }}>+{violations.length - 5} more</span>
+            <span style={{ fontSize: 12, color: "var(--ink-400)" }}>+{violations.length - 5} more</span>
           )}
         </div>
       )}
@@ -775,7 +793,7 @@ function WorkflowResult({ result, agentNames, agentColors, mode }: WorkflowResul
             fontWeight: 600,
             textTransform: "uppercase",
             letterSpacing: "0.05em",
-            color: "#9ca3af",
+            color: "var(--ink-400)",
             marginBottom: 8,
           }}
         >
@@ -785,7 +803,7 @@ function WorkflowResult({ result, agentNames, agentColors, mode }: WorkflowResul
           {steps.slice(0, 20).map((step, i) => {
             const stepAgentId = step.source_agent_id || step.agent_id || "";
             const decision = step.enforce_decision || step.decision;
-            const color = agentColors[stepAgentId] || "#9ca3af";
+            const color = agentColors[stepAgentId] || "var(--ink-400)";
             const agentName = agentNames[stepAgentId] || stepAgentId;
             const isBlocked = decision === "BLOCK";
             const isPending = decision === "REQUIRE_APPROVAL";
@@ -800,7 +818,7 @@ function WorkflowResult({ result, agentNames, agentColors, mode }: WorkflowResul
                   borderRadius: "var(--radius-md)",
                   fontSize: 12,
                   ...(isBlocked
-                    ? { background: "#fef2f2", border: "1px solid #fecaca" }
+                    ? { background: "var(--critical-bg)", border: "1px solid #fecaca" }
                     : isPending
                     ? { background: "#fefce8", border: "1px solid #fef08a" }
                     : { background: "var(--bg-sunken)" }),
@@ -840,7 +858,7 @@ function WorkflowResult({ result, agentNames, agentColors, mode }: WorkflowResul
                       padding: "2px 6px",
                       borderRadius: 4,
                       background: "#fecaca",
-                      color: "#dc2626",
+                      color: "var(--critical)",
                     }}
                   >
                     BLOCKED
@@ -854,7 +872,7 @@ function WorkflowResult({ result, agentNames, agentColors, mode }: WorkflowResul
                       padding: "2px 6px",
                       borderRadius: 4,
                       background: "#fef08a",
-                      color: "#ca8a04",
+                      color: "var(--caution)",
                     }}
                   >
                     PENDING
@@ -864,7 +882,7 @@ function WorkflowResult({ result, agentNames, agentColors, mode }: WorkflowResul
             );
           })}
           {steps.length > 20 && (
-            <div style={{ fontSize: 12, color: "#9ca3af", paddingLeft: 8 }}>
+            <div style={{ fontSize: 12, color: "var(--ink-400)", paddingLeft: 8 }}>
               +{steps.length - 20} more steps
             </div>
           )}
@@ -1150,6 +1168,15 @@ export default function Workflows() {
     }
   };
 
+  /** Empty the workflow: no lead, no specialists. */
+  const clearTeam = () => {
+    setCoordinatorId("");
+    setSpecialistIds([]);
+  };
+
+  /** The lead agent — the workflow's target, and the first one picked. */
+  const lead = agents.find((a) => a.id === coordinatorId);
+
   const textareaStyle: React.CSSProperties = {
     width: "100%",
     background: "var(--bg-sunken)",
@@ -1166,25 +1193,12 @@ export default function Workflows() {
 
   if (loading) {
     return (
-      <div style={{ padding: 24, background: "var(--bg-card)" }}>
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            height: 192,
-          }}
-        >
-          <div
-            style={{
-              width: 24,
-              height: 24,
-              border: "2px solid var(--border-strong)",
-              borderTopColor: "var(--color-cta)",
-              borderRadius: "50%",
-              animation: "spin 0.8s linear infinite",
-            }}
-          />
+      <div style={{ padding: "34px 40px 64px", maxWidth: 1140, margin: "0 auto" }} aria-busy="true" aria-label="Loading workflows">
+        {/* Mirrors the page: header → left tool rail + right results column */}
+        <div className="skeleton" style={{ height: 30, width: 200 }} />
+        <div style={{ display: "flex", gap: 24, marginTop: 24 }}>
+          <div className="skeleton" style={{ height: 320, width: 360, flexShrink: 0 }} />
+          <div className="skeleton" style={{ height: 320, flex: 1 }} />
         </div>
       </div>
     );
@@ -1196,10 +1210,7 @@ export default function Workflows() {
 
   if (agents.length < 2) {
     return (
-      <div style={{ padding: 24, background: "var(--bg-card)" }}>
-        <Link to="/" style={{ fontSize: 13, color: "#6b7280", textDecoration: "none" }}>
-          ← All Agents
-        </Link>
+      <div style={{ padding: "34px 40px 64px", fontFamily: "var(--font-sans)", maxWidth: 1140, margin: "0 auto" }}>
         <div
           style={{
             display: "flex",
@@ -1213,11 +1224,11 @@ export default function Workflows() {
         >
           <Link2 size={32} style={{ color: "var(--border)", marginBottom: 16 }} />
           <h2 style={{ fontSize: 17, fontWeight: 600, color: "var(--text-primary)", marginBottom: 8 }}>
-            Multi-Agent Workflows
+            Test agents as a team
           </h2>
-          <p style={{ fontSize: 13, color: "#6b7280", maxWidth: 360, marginBottom: 24 }}>
-            You need at least 2 agents to define a workflow. Arceo will analyze cross-agent risk
-            chains — actions one agent takes that enable another to cause harm.
+          <p style={{ fontSize: 13, color: "var(--ink-500)", maxWidth: 380, marginBottom: 24, lineHeight: 1.55 }}>
+            This page needs at least 2 agents. Once you have a team, Arceo shows you where one
+            agent's work lets another cause harm — before anything runs for real.
           </p>
           <Link
             to="/?connect=true"
@@ -1239,237 +1250,238 @@ export default function Workflows() {
   }
 
   return (
-    <div style={{ padding: 24, background: "var(--bg-card)" }}>
-      {/* Back link */}
-      <Link to="/" style={{ fontSize: 13, color: "#6b7280", textDecoration: "none" }}>
-        ← All Agents
-      </Link>
-
-      {/* Header */}
-      <div style={{ marginTop: 16, marginBottom: 24 }}>
-        <h1 style={{ fontSize: 20, fontWeight: 600, color: "var(--text-primary)", margin: 0 }}>
-          Multi-Agent Workflows
-        </h1>
-        <p style={{ fontSize: 13, color: "#6b7280", marginTop: 4, marginBottom: 0 }}>
-          Some risks only appear when agents work together — one agent's output becomes another's
-          dangerous input. Pick the agents, find those handoffs, then test the workflow safely.
-        </p>
+    <div style={{ padding: "34px 40px 64px", fontFamily: "var(--font-sans)", width: "100%" }}>
+      <div className="flex flex-col sm:flex-row items-start sm:items-end justify-between gap-3 w-full">
+        <div className="flex flex-col">
+          <h1 className="font-page-title text-page-title text-on-surface mb-1 m-0">Workflows</h1>
+          <p className="font-body text-body text-neutral-secondary m-0">
+            Map the risky handoffs between your agents, then test the whole flow safely.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => { setStaticChains(null); setOptimizeResult(null); setResult(null); clearTeam(); }}
+          className="bg-primary text-on-primary font-monospace-label text-monospace-label px-4 py-2.5 rounded hover:opacity-90 transition-opacity flex items-center gap-2 self-start sm:self-auto border-0 cursor-pointer"
+        >
+          <Plus size={18} strokeWidth={2.2} />
+          Create workflow
+        </button>
       </div>
 
-      <div style={{ display: "flex", gap: 24, alignItems: "flex-start" }}>
-        {/* ── Left: Agent picker ── */}
-        <div
-          style={{
-            width: 320,
-            flexShrink: 0,
-            display: "flex",
-            flexDirection: "column",
-            gap: 16,
-          }}
-        >
-          {/* Agent team picker */}
-          <div
-            style={{
-              background: "var(--bg-card)",
-              border: "1px solid var(--border)",
-              borderRadius: "var(--radius-lg)",
-              padding: 16,
-            }}
-          >
-            <div
-              style={{
-                fontSize: 11,
-                fontWeight: 600,
-                textTransform: "uppercase",
-                letterSpacing: "0.05em",
-                color: "#9ca3af",
-                marginBottom: 2,
-              }}
-            >
-              Test a team of agents
-            </div>
-            <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 12 }}>
-              Select 2 or more agents. The first one you pick leads the workflow.
-            </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-              {agents.map((a) => {
-                const isSelected = allAgentIds.includes(a.id);
-                const isLead = a.id === coordinatorId;
-                return (
-                  <button
-                    key={a.id}
-                    onClick={() => toggleAgent(a.id)}
-                    style={{
-                      width: "100%",
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 10,
-                      padding: "8px 12px",
-                      borderRadius: "var(--radius-md)",
-                      border: `1px solid ${isSelected ? "var(--accent)" : "var(--border)"}`,
-                      background: isSelected ? "var(--accent-soft)" : "#ffffff",
-                      textAlign: "left",
-                      cursor: "pointer",
-                    }}
-                  >
-                    {isSelected ? (
-                      <CheckSquare size={15} style={{ color: "var(--accent)", flexShrink: 0 }} />
-                    ) : (
-                      <Square size={15} style={{ color: "#d1d5db", flexShrink: 0 }} />
-                    )}
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 6,
-                          fontSize: 12,
-                          fontWeight: 500,
-                          color: "var(--text-primary)",
-                        }}
-                      >
-                        <span
-                          style={{
-                            overflow: "hidden",
-                            textOverflow: "ellipsis",
-                            whiteSpace: "nowrap",
-                          }}
-                        >
-                          {a.name}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-inline-gap mt-stack-gap">
+        {/* ── Workflow table ── */}
+        <div className="lg:col-span-8 bg-surface-container-lowest border border-neutral-border rounded shadow-sm overflow-hidden flex flex-col">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="border-b border-neutral-border bg-surface-container-low">
+                  <th className="py-3 px-3 font-eyebrow text-eyebrow text-neutral-secondary uppercase tracking-wider font-semibold">Workflow name</th>
+                  <th className="py-3 px-3 font-eyebrow text-eyebrow text-neutral-secondary uppercase tracking-wider font-semibold">Services</th>
+                  <th className="py-3 px-3 font-eyebrow text-eyebrow text-neutral-secondary uppercase tracking-wider font-semibold">Frequency</th>
+                  <th className="py-3 px-3 font-eyebrow text-eyebrow text-neutral-secondary uppercase tracking-wider font-semibold text-right">Last run</th>
+                  <th className="py-3 px-3 font-eyebrow text-eyebrow text-neutral-secondary uppercase tracking-wider font-semibold text-center">Status</th>
+                  <th className="py-3 px-3 font-eyebrow text-eyebrow text-neutral-secondary uppercase tracking-wider font-semibold text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-neutral-border font-body text-body text-on-surface">
+                {agents.map((a) => {
+                  const inTeam = allAgentIds.includes(a.id);
+                  const isLead = a.id === coordinatorId;
+                  // Status is read off real state — membership plus how far the
+                  // analysis has got. Nothing here is a stand-in.
+                  const status = analyzing && inTeam
+                    ? { label: "RUNNING", bg: "var(--accent-soft)", fg: "var(--accent)", dot: "var(--accent)", pulse: true }
+                    : inTeam && staticChains !== null
+                      ? { label: "ANALYZED", bg: "var(--aqua-soft)", fg: "var(--aqua-deep)", dot: "var(--aqua-ink)", pulse: false }
+                      : inTeam
+                        ? { label: "SELECTED", bg: "var(--accent-soft)", fg: "var(--accent)", dot: "var(--accent)", pulse: false }
+                        : { label: "IDLE", bg: "var(--paper-2)", fg: "var(--ink-500)", dot: "var(--ink-300)", pulse: false };
+                  return (
+                    <tr
+                      key={a.id}
+                      onClick={() => toggleAgent(a.id)}
+                      className="hover:bg-surface-container transition-colors cursor-pointer group"
+                      style={inTeam ? { background: "var(--accent-soft)" } : undefined}
+                    >
+                      <td className="py-3 px-3">
+                        <span className="flex items-center gap-3">
+                          {inTeam
+                            ? <CheckSquare size={18} style={{ color: "var(--accent)", flexShrink: 0 }} />
+                            : <Square size={18} style={{ color: "var(--ink-300)", flexShrink: 0 }} />}
+                          <span className="font-medium text-on-surface whitespace-nowrap">{a.name}</span>
+                          {isLead && (
+                            <span className="font-monospace-label text-[10px] px-1.5 py-0.5 rounded" style={{ background: "var(--accent)", color: "#fff" }}>
+                              LEAD
+                            </span>
+                          )}
                         </span>
-                        {isLead && (
+                      </td>
+                      <td className="py-3 px-3">
+                        <span className="font-monospace-data text-monospace-data text-neutral-secondary whitespace-nowrap">
+                          {(a.tools ?? []).filter(Boolean).join(", ") || "—"}
+                        </span>
+                      </td>
+                      {/* These flows run when someone asks for them — there is no
+                          scheduler behind this page, so the column says so. */}
+                      <td className="py-3 px-3 text-on-surface-variant whitespace-nowrap">On demand</td>
+                      <td className="py-3 px-3 font-monospace-data text-monospace-data text-right text-neutral-secondary whitespace-nowrap">
+                        {a.last_execution_at ? timeAgo(a.last_execution_at) : "Never"}
+                      </td>
+                      <td className="py-3 px-3 text-center">
+                        <span
+                          className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full font-monospace-label text-monospace-label border"
+                          style={{ background: status.bg, color: status.fg, borderColor: "transparent" }}
+                        >
                           <span
-                            style={{
-                              fontSize: 9,
-                              fontWeight: 700,
-                              letterSpacing: "0.05em",
-                              padding: "1px 5px",
-                              borderRadius: 4,
-                              background: "var(--accent)",
-                              color: "#ffffff",
-                              flexShrink: 0,
-                            }}
-                          >
-                            LEAD
-                          </span>
-                        )}
-                      </div>
-                      <div
-                        style={{
-                          fontSize: 11,
-                          color: "#9ca3af",
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
-                          whiteSpace: "nowrap",
-                        }}
-                      >
-                        {a.description || (a.tools || []).join(", ")}
-                      </div>
-                    </div>
-                    <RiskPill score={a.blast_radius?.score || 0} />
-                  </button>
-                );
-              })}
-            </div>
-            <button
-              onClick={handleAnalyze}
-              disabled={allAgentIds.length < 2 || analyzing}
-              style={{
-                width: "100%",
-                marginTop: 12,
-                background: "var(--color-cta)",
-                color: "var(--text-inverse)",
-                padding: "10px 20px",
-                borderRadius: "var(--radius-full)",
-                fontSize: 13,
-                fontWeight: 600,
-                border: "none",
-                cursor: allAgentIds.length < 2 || analyzing ? "not-allowed" : "pointer",
-                opacity: allAgentIds.length < 2 || analyzing ? 0.5 : 1,
-              }}
-            >
-              {analyzing
-                ? "Checking…"
-                : `Find risky handoffs (${allAgentIds.length} agent${
-                    allAgentIds.length === 1 ? "" : "s"
-                  } selected)`}
-            </button>
+                            className={`w-1.5 h-1.5 rounded-full ${status.pulse ? "animate-pulse" : ""}`}
+                            style={{ background: status.dot }}
+                          />
+                          {status.label}
+                        </span>
+                      </td>
+                      <td className="py-3 px-3 text-right">
+                        <Link
+                          to={`/agent/${a.id}`}
+                          onClick={(e) => e.stopPropagation()}
+                          aria-label={`Open ${a.name}`}
+                          className="inline-flex text-neutral-secondary hover:text-on-surface transition-colors"
+                        >
+                          <MoreVertical size={18} />
+                        </Link>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
-
-          {/* Optimize panel */}
-          {allAgentIds.length >= 2 && (
-            <div
-              style={{
-                background: "var(--bg-card)",
-                border: "1px solid var(--border)",
-                borderRadius: "var(--radius-lg)",
-                padding: 16,
-                display: "flex",
-                flexDirection: "column",
-                gap: 12,
-              }}
-            >
-              <div>
-                <div
-                  style={{
-                    fontSize: 11,
-                    fontWeight: 600,
-                    textTransform: "uppercase",
-                    letterSpacing: "0.05em",
-                    color: "#9ca3af",
-                    marginBottom: 2,
-                  }}
-                >
-                  Right-size the permissions
-                </div>
-                <div style={{ fontSize: 12, color: "#6b7280" }}>
-                  Describe what this workflow is supposed to do. Arceo flags the permissions these
-                  agents don't need for it — and any they're missing.
-                </div>
-              </div>
-              <textarea
-                style={textareaStyle}
-                value={workflowDesc}
-                onChange={(e) => setWorkflowDesc(e.target.value)}
-                placeholder={`Example: "Handle customer refund requests — look up order, check eligibility, issue refund if under $500, escalate otherwise."`}
-                rows={3}
-                onFocus={(e) => {
-                  (e.target as HTMLTextAreaElement).style.borderColor = "var(--border-focus)";
-                }}
-                onBlur={(e) => {
-                  (e.target as HTMLTextAreaElement).style.borderColor = "transparent";
-                }}
-              />
-              <button
-                onClick={handleOptimize}
-                disabled={optimizing || !workflowDesc.trim()}
-                style={{
-                  width: "100%",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  background: "var(--color-cta)",
-                  color: "var(--text-inverse)",
-                  padding: "10px 20px",
-                  borderRadius: "var(--radius-lg)",
-                  fontSize: 13,
-                  fontWeight: 600,
-                  border: "none",
-                  whiteSpace: "nowrap",
-                  cursor: optimizing || !workflowDesc.trim() ? "not-allowed" : "pointer",
-                  opacity: optimizing || !workflowDesc.trim() ? 0.5 : 1,
-                }}
-              >
-                {optimizing ? "Checking permissions…" : "Check the permissions"}
-              </button>
-            </div>
-          )}
+          <div className="mt-auto p-4 border-t border-neutral-border bg-surface-container-low flex justify-between items-center text-meta font-meta text-neutral-secondary">
+            <span>
+              {allAgentIds.length} of {agents.length} {agents.length === 1 ? "agent" : "agents"} in this workflow
+            </span>
+            <span className="font-monospace-label text-monospace-label">
+              {allAgentIds.length < 2 ? "Pick 2 or more" : "Ready to map"}
+            </span>
+          </div>
         </div>
 
-        {/* ── Right: Results ── */}
-        <div
-          style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 16 }}
-        >
+        {/* ── Workflow definition ── */}
+        <div className="lg:col-span-4 flex flex-col gap-inline-gap">
+          <div className="bg-surface-container-lowest border border-neutral-border rounded shadow-sm flex flex-col">
+            <div className="p-container-padding border-b border-neutral-border">
+              <div className="flex items-center justify-between mb-4">
+                <span className="font-eyebrow text-eyebrow text-neutral-secondary uppercase tracking-wider">Workflow definition</span>
+                {allAgentIds.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => clearTeam()}
+                    aria-label="Clear selection"
+                    title="Clear selection"
+                    className="text-neutral-secondary hover:text-on-surface bg-transparent border-0 p-0 cursor-pointer"
+                  >
+                    <X size={18} />
+                  </button>
+                )}
+              </div>
+              <h2 className="font-card-title text-card-title text-on-surface mb-1 m-0">
+                {lead ? lead.name : "No workflow selected"}
+              </h2>
+              <p className="font-monospace-data text-monospace-data text-neutral-secondary m-0">
+                Target: {lead ? lead.name : "—"}
+                {allAgentIds.length > 1 ? ` +${allAgentIds.length - 1}` : ""}
+              </p>
+            </div>
+
+            <div className="p-container-padding flex flex-col gap-6">
+              <div>
+                <h3 className="font-eyebrow text-eyebrow text-neutral-secondary uppercase tracking-wider mb-2 flex items-center gap-2">
+                  <Clock size={16} /> Trigger
+                </h3>
+                <div className="bg-surface-container-low border border-neutral-border rounded p-3 text-body font-body text-on-surface">
+                  On demand — run from this page
+                </div>
+              </div>
+
+              <div>
+                <h3 className="font-eyebrow text-eyebrow text-neutral-secondary uppercase tracking-wider mb-3 flex items-center gap-2">
+                  <Route size={16} /> Pipeline steps
+                </h3>
+                <div className="relative pl-6 flex flex-col gap-4">
+                  <span className="absolute left-[11px] top-2 bottom-2 w-[2px] bg-neutral-border" />
+                  {[
+                    { label: "Map the risky handoffs", value: `${allAgentIds.length || 0} agents`, done: staticChains !== null },
+                    { label: "Check policy", value: "No critical violations", done: optimizeResult !== null },
+                    { label: "Simulate the flow", value: "Multi-agent simulation", done: result !== null },
+                  ].map((step, si) => (
+                    <div key={step.label} className="relative">
+                      <span
+                        className="absolute -left-6 w-6 h-6 rounded-full flex items-center justify-center z-10 font-monospace-label text-[10px] font-bold"
+                        style={{
+                          background: "var(--card)",
+                          border: `2px solid ${step.done ? "var(--aqua-ink)" : "var(--accent)"}`,
+                          color: step.done ? "var(--aqua-deep)" : "var(--accent)",
+                        }}
+                      >
+                        {si + 1}
+                      </span>
+                      <div className="bg-surface-container-low border border-neutral-border rounded p-3">
+                        <div className="text-meta font-meta text-neutral-secondary mb-1">{step.label}</div>
+                        <div className="font-monospace-data text-monospace-data text-on-surface bg-surface-container-lowest px-2 py-1 rounded border border-neutral-border inline-block">
+                          {step.value}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <button
+                onClick={handleAnalyze}
+                disabled={allAgentIds.length < 2 || analyzing}
+                className="w-full font-monospace-label text-monospace-label px-4 py-2.5 rounded border-0 cursor-pointer transition-opacity disabled:cursor-not-allowed"
+                style={{
+                  background: "var(--color-cta)",
+                  color: "var(--text-inverse)",
+                  opacity: allAgentIds.length < 2 || analyzing ? 0.5 : 1,
+                }}
+              >
+                {analyzing ? "Checking…" : "Map the risky handoffs"}
+              </button>
+            </div>
+
+            {/* Team risk, by agent. The canvas charts execution time; nothing
+                records per-run duration yet, so this bar row carries the number
+                the page actually has rather than a stand-in. */}
+            {allAgentIds.length > 0 && (
+              <div className="p-container-padding border-t border-neutral-border" style={{ background: "var(--paper-2)" }}>
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="font-eyebrow text-eyebrow text-neutral-secondary uppercase tracking-wider m-0">Team risk, by agent</h3>
+                  <span className="font-monospace-data text-monospace-data text-on-surface">
+                    Max: {Math.max(...allAgentIds.map((id) => agents.find((x) => x.id === id)?.blast_radius?.score ?? 0), 0)}
+                  </span>
+                </div>
+                <div className="h-16 w-full flex items-end justify-between gap-1">
+                  {allAgentIds.map((id) => {
+                    const a = agents.find((x) => x.id === id);
+                    const score = a?.blast_radius?.score ?? 0;
+                    return (
+                      <div
+                        key={id}
+                        title={`${a?.name ?? id} — ${score}`}
+                        className="w-full rounded-t transition-colors"
+                        style={{ height: `${Math.max(score, 4)}%`, background: scoreToColor(score), opacity: 0.55 }}
+                      />
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* ── Results ── */}
+      <div className="mt-stack-gap" style={{ display: "flex", flexDirection: "column", gap: 16 }}>
           {/* Static chain analysis */}
           {staticChains !== null && (
             <div
@@ -1478,8 +1490,25 @@ export default function Workflows() {
                 border: "1px solid var(--border)",
                 borderRadius: "var(--radius-lg)",
                 padding: 16,
+                position: "relative",
               }}
             >
+              {/* Dismiss: clear the analysis (and anything built on it) and
+                  return to the default riskiest-combinations view */}
+              <button
+                onClick={() => { setStaticChains(null); setOptimizeResult(null); setResult(null); }}
+                aria-label="Close analysis"
+                title="Close analysis"
+                style={{
+                  position: "absolute", top: 10, right: 10,
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  width: 26, height: 26, borderRadius: 6,
+                  background: "transparent", border: "none",
+                  color: "var(--ink-400)", cursor: "pointer",
+                }}
+              >
+                <X size={15} strokeWidth={1.8} />
+              </button>
               {allAgentIds.length >= 2 && (() => {
                 const max = Math.max(
                   ...allAgentIds.map((id) => agents.find((a) => a.id === id)?.blast_radius?.score || 0)
@@ -1520,7 +1549,7 @@ export default function Workflows() {
                         {blastLabel(combined)} when these agents act together
                         {combined > max ? " — each is safer on its own" : ""}
                       </div>
-                      <div style={{ fontSize: 12, color: "#9ca3af" }}>
+                      <div style={{ fontSize: 12, color: "var(--ink-400)" }}>
                         Based on what they can do — before anything runs
                       </div>
                     </div>
@@ -1535,13 +1564,12 @@ export default function Workflows() {
                     alignItems: "center",
                     gap: 8,
                     fontSize: 13,
-                    color: "#16a34a",
+                    color: "var(--safe)",
                     fontWeight: 500,
                   }}
                 >
                   <CheckCircle size={14} />
-                  No risky handoffs found — nothing one of these agents does enables another to
-                  cause harm.
+                  No risky handoffs found between these agents.
                 </div>
               ) : (
                 <>
@@ -1560,8 +1588,7 @@ export default function Workflows() {
                           display: "flex",
                           alignItems: "flex-start",
                           gap: 8,
-                          padding: "6px 0 6px 12px",
-                          borderLeft: `2px solid ${c.severity === "critical" ? "#dc2626" : "#ea580c"}`,
+                          padding: "6px 0",
                         }}
                       >
                         <span
@@ -1572,8 +1599,8 @@ export default function Workflows() {
                             borderRadius: 4,
                             flexShrink: 0,
                             ...(c.severity === "critical"
-                              ? { background: "#fef2f2", color: "#dc2626" }
-                              : { background: "#fff7ed", color: "#ea580c" }),
+                              ? { background: "var(--critical)", color: "#fff" }
+                              : { background: "var(--high-bg)", color: "var(--high)" }),
                           }}
                         >
                           {c.severity?.toUpperCase()}
@@ -1607,16 +1634,16 @@ export default function Workflows() {
                           fontWeight: 600,
                           textTransform: "uppercase",
                           letterSpacing: "0.05em",
-                          color: "#9ca3af",
+                          color: "var(--ink-400)",
                           marginBottom: 2,
                         }}
                       >
                         Test it with a scenario
                       </div>
-                      <div style={{ fontSize: 12, color: "#6b7280" }}>
+                      <div style={{ fontSize: 12, color: "var(--ink-500)" }}>
                         {llmAvailable
-                          ? "Describe a task in plain English. Claude runs your agents against simulated tools — nothing real happens — and Arceo enforces your policies on every step."
-                          : "Describe a task in plain English. Arceo plays it out across these agents with simulated tools — nothing real happens — and shows you every step."}
+                          ? "Claude runs it against simulated tools — nothing real happens, and your policies are enforced on every step."
+                          : "Runs against simulated tools — nothing real happens, and you see every step."}
                       </div>
                     </div>
                     <textarea
@@ -1659,7 +1686,7 @@ export default function Workflows() {
                           : "Run a safe test"}
                       </span>
                       {!running && (
-                        <span style={{ fontSize: 10, color: "#9ca3af", fontWeight: 400 }}>
+                        <span style={{ fontSize: 10, color: "var(--ink-400)", fontWeight: 400 }}>
                           {llmAvailable
                             ? "Claude-driven · nothing real happens"
                             : "simulated · nothing real happens"}
@@ -1667,6 +1694,75 @@ export default function Workflows() {
                       )}
                     </button>
                   </div>
+            </div>
+          )}
+
+          {/* Trim permissions — a peer of the analysis it follows: appears once
+              handoffs have been mapped, produces the OptimizeResult below */}
+          {staticChains !== null && (
+            <div
+              style={{
+                background: "var(--bg-card)",
+                border: "1px solid var(--border)",
+                borderRadius: "var(--radius-lg)",
+                padding: 16,
+                display: "flex",
+                flexDirection: "column",
+                gap: 12,
+              }}
+            >
+              <div>
+                <div
+                  style={{
+                    fontSize: 11,
+                    fontWeight: 600,
+                    textTransform: "uppercase",
+                    letterSpacing: "0.05em",
+                    color: "var(--ink-400)",
+                    marginBottom: 2,
+                  }}
+                >
+                  Trim extra permissions
+                </div>
+                <div style={{ fontSize: 12, color: "var(--ink-500)" }}>
+                  Describe what the workflow should do — Arceo flags permissions your agents
+                  don't need, plus any missing.
+                </div>
+              </div>
+              <textarea
+                style={textareaStyle}
+                value={workflowDesc}
+                onChange={(e) => setWorkflowDesc(e.target.value)}
+                placeholder={`Example: "Handle customer refund requests — look up order, check eligibility, issue refund if under $500, escalate otherwise."`}
+                rows={2}
+                onFocus={(e) => {
+                  (e.target as HTMLTextAreaElement).style.borderColor = "var(--border-focus)";
+                }}
+                onBlur={(e) => {
+                  (e.target as HTMLTextAreaElement).style.borderColor = "transparent";
+                }}
+              />
+              <button
+                onClick={handleOptimize}
+                disabled={optimizing || !workflowDesc.trim()}
+                style={{
+                  width: "fit-content",
+                  display: "flex",
+                  alignItems: "center",
+                  background: "var(--color-cta)",
+                  color: "var(--text-inverse)",
+                  padding: "9px 22px",
+                  borderRadius: "var(--radius-full)",
+                  fontSize: 13,
+                  fontWeight: 600,
+                  border: "none",
+                  whiteSpace: "nowrap",
+                  cursor: optimizing || !workflowDesc.trim() ? "not-allowed" : "pointer",
+                  opacity: optimizing || !workflowDesc.trim() ? 0.5 : 1,
+                }}
+              >
+                {optimizing ? "Checking permissions…" : "Check the permissions"}
+              </button>
             </div>
           )}
 
@@ -1730,60 +1826,45 @@ export default function Workflows() {
               <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text-primary)" }}>
                 Riskiest combinations in your fleet
               </div>
-              <div style={{ fontSize: 12, color: "#9ca3af", marginBottom: 12 }}>
-                Detected automatically — no setup needed.
+              <div style={{ fontSize: 12, color: "var(--ink-400)", marginBottom: 12 }}>
+                Click one to load it.
               </div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(250px, 1fr))", gap: 12 }}>
                 {topPairings.map((p, i) => {
-                  const worst = p.chains[0];
-                  const more = p.chains.length - 1;
+                  const sev = p.severity === "critical" ? "var(--critical)" : "var(--high)";
                   return (
                     <button
                       key={i}
                       onClick={() => handlePairingClick(p)}
+                      className="ag-card"
                       style={{
                         display: "flex",
+                        flexDirection: "column",
                         alignItems: "flex-start",
-                        gap: 10,
-                        width: "100%",
+                        gap: 6,
                         textAlign: "left",
-                        padding: "10px 12px",
+                        padding: "13px 16px 11px",
                         borderRadius: "var(--radius-md)",
                         border: "1px solid var(--border)",
-                        background: "#ffffff",
+                        background: "var(--card)",
                         cursor: "pointer",
                       }}
                     >
-                      <span
-                        style={{
-                          fontSize: 10,
-                          fontWeight: 700,
-                          padding: "2px 6px",
-                          borderRadius: 4,
-                          flexShrink: 0,
-                          marginTop: 1,
-                          ...(p.severity === "critical"
-                            ? { background: "#fef2f2", color: "#dc2626" }
-                            : { background: "#fff7ed", color: "#ea580c" }),
-                        }}
-                      >
-                        {p.severity === "critical" ? "CRITICAL" : "HIGH"}
+                      <span style={{ fontSize: 13.5, fontWeight: 600, color: "var(--text-primary)", lineHeight: 1.35 }}>
+                        {p.agents[0]?.name}
                       </span>
-                      <div style={{ minWidth: 0 }}>
-                        <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text-primary)" }}>
-                          {p.agents[0]?.name} + {p.agents[1]?.name}
-                        </div>
-                        {worst && (
-                          <div style={{ fontSize: 12, color: "#6b7280", lineHeight: 1.5 }}>
-                            {worst.description}
-                          </div>
-                        )}
-                        {more > 0 && (
-                          <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 2 }}>
-                            +{more} more chain{more !== 1 ? "s" : ""}
-                          </div>
-                        )}
-                      </div>
+                      <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        <ArrowUpDown size={13} strokeWidth={1.8} style={{ color: "var(--ink-300)" }} />
+                        <span style={{ fontSize: 10.5, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5, color: sev }}>
+                          {p.severity === "critical" ? "Critical" : "High"} handoffs
+                        </span>
+                      </span>
+                      <span style={{ fontSize: 13.5, fontWeight: 600, color: "var(--text-primary)", lineHeight: 1.35 }}>
+                        {p.agents[1]?.name}
+                      </span>
+                      <span className="mono" style={{ fontSize: 11.5, color: "var(--ink-400)", marginTop: 3 }}>
+                        {p.chains.length} chain{p.chains.length !== 1 ? "s" : ""}
+                      </span>
                     </button>
                   );
                 })}
@@ -1806,13 +1887,12 @@ export default function Workflows() {
               <p
                 style={{
                   fontSize: 13,
-                  color: "#6b7280",
+                  color: "var(--ink-500)",
                   maxWidth: 400,
                   margin: "0 auto 24px",
                 }}
               >
-                Select 2 or more agents on the left, then find the risky handoffs between them —
-                for example:
+                Pick agents on the left to map the handoffs between them — for example:
               </p>
               <div
                 style={{
@@ -1831,8 +1911,8 @@ export default function Workflows() {
                       fontWeight: 700,
                       padding: "2px 6px",
                       borderRadius: 4,
-                      background: "#fef2f2",
-                      color: "#dc2626",
+                      background: "var(--critical-bg)",
+                      color: "var(--critical)",
                       whiteSpace: "nowrap",
                     }}
                   >
@@ -1849,8 +1929,8 @@ export default function Workflows() {
                       fontWeight: 700,
                       padding: "2px 6px",
                       borderRadius: 4,
-                      background: "#fff7ed",
-                      color: "#ea580c",
+                      background: "var(--high-bg)",
+                      color: "var(--high)",
                       whiteSpace: "nowrap",
                     }}
                   >
@@ -1864,7 +1944,6 @@ export default function Workflows() {
             </div>
           )}
         </div>
-      </div>
     </div>
   );
 }

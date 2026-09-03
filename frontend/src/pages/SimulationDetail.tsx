@@ -1,4 +1,4 @@
-import { useParams, Link } from "react-router-dom";
+import { useParams, Link, useNavigate } from "react-router-dom";
 import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import {
@@ -13,6 +13,11 @@ import {
   GitBranch,
   ExternalLink,
   Crosshair,
+  RotateCcw,
+  Gavel,
+  Send,
+  Banknote,
+  Plug,
 } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { toast } from "@/components/shared/Toast";
@@ -22,6 +27,8 @@ import type { RiskLabel } from "@/lib/types";
 
 interface TraceStep {
   id?: string;
+  /** Raw enforcement decision: ALLOW / REQUIRE_APPROVAL / BLOCK. */
+  decision?: string;
   tool: string;
   action: string;
   params: Record<string, unknown>;
@@ -48,6 +55,49 @@ interface Chain {
   chain_name: string;
   severity: string;
   description: string;
+  /** Trace steps that form the chain (ChainViolation.step_indices). Lets the
+   *  timeline bracket the actual pair instead of listing the chain elsewhere
+   *  and leaving the reader to find it. */
+  step_indices?: number[];
+}
+
+interface ChainSpan {
+  chain: Chain;
+  start: number;
+  end: number;
+  lane: number;
+  color: string;
+}
+
+/** Chains that cover a contiguous run of steps, packed into lanes so two
+ *  overlapping chains never draw over each other. */
+function buildChainSpans(chains: Chain[]): ChainSpan[] {
+  const raw = chains
+    .map((c) => {
+      const idx = (c.step_indices ?? []).filter((n) => Number.isInteger(n));
+      if (idx.length < 2) return null;
+      return { chain: c, start: Math.min(...idx), end: Math.max(...idx) };
+    })
+    .filter((v): v is { chain: Chain; start: number; end: number } => v !== null)
+    .sort((a, b) => a.start - b.start || b.end - a.end);
+
+  const laneEnds: number[] = [];
+  return raw.map((v) => {
+    let lane = laneEnds.findIndex((end) => end < v.start);
+    if (lane === -1) {
+      lane = laneEnds.length;
+      laneEnds.push(v.end);
+    } else {
+      laneEnds[lane] = v.end;
+    }
+    const sev = v.chain.severity?.toLowerCase();
+    const color =
+      sev === "critical" ? "var(--critical)" :
+      sev === "high" ? "var(--high)" :
+      sev === "medium" ? "var(--caution)" :
+      "var(--ink-400)";
+    return { ...v, lane, color };
+  });
 }
 
 interface SimulationDetailData {
@@ -94,7 +144,7 @@ function SimpleView({ data, depth = 0 }: { data: unknown; depth?: number }) {
     return <span style={{ color: "var(--text-muted)", fontStyle: "italic" }}>null</span>;
   }
   if (typeof data === "boolean") {
-    return <span style={{ color: data ? "#16a34a" : "#dc2626" }}>{String(data)}</span>;
+    return <span style={{ color: data ? "var(--safe)" : "var(--critical)" }}>{String(data)}</span>;
   }
   if (typeof data === "number") {
     return <span style={{ color: "var(--color-accent)" }}>{data}</span>;
@@ -133,17 +183,86 @@ function SimpleView({ data, depth = 0 }: { data: unknown; depth?: number }) {
 }
 
 const SEVERITY_STYLES: Record<string, { bg: string; color: string }> = {
-  critical: { bg: "#fef2f2", color: "#dc2626" },
-  high: { bg: "#fff7ed", color: "#ea580c" },
-  medium: { bg: "#fefce8", color: "#ca8a04" },
-  low: { bg: "#f0fdf4", color: "#16a34a" },
+  /* Filled, not tinted — critical must read differently from high at a glance. */
+  critical: { bg: "var(--critical)", color: "#fff" },
+  high: { bg: "var(--high-bg)", color: "var(--high)" },
+  medium: { bg: "var(--caution-bg)", color: "var(--caution)" },
+  low: { bg: "var(--safe-bg)", color: "var(--safe)" },
+};
+
+/**
+ * How each enforcement decision presents: marker, card border, and chip.
+ * ALLOW is deliberately neutral — only the two decisions that stopped or
+ * paused the agent get colour.
+ */
+const DECISION: Record<string, {
+  label: string
+  Icon: typeof Send
+  fg: string
+  markerBg: string
+  markerBorder: string
+  markerFg: string
+  cardBorder: string
+  chipBg: string
+  chipFg: string
+  chipBorder: string
+}> = {
+  ALLOW: {
+    label: "Allow", Icon: Plug, fg: "var(--ink-500)",
+    markerBg: "var(--surface-container-high, #e8e7ef)", markerBorder: "var(--line)", markerFg: "var(--ink-600)",
+    cardBorder: "var(--line)",
+    chipBg: "var(--paper-2)", chipFg: "var(--ink-600)", chipBorder: "var(--line)",
+  },
+  REQUIRE_APPROVAL: {
+    label: "Require_approval", Icon: Banknote, fg: "var(--amber-ink)",
+    markerBg: "var(--caution-bg)", markerBorder: "var(--caution-line)", markerFg: "var(--amber-ink)",
+    cardBorder: "var(--line)",
+    chipBg: "var(--caution-bg)", chipFg: "var(--amber-ink)", chipBorder: "var(--caution-line)",
+  },
+  BLOCK: {
+    label: "Block", Icon: Send, fg: "var(--critical)",
+    markerBg: "var(--critical-bg)", markerBorder: "var(--critical-line)", markerFg: "var(--critical)",
+    cardBorder: "var(--critical-line)",
+    chipBg: "var(--critical)", chipFg: "#ffffff", chipBorder: "var(--critical)",
+  },
+};
+
+/** A plain sentence for what the step did, built from the action it called. */
+function stepSentence(step: TraceStep): string {
+  const verb = step.action.replace(/_/g, " ");
+  const target = step.tool.replace(/_/g, " ");
+  const amount = ["amount", "total", "value"].map((k) => step.params?.[k]).find((v) => typeof v === "number");
+  const money = typeof amount === "number"
+    ? ` of $${(amount > 1000 ? amount / 100 : amount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+    : "";
+  return step.allowed
+    ? `Called ${target} to ${verb}${money}.`
+    : `Attempted to ${verb} via ${target}${money}.`;
+}
+
+/** Why a step was stopped — the covering chain, else the matching violation. */
+function blockReason(step: TraceStep, violations: Violation[], covering: ChainSpan[]): string {
+  if (covering.length > 0) {
+    return `Blocked by policy: ${covering[0].chain.description}`;
+  }
+  const v = violations.find((x) => x.description?.includes(step.action) || x.title?.includes(step.action));
+  return v ? `Blocked by policy: ${v.description}` : "Blocked by policy before it could run.";
+}
+
+/** The line/edge form of a severity. SEVERITY_STYLES.color is #fff for
+ *  critical (its chip is filled), so it can't double as an accent. */
+const SEVERITY_ACCENT: Record<string, string> = {
+  critical: "var(--critical)",
+  high: "var(--high)",
+  medium: "var(--caution)",
+  low: "var(--safe)",
 };
 
 function ScoreRing({ score }: { score: number }) {
   const radius = 44;
   const circ = 2 * Math.PI * radius;
   const dash = (score / 100) * circ;
-  const color = score >= 70 ? "#dc2626" : score >= 40 ? "#d97706" : "#16a34a";
+  const color = score >= 70 ? "var(--critical)" : score >= 40 ? "var(--high)" : "var(--safe)";
   const label = score >= 70 ? "Critical" : score >= 40 ? "High" : "Safe";
 
   return (
@@ -187,8 +306,8 @@ function StepRow({ step }: { step: TraceStep }) {
         <div
           className="flex items-center justify-center w-5 h-5 rounded-full flex-shrink-0"
           style={{
-            backgroundColor: step.allowed ? "#d1fae5" : "#fee2e2",
-            color: step.allowed ? "#065f46" : "#991b1b",
+            backgroundColor: step.allowed ? "var(--safe-bg)" : "var(--critical-bg)",
+            color: step.allowed ? "var(--safe)" : "var(--critical)",
           }}
         >
           {step.allowed ? <CheckCircle size={12} /> : <XCircle size={12} />}
@@ -289,6 +408,7 @@ export default function SimulationDetail() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [applyingAll, setApplyingAll] = useState(false);
+  const navigate = useNavigate();
 
   const load = useCallback(() => {
     if (!simulationId) return;
@@ -309,6 +429,8 @@ export default function SimulationDetail() {
           action: String(s.action ?? ""),
           params: (s.params ?? {}) as Record<string, unknown>,
           result: s.result as Record<string, unknown> | undefined,
+          decision: (s.enforce_decision as string | undefined)
+            ?? (s.allowed === false ? "BLOCK" : "ALLOW"),
           allowed: s.enforce_decision === undefined
             ? Boolean(s.allowed ?? true)
             : s.enforce_decision === "ALLOW",
@@ -413,272 +535,359 @@ export default function SimulationDetail() {
   const steps = sim.trace?.steps ?? [];
   const violations = report?.violations ?? [];
   const chains = report?.chains ?? [];
+  // Chain brackets drawn down the left of the timeline — the product's core
+  // claim ("these two steps together are the danger") made visible in place.
+  const chainSpans = buildChainSpans(chains);
+  const chainGutter = chainSpans.length > 0
+    ? 14 + chainSpans.reduce((mx, s) => Math.max(mx, s.lane + 1), 0) * 11
+    : 0;
   const recommendations = report?.recommendations ?? [];
   const score = report?.risk_score ?? 0;
 
+  // REQUIRE_APPROVAL is an action held for a human, not one the run stopped.
+  // Counting it as blocked overstated what enforcement actually prevented.
+  const decisionOf = (st: TraceStep) => (st.decision ?? (st.allowed ? "ALLOW" : "BLOCK")).toUpperCase();
+  const executed = steps.filter((st) => decisionOf(st) === "ALLOW").length;
+  const blocked = steps.filter((st) => decisionOf(st) === "BLOCK").length;
+  const criticalViolations = violations.filter((v) => (v.severity ?? "").toLowerCase() === "critical").length
+    + chains.filter((c) => (c.severity ?? "").toLowerCase() === "critical").length;
+  const traceId = String(sim.id ?? "").slice(0, 8) || "—";
+  const runDate = sim.created_at
+    ? new Date(sim.created_at).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })
+    : "—";
+
   return (
-    <div className="p-8 space-y-8 max-w-5xl">
-      {/* Header */}
-      <div className="flex items-center gap-3">
-        <Link to="/sandbox">
-          <Button variant="secondary" size="sm" icon={<ArrowLeft size={14} />}>
-            Back to Sandbox
-          </Button>
-        </Link>
-        <span style={{ color: "var(--border-strong)" }}>/</span>
-        <h1 style={{ fontSize: 24, fontWeight: 700, color: "var(--text-primary)", margin: 0 }}>Simulation Detail</h1>
+    <div className="px-container-padding py-stack-gap flex flex-col gap-stack-gap w-full">
+      {/* ── Header ── */}
+      <div className="w-full flex flex-wrap items-center justify-between gap-4">
+        <div className="flex flex-col gap-1">
+          <h1 className="font-page-title text-page-title text-on-surface m-0">
+            {sim.scenario_name ?? sim.scenario_id}
+          </h1>
+          <div className="flex items-center gap-2 text-meta font-meta text-neutral-secondary">
+            <span>
+              Agent: <span className="font-monospace-data text-on-surface">{sim.agent_name ?? sim.agent_id}</span>
+            </span>
+            <span className="w-1 h-1 rounded-full bg-neutral-border" />
+            <span>
+              Run Date: <span className="font-monospace-data text-on-surface">{runDate}</span>
+            </span>
+          </div>
+        </div>
+        <div className="flex items-center gap-3">
+          <Link to="/sandbox" className="no-underline">
+            <button
+              type="button"
+              className="px-4 py-2 bg-surface-container-lowest border border-neutral-border text-on-surface-variant font-body text-body rounded-lg hover:bg-surface-container-low transition-colors shadow-sm cursor-pointer"
+            >
+              Back to Sandbox
+            </button>
+          </Link>
+          <button
+            type="button"
+            onClick={() => navigate(`/sandbox?agent=${encodeURIComponent(sim.agent_id)}`)}
+            className="px-4 py-2 bg-primary text-on-primary font-body text-body rounded-lg hover:opacity-90 transition-opacity shadow-sm flex items-center gap-2 border-0 cursor-pointer"
+          >
+            <RotateCcw size={18} strokeWidth={2} />
+            Re-run Simulation
+          </button>
+        </div>
       </div>
 
-      {/* Overview */}
-      <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-6">
-        <div className="flex items-start gap-6">
-          <ScoreRing score={score} />
-          <div className="flex-1">
-            <div className="flex items-center gap-2 mb-1 flex-wrap">
-              <h2 style={{ fontSize: 17, fontWeight: 600, color: "var(--text-primary)", margin: 0 }}>
-                {sim.scenario_name ?? sim.scenario_id}
-              </h2>
-              <span
-                style={{
-                  fontSize: 12,
-                  padding: "2px 8px",
-                  borderRadius: "var(--radius-full)",
-                  fontWeight: 500,
-                  ...(sim.status === "completed"
-                    ? { background: "var(--status-executed-bg)", color: "var(--status-executed)" }
-                    : sim.status === "failed" || sim.status === "error"
-                    ? { background: "var(--severity-critical-bg)", color: "var(--severity-critical)" }
-                    : { background: "var(--status-pending-bg)", color: "var(--status-pending)" }),
-                }}
-              >
-                {sim.status}
+      {/* ── Result tiles ── */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <StatTile label="Steps taken" value={steps.length} />
+        <StatTile label="Actions executed" value={executed} color="var(--aqua-deep)" />
+        <StatTile label="Actions blocked" value={blocked} color="var(--critical)" wash={blocked > 0} />
+        <StatTile label="Critical violations" value={criticalViolations} color="var(--critical)" wash={criticalViolations > 0} />
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-4 items-start">
+        {/* ── Execution trace ── */}
+        <div className="lg:col-span-2 flex flex-col gap-6">
+          <div className="bg-surface-container-lowest border border-neutral-border rounded-xl shadow-sm overflow-hidden flex flex-col">
+            <div className="p-6 border-b border-neutral-border flex justify-between items-center gap-3">
+              <h2 className="font-card-title text-card-title text-on-surface m-0">Execution Trace</h2>
+              <span className="px-2 py-1 bg-surface-container-low border border-neutral-border rounded text-monospace-label font-monospace-label text-neutral-secondary">
+                TRACE_ID: {traceId}
               </span>
             </div>
-            <p style={{ fontSize: 13, color: "var(--text-secondary)", marginBottom: 16 }}>
-              Agent: {sim.agent_name ?? sim.agent_id} · {timeAgo(sim.created_at)}
-            </p>
-            <div className="grid grid-cols-4 gap-4 text-center">
-              <div>
-                <div style={{ fontSize: 20, fontWeight: 700, color: "var(--text-primary)" }}>{steps.length}</div>
-                <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>Steps</div>
-              </div>
-              <div>
-                <div style={{ fontSize: 20, fontWeight: 700, color: "var(--severity-critical)" }}>{violations.length}</div>
-                <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>Violations</div>
-              </div>
-              <div>
-                <div style={{ fontSize: 20, fontWeight: 700, color: "var(--severity-high)" }}>{chains.length}</div>
-                <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>Chains</div>
-              </div>
-              <div>
-                <div style={{ fontSize: 20, fontWeight: 700, color: "var(--text-secondary)" }}>
-                  {steps.filter((s) => !s.allowed).length}
-                </div>
-                <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>Blocked</div>
-              </div>
+
+            <div className="p-6 relative">
+              {steps.length === 0 ? (
+                <p className="text-body font-body text-neutral-muted text-center m-0 py-4">
+                  No trace steps recorded.
+                </p>
+              ) : (
+                <>
+                  {/* Spine behind the step markers */}
+                  <div className="absolute w-px bg-neutral-border" style={{ left: 43, top: 32, bottom: 32 }} />
+                  <div className="flex flex-col gap-8 relative z-20">
+                    {steps.map((step, i) => {
+                      const covering = chainSpans.filter((c) => i >= c.start && i <= c.end);
+                      const startsHere = covering.filter((c) => c.start === i);
+                      const d = DECISION[decisionOf(step)] ?? DECISION.ALLOW;
+                      return (
+                        <div key={step.id ?? i} className="relative">
+                          {/* Chain bracket label, where a chain opens */}
+                          {startsHere.map((c) => (
+                            <div
+                              key={c.chain.chain_name}
+                              className="flex items-center gap-1.5 mb-2 ml-14"
+                            >
+                              <GitBranch size={11} style={{ color: c.color, flexShrink: 0 }} />
+                              <span
+                                className="font-monospace-label text-monospace-label uppercase"
+                                style={{ color: c.color }}
+                              >
+                                Dangerous chain: {c.chain.chain_name}
+                              </span>
+                            </div>
+                          ))}
+                          <div className="flex items-start gap-4">
+                            {/* Step marker */}
+                            <div
+                              className="w-10 h-10 rounded-full flex items-center justify-center shrink-0 z-10 font-monospace-data text-[12px]"
+                              style={{ background: d.markerBg, border: `1px solid ${d.markerBorder}`, color: d.markerFg }}
+                            >
+                              {String(i + 1).padStart(2, "0")}
+                            </div>
+                            <div
+                              className="flex-1 min-w-0 rounded-lg p-4 shadow-sm transition-colors"
+                              style={{
+                                background: "var(--card)",
+                                border: `1px solid ${d.cardBorder}`,
+                              }}
+                            >
+                              <div className="flex justify-between items-center gap-3 mb-2">
+                                <div className="flex items-center gap-2 min-w-0">
+                                  <d.Icon size={18} style={{ color: d.fg, flexShrink: 0 }} />
+                                  <span className="font-monospace-data text-monospace-data text-on-surface truncate">
+                                    {step.tool}.{step.action}
+                                  </span>
+                                </div>
+                                <span
+                                  className="px-2 py-1 rounded font-meta uppercase tracking-wider text-[10px] shrink-0"
+                                  style={{ background: d.chipBg, color: d.chipFg, border: `1px solid ${d.chipBorder}` }}
+                                >
+                                  {d.label}
+                                </span>
+                              </div>
+                              <p className="text-body font-body text-neutral-secondary m-0">
+                                {stepSentence(step)}
+                              </p>
+                              {Object.keys(step.params ?? {}).length > 0 && (
+                                <pre className="mt-3 bg-surface-container-low rounded p-3 border border-neutral-border font-monospace-data text-[12px] text-neutral-primary whitespace-pre-wrap overflow-x-auto m-0">
+                                  {JSON.stringify(step.params, null, 2)}
+                                </pre>
+                              )}
+                              {decisionOf(step) === "BLOCK" && (
+                                <div
+                                  className="mt-3 flex items-start gap-2 text-[12px] font-medium p-2 rounded"
+                                  style={{
+                                    color: "var(--critical)",
+                                    background: "var(--critical-bg)",
+                                    border: "1px solid var(--critical-line)",
+                                  }}
+                                >
+                                  <AlertTriangle size={16} className="shrink-0 mt-px" />
+                                  <span>{blockReason(step, violations, covering)}</span>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </>
+              )}
             </div>
           </div>
+
+          {report?.detection_grade && <DetectionGrade grade={report.detection_grade} />}
+          {recommendations.length > 0 && <Recommendations items={recommendations} onApplyAll={applyAllRecommendations} applying={applyingAll} />}
         </div>
 
-        {report?.executive_summary && (
-          <div className="mt-4 p-3 rounded-lg text-sm leading-relaxed" style={{ background: 'var(--bg-sunken)', color: 'var(--text-primary)' }}>
-            {report.executive_summary}
+        {/* ── Right rail ── */}
+        <div className="lg:col-span-1 flex flex-col gap-6">
+          {report?.executive_summary && (
+            <div className="bg-surface-container-lowest border border-neutral-border rounded-xl shadow-sm flex flex-col">
+              <div className="p-6 border-b border-neutral-border">
+                <h2 className="font-card-title text-card-title text-on-surface m-0">Simulation Executive Summary</h2>
+              </div>
+              <div className="p-6 flex flex-col gap-4">
+                {report.executive_summary.split(/\n{2,}/).map((para, i) => (
+                  <p key={i} className="font-body text-body text-neutral-secondary leading-relaxed m-0">{para}</p>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {(violations.length > 0 || chains.length > 0) && (
+            <div
+              className="border border-neutral-border rounded-xl shadow-sm flex flex-col"
+              style={{ background: "var(--caution-bg)" }}
+            >
+              <div className="p-6 pb-4">
+                <div className="flex items-center gap-2 mb-1">
+                  <Gavel size={20} style={{ color: "var(--amber-ink)" }} />
+                  <h2 className="font-card-title text-card-title m-0" style={{ color: "var(--amber-ink)" }}>
+                    Policy Violations
+                  </h2>
+                </div>
+                <span className="font-eyebrow text-eyebrow uppercase" style={{ color: "var(--amber-ink)", opacity: 0.75 }}>
+                  Triggered rules
+                </span>
+              </div>
+              <div className="px-6 pb-6 flex flex-col gap-3">
+                {[
+                  ...chains.map((c) => ({ title: c.chain_name, severity: c.severity, description: c.description })),
+                  ...violations.map((v) => ({ title: v.title || v.type || "Violation", severity: v.severity, description: v.description })),
+                ].map((v, i) => {
+                  const sty = SEVERITY_STYLES[(v.severity ?? "").toLowerCase()] ?? { bg: "var(--paper-2)", color: "var(--ink-600)" };
+                  return (
+                    <div key={i} className="bg-surface-container-lowest rounded-lg p-4 border border-neutral-border shadow-sm">
+                      <div className="flex items-start justify-between gap-2 mb-2">
+                        <span className="font-monospace-data text-monospace-data text-on-surface">{v.title}</span>
+                        <span
+                          className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide shrink-0"
+                          style={{ background: sty.bg, color: sty.color }}
+                        >
+                          {v.severity}
+                        </span>
+                      </div>
+                      <p className="font-body text-neutral-secondary m-0 text-[13px]">{v.description}</p>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** One result tile. The two failure tiles carry the canvas's corner wash. */
+function StatTile({ label, value, color, wash = false }: { label: string; value: number; color?: string; wash?: boolean }) {
+  return (
+    <div className="bg-surface-container-lowest border border-neutral-border rounded-xl p-6 shadow-sm flex flex-col gap-2 relative overflow-hidden">
+      {wash && (
+        <div
+          className="absolute right-0 top-0 w-16 h-16 rounded-bl-full"
+          style={{ background: "linear-gradient(to bottom left, var(--critical-bg), transparent)" }}
+        />
+      )}
+      <span className="font-eyebrow text-eyebrow text-neutral-secondary uppercase relative">{label}</span>
+      <span className="font-display text-display relative" style={{ color: color ?? "var(--ink-900)" }}>
+        {value}
+      </span>
+    </div>
+  );
+}
+
+/** Precision/recall of violation detection against what the scenario expected. */
+function DetectionGrade({ grade }: { grade: NonNullable<SimulationDetailData["report"]["detection_grade"]> }) {
+  return (
+    <div className="bg-surface-container-lowest border border-neutral-border rounded-xl shadow-sm p-6">
+      <div className="flex items-center gap-2 mb-1">
+        <Crosshair size={18} style={{ color: grade.passed ? "var(--aqua-deep)" : "var(--high)" }} />
+        <h3 className="font-card-title text-card-title text-on-surface m-0">Detection grade</h3>
+        <span
+          className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide"
+          style={
+            grade.passed
+              ? { background: "var(--aqua-soft)", color: "var(--aqua-deep)" }
+              : { background: "var(--high-bg)", color: "var(--high)" }
+          }
+        >
+          {grade.passed ? "All expected violations detected" : "Missed expected violations"}
+        </span>
+      </div>
+      <p className="text-meta font-meta text-neutral-secondary mt-1 mb-4">
+        How well this run surfaced the violations the scenario was designed to trigger. Actions that policy
+        blocked still count as detected — catching and stopping a violation is not a miss.
+      </p>
+      <div className="flex gap-8 mb-4">
+        {grade.recall != null && (
+          <div>
+            <div className="font-monospace-data text-[20px] font-semibold text-on-surface">
+              {Math.round(grade.recall * 100)}%
+            </div>
+            <div className="text-meta font-meta text-neutral-secondary">
+              Recall · {grade.matched.length}/{grade.expected.length} expected found
+            </div>
+          </div>
+        )}
+        {grade.precision != null && (
+          <div>
+            <div className="font-monospace-data text-[20px] font-semibold text-on-surface">
+              {Math.round(grade.precision * 100)}%
+            </div>
+            <div className="text-meta font-meta text-neutral-secondary">
+              Precision · of {grade.detected.length} detected
+            </div>
           </div>
         )}
       </div>
-
-      {/* Violations */}
-      {violations.length > 0 && (
-        <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-6">
-          <h3 className="font-semibold mb-5 flex items-center gap-2" style={{ fontSize: 15, color: "var(--text-primary)" }}>
-            <XCircle size={16} className="text-red-500" />
-            Violations ({violations.length})
-          </h3>
-          <div className="space-y-2">
-            {violations.map((v, i) => {
-              const sty = SEVERITY_STYLES[v.severity?.toLowerCase()] ?? { bg: "#f9fafb", color: "#6b7280" };
-              return (
-                <div
-                  key={i}
-                  className="flex items-start gap-3 p-3 rounded-lg"
-                  style={{ backgroundColor: sty.bg }}
-                >
-                  <AlertTriangle
-                    size={14}
-                    className="flex-shrink-0 mt-0.5"
-                    style={{ color: sty.color }}
-                  />
-                  <div className="flex-1">
-                    <div className="font-medium text-sm" style={{ color: sty.color }}>{v.title}</div>
-                    <div style={{ fontSize: 12, color: "var(--text-secondary)", marginTop: 2 }}>{v.description}</div>
-                    {v.from_label && v.to_label && (
-                      <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 4 }}>
-                        {v.from_label} → {v.to_label}
-                      </div>
-                    )}
-                  </div>
-                  <span
-                    className="text-xs font-semibold px-2 py-0.5 rounded capitalize text-white flex-shrink-0"
-                    style={{ backgroundColor: sty.color }}
-                  >
-                    {v.severity}
-                  </span>
-                </div>
-              );
-            })}
-          </div>
-          {sim.agent_id && (
-            <Link
-              to={`/agent/${sim.agent_id}?tab=policies`}
-              className="flex items-center gap-1.5 mt-3 text-sm font-medium"
-              style={{ color: 'var(--text-link)' }}
-            >
-              Fix in production <ExternalLink size={12} />
-            </Link>
-          )}
-        </div>
-      )}
-
-      {/* Detection accuracy — only when the scenario declared expected
-          violations (optional data; absent renders nothing, not an error) */}
-      {report?.detection_grade && report.detection_grade.expected.length > 0 && (
-        <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-6">
-          <h3 className="font-semibold mb-2 flex items-center gap-2" style={{ fontSize: 15, color: "var(--text-primary)" }}>
-            <Crosshair size={16} style={{ color: report.detection_grade.passed ? "#16a34a" : "#ea580c" }} />
-            Detection accuracy
+      {grade.missed.length > 0 && (
+        <div className="flex items-start gap-2 flex-wrap">
+          <span className="text-meta font-meta text-neutral-secondary mt-0.5">Missed:</span>
+          {grade.missed.map((label) => (
             <span
-              className="text-xs font-semibold px-2 py-0.5 rounded-full"
-              style={report.detection_grade.passed
-                ? { background: "#f0fdf4", color: "#16a34a" }
-                : { background: "#fff7ed", color: "#ea580c" }}
+              key={label}
+              className="text-[11px] px-2 py-0.5 rounded-full font-medium"
+              style={{ background: "var(--critical-bg)", color: "var(--critical)" }}
             >
-              {report.detection_grade.passed ? "All expected violations detected" : "Missed expected violations"}
+              {label}
             </span>
-          </h3>
-          <p className="text-xs mb-4" style={{ color: "var(--text-muted)" }}>
-            How well this run surfaced the violations the scenario was designed to trigger.
-            Actions that policy blocked still count as detected — catching and stopping a
-            violation is not a miss.
-          </p>
-          <div className="flex gap-8 mb-4">
-            {report.detection_grade.recall != null && (
-              <div>
-                <div className="text-xl font-semibold mono" style={{ color: "var(--text-primary)" }}>
-                  {Math.round(report.detection_grade.recall * 100)}%
-                </div>
-                <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>
-                  Recall · {report.detection_grade.matched.length}/{report.detection_grade.expected.length} expected found
-                </div>
-              </div>
-            )}
-            {report.detection_grade.precision != null && (
-              <div>
-                <div className="text-xl font-semibold mono" style={{ color: "var(--text-primary)" }}>
-                  {Math.round(report.detection_grade.precision * 100)}%
-                </div>
-                <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>
-                  Precision · of {report.detection_grade.detected.length} detected
-                </div>
-              </div>
-            )}
-          </div>
-          {report.detection_grade.missed.length > 0 && (
-            <div className="flex items-start gap-2 flex-wrap">
-              <span style={{ fontSize: 12, color: "var(--text-secondary)", marginTop: 2 }}>Missed:</span>
-              {report.detection_grade.missed.map((label) => (
-                <span key={label} className="text-xs px-2 py-0.5 rounded-full font-medium"
-                      style={{ background: "#fef2f2", color: "#dc2626" }}>
-                  {label}
-                </span>
-              ))}
-            </div>
-          )}
+          ))}
         </div>
       )}
+    </div>
+  );
+}
 
-      {/* Chains */}
-      {chains.length > 0 && (
-        <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-6">
-          <h3 className="font-semibold mb-5 flex items-center gap-2" style={{ fontSize: 15, color: "var(--text-primary)" }}>
-            <GitBranch size={16} className="text-orange-500" />
-            Chains Triggered ({chains.length})
-          </h3>
-          <div className="space-y-2">
-            {chains.map((c, i) => {
-              const sty = SEVERITY_STYLES[c.severity?.toLowerCase()] ?? { bg: "#f9fafb", color: "#6b7280" };
-              return (
-                <div
-                  key={i}
-                  className="p-3 rounded-lg border"
-                  style={{ backgroundColor: sty.bg, borderColor: sty.color + "40" }}
-                >
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="font-medium text-sm" style={{ color: sty.color }}>{c.chain_name}</span>
-                    <span
-                      className="text-xs font-semibold px-1.5 py-0.5 rounded capitalize text-white"
-                      style={{ backgroundColor: sty.color }}
-                    >
-                      {c.severity}
-                    </span>
-                  </div>
-                  <p style={{ fontSize: 12, color: "var(--text-secondary)" }}>{c.description}</p>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* Recommendations */}
-      {recommendations.length > 0 && (
-        <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-6">
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="font-semibold flex items-center gap-2" style={{ fontSize: 15, color: "var(--text-primary)" }}>
-              <Shield size={16} className="text-blue-500" />
-              Recommendations ({recommendations.length})
-            </h3>
-            <Button size="sm" onClick={applyAllRecommendations} disabled={applyingAll} loading={applyingAll}>
-              {applyingAll ? "Applying..." : "Apply All"}
-            </Button>
-          </div>
-          <div className="space-y-1.5">
-            {recommendations.map((rec, i) => {
-              const text = typeof rec === "string" ? rec : (rec.message ?? rec.reason ?? "");
-              const tag = typeof rec === "string" ? "" : (rec.effect && rec.action_pattern ? `${rec.effect} · ${rec.action_pattern}` : "");
-              return (
-                <div
-                  key={i}
-                  style={{ display: "flex", alignItems: "flex-start", gap: 8, fontSize: 13, color: "var(--text-primary)", padding: 8, background: "var(--bg-sunken)", borderRadius: 10 }}
-                >
-                  <CheckCircle size={14} className="mt-0.5 flex-shrink-0" style={{ color: 'var(--color-cta)' }} />
-                  <div style={{ flex: 1 }}>
-                    <span>{text}</span>
-                    {tag && (
-                      <span className="mono" style={{ marginLeft: 8, fontSize: 11, color: "var(--text-muted)" }}>{tag}</span>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* Timeline */}
-      <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-4">
-        <h3 className="font-semibold mb-3 flex items-center gap-2" style={{ fontSize: 15, color: "var(--text-primary)" }}>
-          <Clock size={16} style={{ color: "var(--text-secondary)" }} />
-          Execution Timeline ({steps.length} steps)
+/** Fixes the run suggests, each applyable as a policy. */
+function Recommendations({
+  items, onApplyAll, applying,
+}: {
+  items: SimulationDetailData["report"]["recommendations"]
+  onApplyAll: () => void
+  applying: boolean
+}) {
+  const actionable = items.filter((r) => typeof r !== "string" && r.actionable);
+  return (
+    <div className="bg-surface-container-lowest border border-neutral-border rounded-xl shadow-sm p-6">
+      <div className="flex items-center justify-between gap-3 mb-3">
+        <h3 className="font-card-title text-card-title text-on-surface m-0 flex items-center gap-2">
+          <Shield size={18} style={{ color: "var(--accent)" }} />
+          Recommendations ({items.length})
         </h3>
-        {steps.length === 0 ? (
-          <p style={{ fontSize: 13, color: "var(--text-muted)", padding: "16px 0", textAlign: "center" }}>No trace steps recorded.</p>
-        ) : (
-          <div className="space-y-2">
-            {steps.map((step, i) => (
-              <StepRow key={step.id ?? i} step={step} />
-            ))}
-          </div>
+        {actionable.length > 0 && (
+          <Button size="sm" onClick={onApplyAll} loading={applying} disabled={applying}>
+            {applying ? "Applying…" : `Apply ${actionable.length}`}
+          </Button>
         )}
+      </div>
+      <div className="flex flex-col gap-3">
+        {items.map((rec, i) => {
+          const text = typeof rec === "string" ? rec : (rec.message ?? rec.reason ?? "");
+          const pattern = typeof rec === "string" ? undefined : rec.action_pattern;
+          return (
+            <div key={i} className="flex items-start gap-2">
+              <span className="w-1.5 h-1.5 rounded-full mt-2 shrink-0" style={{ background: "var(--accent)" }} />
+              <div className="min-w-0">
+                <p className="text-body font-body text-on-surface m-0">{text}</p>
+                {pattern && (
+                  <span className="font-monospace-label text-monospace-label text-neutral-secondary">{pattern}</span>
+                )}
+              </div>
+            </div>
+          );
+        })}
       </div>
     </div>
   );

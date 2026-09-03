@@ -1,31 +1,22 @@
 /**
  * Agent risk-score card.
  *
- * Design contract — every card in a row renders to identical internal
- * geometry so cards align horizontally regardless of which capabilities
- * the agent uses:
+ * Deliberately minimal — two rows only: header (icon + name/desc + risk
+ * dial) and tool chips. Everything deeper (capability bars, spend, policy
+ * coverage, chains) lives in the drawer the card opens. The chips row is
+ * pinned to the card's bottom edge so it aligns across a 2-up grid row
+ * (CSS-grid's default `align-items: stretch` handles equal-height).
  *
- *   - 24px padding on all four sides.
- *   - Five capability rows always rendered (zero-value rows show the
- *     dimmed track + "0" in muted ink). This stabilizes card height and
- *     keeps the spend / footer at the same vertical position across the row.
- *   - Fixed grid columns inside each cap row: [label 128px | bar 1fr | count 24px].
- *     The right column reserves space for two-digit counts so the bar tracks
- *     end at the same x across every card.
- *   - Card itself is a `display:grid` with a `1fr` body row, so the spend +
- *     footer rows are pinned to the bottom. CSS-grid's default
- *     `align-items: stretch` on the outer agents grid handles equal-height.
+ * CapBars renders those capability rows for the drawer; it is exported
+ * from here but no longer used by the card itself.
  *
- * Tokens used: var(--card), var(--line), var(--line-soft), var(--ink-*),
- * var(--paper-2), var(--accent), var(--safe|caution|critical*).
+ * Tokens used: var(--card), var(--line), var(--ink-*), var(--paper-2),
+ * var(--accent), var(--safe|caution|critical*).
  */
 
-import { Bot, Check, ChevronRight, Clock, Lock } from "lucide-react";
-import { Link } from "react-router-dom";
 import RiskRing from "@/components/shared/RiskRing";
 import { scoreBand } from "@/lib/utils";
 import { formatMoney } from "@/lib/format";
-import { countLabel } from "@/lib/strings";
 
 export interface AgentCardData {
   id: string;
@@ -202,15 +193,6 @@ interface AgentCardProps {
 
 export default function AgentCard({ agent, onOpen }: AgentCardProps): React.ReactElement {
   const b = band(agent.score, agent.critical, agent.band);
-  const unguarded = agent.policies === 0;
-  // Enforced coverage = BLOCK or ALLOW. A REQUIRE_APPROVAL policy is a *pending*
-  // human gate, not an approval — it must not paint a green "approved" check.
-  const byEffect = agent.policiesByEffect ?? {};
-  const enforcedCount = (byEffect.BLOCK ?? 0) + (byEffect.ALLOW ?? 0);
-  const approvalOnly = !unguarded && enforcedCount === 0;
-  // "Exposed now" only means something once gates exist — see AgentCardData.residual.
-  const residual = Math.round(agent.residual ?? agent.score);
-  const showResidual = !unguarded && residual < Math.round(agent.score);
 
   return (
     <div
@@ -227,253 +209,60 @@ export default function AgentCard({ agent, onOpen }: AgentCardProps): React.Reac
       style={{
         background: "var(--card)",
         border: "1px solid var(--line)",
-        borderRadius: 12,
-        padding: 24,
+        // Severity reads before anything else is parsed — the eye should land
+        // on the riskiest row without reading a number first.
+        borderLeft: `3px solid ${b.ring}`,
+        borderRadius: 10,
+        padding: "14px 18px",
         boxShadow: "var(--shadow-card-new)",
-        display: "grid",
-        gridTemplateRows: "auto auto 1fr auto auto",
-        rowGap: 20,
+        display: "flex",
+        alignItems: "center",
+        gap: 16,
         cursor: "pointer",
         fontFamily: "var(--font-sans)",
         height: "100%",
       }}
     >
-      {/* Row 1 — Header (icon + name/desc + risk dial) */}
-      <div style={{ display: "grid", gridTemplateColumns: "38px 1fr auto", alignItems: "start", columnGap: 15 }}>
+      <RiskRing
+        value={agent.score}
+        size={48}
+        stroke={3}
+        color={b.ring}
+        label={Math.round(agent.score)}
+      />
+      <div style={{ minWidth: 0, flex: 1 }}>
         <div
+          title={agent.name}
           style={{
-            width: 38,
-            height: 38,
-            borderRadius: 9,
-            background: "var(--accent-soft)",
-            color: "var(--accent)",
-            border: "1px solid var(--accent-line)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
+            fontSize: "var(--fs-title)", fontWeight: 600, color: "var(--ink-900)",
+            letterSpacing: -0.2, lineHeight: 1.3,
+            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
           }}
         >
-          <Bot size={19} strokeWidth={1.6} />
+          {agent.name}
         </div>
-        <div style={{ minWidth: 0 }}>
-          <div
-            title={agent.name}
-            style={{
-              fontSize: "var(--fs-title)", fontWeight: 600, color: "var(--ink-900)",
-              letterSpacing: -0.2, lineHeight: 1.2,
-              overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-            }}
-          >
-            {agent.name}
-          </div>
-          <div
-            style={{
-              fontSize: "var(--fs-small)", color: "var(--ink-500)", marginTop: 4, lineHeight: 1.45,
-              display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden",
-            }}
-          >
-            {agent.description}
-          </div>
-        </div>
-        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 5 }}>
-          <RiskRing
-            value={agent.score}
-            size={58}
-            stroke={5.5}
-            color={b.ring}
-            label={Math.round(agent.score)}
-          />
+        {/* Band word and number always travel together — colour alone is never
+            allowed to carry severity. */}
+        <div style={{ marginTop: 3, display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
           <span
             style={{
-              fontSize: "var(--fs-micro)",
-              fontWeight: 600,
-              textTransform: "uppercase",
-              letterSpacing: 0.5,
-              color: b.color,
+              fontSize: "var(--fs-micro)", fontWeight: 700, textTransform: "uppercase",
+              letterSpacing: 0.5, color: b.color, flexShrink: 0,
             }}
           >
             {b.label}
           </span>
-          {/* Always rendered, hidden when there's nothing to say: the cards sit in
-              a 2-up grid and each row's height is set by its tallest card, so a
-              conditionally-present line knocks the neighbouring card's rows out
-              of alignment. */}
+          <span style={{ color: "var(--ink-300)", flexShrink: 0 }}>·</span>
           <span
-            aria-hidden={!showResidual}
-            title={
-              showResidual
-                ? `The ring shows what this agent could do if nothing stopped it (${Math.round(agent.score)}). Your policies hold ${Math.round(agent.score) - residual} of that back, leaving ${residual} still exposed.`
-                : undefined
-            }
+            title={agent.tools.map(fmtTool).join(", ")}
             style={{
-              fontSize: "var(--fs-micro)",
-              fontWeight: 600,
-              color: "var(--safe)",
-              whiteSpace: "nowrap",
-              visibility: showResidual ? "visible" : "hidden",
+              fontSize: "var(--fs-small)", color: "var(--ink-500)",
+              overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
             }}
           >
-            {showResidual ? `↓ ${residual} exposed now` : " "}
+            {agent.tools.map(fmtTool).join(", ")}
           </span>
         </div>
-      </div>
-
-      {/* Row 2 — Tool chips (uniform pill style) */}
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-        {agent.tools.map((t) => (
-          <span
-            key={t}
-            style={{
-              fontSize: 12,
-              fontWeight: 500,
-              color: "var(--ink-600)",
-              background: "var(--paper-2)",
-              border: "1px solid var(--line)",
-              borderRadius: 6,
-              padding: "3px 9px",
-              lineHeight: 1.4,
-            }}
-          >
-            {fmtTool(t)}
-          </span>
-        ))}
-      </div>
-
-      {/* Row 3 — Metrics. Always 5 rows so cards align horizontally.
-          Divider above for clarity. */}
-      <div style={{ borderTop: "1px solid var(--line-soft)", paddingTop: 18 }}>
-        <CapBars caps={agent.caps} gap={9} showZeros />
-      </div>
-
-      {/* Row 4 — Spend (top border separates from metrics) */}
-      <div
-        style={{
-          display: "flex",
-          alignItems: "baseline",
-          justifyContent: "space-between",
-          borderTop: "1px solid var(--line-soft)",
-          paddingTop: 16,
-        }}
-      >
-        <span
-          style={{
-            fontSize: 11,
-            fontWeight: 600,
-            letterSpacing: 0.6,
-            textTransform: "uppercase",
-            color: "var(--ink-400)",
-          }}
-        >
-          Est. spend / mo
-        </span>
-        {/* Direct, obvious link to the per-agent Cost Portfolio. stopPropagation
-            so it navigates instead of also opening the card's drawer. */}
-        <Link
-          to={`/agent/${agent.id}/spend`}
-          onClick={(e) => e.stopPropagation()}
-          className="ag-spend-cta"
-          style={{
-            display: "inline-flex",
-            alignItems: "baseline",
-            gap: 5,
-            textDecoration: "none",
-            color: agent.spend !== null ? "var(--ink-900)" : "var(--accent)",
-          }}
-          title="View spend forecast"
-        >
-          {agent.spend !== null ? (
-            <span className="mono" style={{ fontSize: 20, fontWeight: 700, letterSpacing: -0.4 }}>
-              {fmtMoney(agent.spend)}
-            </span>
-          ) : (
-            <span style={{ fontSize: 13, fontWeight: 600 }}>View forecast</span>
-          )}
-          <ChevronRight size={14} strokeWidth={2} style={{ alignSelf: "center", color: "var(--accent)" }} />
-        </Link>
-      </div>
-
-      {/* Row 5 — Policy + chains footer (consistent badge size across cards) */}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        {unguarded ? (
-          <span
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 6,
-              whiteSpace: "nowrap",
-              fontSize: 12,
-              fontWeight: 600,
-              color: "var(--critical)",
-              background: "var(--critical-bg)",
-              border: "1px solid var(--critical-line)",
-              borderRadius: 7,
-              padding: "4px 10px",
-              lineHeight: 1.3,
-            }}
-          >
-            <Lock size={13} strokeWidth={1.8} /> No policy
-          </span>
-        ) : approvalOnly ? (
-          <span
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 6,
-              whiteSpace: "nowrap",
-              fontSize: 12,
-              fontWeight: 600,
-              color: "var(--caution)",
-              background: "var(--caution-bg)",
-              border: "1px solid var(--caution-line)",
-              borderRadius: 7,
-              padding: "4px 10px",
-              lineHeight: 1.3,
-            }}
-          >
-            <Clock size={13} strokeWidth={1.8} /> {countLabel(agent.policies, 'approval gate')}
-          </span>
-        ) : (
-          <span
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 6,
-              whiteSpace: "nowrap",
-              fontSize: 12,
-              fontWeight: 600,
-              color: "var(--safe)",
-              background: "var(--safe-bg)",
-              border: "1px solid var(--safe-line)",
-              borderRadius: 7,
-              padding: "4px 10px",
-              lineHeight: 1.3,
-            }}
-          >
-            <Check size={13} strokeWidth={1.8} /> {agent.policies} {agent.policies === 1 ? "policy" : "policies"}
-          </span>
-        )}
-        <span
-          className="ag-cardcta"
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 7,
-            whiteSpace: "nowrap",
-            fontSize: 12.5,
-            color: "var(--ink-500)",
-          }}
-        >
-          {agent.critical > 0 ? (
-            <span style={{ color: "var(--critical)", fontWeight: 600 }}>
-              {agent.critical} critical {agent.critical === 1 ? "chain" : "chains"}
-            </span>
-          ) : (
-            <span>{agent.chains} risk chains</span>
-          )}
-          <span style={{ color: "var(--ink-300)", display: "flex" }}>
-            <ChevronRight size={15} />
-          </span>
-        </span>
       </div>
     </div>
   );

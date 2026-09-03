@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useMemo } from 'react'
 import { Link, useSearchParams, useNavigate } from 'react-router-dom'
 import {
   ChevronRight, ChevronDown, X, AlertTriangle, Play, Cpu, Zap,
-  Plus, RotateCcw, ArrowRight, Search,
+  Plus, RotateCcw, ArrowRight, Search, Check,
 } from 'lucide-react'
 import { apiFetch } from '@/lib/api'
 import { toast } from '@/components/shared/Toast'
@@ -10,7 +10,9 @@ import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { scoreToColor, timeAgo } from '@/lib/utils'
 import { chainShortLabel } from '@/lib/chainLabels'
-import Tooltip from '@/components/shared/Tooltip'
+import NewSimulationModal, { CUSTOM_SCENARIO_ID } from '@/components/sandbox/NewSimulationModal'
+import ScenarioLibrary from '@/components/sandbox/ScenarioLibrary'
+import SimulationCanvas, { type CanvasRun } from '@/components/sandbox/SimulationCanvas'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -109,16 +111,17 @@ const CATEGORY_TOOLTIPS: Partial<Record<ScenarioCategory, string>> = {
 }
 
 const SEVERITY_COLORS: Record<string, { bg: string; color: string; border: string }> = {
-  critical: { bg: '#fef2f2', color: '#dc2626', border: '#fca5a5' },
-  high:     { bg: '#fff7ed', color: '#ea580c', border: '#fdba74' },
-  medium:   { bg: '#fefce8', color: '#ca8a04', border: '#fde68a' },
-  info:     { bg: '#edf5fb', color: '#4B9CD3', border: '#7DB8E0' },
+  /* Filled, not tinted — critical must read differently from high at a glance. */
+  critical: { bg: 'var(--critical)', color: '#fff', border: 'var(--critical)' },
+  high:     { bg: 'var(--high-bg)', color: 'var(--high)', border: 'var(--high-line)' },
+  medium:   { bg: 'var(--caution-bg)', color: 'var(--caution)', border: 'var(--caution-line)' },
+  info:     { bg: 'var(--accent-soft)', color: 'var(--accent-ink)', border: 'var(--accent-line)' },
 }
 
 const CATEGORY_COLORS: Record<string, { bg: string; color: string }> = {
-  normal:       { bg: '#f0fdf4', color: '#16a34a' },
-  edge_case:    { bg: '#fff7ed', color: '#ea580c' },
-  adversarial:  { bg: '#fef2f2', color: '#dc2626' },
+  normal:       { bg: 'var(--safe-bg)', color: 'var(--safe)' },
+  edge_case:    { bg: 'var(--high-bg)', color: 'var(--high)' },
+  adversarial:  { bg: 'var(--critical-bg)', color: 'var(--critical)' },
   chain_exploit:{ bg: '#f5f3ff', color: '#7c3aed' },
 }
 
@@ -136,6 +139,68 @@ const CATEGORY_FILTERS = [
   { value: 'adversarial',  label: 'Adversarial' },
   { value: 'chain_exploit',label: 'Chain Exploit' },
 ]
+
+/**
+ * Policy-override switch. The canvas draws a 36×20 track with a 16px knob;
+ * `disabled` renders the same shape for a state the sandbox does not let you
+ * change, rather than a switch that silently does nothing.
+ */
+function Toggle({
+  label, checked, onChange, disabled = false, hint,
+}: {
+  label: string
+  checked: boolean
+  onChange?: (v: boolean) => void
+  disabled?: boolean
+  hint?: string
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3" title={hint}>
+      <span className={`font-monospace-data text-monospace-data ${disabled ? 'text-neutral-muted' : 'text-on-surface'}`}>
+        {label}
+      </span>
+      <label className={`relative inline-flex items-center shrink-0 ${disabled ? 'cursor-default' : 'cursor-pointer'}`}>
+        <input
+          type="checkbox"
+          className="sr-only peer"
+          checked={checked}
+          disabled={disabled}
+          onChange={(e) => onChange?.(e.target.checked)}
+        />
+        <span
+          className="w-9 h-5 rounded-full relative transition-colors"
+          style={{ background: checked ? 'var(--accent)' : 'var(--surface-variant, #e2e2e9)', opacity: disabled ? 0.55 : 1 }}
+        >
+          <span
+            className="absolute top-[2px] h-4 w-4 rounded-full border transition-all"
+            style={{
+              left: checked ? 18 : 2,
+              background: 'var(--card)',
+              borderColor: 'var(--line)',
+            }}
+          />
+        </span>
+      </label>
+    </div>
+  )
+}
+
+/** One pre-flight row: aquamarine tick when the condition holds, amber when not. */
+function PreflightCheck({ ok, okLabel, failLabel }: { ok: boolean; okLabel: string; failLabel: string }) {
+  return (
+    <div className="flex items-center gap-2">
+      <span
+        className="w-5 h-5 rounded-full flex items-center justify-center shrink-0"
+        style={{ background: ok ? 'var(--aqua-soft)' : 'var(--caution-bg)' }}
+      >
+        {ok
+          ? <Check size={14} strokeWidth={2.6} style={{ color: 'var(--aqua-deep)' }} />
+          : <AlertTriangle size={13} strokeWidth={2.4} style={{ color: 'var(--amber-ink)' }} />}
+      </span>
+      <span className="font-monospace-data text-monospace-data text-on-surface">{ok ? okLabel : failLabel}</span>
+    </div>
+  )
+}
 
 const DECISION_STYLE: Record<string, { bg: string; color: string }> = {
   ALLOW:            { bg: 'var(--status-executed-bg)', color: 'var(--status-executed)' },
@@ -179,7 +244,7 @@ interface SavedSandboxState {
   categoryFilter?: string
   customPrompt?: string
   queuedCustomPrompts?: string[]
-  tab?: 'run' | 'past'
+  tab?: 'run' | 'past' | 'library'
   runMode?: 'dry' | 'llm'
 }
 
@@ -237,9 +302,16 @@ export default function Sandbox() {
   const [runError, setRunError] = useState<string | null>(null)
   const [lastRunMode, setLastRunMode] = useState('')
   const [sweeping, setSweeping] = useState(false)
-  const [sandboxTab, setSandboxTab] = useState<'run' | 'past'>(saved.tab ?? 'run')
+  const [sandboxTab, setSandboxTab] = useState<'run' | 'past' | 'library'>(saved.tab ?? 'run')
   const [runMode, setRunMode] = useState<'dry' | 'llm'>(saved.runMode ?? 'dry')
   const [showAddAllConfirm, setShowAddAllConfirm] = useState(false)
+
+  // "Configure Simulation" dialog (Sandbox header → New Simulation).
+  const [lastRun, setLastRun] = useState<CanvasRun | null>(null)
+  const [newSimOpen, setNewSimOpen] = useState(false)
+  const [modalScenarioId, setModalScenarioId] = useState('')
+  const [strictMode, setStrictMode] = useState(true)
+  const [debugLogging, setDebugLogging] = useState(false)
 
   useEffect(() => {
     Promise.all([
@@ -394,15 +466,46 @@ export default function Sandbox() {
     })
   }
 
-  const handleRun = async (dryRun = true) => {
-    if ((selectedScenarios.length === 0 && queuedCustomPrompts.length === 0) || !selectedAgent) return
+  // Pull the newest recorded trace for the selected agent so the canvas can
+  // show where that agent actually got stopped, and replay it step by step.
+  useEffect(() => {
+    const latest = simulations.find((x) => x.agent_id === selectedAgent)
+    if (!latest) { setLastRun(null); return }
+    let cancelled = false
+    apiFetch<Record<string, unknown>>(`/api/sandbox/simulation/${latest.id}`)
+      .then((raw) => {
+        if (cancelled) return
+        const trace = (raw.trace ?? {}) as Record<string, unknown>
+        const rawSteps = (trace.steps ?? []) as Record<string, unknown>[]
+        setLastRun({
+          id: latest.id,
+          scenario: formatDesc(latest.scenario_id),
+          steps: rawSteps.map((st) => ({
+            tool: String(st.tool ?? ''),
+            action: String(st.action ?? ''),
+            decision: String(st.enforce_decision ?? (st.allowed === false ? 'BLOCK' : 'ALLOW')),
+          })),
+        })
+      })
+      .catch(() => { if (!cancelled) setLastRun(null) })
+    return () => { cancelled = true }
+  }, [simulations, selectedAgent])
+
+  const handleRun = async (
+    dryRun = true,
+    override?: { agentId?: string; scenarios?: Scenario[] },
+  ) => {
+    const agentId = override?.agentId ?? selectedAgent
+    const scenarioList = override?.scenarios ?? selectedScenarios
+    const customList = override?.scenarios ? [] : queuedCustomPrompts
+    if ((scenarioList.length === 0 && customList.length === 0) || !agentId) return
     setRunning(true)
     setRunError(null)
     setLastRunMode(dryRun ? 'dry-run' : 'llm')
 
     const toRun: ({ type: 'scenario'; scenario: Scenario } | { type: 'custom'; prompt: string })[] = [
-      ...selectedScenarios.map((s) => ({ type: 'scenario' as const, scenario: s })),
-      ...queuedCustomPrompts.map((p) => ({ type: 'custom' as const, prompt: p })),
+      ...scenarioList.map((s) => ({ type: 'scenario' as const, scenario: s })),
+      ...customList.map((p) => ({ type: 'custom' as const, prompt: p })),
     ]
     if (toRun.length === 0) { setRunning(false); return }
 
@@ -413,7 +516,7 @@ export default function Sandbox() {
       // current = how many are done; the bar reads 0% at start and 100% at end.
       setRunProgress({ current: i, total: toRun.length })
       try {
-        const body: Record<string, unknown> = { agent_id: selectedAgent, dry_run: dryRun }
+        const body: Record<string, unknown> = { agent_id: agentId, dry_run: dryRun }
         if (toRun[i].type === 'scenario') {
           body.scenario_id = (toRun[i] as { type: 'scenario'; scenario: Scenario }).scenario.id
         } else {
@@ -501,487 +604,362 @@ export default function Sandbox() {
   }
 
   const sel = agents.find((a) => a.id === selectedAgent)
+  const queueCount = selectedScenarios.length + queuedCustomPrompts.length
 
   return (
-    <div className="p-10 space-y-8">
-      {/* Page header */}
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight text-gray-900">Sandbox</h1>
-        <p className="text-sm text-gray-500 mt-2">
-          Run agents against mock APIs to test how they behave before they touch real systems.
-        </p>
-        <div className="flex mt-6">
-          {([
-            { id: 'run' as const, label: 'Run Simulation' },
-            { id: 'past' as const, label: `Past Runs${simTotal > 0 ? ` (${simTotal})` : ''}` },
-          ]).map((t) => (
-            <button
-              key={t.id}
-              onClick={() => setSandboxTab(t.id)}
-              style={{
-                background: 'transparent',
-                border: 'none',
-                padding: '8px 16px 10px',
-                fontSize: 13,
-                fontWeight: sandboxTab === t.id ? 600 : 400,
-                color: sandboxTab === t.id ? 'var(--text-primary)' : 'var(--text-secondary)',
-                borderBottom: sandboxTab === t.id ? '2px solid var(--text-primary)' : '2px solid transparent',
-                marginBottom: '-1px',
-                cursor: 'pointer',
-                fontFamily: 'inherit',
-              }}
-            >
-              {t.label}
-            </button>
-          ))}
+    <div className="space-y-8" style={{ padding: '34px 40px 64px', maxWidth: 1140, margin: '0 auto', fontFamily: 'var(--font-sans)' }}>
+      {/* ── Header ─────────────────────────────────────────────────── */}
+      {sandboxTab !== 'library' && (
+      <div className="flex flex-row items-end justify-between w-full">
+        <div className="flex flex-col">
+          <h1 className="font-page-title text-page-title text-on-surface m-0">Sandbox</h1>
+          <p className="font-body text-body text-neutral-secondary mt-1 mb-0">
+            Test agent behavior and policy enforcement in a safe, isolated environment.
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setSandboxTab(sandboxTab === 'run' ? 'past' : 'run')}
+            className="font-monospace-label text-monospace-label px-4 py-2 rounded border border-neutral-border bg-surface-container-lowest text-neutral-secondary hover:text-on-surface transition-colors cursor-pointer"
+          >
+            {sandboxTab === 'run' ? `Past runs${simTotal > 0 ? ` (${simTotal})` : ''}` : 'Back to setup'}
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setSandboxTab('run')
+              setRunError(null)
+              setModalScenarioId(selectedScenarios[0]?.id ?? scenarios[0]?.id ?? '')
+              setNewSimOpen(true)
+            }}
+            className="bg-primary text-on-primary font-monospace-label text-monospace-label px-4 py-2 rounded shadow-sm hover:opacity-90 transition-opacity flex items-center gap-2 border-0 cursor-pointer"
+          >
+            <Plus size={16} strokeWidth={2.2} />
+            New Simulation
+          </button>
         </div>
       </div>
-
-      {sandboxTab === 'run' && (<>
-      {simulations.length > 0 && (
-        <button
-          onClick={() => navigate(`/sandbox/${simulations[0].id}`)}
-          className="w-full flex items-center justify-between gap-3 bg-white border border-gray-200 rounded-xl shadow-sm px-4 py-3 text-left transition-colors hover:bg-gray-50 cursor-pointer"
-        >
-          <div className="flex items-center gap-2 min-w-0 flex-wrap">
-            <RotateCcw size={14} style={{ color: 'var(--text-secondary)' }} className="flex-shrink-0" />
-            <span className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>Latest run</span>
-            <span className="text-sm font-medium truncate" style={{ color: 'var(--text-primary)' }}>
-              {formatDesc(simulations[0].scenario_id)}
-            </span>
-            <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>
-              {agents.find((a) => a.id === simulations[0].agent_id)?.name ?? simulations[0].agent_id} · {timeAgo(simulations[0].created_at)}
-            </span>
-          </div>
-          <span className="flex items-center gap-1 text-xs font-medium flex-shrink-0" style={{ color: 'var(--text-primary)' }}>
-            View results <ArrowRight size={12} />
-          </span>
-        </button>
       )}
-      <section className="bg-white border border-gray-200 rounded-xl shadow-sm p-6 space-y-6" id="run-section">
-        {/* Agent selector + mode explainer row */}
-        <div className="flex flex-wrap gap-4 items-start">
-          {/* Agent picker */}
-          <div className="flex-1 min-w-[200px]" ref={agentSelectorRef}>
-            <p className="text-xs font-semibold text-gray-500 mb-1">Agent</p>
+
+      {sandboxTab === 'library' && (
+        <ScenarioLibrary
+          scenarios={scenarios.map((sc) => ({
+            id: sc.id,
+            name: sc.name,
+            description: formatDesc(sc.description),
+            category: sc.category,
+            severity: sc.severity,
+          }))}
+          selectedIds={selectedScenarios.map((sc) => sc.id)}
+          onToggle={(id) => {
+            const sc = scenarios.find((x) => x.id === id)
+            if (sc) toggleScenario(sc)
+          }}
+          customPrompt={customPrompt}
+          onCustomPromptChange={setCustomPrompt}
+          onGenerate={generateScenarios}
+          generating={generatingScenarios}
+          requestPreview={JSON.stringify(
+            {
+              agent_id: selectedAgent,
+              dry_run: runMode === 'dry',
+              scenario_id: selectedScenarios[0]?.id ?? '',
+              ...(customPrompt.trim() ? { custom_prompt: customPrompt.trim() } : {}),
+            },
+            null,
+            2,
+          )}
+          onCancel={() => setSandboxTab('run')}
+          onApply={() => {
+            if (customPrompt.trim()) {
+              setQueuedCustomPrompts((prev) => [...prev, customPrompt.trim()])
+              setCustomPrompt('')
+            }
+            setSandboxTab('run')
+          }}
+        />
+      )}
+
+      {sandboxTab === 'run' && (
+      <div className="flex flex-col lg:flex-row gap-stack-gap items-start">
+
+        {/* ── Left: configuration ──────────────────────────────────── */}
+        <div
+          id="run-section"
+          className="w-full lg:w-80 shrink-0 flex flex-col gap-stack-gap bg-surface-container-lowest border border-neutral-border shadow-sm rounded-lg p-container-padding"
+        >
+          {/* Agent selection */}
+          <div className="flex flex-col gap-2" ref={agentSelectorRef}>
+            <span className="font-eyebrow text-eyebrow text-neutral-secondary uppercase">Agent selection</span>
             {agents.length === 0 ? (
-              <div className="text-sm text-gray-500">
-                No agents yet —{' '}
-                <a href="/" className="text-gray-900 underline">
-                  create one
-                </a>{' '}
-                first
+              <div className="text-body text-neutral-secondary">
+                No agents yet — <a href="/" className="text-on-surface underline">create one</a> first.
               </div>
             ) : (
               <div className="relative">
                 <button
-                  className="w-full flex items-center justify-between gap-3 text-sm hover:border-gray-400 transition-colors"
-                  style={{ background: 'var(--bg-sunken)', border: '2px solid transparent', borderRadius: 'var(--radius-md)', padding: '0 16px', height: '42px', fontFamily: 'inherit', cursor: 'pointer' }}
+                  type="button"
                   onClick={() => setAgentOpen((v) => !v)}
+                  className="w-full bg-surface border border-neutral-border text-on-surface font-body text-body px-3 py-2.5 rounded shadow-sm flex items-center justify-between hover:bg-surface-container-low transition-colors cursor-pointer"
                 >
-                  {sel ? (
-                    <>
-                      <div className="text-left min-w-0">
-                        <div className="font-semibold text-gray-900 truncate">{sel.name}</div>
-                        {(sel.tools?.length ?? 0) > 0 && (
-                          <div className="text-[11px] text-gray-400 truncate">
-                            {sel.tools.filter(Boolean).join(' · ')}
-                          </div>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-2 flex-shrink-0">
-                        <div className="text-right">
-                          <div className="text-[10px] text-gray-400 font-semibold">Risk Score</div>
-                          <div className="text-sm font-bold" style={{ color: scoreToColor(sel.blast_radius?.score ?? 0) }}>
-                            {sel.blast_radius?.score ?? 0}
-                          </div>
-                        </div>
-                        {agentOpen ? <ChevronDown size={14} className="text-gray-400" /> : <ChevronRight size={14} className="text-gray-400" />}
-                      </div>
-                    </>
-                  ) : (
-                    <span className="text-gray-400">Select an agent...</span>
-                  )}
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span
+                      className="w-2 h-2 rounded-full shrink-0"
+                      style={{ background: scoreToColor(sel?.blast_radius?.score ?? 0) }}
+                    />
+                    <span className="truncate">{sel?.name ?? 'Select an agent'}</span>
+                  </div>
+                  <ChevronDown size={18} className="text-neutral-muted shrink-0" />
                 </button>
                 {agentOpen && (
-                  <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-xl shadow-lg z-30 overflow-hidden">
-                    {agents.map((a) => {
-                      const sc = a.blast_radius?.score ?? 0
-                      const c = scoreToColor(sc)
-                      return (
-                        <button
-                          key={a.id}
-                          className={`w-full flex items-center justify-between gap-3 px-3 py-2.5 text-sm text-left transition-colors border-b border-gray-100 last:border-0 ${a.id === selectedAgent ? 'bg-gray-100' : 'hover:bg-gray-50'}`}
-                          onClick={() => { setSelectedAgent(a.id); setAgentOpen(false) }}
+                  <div className="absolute z-30 top-full left-0 right-0 mt-1 bg-surface-container-lowest border border-neutral-border rounded-lg shadow-lg overflow-hidden max-h-72 overflow-y-auto">
+                    {agents.map((a) => (
+                      <button
+                        key={a.id}
+                        type="button"
+                        onClick={() => { setSelectedAgent(a.id); setAgentOpen(false) }}
+                        className="w-full flex items-center justify-between gap-2 px-3 py-2.5 text-left bg-transparent border-0 cursor-pointer hover:bg-surface-container-low transition-colors"
+                      >
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span
+                            className="w-2 h-2 rounded-full shrink-0"
+                            style={{ background: scoreToColor(a.blast_radius?.score ?? 0) }}
+                          />
+                          <span className="font-body text-body text-on-surface truncate">{a.name}</span>
+                        </div>
+                        <span
+                          className="font-monospace-label text-monospace-label shrink-0"
+                          style={{ color: scoreToColor(a.blast_radius?.score ?? 0) }}
                         >
-                          <div className="min-w-0">
-                            <div className="font-semibold text-gray-900 truncate">{a.name}</div>
-                            {(a.tools?.length ?? 0) > 0 && (
-                              <div className="text-[11px] text-gray-400 truncate">
-                                {a.tools.filter(Boolean).join(' · ')}
-                              </div>
-                            )}
-                          </div>
-                          <div className="text-right flex-shrink-0">
-                            <div className="text-sm font-bold" style={{ color: c }}>{sc}</div>
-                            <div className="text-[10px] text-gray-400 uppercase font-semibold tracking-wide">Risk</div>
-                          </div>
-                        </button>
-                      )
-                    })}
+                          {a.blast_radius?.score ?? 0}
+                        </span>
+                      </button>
+                    ))}
                   </div>
                 )}
               </div>
             )}
           </div>
 
-        </div>
+          <div className="h-px w-full bg-neutral-border" />
 
-        {/* Run buttons */}
-        <div className="flex flex-wrap gap-2">
-          <button
-            className="flex flex-col items-start text-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            style={{ background: 'var(--color-cta)', color: 'var(--text-inverse)', borderRadius: 'var(--radius-full)', border: 'none', padding: '8px 20px', fontFamily: 'inherit', cursor: 'pointer' }}
-            onClick={() => { setRunMode('dry'); handleRun(true) }}
-            disabled={(selectedScenarios.length === 0 && queuedCustomPrompts.length === 0) || !selectedAgent || running || sweeping}
-            title="Mocked APIs · enforces policies · no LLM call (free)"
-          >
-            <span className="flex items-center gap-1.5">
-              <Play size={13} />
-              {running && lastRunMode === 'dry-run'
-                ? runProgress && runProgress.total > 1
-                  ? `Running ${runProgress.current} of ${runProgress.total}...`
-                  : 'Running...'
-                : selectedScenarios.length > 1
-                ? `Test (mock APIs) · ${selectedScenarios.length}`
-                : 'Test (mock APIs)'}
-            </span>
-            <span className="text-[11px] opacity-70 mt-0.5">No LLM call · free</span>
-          </button>
-
-          <button
-            className="flex flex-col items-start text-sm disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            style={{ background: 'transparent', border: '1px solid var(--border-strong)', color: 'var(--text-primary)', borderRadius: 'var(--radius-full)', padding: '7px 16px', fontFamily: 'inherit', cursor: 'pointer' }}
-            onClick={() => { setRunMode('llm'); handleRun(false) }}
-            disabled={(selectedScenarios.length === 0 && queuedCustomPrompts.length === 0) || !selectedAgent || running || sweeping}
-            title="Mocked APIs · enforces policies · uses a real LLM (~$0.05 per run)"
-          >
-            <span className="flex items-center gap-1.5">
-              <Cpu size={13} />
-              {running && lastRunMode === 'llm'
-                ? runProgress && runProgress.total > 1
-                  ? `Running ${runProgress.current} of ${runProgress.total}...`
-                  : 'Running...'
-                : selectedScenarios.length > 1
-                ? `Test (real LLM) · ${selectedScenarios.length}`
-                : 'Test (real LLM)'}
-            </span>
-            <span className="text-[11px] opacity-60 mt-0.5">Uses an LLM · ~$0.05 per run</span>
-          </button>
-
-          <button
-            className="flex flex-col items-start text-sm disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            style={{ background: 'transparent', border: '1px solid var(--border-strong)', color: 'var(--text-primary)', borderRadius: 'var(--radius-full)', padding: '7px 16px', fontFamily: 'inherit', cursor: 'pointer' }}
-            onClick={() => handleSweep(true)}
-            disabled={!selectedAgent || running || sweeping}
-            title="Run every scenario for this agent — full risk coverage report"
-          >
-            <span className="flex items-center gap-1.5">
-              <Zap size={13} />
-              {sweeping ? 'Sweeping... (30–60 seconds)' : 'Sweep all scenarios'}
-            </span>
-            <span className="text-[11px] opacity-70 mt-0.5">
-              {sweeping ? 'running all scenarios' : 'Every scenario · mock APIs · free'}
-            </span>
-          </button>
-        </div>
-
-        {/* Custom prompt input */}
-        <div>
-          <p className="text-xs font-semibold text-gray-500 mb-1.5">Or describe your own scenario</p>
-          <textarea
-            className="w-full text-sm resize-none focus:outline-none placeholder-gray-400"
-            style={{ background: 'var(--bg-sunken)', border: '2px solid transparent', borderRadius: 'var(--radius-md)', color: 'var(--text-primary)', padding: '10px 16px', fontFamily: 'inherit' }}
-            onFocus={(e) => { e.currentTarget.style.borderColor = 'var(--border-focus)' }}
-            onBlur={(e) => { e.currentTarget.style.borderColor = 'transparent' }}
-            value={customPrompt}
-            onChange={(e) => { setCustomPrompt(e.target.value); if (e.target.value.trim()) setSelectedScenarios([]) }}
-            placeholder="e.g. 'A customer wants a refund for a $200 charge they don't recognize'"
-            rows={2}
-          />
-          {customPrompt.trim() && (
-            <div className="mt-1">
-              <Button
-                variant="ghost"
-                size="sm"
-                icon={<Plus size={13} />}
-                onClick={() => {
-                  setQueuedCustomPrompts((prev) => [...prev, customPrompt.trim()])
-                  setCustomPrompt('')
-                }}
-              >
-                Add to queue
-              </Button>
-            </div>
-          )}
-        </div>
-
-        {/* Progress bar */}
-        {running && (
-          <div>
-            {runProgress && runProgress.total > 1 ? (
-              <div className="space-y-1.5">
-                <div className="flex items-center justify-between text-xs text-gray-500">
-                  <span>
-                    Running scenario <strong>{Math.min(runProgress.current + 1, runProgress.total)}</strong> of{' '}
-                    <strong>{runProgress.total}</strong>
-                  </span>
-                  <span>{Math.round((runProgress.current / runProgress.total) * 100)}%</span>
-                </div>
-                <div className="h-1.5 bg-gray-200 rounded-full overflow-hidden">
-                  <div
-                    className="h-full rounded-full transition-all"
-                    style={{ background: 'var(--color-cta)', width: `${(runProgress.current / runProgress.total) * 100}%` }}
-                  />
-                </div>
-                <p className="text-xs text-gray-400">Enforcing policies · calling mock APIs · capturing trace</p>
-              </div>
-            ) : (
-              <div className="space-y-1.5">
-                <div className="h-1.5 bg-gray-200 rounded-full overflow-hidden">
-                  <div className="h-full rounded-full w-1/3 animate-pulse" style={{ background: 'var(--color-cta)' }} />
-                </div>
-                <p className="text-xs text-gray-400">Enforcing policies · calling mock APIs · capturing trace</p>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Run error */}
-        {runError && (
-          <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-sm text-red-700">
-            <AlertTriangle size={14} className="flex-shrink-0" />
-            <span><strong>Simulation failed:</strong> {runError}</span>
-          </div>
-        )}
-      </section>
-
-      {/* Scenario picker */}
-      {selectedAgent && (
-        <section>
-          {/* Queue bar */}
-          <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-3 mb-4 flex flex-wrap items-center gap-2">
-            <span className="text-xs font-semibold text-gray-500 flex-shrink-0">
-              {selectedScenarios.length + queuedCustomPrompts.length} queued
-            </span>
-            <div className="flex-1 flex flex-wrap items-center gap-1.5 min-w-0">
-              {selectedScenarios.length === 0 && queuedCustomPrompts.length === 0 && (
-                <span className="text-xs text-gray-400 italic">
-                  No scenarios selected — click a scenario below or add a custom prompt
-                </span>
-              )}
-              {selectedScenarios.map((s) => {
-                const cat = CATEGORY_COLORS[s.category] ?? CATEGORY_COLORS.normal
-                return (
-                  <span
-                    key={s.id}
-                    className="inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full border border-gray-200 bg-gray-50 text-gray-700"
-                  >
-                    <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: cat.color }} />
-                    {s.name}
-                    <button
-                      className="ml-0.5 text-gray-400 hover:text-gray-700"
-                      onClick={() => toggleScenario(s)}
-                      title="Remove"
-                    >
-                      <X size={11} />
-                    </button>
-                  </span>
-                )
-              })}
-              {queuedCustomPrompts.map((_p, i) => (
-                <span
-                  key={`custom-${i}`}
-                  className="inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full border border-indigo-200 bg-indigo-50 text-indigo-700"
+          {/* Scenario template */}
+          <div className="flex flex-col gap-3">
+            <div className="flex items-center justify-between gap-2">
+              <span className="font-eyebrow text-eyebrow text-neutral-secondary uppercase">Scenario template</span>
+              {filteredScenarios.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => { if (runMode === 'llm') { setShowAddAllConfirm(true) } else { addAllToQueue() } }}
+                  className="font-meta text-meta text-neutral-secondary hover:text-on-surface bg-transparent border-0 p-0 cursor-pointer underline underline-offset-2"
                 >
-                  <span className="w-2 h-2 rounded-full flex-shrink-0 bg-indigo-500" />
-                  Custom prompt {queuedCustomPrompts.length > 1 ? i + 1 : ''}
-                  <button
-                    className="ml-0.5 text-indigo-400 hover:text-indigo-700"
-                    onClick={() => setQueuedCustomPrompts((prev) => prev.filter((_, j) => j !== i))}
-                    title="Remove"
-                  >
-                    <X size={11} />
-                  </button>
-                </span>
+                  Queue all {filteredScenarios.length}
+                </button>
+              )}
+            </div>
+
+            {/* Category filter + Claude-generated scenarios */}
+            <div className="flex flex-wrap gap-1.5">
+              <button
+                type="button"
+                onClick={generateScenarios}
+                disabled={!selectedAgent || generatingScenarios}
+                className="font-meta text-meta px-2 py-1 rounded border border-neutral-border bg-surface text-neutral-secondary hover:text-on-surface transition-colors cursor-pointer disabled:opacity-50"
+              >
+                {generatingScenarios ? 'Generating…' : 'Generate with Claude'}
+              </button>
+              {CATEGORY_FILTERS.map((c) => (
+                <button
+                  key={c.value}
+                  type="button"
+                  onClick={() => setCategoryFilter(c.value)}
+                  className={`font-meta text-meta px-2 py-1 rounded border transition-colors cursor-pointer ${
+                    categoryFilter === c.value
+                      ? 'bg-primary-container text-on-primary-container border-transparent'
+                      : 'bg-surface text-neutral-secondary border-neutral-border hover:text-on-surface'
+                  }`}
+                >
+                  {c.label}
+                </button>
               ))}
             </div>
-            {(selectedScenarios.length > 0 || queuedCustomPrompts.length > 0) && (
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => { setSelectedScenarios([]); setQueuedCustomPrompts([]) }}
-              >
-                Clear all
-              </Button>
-            )}
-          </div>
 
-          {/* Section header */}
-          <div className="flex items-center justify-between mb-2">
-            <div>
-              <h2 className="text-sm font-semibold text-gray-900">Pick a scenario</h2>
-              <p className="text-xs text-gray-400">Click to add to queue — select multiple to batch run</p>
-            </div>
-            {filteredScenarios.length > 0 && (
-              showAddAllConfirm ? (
-                <div className="flex items-center gap-2 text-xs bg-amber-50 border border-amber-200 rounded-lg px-3 py-1.5">
-                  <span className="text-amber-800">Running all {filteredScenarios.length} with LLM will cost ~${(filteredScenarios.length * 0.05).toFixed(2)} and take several minutes.</span>
-                  <button
-                    className="font-semibold text-amber-900 hover:text-red-700 transition-colors"
-                    style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
-                    onClick={() => { setShowAddAllConfirm(false); addAllToQueue() }}
-                  >
-                    Continue
-                  </button>
-                  <span className="text-amber-400">·</span>
-                  <button
-                    className="text-amber-700 hover:text-amber-900 transition-colors"
-                    style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
-                    onClick={() => setShowAddAllConfirm(false)}
-                  >
-                    Cancel
-                  </button>
-                </div>
-              ) : (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  icon={<Plus size={12} />}
-                  onClick={() => {
-                    if (runMode === 'llm') { setShowAddAllConfirm(true) } else { addAllToQueue() }
-                  }}
-                >
-                  Add all {filteredScenarios.length} to queue
-                </Button>
-              )
-            )}
-          </div>
-
-          {/* Category filter pills */}
-          <div className="flex flex-wrap items-center gap-1.5 mb-4">
-            <button
-              className="inline-flex items-center gap-1.5 text-xs px-3 py-1 font-medium transition-colors"
-              style={{
-                background: 'var(--accent-soft)',
-                color: 'var(--accent-ink)',
-                border: '1px solid var(--accent-line)',
-                borderRadius: 'var(--radius-full)',
-                fontFamily: 'inherit',
-                cursor: generatingScenarios || !selectedAgent ? 'wait' : 'pointer',
-                opacity: generatingScenarios ? 0.6 : 1,
-              }}
-              disabled={generatingScenarios || !selectedAgent}
-              onClick={generateScenarios}
-            >
-              {generatingScenarios ? 'Claude is writing scenarios…' : 'Generate with Claude'}
-            </button>
-            {CATEGORY_FILTERS.map((f) => {
-              const count = f.value === 'all' ? scenarios.length : scenarios.filter((s) => s.category === f.value).length
-              if (f.value !== 'all' && count === 0) return null
-              return (
-                <button
-                  key={f.value}
-                  className="inline-flex items-center gap-1 text-xs px-3 py-1 font-medium transition-colors"
-                  style={categoryFilter === f.value
-                    ? { background: 'var(--color-cta)', color: 'var(--text-inverse)', borderRadius: 'var(--radius-full)', border: 'none', fontFamily: 'inherit', cursor: 'pointer' }
-                    : { background: 'var(--bg-sunken)', color: 'var(--text-secondary)', borderRadius: 'var(--radius-full)', border: 'none', fontFamily: 'inherit', cursor: 'pointer' }}
-                  onClick={() => setCategoryFilter(f.value)}
-                >
-                  {f.label}
-                  {f.value === 'normal' && (
-                    <span style={{ fontSize: 10, fontWeight: 700, background: '#16a34a', color: '#fff', borderRadius: 4, padding: '1px 6px', letterSpacing: '0.02em', lineHeight: 1.6 }}>Start here</span>
-                  )}
-                  {CATEGORY_TOOLTIPS[f.value as ScenarioCategory] && (
-                    <Tooltip text={CATEGORY_TOOLTIPS[f.value as ScenarioCategory]!}>
-                      <span className="w-3.5 h-3.5 rounded-full bg-gray-300 text-gray-700 text-[9px] flex items-center justify-center font-bold cursor-default">
-                        ?
-                      </span>
-                    </Tooltip>
-                  )}
-                  <span className={`text-[10px] ${categoryFilter === f.value ? 'opacity-70' : 'text-gray-400'}`}>
-                    {count}
-                  </span>
-                </button>
-              )
-            })}
-          </div>
-
-          {/* Scenario grid */}
-          {loadingScenarios ? (
-            <div className="flex items-center justify-center py-16">
-              <div className="w-6 h-6 border-2 border-gray-200 border-t-gray-700 rounded-full animate-spin" />
-            </div>
-          ) : filteredScenarios.length === 0 ? (
-            <div className="flex items-center justify-center py-16 text-sm text-gray-400">
-              No scenarios available for this agent.
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
-              {filteredScenarios.map((s) => {
-                const cat = CATEGORY_COLORS[s.category] ?? CATEGORY_COLORS.normal
-                const sev = SEVERITY_COLORS[s.severity] ?? SEVERITY_COLORS.info
-                const isSelected = selectedScenarios.some((x) => x.id === s.id)
-                const borderColor =
-                  s.severity === 'critical' ? '#dc2626'
-                  : s.severity === 'high'     ? '#ea580c'
-                  : s.category === 'normal'   ? '#16a34a'
-                  : s.category === 'chain_exploit' ? '#7c3aed'
-                  : s.category === 'adversarial'   ? '#dc2626'
-                  : undefined
-
+            <div className="flex flex-col gap-2 max-h-[420px] overflow-y-auto -mr-2 pr-2">
+              {filteredScenarios.length === 0 && (
+                <p className="font-meta text-meta text-neutral-muted m-0">No scenarios in this category.</p>
+              )}
+              {filteredScenarios.map((sc) => {
+                const isSelected = selectedScenarios.some((x) => x.id === sc.id)
                 return (
-                  <div
-                    key={s.id}
-                    className={`bg-white border border-gray-200 rounded-xl shadow-sm p-5 cursor-pointer hover:border-gray-300 hover:shadow-md transition-all ${
-                      isSelected ? 'ring-2 ring-gray-900 ring-offset-1' : ''
-                    }`}
-                    style={borderColor ? { borderLeftWidth: 3, borderLeftColor: borderColor } : undefined}
-                    onClick={() => toggleScenario(s)}
+                  <label
+                    key={sc.id}
+                    className="cursor-pointer relative flex items-start p-3 bg-surface hover:bg-surface-container-low rounded-lg transition-colors border border-neutral-border"
                   >
-                    <div className="flex flex-wrap items-center gap-1.5 mb-2">
-                      <span
-                        className="text-[10px] font-semibold px-2 py-0.5 rounded"
-                        style={{ background: cat.bg, color: cat.color }}
-                      >
-                        {CATEGORY_LABELS[s.category] || s.category}
+                    <input
+                      type="checkbox"
+                      className="peer sr-only"
+                      checked={isSelected}
+                      onChange={() => toggleScenario(sc)}
+                    />
+                    {/* Ring fills when queued — the canvas control, kept as a
+                        checkbox so batch runs still work. */}
+                    <span
+                      className="w-4 h-4 mt-0.5 rounded-full flex items-center justify-center shrink-0 mr-3 transition-all"
+                      style={{
+                        boxShadow: isSelected
+                          ? '0 0 0 4px var(--accent) inset'
+                          : '0 0 0 1px var(--line) inset',
+                      }}
+                    />
+                    <span className="flex flex-col min-w-0">
+                      <span className="font-monospace-data text-monospace-data text-on-surface">{sc.name}</span>
+                      <span className="font-meta text-meta text-neutral-secondary mt-1">
+                        {formatDesc(sc.description)}
                       </span>
-                      {s.severity !== 'info' && (
-                        <span
-                          className="text-[10px] font-semibold px-2 py-0.5 rounded capitalize"
-                          style={{ background: sev.bg, color: sev.color }}
-                        >
-                          {s.severity}
-                        </span>
-                      )}
-                      {isSelected && (
-                        <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-gray-900 text-white ml-auto">
-                          Queued
-                        </span>
-                      )}
-                    </div>
-                    <h3 className="text-sm font-semibold text-gray-900 mb-1">{s.name}</h3>
-                    <p className="text-xs text-gray-500 leading-relaxed">{formatDesc(s.description)}</p>
-                  </div>
+                    </span>
+                  </label>
                 )
               })}
             </div>
-          )}
-        </section>
+          </div>
+
+          <div className="h-px w-full bg-neutral-border" />
+
+          {/* Custom scenario */}
+          <div className="flex flex-col gap-2">
+            <span className="font-eyebrow text-eyebrow text-neutral-secondary uppercase">Custom scenario</span>
+            <textarea
+              id="sandbox-custom-scenario"
+              value={customPrompt}
+              onChange={(e) => setCustomPrompt(e.target.value)}
+              placeholder="e.g. 'A customer wants a refund for a $200 charge they don't recognize'"
+              rows={3}
+              className="w-full bg-surface border border-neutral-border rounded font-body text-body text-on-surface p-3 resize-y focus:outline-none focus:border-primary"
+            />
+            {customPrompt.trim() && (
+              <button
+                type="button"
+                onClick={() => { setQueuedCustomPrompts((prev) => [...prev, customPrompt.trim()]); setCustomPrompt('') }}
+                className="self-start font-meta text-meta text-neutral-secondary hover:text-on-surface bg-transparent border-0 p-0 cursor-pointer underline underline-offset-2"
+              >
+                Add to queue
+              </button>
+            )}
+            {queuedCustomPrompts.length > 0 && (
+              <div className="flex flex-col gap-1">
+                {queuedCustomPrompts.map((q, qi) => (
+                  <div key={qi} className="flex items-start gap-2 font-meta text-meta text-neutral-secondary">
+                    <span className="truncate flex-1">{q}</span>
+                    <button
+                      type="button"
+                      aria-label="Remove queued prompt"
+                      onClick={() => setQueuedCustomPrompts((prev) => prev.filter((_, k) => k !== qi))}
+                      className="bg-transparent border-0 p-0 cursor-pointer text-neutral-muted hover:text-on-surface"
+                    >
+                      <X size={12} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="h-px w-full bg-neutral-border" />
+
+          {/* Policy override */}
+          <div className="flex flex-col gap-3">
+            <span className="font-eyebrow text-eyebrow text-neutral-secondary uppercase">Policy override</span>
+            <div className="flex flex-col gap-3">
+              {/* Sandbox always enforces the agent's policies — the executor has
+                  no bypass — so this reads its true state rather than offering a
+                  switch that would do nothing. */}
+              <Toggle label="Strict mode" checked disabled hint="Policy enforcement is always on in the sandbox." />
+              <Toggle
+                label="Mock external APIs"
+                checked={runMode === 'dry'}
+                onChange={(v) => setRunMode(v ? 'dry' : 'llm')}
+                hint="Runs against mock services and skips the live model."
+              />
+              <Toggle
+                label="Allow side effects"
+                checked={runMode === 'llm'}
+                onChange={(v) => setRunMode(v ? 'llm' : 'dry')}
+                hint="Runs the agent's real model loop. Tool calls still hit mocks."
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* ── Right: canvas + pre-flight ───────────────────────────── */}
+        <div className="flex flex-col flex-1 gap-stack-gap min-w-0 w-full">
+          <div className="relative bg-surface-container-lowest border border-neutral-border shadow-sm rounded-lg p-container-padding flex flex-col overflow-hidden" style={{ minHeight: 520 }}>
+            <div className="flex items-center justify-between mb-4 z-10 relative">
+              <span className="font-card-title text-card-title text-on-surface">Simulation canvas</span>
+              <span className="font-monospace-label text-monospace-label text-neutral-muted">
+                {sel ? `${sel.tools?.filter(Boolean).length ?? 0} tools` : '—'}
+              </span>
+            </div>
+
+            <SimulationCanvas
+              tools={(sel?.tools ?? []).filter(Boolean)}
+              running={running}
+              progress={runProgress}
+              lastRun={lastRun}
+            />
+
+            {/* Run control */}
+            <div className="absolute bottom-6 left-1/2 -translate-x-1/2 rounded-full px-6 py-3 shadow-xl z-20 flex items-center gap-4 backdrop-blur-md"
+                 style={{ background: 'rgba(30, 40, 54, 0.92)' }}>
+              <span className="font-monospace-label text-monospace-label tracking-wider whitespace-nowrap" style={{ color: 'var(--surface-container-highest, #e2e2e9)' }}>
+                {running
+                  ? runProgress && runProgress.total > 1
+                    ? `RUNNING ${Math.min(runProgress.current + 1, runProgress.total)}/${runProgress.total}`
+                    : 'RUNNING'
+                  : !selectedAgent
+                    ? 'SELECT AN AGENT'
+                    : queueCount === 0
+                      ? 'SELECT A SCENARIO'
+                      : 'READY FOR EXECUTION'}
+              </span>
+              <div className="w-px h-4" style={{ background: 'rgba(255,255,255,0.22)' }} />
+              <button
+                type="button"
+                onClick={() => handleRun(runMode === 'dry')}
+                disabled={running || sweeping || !selectedAgent || queueCount === 0}
+                className="font-body font-semibold text-body flex items-center gap-1 uppercase tracking-wide whitespace-nowrap bg-transparent border-0 cursor-pointer transition-opacity disabled:opacity-40 disabled:cursor-not-allowed"
+                style={{ color: 'var(--aqua)' }}
+              >
+                <Play size={16} strokeWidth={2.4} />
+                Run simulation
+              </button>
+            </div>
+
+            {runError && (
+              <div className="absolute top-16 left-6 right-6 z-20 flex items-center gap-2 rounded-lg px-3 py-2 font-meta text-meta"
+                   style={{ background: 'var(--critical-bg)', border: '1px solid var(--critical-line)', color: 'var(--critical)' }}>
+                <AlertTriangle size={14} className="flex-shrink-0" />
+                <span><strong>Simulation failed:</strong> {runError}</span>
+              </div>
+            )}
+          </div>
+
+          {/* Pre-flight checks */}
+          <div className="bg-surface-container-lowest border border-neutral-border shadow-sm rounded-lg p-container-padding shrink-0 flex flex-col sm:flex-row sm:items-center gap-6">
+            <span className="font-eyebrow text-eyebrow text-neutral-secondary uppercase sm:min-w-[120px]">Pre-flight checks</span>
+            <div className="flex-1 flex flex-wrap items-center gap-x-8 gap-y-4">
+              <PreflightCheck
+                ok={!!sel && (sel.tools?.filter(Boolean).length ?? 0) > 0}
+                okLabel="Agent connectivity OK"
+                failLabel="Agent has no tools"
+              />
+              <PreflightCheck ok okLabel="Sandbox isolation ACTIVE" failLabel="Sandbox isolation OFF" />
+              <PreflightCheck ok okLabel="Audit logging ENABLED" failLabel="Audit logging OFF" />
+            </div>
+          </div>
+        </div>
+      </div>
       )}
-
-
-      </>)}
 
       {sandboxTab === 'past' && (
       <section>
@@ -1118,6 +1096,43 @@ export default function Sandbox() {
         </section>
       )}
 
+      <NewSimulationModal
+        open={newSimOpen}
+        onClose={() => setNewSimOpen(false)}
+        agents={agents.map((a) => ({ id: a.id, name: a.name }))}
+        agentId={selectedAgent}
+        onAgentChange={setSelectedAgent}
+        scenarios={scenarios.map((sc) => ({
+          id: sc.id,
+          name: sc.name,
+          description: formatDesc(sc.description),
+          category: sc.category,
+          severity: sc.severity,
+        }))}
+        scenarioId={modalScenarioId}
+        onScenarioChange={setModalScenarioId}
+        strictMode={strictMode}
+        onStrictModeChange={setStrictMode}
+        mockExternal={runMode === 'dry'}
+        onMockExternalChange={(v) => setRunMode(v ? 'dry' : 'llm')}
+        debugLogging={debugLogging}
+        onDebugLoggingChange={setDebugLogging}
+        creating={running}
+        onCreate={() => {
+          setNewSimOpen(false)
+          if (modalScenarioId === CUSTOM_SCENARIO_ID) {
+            // The full catalogue and the free-text prompt both live in the
+            // library view.
+            setSandboxTab('library')
+            return
+          }
+          const picked = scenarios.find((sc) => sc.id === modalScenarioId)
+          if (!picked) return
+          setSelectedScenarios([picked])
+          setQueuedCustomPrompts([])
+          void handleRun(runMode === 'dry', { scenarios: [picked] })
+        }}
+      />
     </div>
   )
 }

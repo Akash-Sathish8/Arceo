@@ -532,7 +532,7 @@ export default function Comparison() {
               borderRadius: "var(--radius-lg)",
               padding: 24,
               textAlign: "center",
-              backgroundColor: neutral ? "#f9fafb" : improved ? "#f0fdf4" : "#fef2f2",
+              backgroundColor: neutral ? "#f9fafb" : improved ? "var(--safe-bg)" : "var(--critical-bg)",
               border: `1px solid ${neutral ? "var(--border)" : improved ? "var(--severity-safe-border)" : "var(--severity-critical-border)"}`,
             }}
           >
@@ -541,7 +541,7 @@ export default function Comparison() {
                 fontSize: 20,
                 fontWeight: 700,
                 marginBottom: 4,
-                color: neutral ? "#6b7280" : improved ? "#16a34a" : "#dc2626",
+                color: neutral ? "#6b7280" : improved ? "var(--safe)" : "var(--critical)",
               }}
             >
               {neutral
@@ -564,7 +564,7 @@ export default function Comparison() {
                 { label: "Target (B)", sim: simB, score: animScoreB },
               ] as const
             ).map(({ label, sim, score }) => {
-              const color = score >= 70 ? "#dc2626" : score >= 40 ? "#ea580c" : "#16a34a";
+              const color = score >= 70 ? "var(--critical)" : score >= 40 ? "var(--high)" : "var(--safe)";
               return (
                 <div
                   key={label}
@@ -682,8 +682,8 @@ export default function Comparison() {
                     style={{
                       fontSize: 12,
                       padding: "4px 8px",
-                      background: "#fef2f2",
-                      color: "#dc2626",
+                      background: "var(--critical-bg)",
+                      color: "var(--critical)",
                       border: "1px solid #fecaca",
                       borderRadius: "var(--radius-md)",
                     }}
@@ -729,7 +729,7 @@ export default function Comparison() {
                       style={{ display: "flex", alignItems: "flex-start", gap: 8, fontSize: 12 }}
                     >
                       <span style={{ color: "var(--text-muted)", flexShrink: 0, fontWeight: 500 }}>A:</span>
-                      <span style={{ color: "#dc2626", fontWeight: 500 }}>{v.title}</span>
+                      <span style={{ color: "var(--critical)", fontWeight: 500 }}>{v.title}</span>
                     </div>
                   ))}
                   {(detailB.report?.violations ?? []).map((v, i) => (
@@ -738,7 +738,7 @@ export default function Comparison() {
                       style={{ display: "flex", alignItems: "flex-start", gap: 8, fontSize: 12 }}
                     >
                       <span style={{ color: "var(--text-muted)", flexShrink: 0, fontWeight: 500 }}>B:</span>
-                      <span style={{ color: "#dc2626", fontWeight: 500 }}>{v.title}</span>
+                      <span style={{ color: "var(--critical)", fontWeight: 500 }}>{v.title}</span>
                     </div>
                   ))}
                 </div>
@@ -777,7 +777,7 @@ export default function Comparison() {
                       style={{ display: "flex", alignItems: "flex-start", gap: 8, fontSize: 12 }}
                     >
                       <span style={{ color: "var(--text-muted)", flexShrink: 0, fontWeight: 500 }}>A:</span>
-                      <span style={{ color: "#ea580c", fontWeight: 500 }}>{c.chain_name}</span>
+                      <span style={{ color: "var(--high)", fontWeight: 500 }}>{c.chain_name}</span>
                     </div>
                   ))}
                   {(detailB.report?.chains_triggered ?? []).map((c, i) => (
@@ -786,7 +786,7 @@ export default function Comparison() {
                       style={{ display: "flex", alignItems: "flex-start", gap: 8, fontSize: 12 }}
                     >
                       <span style={{ color: "var(--text-muted)", flexShrink: 0, fontWeight: 500 }}>B:</span>
-                      <span style={{ color: "#ea580c", fontWeight: 500 }}>{c.chain_name}</span>
+                      <span style={{ color: "var(--high)", fontWeight: 500 }}>{c.chain_name}</span>
                     </div>
                   ))}
                 </div>

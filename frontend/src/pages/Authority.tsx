@@ -4,10 +4,12 @@ import { AnimatePresence, motion } from 'framer-motion'
 import {
   Bot, Headphones, Terminal, BarChart2, Settings2,
   AlertTriangle, Plus, X, ChevronRight, Info, Search, Upload,
+  GalleryHorizontal, GalleryVertical, LayoutGrid,
 } from 'lucide-react'
 import { apiFetch, getUser } from '@/lib/api'
 import { scoreBand, riskLabelName } from '@/lib/utils'
 import { fetchBatchSpendForecasts } from '@/lib/spendApi'
+import { recordAgentView, getAgentViewTimes } from '@/lib/recentViews'
 import type { MockSpend } from '@/lib/mockSpend'
 import { toast } from '@/components/shared/Toast'
 import Tooltip from '@/components/shared/Tooltip'
@@ -21,6 +23,7 @@ import ErrorState from '@/components/shared/ErrorState'
 import { pluralize } from '@/lib/strings'
 import { formatMoney } from '@/lib/format'
 import FleetStrip from '@/components/agents/FleetStrip'
+import SpendTrendCard from '@/components/agents/SpendTrendCard'
 import AgentDrawer from '@/components/agents/AgentDrawer'
 
 // ─── Local interfaces ─────────────────────────────────────────────────────────
@@ -59,6 +62,8 @@ interface AgentListItem {
   policies_by_effect?: { BLOCK?: number; REQUIRE_APPROVAL?: number; ALLOW?: number }
   pending_count: number
   last_execution_at: string | null
+  /** ISO timestamp — compares chronologically as a plain string. */
+  created_at: string
 }
 
 interface ChainItem {
@@ -97,6 +102,8 @@ const SORT_OPTIONS = [
   { value: 'score-asc',    label: 'Lowest Risk' },
   { value: 'actions-desc', label: 'Most Actions' },
   { value: 'chains-desc',  label: 'Most Chains' },
+  { value: 'created-desc', label: 'Recently Added' },
+  { value: 'viewed-desc',  label: 'Recently Viewed' },
   { value: 'name-asc',     label: 'Name A–Z' },
 ]
 
@@ -148,6 +155,8 @@ export default function Authority() {
   const [searchParams, setSearchParams] = useSearchParams()
   const navigate = useNavigate()
   const [drawerAgent, setDrawerAgent] = useState<AgentCardData | null>(null)
+  // Bumped on every agent view so the "Recently Viewed" sort re-reads localStorage.
+  const [viewBump, setViewBump] = useState(0)
   const [agents, setAgents] = useState<AgentListItem[]>([])
   const [spendForecasts, setSpendForecasts] = useState<Record<string, MockSpend | null>>({})
   const [chains, setChains] = useState<ChainItem[]>([])
@@ -159,6 +168,19 @@ export default function Authority() {
   const [search, setSearch] = useState('')
   const [sortBy, setSortBy] = useState('score-desc')
   const [chainSeverityFilter, setChainSeverityFilter] = useState('all')
+
+  // Agent catalog layout: horizontal rail / vertical scroll-in-box / open grid.
+  // Persisted so the choice survives reloads. Defaults to the vertical stack:
+  // the Stitch canvas lists agents as full-width rows, and the row form only
+  // reads correctly at full width — a sideways rail crops the services line.
+  const [agentView, setAgentView] = useState<'rail' | 'vscroll' | 'grid'>(() => {
+    const saved = localStorage.getItem('agentCatalogView')
+    return saved === 'rail' || saved === 'grid' ? saved : 'vscroll'
+  })
+  const changeAgentView = (v: 'rail' | 'vscroll' | 'grid') => {
+    setAgentView(v)
+    localStorage.setItem('agentCatalogView', v)
+  }
 
   // Create agent form
   const [showCreate, setShowCreate] = useState(false)
@@ -489,6 +511,7 @@ export default function Authority() {
       )
     }
 
+    const viewTimes = getAgentViewTimes()
     const [field, dir] = sortBy.split('-')
     result.sort((a, b) => {
       let va: string | number
@@ -496,20 +519,30 @@ export default function Authority() {
       if (field === 'score')          { va = a.blast_radius.score;        vb = b.blast_radius.score }
       else if (field === 'actions')   { va = a.blast_radius.total_actions; vb = b.blast_radius.total_actions }
       else if (field === 'chains')    { va = a.chain_count;               vb = b.chain_count }
+      else if (field === 'created')   { va = a.created_at ?? '';          vb = b.created_at ?? '' }
+      else if (field === 'viewed')    { va = viewTimes[a.id] ?? '';       vb = viewTimes[b.id] ?? '' }
       else                            { va = a.name;                       vb = b.name }
       if (typeof va === 'string') return dir === 'asc' ? va.localeCompare(vb as string) : (vb as string).localeCompare(va)
       return dir === 'asc' ? (va as number) - (vb as number) : (vb as number) - (va as number)
     })
     return result
-  }, [agents, search, sortBy])
+  }, [agents, search, sortBy, viewBump])
 
   // ─── Loading / error ────────────────────────────────────────────────────────
 
   if (loading) {
     return (
-      <div className="flex flex-col items-center justify-center h-64 gap-3 text-gray-500">
-        <div className="w-6 h-6 border-2 border-gray-200 border-t-gray-700 rounded-full animate-spin" />
-        <span className="text-sm">Loading agents…</span>
+      <div style={{ padding: '34px 40px 64px' }} aria-busy="true" aria-label="Loading agents">
+        {/* Mirrors the real page: header row → spend trend card → tabs → catalog grid */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div className="skeleton" style={{ height: 30, width: 220 }} />
+          <div className="skeleton" style={{ height: 40, width: 150 }} />
+        </div>
+        <div className="skeleton" style={{ height: 208, marginTop: 24 }} />
+        <div className="skeleton" style={{ height: 40, width: 320, marginTop: 24 }} />
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))', gap: 16, marginTop: 26 }}>
+          {[0, 1, 2].map((i) => <div key={i} className="skeleton" style={{ height: 180 }} />)}
+        </div>
       </div>
     )
   }
@@ -557,11 +590,13 @@ export default function Authority() {
               cursor: 'pointer', boxShadow: 'var(--shadow-card-new)',
             }}
           >
-            {formVisible ? <X size={16} strokeWidth={2} /> : <Plus size={16} strokeWidth={2} />}
+            {formVisible ? <X size={16} strokeWidth={1.8} /> : <Plus size={16} strokeWidth={1.8} />}
             {formVisible ? 'Cancel' : 'Connect agent'}
           </button>
         }
       />
+
+      <SpendTrendCard />
 
       <div style={{ display: 'flex', gap: 26, borderBottom: '1px solid var(--line)', margin: '24px 0 26px' }}>
         {(agents.length === 0
@@ -808,8 +843,7 @@ export default function Authority() {
           {connectTab === 'upload' && (
             <div className="space-y-4">
               <p style={{ fontSize: 13, color: 'var(--text-secondary)', background: 'var(--bg-sunken)', borderRadius: 8, padding: '10px 14px', margin: 0 }}>
-                Arceo reads your agent code — a single file, several files, or a whole folder (bundled into one agent) — and extracts every action it can take.{' '}
-                You'll get: <span style={{ color: 'var(--text-primary)', fontWeight: 500 }}>risk score · worst-case scenarios · recommended approval policy</span> — in ~30 seconds.
+                Drop in a file or folder of agent code — Arceo extracts every action and scores the risk in ~30 seconds.
               </p>
               <form onSubmit={handleUploadSubmit} className="space-y-3">
                 <input
@@ -885,7 +919,7 @@ export default function Authority() {
                     </div>
                     {bundledFiles.map((b, i) => (
                       <div key={i} className="flex items-center gap-2 text-[11px]">
-                        <span style={{ width: 8, height: 8, borderRadius: 4, flexShrink: 0, background: b.truncated ? '#d97706' : '#16a34a' }} />
+                        <span style={{ width: 8, height: 8, borderRadius: 4, flexShrink: 0, background: b.truncated ? '#d97706' : 'var(--safe)' }} />
                         <code className="font-mono text-gray-700 truncate flex-1">{b.path}</code>
                         <span className="text-gray-500">{b.chars.toLocaleString()} chars{b.truncated ? ' (truncated to fit)' : ''}</span>
                       </div>
@@ -965,7 +999,7 @@ export default function Authority() {
           {connectTab === 'github' && (
             <div className="space-y-4">
               <p style={{ fontSize: 13, color: 'var(--text-secondary)', background: 'var(--bg-sunken)', borderRadius: 8, padding: '10px 14px', margin: 0 }}>
-                Arceo walks your repo, picks every file with LLM SDK usage, and registers each agent automatically. You'll get a full fleet overview in one scan.
+                Arceo scans the repo and registers every agent it finds — one scan, full fleet.
               </p>
               <form onSubmit={handleGithubScan} className="space-y-3">
                 <div>
@@ -1019,7 +1053,7 @@ export default function Authority() {
                         <div className="mt-2 bg-white rounded p-2 max-h-60 overflow-auto space-y-1">
                           {githubResult.results.map((r, i) => (
                             <div key={i} className="flex items-center gap-2 text-[11px]">
-                              <span style={{ width: 8, height: 8, borderRadius: 4, flexShrink: 0, background: r.status === 'registered' ? '#16a34a' : r.status === 'skipped' ? '#9ca3af' : '#dc2626' }} />
+                              <span style={{ width: 8, height: 8, borderRadius: 4, flexShrink: 0, background: r.status === 'registered' ? 'var(--safe)' : r.status === 'skipped' ? '#9ca3af' : 'var(--critical)' }} />
                               <code className="font-mono text-gray-700 truncate flex-1">{r.path}</code>
                               <span className="text-gray-500">{r.status === 'registered' ? `→ ${r.agent_id} (${r.tools_count} tools${r.model ? `, ${r.model}` : ''})` : r.status === 'skipped' ? 'skipped' : `failed: ${r.error}`}</span>
                             </div>
@@ -1514,6 +1548,25 @@ export default function Authority() {
                 {SORT_OPTIONS.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
               </select>
             </div>
+            <div className="view-toggle" role="group" aria-label="Agent catalog layout">
+              {([
+                { v: 'rail' as const, icon: GalleryHorizontal, label: 'Rail — scroll sideways' },
+                { v: 'vscroll' as const, icon: GalleryVertical, label: 'Stack — scroll up/down inside the box' },
+                { v: 'grid' as const, icon: LayoutGrid, label: 'Grid — show all' },
+              ]).map(({ v, icon: Icon, label }) => (
+                <button
+                  key={v}
+                  type="button"
+                  title={label}
+                  aria-label={label}
+                  aria-pressed={agentView === v}
+                  className={`view-toggle-btn${agentView === v ? ' is-active' : ''}`}
+                  onClick={() => changeAgentView(v)}
+                >
+                  <Icon size={15} strokeWidth={1.8} />
+                </button>
+              ))}
+            </div>
           </div>
         </div>
 
@@ -1537,7 +1590,7 @@ export default function Authority() {
           </div>
           )
         ) : (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 20 }}>
+          <div className={`agent-rail${agentView === 'vscroll' ? ' agent-rail--v' : agentView === 'grid' ? ' agent-rail--grid' : ''}`}>
             {filteredAgents.map((a) => {
               const br = a.blast_radius
               const data: AgentCardData = {
@@ -1565,11 +1618,16 @@ export default function Authority() {
                 policiesByEffect: a.policies_by_effect,
               }
               return (
-                <NewAgentCard
-                  key={a.id}
-                  agent={data}
-                  onOpen={(agent) => setDrawerAgent(agent)}
-                />
+                <div key={a.id} className="agent-rail-item">
+                  <NewAgentCard
+                    agent={data}
+                    onOpen={(agent) => {
+                      recordAgentView(agent.id)
+                      setViewBump((n) => n + 1)
+                      setDrawerAgent(agent)
+                    }}
+                  />
+                </div>
               )
             })}
           </div>

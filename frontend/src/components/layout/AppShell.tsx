@@ -2,6 +2,7 @@ import { useLocation } from "react-router-dom";
 import { useEffect, useRef } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import Sidebar from "./Sidebar";
+import TopBar from "./TopBar";
 import ErrorBoundary from "./ErrorBoundary";
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
@@ -26,7 +27,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         display: "flex",
         height: "100vh",
         overflow: "hidden",
-        background: "var(--paper)",
+        background: "var(--bg-page)",
         fontFamily: "var(--font-sans)",
         color: "var(--ink-900)",
         WebkitFontSmoothing: "antialiased",
@@ -35,9 +36,10 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       <Sidebar />
       <main
         ref={mainRef}
-        style={{ flex: 1, minWidth: 0, overflowY: "auto" }}
+        style={{ flex: 1, minWidth: 0, overflowY: "auto", background: "var(--bg-page)" }}
         aria-label="Main content"
       >
+        <TopBar />
         {/* resetKey clears a crashed boundary as soon as the user navigates,
             so one render error no longer bricks the whole app until reload. */}
         <ErrorBoundary resetKey={location.pathname}>

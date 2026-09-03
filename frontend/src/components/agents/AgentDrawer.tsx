@@ -471,7 +471,7 @@ export default function AgentDrawer({
                 lineHeight: 1.4,
               }}
             >
-              <AlertTriangle size={13} strokeWidth={1.9} style={{ flexShrink: 0, color: "var(--caution)" }} />
+              <AlertTriangle size={13} strokeWidth={1.8} style={{ flexShrink: 0, color: "var(--caution)" }} />
               {a.unclassified} unverified {a.unclassified === 1 ? "action" : "actions"} — no classifiable risk
               signal; scores may understate exposure. Review on the agent page.
             </div>
@@ -499,7 +499,7 @@ export default function AgentDrawer({
                   whiteSpace: "nowrap",
                 }}
               >
-                <AlertTriangle size={16} strokeWidth={1.9} /> Worst-case scenario
+                <AlertTriangle size={16} strokeWidth={1.8} /> Worst-case scenario
               </div>
               <div
                 style={{

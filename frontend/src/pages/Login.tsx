@@ -67,7 +67,7 @@ const AGENT_TYPE_TEMPLATES: Record<string, AgentTemplate> = {
 }
 
 const PREVIEW_BARS: [string, string, string][] = [
-  ['Moves Money',   '#dc2626', '55%'],
+  ['Moves Money',   'var(--critical)', '55%'],
   ['Touches PII',   '#b45309', '40%'],
   ['Deletes Data',  '#374151', '30%'],
   ['Sends External','#6b7280', '20%'],
@@ -188,7 +188,7 @@ function NodeChip({ label, r }: { label: string; r: number }) {
         x={-chipWidth / 2} y={yTop}
         width={chipWidth} height={chipHeight}
         rx={4}
-        fill="white" stroke="#e5e7eb" strokeWidth={1}
+        fill="white" stroke="var(--line)" strokeWidth={1}
       />
       <text
         x={0} y={yTop + chipHeight / 2}
@@ -281,7 +281,7 @@ function NodeGraph() {
           key={i}
           data-edge={String(i)}
           x1="0" y1="0" x2="0" y2="0"
-          stroke={edge.isRed ? '#fca5a5' : '#d1d5db'}
+          stroke={edge.isRed ? 'var(--critical-line)' : '#d1d5db'}
           strokeWidth={edge.isRed ? 2 : 1.5}
           strokeDasharray={edge.isRed ? '6 3' : undefined}
           className={edge.isRed ? 'lgn-red-edge' : undefined}
@@ -501,7 +501,7 @@ export default function Login() {
                       <div className="h-2 bg-gray-100 rounded-full" style={{ width: '65%' }} />
                       <div className="h-2 bg-gray-100 rounded-full opacity-50" style={{ width: '42%' }} />
                     </div>
-                    <div className="w-11 h-11 rounded-full flex items-center justify-center text-[15px] font-extrabold border-2 border-current flex-shrink-0 ml-4" style={{ background: '#fef2f2', color: '#dc2626' }}>67</div>
+                    <div className="w-11 h-11 rounded-full flex items-center justify-center text-[15px] font-extrabold border-2 border-current flex-shrink-0 ml-4" style={{ background: 'var(--critical-bg)', color: 'var(--critical)' }}>67</div>
                   </div>
                   <div className="flex flex-col gap-2">
                     {PREVIEW_BARS.map(([label, color, w]) => (
@@ -517,11 +517,11 @@ export default function Login() {
                 <div className="bg-white border border-gray-100 rounded-lg px-4 py-3">
                   <div className="h-2 bg-gray-100 rounded-full mb-3" style={{ width: '48%' }} />
                   <div className="flex items-center gap-2 mt-2">
-                    <span className="text-[10px] font-bold px-2 py-0.5 rounded uppercase tracking-wide" style={{ background: '#fef2f2', color: '#dc2626' }}>critical</span>
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded uppercase tracking-wide" style={{ background: 'var(--critical-bg)', color: 'var(--critical)' }}>critical</span>
                     <span className="text-[12px] text-gray-700 font-medium">PII Exfiltration</span>
                   </div>
                   <div className="flex items-center gap-2 mt-1.5">
-                    <span className="text-[10px] font-bold px-2 py-0.5 rounded uppercase tracking-wide" style={{ background: '#fff7ed', color: '#ea580c' }}>high</span>
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded uppercase tracking-wide" style={{ background: 'var(--high-bg)', color: 'var(--high)' }}>high</span>
                     <span className="text-[12px] text-gray-700 font-medium">Unsupervised Refund</span>
                   </div>
                 </div>
@@ -642,9 +642,9 @@ export default function Login() {
 
         {/* Error */}
         {error && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '10px', padding: '12px 16px', marginBottom: '24px' }}>
-            <AlertCircle size={15} color="#dc2626" style={{ flexShrink: 0 }} />
-            <span style={{ fontSize: '14px', color: '#dc2626', fontWeight: 500, fontFamily: dmSans }}>{error}</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', background: 'var(--critical-bg)', border: '1px solid #fecaca', borderRadius: '10px', padding: '12px 16px', marginBottom: '24px' }}>
+            <AlertCircle size={15} color="var(--critical)" style={{ flexShrink: 0 }} />
+            <span style={{ fontSize: '14px', color: 'var(--critical)', fontWeight: 500, fontFamily: dmSans }}>{error}</span>
           </div>
         )}
 

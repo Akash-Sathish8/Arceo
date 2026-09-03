@@ -51,7 +51,8 @@ interface SweepReportData {
 }
 
 const SEVERITY_STYLES: Record<string, { bg: string; color: string }> = {
-  critical: { bg: "var(--severity-critical-bg)", color: "var(--severity-critical)" },
+  /* Filled, not tinted — critical must read differently from high at a glance. */
+  critical: { bg: "var(--severity-critical)", color: "#fff" },
   high:     { bg: "var(--severity-high-bg)",     color: "var(--severity-high)" },
   medium:   { bg: "var(--severity-medium-bg)",   color: "var(--severity-medium)" },
   low:      { bg: "var(--severity-safe-bg)",     color: "var(--severity-safe)" },

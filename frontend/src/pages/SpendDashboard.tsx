@@ -13,6 +13,7 @@ import { Link } from "react-router-dom"
 import {
   FileText, Banknote, X, Download,
   Headset, Terminal, BarChart2, Settings2, Bot,
+  Calendar, TrendingUp, ShieldCheck,
 } from "lucide-react"
 import type { LucideIcon } from "lucide-react"
 import { lazy, Suspense } from "react"
@@ -23,6 +24,8 @@ import type { MockSpend } from "@/lib/mockSpend"
 import { fetchBatchSpendForecasts } from "@/lib/spendApi"
 import InvoiceReconciliationPanel from "@/components/InvoiceReconciliation"
 import { pluralize } from "@/lib/strings"
+import { formatMoney } from "@/lib/format"
+import SpendTrendCard from "@/components/agents/SpendTrendCard"
 import { currentOrgName } from "@/lib/orgName"
 import { type FleetReportData } from "@/components/FleetCFOReport"
 
@@ -87,7 +90,7 @@ function StatCard({ label, value, delta, deltaTone: tone = "var(--text-muted)" }
   return (
     <div className="panel-card" style={{ padding: 16 }}>
       <div className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">{label}</div>
-      <div className="text-2xl font-bold tabular-nums mt-1 tracking-tight">{value}</div>
+      <div className="text-2xl font-bold tabular-nums mt-1 tracking-tight mono">{value}</div>
       {delta && <div className="text-[11px] mt-1" style={{ color: tone }}>{delta}</div>}
     </div>
   )
@@ -274,258 +277,332 @@ export default function SpendDashboard() {
     })),
   }
 
+  // Fleet-wide tool spend: every agent's priced tool calls, merged by
+  // tool.action and attributed to the agent that runs it.
+  const topToolActions = (() => {
+    const rows: { key: string; tool: string; agent: string; calls: number; costPer: number; monthly: number }[] = []
+    for (const r of withForecast) {
+      for (const t of r.forecast?.topTools ?? []) {
+        rows.push({
+          key: `${r.id}:${t.tool}`,
+          tool: t.tool,
+          agent: r.name,
+          calls: t.callsPerMonth,
+          costPer: t.costPer,
+          monthly: t.monthly,
+        })
+      }
+    }
+    return rows.sort((a, b) => b.monthly - a.monthly)
+  })()
+  const shownToolActions = topToolActions.slice(0, 6)
+
+  const confidenceLabel = withForecast.length === 0
+    ? "Not enough data"
+    : withForecast.every((r) => r.forecast?.confidence === "high")
+      ? "High confidence"
+      : withForecast.some((r) => r.forecast?.confidence === "high")
+        ? "Mixed confidence"
+        : "Building confidence"
+
   return (
-    <div className="min-h-screen p-8" style={{ background: "var(--bg-page)" }}>
-      <h1 className="text-2xl font-bold tracking-tight">AI Spend</h1>
-      <p className="text-sm text-gray-600 mt-1">
-        {loading
-          ? "Loading fleet…"
-          : loadError
-            ? "Couldn't load the fleet."
-            : agents.length === 0
-            ? "No agents connected yet."
-            : `Fleet-wide forecast across ${withForecast.length} ${pluralize(withForecast.length, "agent")}${noForecast.length > 0 ? ` · ${noForecast.length} more need sandbox runs` : ""}`}
-      </p>
-      {!loading && agents.length > 0 && (
-        <div className="flex items-center gap-3 text-xs text-gray-500 mt-2 relative">
-          {loadedAt && <span>Updated {timeAgo(loadedAt)}</span>}
-          {loadedAt && <span className="text-gray-300">·</span>}
+    <div className="px-container-padding py-stack-gap w-full flex flex-col gap-stack-gap">
+      {/* ── Header ── */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <h1 className="font-page-title text-page-title text-neutral-primary m-0">Organization Spend Overview</h1>
+          <p className="font-meta text-meta text-neutral-secondary m-0 mt-1">
+            Consolidated financial telemetry for all deployed autonomous systems.
+          </p>
+        </div>
+        <div className="flex items-center gap-3">
+          <span className="flex items-center gap-2 bg-neutral-sunken px-3 py-2 rounded-lg border border-neutral-border">
+            <Calendar size={18} className="text-neutral-secondary" />
+            <span className="font-monospace-label text-monospace-label text-neutral-primary">Current forecast</span>
+          </span>
           <button
             type="button"
-            onClick={() => setShowMethodology((v) => !v)}
-            className="font-medium bg-transparent border-0 p-0 cursor-pointer hover:underline"
-            style={{ color: "var(--text-link)" }}
+            onClick={handleExportCsv}
+            className="flex items-center gap-2 bg-primary text-on-primary px-4 py-2 rounded-lg font-body text-body font-medium hover:opacity-90 transition-opacity shadow-sm border-0 cursor-pointer"
           >
-            How this is calculated
+            <Download size={18} />
+            Export Report
           </button>
-          {showMethodology && (
-            <>
-              <div className="fixed inset-0 z-40" onClick={() => setShowMethodology(false)} />
-              <div
-                className="absolute top-full mt-3 left-0 w-[460px] rounded-xl border p-5 z-50 text-left"
-                style={{ background: "var(--bg-card)", borderColor: "var(--border)", boxShadow: "var(--shadow-lg)" }}
-              >
-                <div className="flex items-start justify-between mb-3">
-                  <h4 className="text-sm font-bold text-gray-900">How this fleet forecast is calculated</h4>
-                  <button
-                    type="button"
-                    onClick={() => setShowMethodology(false)}
-                    className="text-gray-400 hover:text-gray-600 -mt-1 -mr-1 bg-transparent border-0 cursor-pointer"
-                    aria-label="Close"
-                  >
-                    <X size={16} />
-                  </button>
-                </div>
-                <div className="space-y-4 text-xs text-gray-700 leading-relaxed">
-                  <div>
-                    <div className="text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-1">Per-agent forecast</div>
-                    <p>Each agent's monthly cost = (input + output tokens × model price) + tool API charges + compute. Volume comes from sandbox runs and live trace ingest, multiplied by ~30 days/month.</p>
-                  </div>
-                  <div>
-                    <div className="text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-1">Fleet rollup</div>
-                    <p>Per-category dollars (LLM tokens / Tool APIs / Compute) are summed across every agent with a live forecast — no estimation. The By-model panel groups those agents by their primary model.</p>
-                  </div>
-                  <div>
-                    <div className="text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-1">Confidence band</div>
-                    <p>The band is aggregated from each agent's own confidence tier — wider for low-confidence agents (few or no live traces), tighter for those with production data — so it is asymmetric: the low and high ends are summed across the fleet rather than a fixed ±%. Connect production traces and accumulate 30+ days of live data to tighten it.</p>
-                  </div>
-                  <div>
-                    <div className="text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-1">Agents not forecasted</div>
-                    <p>An agent shows up under "need sandbox runs" until at least one simulation has executed against it. The fleet total doesn't extrapolate over those agents — it reports only what's calibrated.</p>
-                  </div>
-                </div>
-              </div>
-            </>
-          )}
         </div>
-      )}
+      </div>
 
-      {!loading && loadError && (
-        <div className="mt-6"><ErrorState message={loadError} onRetry={load} /></div>
-      )}
-
-      {!loading && !loadError && agents.length === 0 && (
-        <div className="panel-card mt-6 text-center" style={{ padding: 40 }}>
-          <Banknote className="mx-auto mb-3 text-gray-400" size={32} />
-          <div className="text-gray-900 font-semibold">No connected agents to forecast yet</div>
-          <p className="text-sm text-gray-500 mt-2 max-w-md mx-auto">
-            Upload an agent file or connect an MCP server, then run a simulation to generate a spend forecast.
+      {loadError && agents.length === 0 ? (
+        <ErrorState message={loadError} onRetry={load} />
+      ) : loading ? (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          {[0, 1, 2, 3].map((k) => <div key={k} className="skeleton" style={{ height: 132 }} />)}
+        </div>
+      ) : agents.length === 0 ? (
+        <div className="bg-white p-10 rounded-xl border border-neutral-border text-center">
+          <p className="font-body text-body text-neutral-secondary m-0">
+            No agents connected yet. <Link to="/" style={{ color: "var(--text-link)" }}>Connect one</Link> to start forecasting.
           </p>
-          <Link to="/" className="inline-block mt-4 text-sm px-4 py-2 rounded-lg bg-gray-900 text-white font-medium">
-            Connect your first agent
-          </Link>
         </div>
-      )}
-
-      {!loading && agents.length > 0 && (
-        <>
-          <div className="grid grid-cols-3 gap-4 mt-6 mb-6">
-            <div className="col-span-2">
-              <AnchorStat
-                label="This month (est.)"
-                value={`$${totalSpend.toLocaleString()}`}
-                delta={hasComparison
-                  ? `${weightedDelta > 0 ? "↑ +" : weightedDelta < 0 ? "↓ " : "— "}${weightedDelta !== 0 ? Math.abs(weightedDelta) + "% vs last month" : "flat vs last month"}`
-                  : "baseline building"}
-                deltaTone={hasComparison ? deltaTone(weightedDelta) : undefined}
-              />
-            </div>
-            <div className="flex flex-col gap-3">
-              <StatCard
-                label="Annual run rate"
-                value={`$${annualRunRate.toLocaleString()}`}
-                delta={annualRunRate > 0 ? `~${withForecast.length} ${pluralize(withForecast.length, "agent")} active` : undefined}
-              />
-              <StatCard
-                label="Confidence band"
-                value={withForecast.length > 0 ? fleetBandLabel : "—"}
-                delta={withForecast.length > 0 ? `$${fleetLow.toLocaleString()} – $${fleetHigh.toLocaleString()}` : "needs more data"}
-              />
-              <StatCard
-                label="Agents forecasted"
-                value={`${withForecast.length} of ${fleet.length}`}
-                delta={noForecast.length > 0 ? `${noForecast.length} need sandbox runs` : "all calibrated"}
-                deltaTone={noForecast.length > 0 ? "var(--color-cta)" : "var(--severity-safe)"}
-              />
-            </div>
+      ) : (
+      <>
+      {/* ── Hero metrics ── */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <KpiCard label="Total fleet spend" Icon={Banknote}>
+          <div className="font-monospace-data text-display text-neutral-primary">
+            {formatMoney(totalSpend)}<span className="text-neutral-secondary text-body font-normal"> /mo</span>
           </div>
-
-          {compositionTotal > 0 && (
-            <div className="grid grid-cols-2 gap-6 mb-6">
-              <div className="panel-card" style={{ padding: 20 }}>
-                <h3 className="text-[13px] font-semibold">Composition (this month)</h3>
-                <p className="text-[11px] text-gray-400 mt-1 mb-4">Where the company's AI dollars are going.</p>
-                <div className="flex h-4 rounded overflow-hidden mb-3">
-                  {composition.map((c) => <div key={c.label} style={{ width: `${c.pct}%`, background: c.color }} />)}
-                </div>
-                <div className="space-y-2 text-xs">
-                  {composition.map((c) => (
-                    <div key={c.label} className="flex items-center gap-2">
-                      <span className="w-2 h-2 rounded-sm" style={{ background: c.color }} />
-                      {c.label}
-                      <span className="ml-auto text-gray-900 font-semibold tabular-nums">${c.amount.toLocaleString()} ({c.pct}%)</span>
-                    </div>
-                  ))}
-                </div>
-                <div className="text-[11px] text-gray-400 mt-4">{forecastSource}</div>
-              </div>
-
-              {byModel.length > 0 && (
-                <div className="panel-card" style={{ padding: 20 }}>
-                  <h3 className="text-[13px] font-semibold">By model</h3>
-                  <p className="text-[11px] text-gray-400 mt-1 mb-4">Which models are driving LLM spend.</p>
-                  <div className="space-y-2 text-xs">
-                    {byModel.map((mod) => (
-                      <div key={mod.name} className="flex items-center gap-2">
-                        <span className="w-2 h-2 rounded-sm" style={{ background: mod.color }} />
-                        {mod.name}
-                        <span className="ml-auto text-gray-900 font-semibold tabular-nums">${mod.amount.toLocaleString()} ({mod.pctOfLlm}% of LLM)</span>
-                      </div>
-                    ))}
-                  </div>
-                  <div className="text-[11px] text-gray-400 mt-4">{forecastSource}</div>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Invoice reconciliation — the accuracy claim checked against the
-              provider's actual bill. Org-level: an invoice covers an API key,
-              never one agent. */}
-          <InvoiceReconciliationPanel />
-
-          {sortedFleet.length > 0 && (
-            <div className="panel-card overflow-hidden" style={{ padding: 0 }}>
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="bg-gray-50 border-b border-gray-200 text-[11px] uppercase tracking-wider text-gray-400 font-bold">
-                    <th className="text-left px-4 py-3">Agent</th>
-                    <th className="text-left px-4 py-3">Risk</th>
-                    <th className="text-right px-4 py-3">Est. spend / mo</th>
-                    <th className="text-right px-4 py-3">% of fleet</th>
-                    <th className="text-right px-4 py-3">vs last month</th>
-                    <th className="text-right px-4 py-3">Annual</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {sortedFleet.map((a) => {
-                    const monthly = a.forecast?.point ?? 0
-                    const share = totalSpend > 0 ? Math.round((monthly / totalSpend) * 100) : 0
-                    const vsLast = a.forecast?.vsLastMonth ?? 0
-                    const delta = !a.forecast?.vsLastMonthAvailable
-                      ? "—"
-                      : vsLast > 0 ? `↑ +${vsLast}%` : vsLast < 0 ? `↓ ${vsLast}%` : "flat"
-                    return (
-                      <tr key={a.id} className="border-b border-gray-100 last:border-b-0">
-                        <td className="px-4 py-4">
-                          <Link to={`/agent/${a.id}/spend`} className="flex items-center gap-2 text-gray-900 hover:underline">
-                            <div className="w-6 h-6 rounded bg-gray-100 inline-flex items-center justify-center text-gray-600">
-                              <AgentGlyph agentType={a.agentType} />
-                            </div>
-                            {a.name}
-                          </Link>
-                        </td>
-                        <td className="px-4 py-4 tabular-nums">
-                          <span className="inline-block w-1.5 h-1.5 rounded-full mr-2 align-middle" style={{ background: a.riskTone }} />
-                          {a.risk}
-                        </td>
-                        <td className="px-4 py-4 text-right tabular-nums font-medium">${monthly.toLocaleString()}</td>
-                        <td className="px-4 py-4 text-right tabular-nums">{share}%</td>
-                        <td
-                          className="px-4 py-4 text-right tabular-nums"
-                          style={{ color: a.forecast?.vsLastMonthAvailable ? deltaTone(vsLast) : "var(--text-muted)" }}
-                          title={a.forecast?.vsLastMonthAvailable ? undefined : "Comparison appears after ~30 days of history"}
-                        >{delta}</td>
-                        <td className="px-4 py-4 text-right tabular-nums">${(monthly * 12).toLocaleString()}</td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
-
-          {noForecast.length > 0 && (
-            <div className="mt-4 bg-white border border-dashed border-gray-200 rounded-xl p-4">
-              <div className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-2">
-                {noForecast.length} {pluralize(noForecast.length, "agent")} {pluralize(noForecast.length, "needs", "need")} a simulation
-              </div>
-              <div className="flex flex-wrap gap-2">
-                {noForecast.map((a) => (
-                  <Link
-                    key={a.id}
-                    to={`/sandbox?agent=${a.id}`}
-                    className="text-xs px-2 py-1 rounded-md bg-gray-50 border border-gray-200 text-gray-700 hover:bg-blue-50 hover:border-blue-200 hover:text-blue-700 transition-colors inline-flex items-center gap-2"
-                  >
-                    <AgentGlyph agentType={a.agentType} size={12} />
-                    {a.name}
-                  </Link>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {sortedFleet.length > 0 && (
-            <div className="flex gap-2 mt-4 justify-end">
-              <button
-                type="button"
-                onClick={handleExportCsv}
-                className="text-sm px-4 py-2 rounded-lg border bg-white text-gray-900 font-medium inline-flex items-center gap-2"
-                style={{ borderColor: "var(--border)" }}
-              >
-                <Download size={14} /> Export CSV
-              </button>
-              <Suspense fallback={
-                <span className="text-sm px-4 py-2 rounded-lg bg-gray-900 text-white font-medium inline-flex items-center gap-2 opacity-60">
-                  <FileText size={14} /> Preparing export…
+          <div className="flex items-center gap-1.5 mt-1">
+            {hasComparison ? (
+              <>
+                <span
+                  className="text-xs font-monospace-label px-2 py-0.5 rounded font-semibold"
+                  style={
+                    weightedDelta >= 0
+                      ? { background: "var(--caution-bg)", color: "var(--amber-ink)" }
+                      : { background: "var(--aqua-soft)", color: "var(--aqua-deep)" }
+                  }
+                >
+                  {weightedDelta >= 0 ? "+" : ""}{weightedDelta}%
                 </span>
-              }>
-                <FleetCFODownloadLink data={fleetReportData} fileName={`arceo-fleet-cfo-report-${todayIso()}.pdf`} />
-              </Suspense>
+                <span className="font-meta text-meta text-neutral-secondary">vs last month</span>
+              </>
+            ) : (
+              <span className="font-meta text-meta text-neutral-secondary">No prior month to compare yet</span>
+            )}
+          </div>
+        </KpiCard>
+
+        <KpiCard label="Projected annual run rate" Icon={TrendingUp}>
+          <div className="font-monospace-data text-display text-neutral-primary">{formatMoney(annualRunRate)}</div>
+          <div className="flex items-center gap-1.5 mt-1">
+            <span className="font-monospace-label text-xs" style={{ color: "var(--aqua-deep)" }}>
+              At the current monthly forecast
+            </span>
+          </div>
+        </KpiCard>
+
+        <KpiCard label="Active agents" Icon={Bot}>
+          <div className="font-monospace-data text-display text-neutral-primary">
+            {withForecast.length} <span className="text-neutral-secondary text-body font-normal">
+              {pluralize(withForecast.length, "agent")}
+            </span>
+          </div>
+          <div className="flex items-center gap-1.5 mt-1">
+            <span className="font-meta text-meta text-neutral-secondary">
+              {noForecast.length > 0 ? `${noForecast.length} more need sandbox runs` : "All agents forecast"}
+            </span>
+          </div>
+        </KpiCard>
+
+        <KpiCard label="Forecast confidence" Icon={ShieldCheck} iconColor="var(--aqua-deep)">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <div className="font-card-title text-card-title text-neutral-primary">{confidenceLabel}</div>
+              <div className="font-meta text-meta text-neutral-secondary mt-1">Band {fleetBandLabel}</div>
             </div>
-          )}
-        </>
+            <span
+              className="font-monospace-label px-3 py-1 rounded-full text-xs font-semibold"
+              style={{ background: "var(--aqua-soft)", color: "var(--aqua-deep)", border: "1px solid var(--aqua-line)" }}
+            >
+              {withForecast.length}/{agents.length}
+            </span>
+          </div>
+        </KpiCard>
+      </div>
+
+      {/* ── Fleet spend trend ── */}
+      <div className="bg-white p-6 rounded-xl border border-neutral-border shadow-sm flex flex-col gap-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+          <div>
+            <span className="font-eyebrow text-eyebrow text-neutral-secondary uppercase">Historical trajectory</span>
+            <h2 className="font-card-title text-card-title text-neutral-primary m-0">Fleet spend trend</h2>
+          </div>
+          <div className="flex items-center gap-4">
+            <span className="flex items-center gap-2">
+              <span className="w-3 h-3 rounded-sm" style={{ background: "var(--accent)" }} />
+              <span className="font-meta text-meta text-neutral-secondary">Actual spend</span>
+            </span>
+          </div>
+        </div>
+        <SpendTrendCard compact />
+      </div>
+
+      {/* ── Allocation + model split ── */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <BreakdownCard
+          eyebrow="Allocation"
+          title="Spend by agent"
+          total={formatMoney(totalSpend) + " /mo"}
+          rows={sortedFleet.slice(0, 5).map((r, i) => ({
+            label: r.name,
+            amount: r.forecast?.point ?? 0,
+            pct: totalSpend > 0 ? Math.round(((r.forecast?.point ?? 0) / totalSpend) * 100) : 0,
+            color: AGENT_BAR_COLORS[i % AGENT_BAR_COLORS.length],
+          }))}
+          footNote={`${withForecast.length} ${pluralize(withForecast.length, "agent")} forecast`}
+          linkLabel="View fleet"
+          linkTo="/"
+        />
+        <BreakdownCard
+          eyebrow="Model breakdown"
+          title="Spend by AI model"
+          total={`${byModel.length} ${byModel.length === 1 ? "endpoint" : "endpoints"}`}
+          rows={byModel.slice(0, 5).map((m) => ({
+            label: m.name,
+            amount: m.amount,
+            pct: m.pctOfLlm,
+            color: m.color,
+          }))}
+          footNote="Token-weighted across captured calls"
+          linkLabel="Token metrics"
+          linkTo="/history"
+        />
+      </div>
+
+      {/* ── Fleet-wide tool actions ── */}
+      <div className="bg-white rounded-xl border border-neutral-border shadow-sm overflow-hidden">
+        <div className="p-6 border-b border-neutral-border flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div>
+            <span className="font-eyebrow text-eyebrow text-neutral-secondary uppercase">Granular telemetry</span>
+            <h2 className="font-card-title text-card-title text-neutral-primary m-0">Top costly tool actions across fleet</h2>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="font-meta text-meta text-neutral-secondary">Sort by:</span>
+            <span
+              className="font-monospace-label px-3 py-1 rounded"
+              style={{ color: "var(--accent)", background: "var(--accent-soft)", border: "1px solid var(--accent-line)" }}
+            >
+              Total spend (desc)
+            </span>
+          </div>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse">
+            <thead>
+              <tr className="bg-neutral-sunken font-eyebrow text-eyebrow text-neutral-secondary uppercase border-b border-neutral-border">
+                <th className="py-3 px-6">Tool &amp; action</th>
+                <th className="py-3 px-6">Agent</th>
+                <th className="py-3 px-6 text-right">Calls / mo</th>
+                <th className="py-3 px-6 text-right">$ / call</th>
+                <th className="py-3 px-6 text-right">Total $ / mo</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-neutral-border font-body text-body">
+              {shownToolActions.length === 0 && (
+                <tr>
+                  <td colSpan={5} className="py-6 px-6 text-center text-neutral-muted">
+                    No priced tool calls captured yet.
+                  </td>
+                </tr>
+              )}
+              {shownToolActions.map((t) => (
+                <tr key={t.key} className="hover:bg-neutral-sunken transition-colors">
+                  <td className="py-4 px-6">
+                    <span className="font-monospace-data text-neutral-primary font-medium flex items-center gap-2">
+                      <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: "var(--accent)" }} />
+                      {t.tool}
+                    </span>
+                  </td>
+                  <td className="py-4 px-6 text-neutral-secondary">{t.agent}</td>
+                  <td className="py-4 px-6 text-right font-monospace-data text-neutral-primary">{t.calls.toLocaleString()}</td>
+                  <td className="py-4 px-6 text-right font-monospace-data text-neutral-secondary">${t.costPer.toFixed(3)}</td>
+                  <td className="py-4 px-6 text-right font-monospace-data font-semibold" style={{ color: "var(--accent)" }}>
+                    ${t.monthly.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <div className="p-4 px-6 border-t border-neutral-border bg-neutral-sunken flex items-center justify-between font-meta text-meta text-neutral-secondary">
+          <span>
+            Showing {shownToolActions.length} of {topToolActions.length} priced tool {pluralize(topToolActions.length, "integration")}
+          </span>
+          <Suspense fallback={<span>Preparing export…</span>}>
+            <FleetCFODownloadLink data={fleetReportData} fileName={`arceo-fleet-cfo-report-${todayIso()}.pdf`} />
+          </Suspense>
+        </div>
+      </div>
+      </>
       )}
+    </div>
+  )
+}
+
+/** Bar colours for the per-agent split — the single-hue chart ramp, so an
+ *  agent's bar never borrows the severity or risk-label scales. */
+const AGENT_BAR_COLORS = ["var(--chart-tokens)", "var(--chart-tools)", "var(--chart-infra)", "var(--aqua-ink)", "var(--ink-400)"]
+
+/** One hero metric card: eyebrow + icon, then the figure block. */
+function KpiCard({
+  label, Icon, iconColor, children,
+}: {
+  label: string
+  Icon: typeof Banknote
+  iconColor?: string
+  children: React.ReactNode
+}) {
+  return (
+    <div className="bg-white p-6 rounded-xl border border-neutral-border shadow-sm flex flex-col justify-between">
+      <div className="flex items-center justify-between">
+        <span className="font-eyebrow text-eyebrow text-neutral-secondary uppercase">{label}</span>
+        <Icon size={20} style={{ color: iconColor ?? "var(--accent)" }} />
+      </div>
+      <div className="my-4">{children}</div>
+    </div>
+  )
+}
+
+/** A labelled share breakdown with a bar per row. */
+function BreakdownCard({
+  eyebrow, title, total, rows, footNote, linkLabel, linkTo,
+}: {
+  eyebrow: string
+  title: string
+  total: string
+  rows: { label: string; amount: number; pct: number; color: string }[]
+  footNote: string
+  linkLabel: string
+  linkTo: string
+}) {
+  return (
+    <div className="bg-white p-6 rounded-xl border border-neutral-border shadow-sm flex flex-col justify-between">
+      <div>
+        <div className="flex items-start justify-between gap-3 mb-4">
+          <div>
+            <span className="font-eyebrow text-eyebrow text-neutral-secondary uppercase">{eyebrow}</span>
+            <h2 className="font-card-title text-card-title text-neutral-primary m-0">{title}</h2>
+          </div>
+          <span className="font-monospace-data text-neutral-primary whitespace-nowrap">{total}</span>
+        </div>
+        <div className="flex flex-col gap-4 mt-6">
+          {rows.length === 0 && (
+            <p className="font-meta text-meta text-neutral-muted m-0">Nothing measured yet.</p>
+          )}
+          {rows.map((r) => (
+            <div key={r.label}>
+              <div className="flex justify-between gap-3 mb-1.5 font-body text-body">
+                <span className="font-medium text-neutral-primary flex items-center gap-2 min-w-0">
+                  <span className="w-2 h-2 rounded-full shrink-0" style={{ background: r.color }} />
+                  <span className="truncate">{r.label}</span>
+                </span>
+                <span className="font-monospace-data text-neutral-primary whitespace-nowrap">
+                  {r.pct}% <span className="text-neutral-secondary">({formatMoney(r.amount)})</span>
+                </span>
+              </div>
+              <div className="w-full bg-neutral-sunken h-2 rounded-full overflow-hidden">
+                <div className="h-full rounded-full" style={{ width: `${r.pct}%`, background: r.color }} />
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+      <div className="flex items-center justify-between mt-6 pt-4 border-t border-neutral-border font-meta text-meta text-neutral-secondary">
+        <span>{footNote}</span>
+        <Link to={linkTo} style={{ color: "var(--text-link)" }} className="no-underline">
+          {linkLabel} →
+        </Link>
+      </div>
     </div>
   )
 }
