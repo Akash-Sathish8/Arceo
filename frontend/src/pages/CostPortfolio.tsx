@@ -46,31 +46,38 @@ const CONFIDENCE_CHIP: Record<Confidence, { label: string; bg: string; color: st
 const HIGH_GATE_CALLS = 50
 const HIGH_GATE_DAYS = 3
 
-const SOURCE_BADGE: Record<string, { label: string; color: string; bg: string; tip: string }> = {
-  declared: { label: "declared", color: "var(--severity-safe, #047857)",  bg: "var(--severity-safe-bg, #ecfdf5)",   tip: "You declared this value." },
-  measured: { label: "measured", color: "var(--severity-safe, #047857)",  bg: "var(--severity-safe-bg, #ecfdf5)",   tip: "Measured from this agent's sandbox or live traces." },
-  default:  { label: "default",  color: "var(--severity-medium, #b45309)", bg: "var(--severity-medium-bg, #fffbeb)", tip: "Industry-typical default — not measured for this agent. Declare it or run a sweep to make it real." },
-  volume:   { label: "in volume", color: "var(--severity-safe, #047857)",  bg: "var(--severity-safe-bg, #ecfdf5)",   tip: "Your declared daily volume already counts every model call, so no extra per-run multiplier is applied. Declare turns per run if your number was runs, not calls." },
+// Three states, separated by hue AND border — never by weight alone.
+// DECLARED is deliberately neutral: painting a typed-in number green spent
+// "measured" credibility on an assumption, which is the one thing this row
+// exists to prevent.
+const SOURCE_BADGE: Record<string, { label: string; variant: string; tip: string }> = {
+  declared: { label: "declared", variant: "",                     tip: "You declared this value." },
+  measured: { label: "measured", variant: " prov-chip--measured", tip: "Measured from this agent's sandbox or live traces." },
+  default:  { label: "default",  variant: " prov-chip--default",  tip: "Industry-typical default — not measured for this agent. Declare it or run a sweep to make it real." },
+  volume:   { label: "in volume", variant: "",                    tip: "Your declared daily volume already counts every model call, so no extra per-run multiplier is applied. Declare turns per run if your number was runs, not calls." },
 }
 
-function SourceBadge({ source }: { source?: string }) {
+function ProvenanceChip({ label, source }: { label: string; source?: string }) {
   const s = source ? SOURCE_BADGE[source] : undefined
   if (!s) return null
   return (
-    <span
-      className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded ml-1.5 cursor-help align-middle"
-      title={s.tip}
-      style={{ background: s.bg, color: s.color }}
-    >{s.label}</span>
+    <span className={`prov-chip${s.variant}`} title={s.tip}>
+      <span style={{ fontWeight: 500 }}>{label}</span>
+      <span className="prov-chip__state">
+        {source === "measured" && <Check size={11} strokeWidth={2.6} />}
+        {source === "default" && <AlertTriangle size={11} strokeWidth={2.6} />}
+        {s.label}
+      </span>
+    </span>
   )
 }
 
 type SliderTone = "neutral" | "positive" | "negative"
 
 function LiveSlider({
-  label, value, displayValue, min, max, step, onChange, tone = "neutral",
+  label, value, displayValue, hint, min, max, step, onChange, tone = "neutral",
 }: {
-  label: string; value: number; displayValue: string;
+  label: string; value: number; displayValue: string; hint?: string;
   min: number; max: number; step: number;
   onChange: (v: number) => void; tone?: SliderTone;
 }) {
@@ -83,8 +90,14 @@ function LiveSlider({
                   : "slider-knob"
   return (
     <div className="slider-row">
-      <label className="text-sm text-gray-600">{label}</label>
-      <div className="relative h-6 flex items-center">
+      <div className="flex items-end justify-between gap-3">
+        <label className="text-sm text-gray-600">
+          {label}
+          {hint && <span className="block text-[11px] leading-tight mt-0.5" style={{ color: "var(--ink-400)" }}>{hint}</span>}
+        </label>
+        <span className="text-sm font-semibold mono" style={{ color: "var(--ink-900)" }}>{displayValue}</span>
+      </div>
+      <div className="relative h-6 flex items-center mt-1.5">
         <div className="slider-track">
           <div className={fillClass} style={{ width: `${fillPct}%` }} />
         </div>
@@ -97,19 +110,24 @@ function LiveSlider({
           className="absolute inset-0 w-full opacity-0 cursor-pointer"
         />
       </div>
-      <div className="text-right text-sm font-semibold mono">{displayValue}</div>
     </div>
   )
 }
 
-function PanelCard({ title, icon, help, children, fullWidth = false }: { title: string; icon: React.ReactNode; help?: string; children: React.ReactNode; fullWidth?: boolean }) {
+/** Title + subtitle sit on a sunken header band, so every panel opens the
+ *  same way and the body starts on a clean edge. `footer` renders flush to
+ *  the card's bottom edge, outside the body padding. */
+function PanelCard({ title, icon, help, children, footer, fullWidth = false }: { title: string; icon: React.ReactNode; help?: string; children: React.ReactNode; footer?: React.ReactNode; fullWidth?: boolean }) {
   return (
-    <div className={`panel-card ${fullWidth ? "panel-card--wide" : ""}`}>
-      <h3 className="text-[13px] font-semibold flex items-center gap-2">
-        <span className="text-gray-500">{icon}</span> {title}
-      </h3>
-      {help && <p className="mt-1 mb-4 text-xs text-gray-400">{help}</p>}
-      {children}
+    <div className={`panel-card panel-card--framed ${fullWidth ? "panel-card--wide" : ""}`}>
+      <div className="panel-head">
+        <h3 className="panel-head__title">
+          <span style={{ color: "var(--ink-400)", display: "flex" }}>{icon}</span> {title}
+        </h3>
+        {help && <p className="panel-head__sub">{help}</p>}
+      </div>
+      <div className="panel-body">{children}</div>
+      {footer}
     </div>
   )
 }
@@ -755,26 +773,26 @@ function CostPortfolioContent({
         </div>
       )}
 
-      <div className="panel-card mt-6 mb-8 flex items-start gap-6">
+      <div className="panel-card mt-6 mb-4 flex items-start gap-6">
         <div className="flex-1">
-          <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-gray-600">
+          <div className="flex items-center gap-3">
             <span
-              className="w-7 h-7 rounded-lg inline-flex items-center justify-center"
-              style={{ background: "var(--severity-safe-bg)", color: "var(--severity-safe)" }}
+              className="font-semibold uppercase"
+              style={{ fontSize: "var(--fs-micro)", letterSpacing: 0.5, color: "var(--ink-400)" }}
             >
-              <Banknote size={15} />
+              Estimated monthly spend
             </span>
-            Estimated monthly spend
-          </div>
-          <div className="mt-3 flex items-center gap-4">
-            <div className="mono font-bold tracking-tight text-gray-900 leading-none" style={{ fontSize: 64 }}>
-              ${m.point.toLocaleString()}
-            </div>
             <div className="relative">
               <button
                 type="button"
                 onClick={() => setShowMethodology((v) => !v)}
-                className="inline-flex items-center gap-2 px-3 py-2 rounded-md text-xs font-medium bg-gray-100 hover:bg-gray-200 transition-colors border-0 cursor-pointer text-gray-700"
+                className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-medium transition-colors cursor-pointer"
+                style={{
+                  background: "var(--card)",
+                  border: "1px solid var(--line)",
+                  borderRadius: "var(--radius-full)",
+                  color: "var(--ink-500)",
+                }}
               >
                 <HelpCircle size={13} />
                 How this is calculated
@@ -820,10 +838,19 @@ function CostPortfolioContent({
               )}
             </div>
           </div>
-          <div className="mt-3 text-sm text-gray-600">
-            range <span className="text-gray-900 mono font-semibold">${m.low.toLocaleString()} – ${m.high.toLocaleString()}</span>
+          <div className="mt-2 flex items-baseline gap-4 flex-wrap">
+            {/* Deep blue is the brand's Authority voice — it marks the one
+                number the whole page exists to produce. */}
+            <div className="mono font-semibold leading-none" style={{ fontSize: 44, letterSpacing: -1.2, color: "var(--accent)" }}>
+              ${m.point.toLocaleString()}
+            </div>
+            <div className="mono" style={{ fontSize: 16, color: "var(--ink-400)" }}>
+              ${m.low.toLocaleString()} – ${m.high.toLocaleString()}
+            </div>
+          </div>
+          <div className="mt-3 flex items-center gap-2 flex-wrap text-sm text-gray-600">
             <span
-              className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full mx-2 cursor-help"
+              className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full cursor-help"
               title={m.confidenceCap === "single_day_burst"
                 ? `This agent has enough captured calls for high confidence, but they all arrived within ${m.activeDays ?? 1} day${(m.activeDays ?? 1) === 1 ? "" : "s"}. One burst says little about a full month, so the range stays wider until traffic lands on at least 3 different days.`
                 : m.observedDays != null && m.confidence !== "high"
@@ -831,8 +858,11 @@ function CostPortfolioContent({
                 : conf.tooltip}
               style={{ background: conf.bg, color: conf.color, border: `1px solid ${conf.border}` }}
             >{conf.label}</span>
+            <span>· last calibrated <strong className="text-gray-900">{formatCalibrationDate(m.lastCalibrated)}</strong></span>
+          </div>
+          <div className="mt-1.5 flex flex-col gap-0.5">
             {m.observedDays != null && (
-              <span className="text-xs text-gray-500 mr-2">
+              <span className="text-xs text-gray-500">
                 {m.observedDays <= 1
                   ? "based on 1 day of observed traffic"
                   : `averaged over the last ${Math.round(m.observedDays)} days of traffic, including any days this agent didn't run`}
@@ -847,13 +877,12 @@ function CostPortfolioContent({
                 sent only on unavailable ones), so days progress is shown where
                 measured and the gate is stated rather than faked. */}
             {m.confidence !== "high" && (
-              <span className="text-xs text-gray-500 mr-2">
+              <span className="text-xs text-gray-500">
                 {m.observedDays != null
                   ? `${Math.min(m.activeDays ?? 0, HIGH_GATE_DAYS)}/${HIGH_GATE_DAYS} distinct traffic days toward high confidence (needs ${HIGH_GATE_CALLS}+ calls in a week)`
                   : `high confidence unlocks at ${HIGH_GATE_CALLS}+ captured production calls spanning ${HIGH_GATE_DAYS}+ distinct days in a week; none captured yet`}
               </span>
             )}
-            · last calibrated <strong className="text-gray-900">{formatCalibrationDate(m.lastCalibrated)}</strong>
           </div>
           {m.confidence !== "high" && (
             <div className="mt-2 text-xs text-gray-500">
@@ -864,17 +893,6 @@ function CostPortfolioContent({
                 }}
                 className="underline underline-offset-2 bg-transparent border-0 p-0 cursor-pointer text-gray-700 font-medium hover:text-gray-900"
               >Confidence sources</button>.
-            </div>
-          )}
-          {m.inputSources && (
-            <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-gray-500">
-              <span className="font-semibold text-gray-400 uppercase tracking-wider text-[9px]">Where each input came from</span>
-              <span>Volume<SourceBadge source={m.inputSources.runsPerDay} /></span>
-              <span>Turns/run<SourceBadge source={m.inputSources.turnsPerRun} /></span>
-              <span>Tokens/call<SourceBadge source={m.inputSources.tokensPerCall} /></span>
-              <span>Cache<SourceBadge source={m.inputSources.cacheHit} /></span>
-              <span>Model<SourceBadge source={m.inputSources.model} /></span>
-              <span>Tool mix<SourceBadge source={m.inputSources.toolMix} /></span>
             </div>
           )}
           {m.coverage?.declaredModel && (
@@ -918,22 +936,71 @@ function CostPortfolioContent({
             </div>
           )}
         </div>
-        <div className="text-right pl-6 border-l border-gray-100 self-center">
+        <div
+          className="text-right self-center flex-shrink-0"
+          style={{
+            background: "var(--paper-2)",
+            border: "1px solid var(--line)",
+            borderRadius: "var(--radius-lg)",
+            padding: "14px 18px",
+            minWidth: 220,
+          }}
+        >
           <div className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Annual run rate</div>
-          <div className="text-base font-semibold mono text-gray-700 mt-1">${m.annual.toLocaleString()}</div>
+          <div className="mono" style={{ fontSize: 21, fontWeight: 600, color: "var(--ink-900)", marginTop: 4 }}>${m.annual.toLocaleString()}</div>
           <div className="text-[10px] text-gray-400 mt-1">at projected volume · pre-deployment</div>
         </div>
       </div>
 
+      {/* Provenance — which numbers came from real traffic and which are
+          assumptions. The one row on this page that keeps the forecast
+          honest, so it gets its own surface instead of a footnote. */}
+      {m.inputSources && (
+        <div className="panel-card mb-8">
+          <div
+            className="font-semibold uppercase"
+            style={{ fontSize: "var(--fs-micro)", letterSpacing: 0.5, color: "var(--ink-400)" }}
+          >
+            Where each input came from
+          </div>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <ProvenanceChip label="Volume" source={m.inputSources.runsPerDay} />
+            <ProvenanceChip label="Turns/run" source={m.inputSources.turnsPerRun} />
+            <ProvenanceChip label="Tokens/call" source={m.inputSources.tokensPerCall} />
+            <ProvenanceChip label="Cache" source={m.inputSources.cacheHit} />
+            <ProvenanceChip label="Model" source={m.inputSources.model} />
+            <ProvenanceChip label="Tool mix" source={m.inputSources.toolMix} />
+          </div>
+        </div>
+      )}
+
       <div className="grid grid-cols-2 gap-8">
-        <PanelCard title="Adjust forecast assumptions" icon={<Sliders size={14} />} help='Move any slider to recompute the forecast live. "Reset" snaps back to the inferred value from sandbox traces.'>
+        <PanelCard
+          title="Adjust forecast assumptions"
+          icon={<Sliders size={14} />}
+          help='Move any slider to recompute the forecast live. "Reset" snaps back to the inferred value from sandbox traces.'
+          footer={
+            <div className={`panel-footbar transition-opacity ${recalculating ? "opacity-60" : ""}`}>
+              <span
+                className="font-semibold uppercase"
+                style={{ fontSize: "var(--fs-micro)", letterSpacing: 0.5, color: "var(--aqua-deep)" }}
+              >
+                {recalculating ? "Recalculating…" : "Live forecast"}
+              </span>
+              <span className="mono" style={{ fontSize: 21, fontWeight: 600, color: "var(--aqua-deep)" }}>
+                ${m.low.toLocaleString()} – ${m.high.toLocaleString()}
+              </span>
+            </div>
+          }
+        >
           <LiveSlider
             label="Runs / day" value={runsPerDay} displayValue={runsPerDay.toLocaleString()}
             min={1} max={10000} step={10} onChange={setRunsPerDay}
           />
           <LiveSlider
             label="Turns / run" value={turnsPerRun}
-            displayValue={`${turnsPerRun} (${(runsPerDay * turnsPerRun).toLocaleString()} LLM calls/day)`}
+            displayValue={turnsPerRun.toLocaleString()}
+            hint={`${(runsPerDay * turnsPerRun).toLocaleString()} LLM calls/day`}
             min={1} max={30} step={1} onChange={setTurnsPerRun}
           />
           <LiveSlider
@@ -941,7 +1008,7 @@ function CostPortfolioContent({
             min={0.5} max={30} step={0.1} onChange={setRuntime}
           />
           <div className="slider-row slider-row--select">
-            <label className="text-sm text-gray-600">Primary model</label>
+            <label className="text-sm text-gray-600 block mb-1.5">Primary model</label>
             <select
               value={model}
               onChange={(e) => setModel(e.target.value)}
@@ -955,27 +1022,14 @@ function CostPortfolioContent({
           </div>
           <LiveSlider
             label="Cache hit rate" value={cacheHit} displayValue={`${cacheHit}%`}
+            hint="higher lowers cost"
             min={0} max={95} step={1} onChange={setCacheHit}
-            tone="positive"
           />
           <LiveSlider
             label="Retry rate" value={retryRate} displayValue={`${retryRate}%`}
+            hint="higher raises cost"
             min={0} max={25} step={1} onChange={setRetryRate}
-            tone="negative"
           />
-          <div
-            className={`mt-6 px-4 py-3 rounded-lg flex justify-between items-center transition-opacity ${recalculating ? "opacity-60" : ""}`}
-            style={{ background: "var(--severity-safe-bg)", border: "1px solid var(--severity-safe-border)" }}
-          >
-            <div className="flex items-center gap-2">
-              <span
-                className="w-1.5 h-1.5 rounded-full"
-                style={{ background: "var(--severity-safe)", boxShadow: "0 0 0 3px rgba(26, 158, 110, 0.15)" }}
-              />
-              <div className="text-xs text-gray-600 uppercase font-bold tracking-wider">{recalculating ? "Recalculating…" : "Updated forecast"}</div>
-            </div>
-            <div className="text-2xl font-semibold mono text-gray-900">${m.low.toLocaleString()} – ${m.high.toLocaleString()}</div>
-          </div>
         </PanelCard>
 
         <PanelCard title="Where the money goes" icon={<PieChart size={14} />} help="Per-call cost breakdown, rolled up to a monthly total.">
@@ -1007,23 +1061,38 @@ function CostPortfolioContent({
                   <div className="flex items-center gap-2">
                     <span className="w-2 h-2 rounded-sm" style={{ background: "var(--chart-tokens)" }} />
                     AI model usage
-                    <span className="ml-auto text-gray-900 font-semibold mono">${m.tokensUsd.toLocaleString()} ({m.tokensPct}%)</span>
+                    <span className="ml-auto flex items-baseline gap-3">
+                      <span className="text-gray-900 font-semibold mono">${m.tokensUsd.toLocaleString()}</span>
+                      <span className="mono text-right" style={{ color: "var(--ink-400)", minWidth: 34 }}>{m.tokensPct}%</span>
+                    </span>
                   </div>
                   <div className="flex items-center gap-2">
                     <span className="w-2 h-2 rounded-sm" style={{ background: "var(--chart-tools)" }} />
                     Software fees
-                    <span className="ml-auto text-gray-900 font-semibold mono">${m.toolsUsd.toLocaleString()} ({m.toolsPct}%)</span>
+                    <span className="ml-auto flex items-baseline gap-3">
+                      <span className="text-gray-900 font-semibold mono">${m.toolsUsd.toLocaleString()}</span>
+                      <span className="mono text-right" style={{ color: "var(--ink-400)", minWidth: 34 }}>{m.toolsPct}%</span>
+                    </span>
                   </div>
                   <div className="flex items-center gap-2">
                     <span className="w-2 h-2 rounded-sm" style={{ background: "var(--chart-infra)" }} />
                     Infrastructure
-                    <span className="ml-auto text-gray-900 font-semibold mono">${m.infraUsd.toLocaleString()} ({m.infraPct}%)</span>
+                    <span className="ml-auto flex items-baseline gap-3">
+                      <span className="text-gray-900 font-semibold mono">${m.infraUsd.toLocaleString()}</span>
+                      <span className="mono text-right" style={{ color: "var(--ink-400)", minWidth: 34 }}>{m.infraPct}%</span>
+                    </span>
                   </div>
                 </div>
               </div>
             )
           })()}
-          <h3 className="text-[13px] font-semibold mt-6 mb-2">Top tool calls</h3>
+          <div style={{ borderTop: "1px solid var(--line)", margin: "4px -20px 16px" }} />
+          <h3
+            className="font-semibold uppercase mb-2"
+            style={{ fontSize: "var(--fs-micro)", letterSpacing: 0.5, color: "var(--ink-400)" }}
+          >
+            Top tool calls
+          </h3>
           <table className="w-full text-xs">
             <thead>
               <tr className="border-b-2 border-gray-200 text-[11px] uppercase text-gray-500 font-bold tracking-wide">
@@ -1035,8 +1104,8 @@ function CostPortfolioContent({
             </thead>
             <tbody>
               {m.topTools.map((t, i) => (
-                <tr key={t.tool} className={i % 2 === 1 ? "bg-gray-50" : ""}>
-                  <td className="py-2 pl-2 font-medium text-gray-900">{t.tool}</td>
+                <tr key={t.tool} style={i > 0 ? { borderTop: "1px solid var(--line-soft)" } : undefined}>
+                  <td className="py-2 pl-2"><span className="tool-chip">{t.tool}</span></td>
                   <td className="py-2 text-right mono text-gray-700">{t.callsPerMonth.toLocaleString()}</td>
                   <td className="py-2 text-right mono text-gray-700">${t.costPer.toFixed(2)}</td>
                   <td className="py-2 pr-2 text-right mono font-semibold text-gray-900">${t.monthly.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
@@ -1056,20 +1125,19 @@ function CostPortfolioContent({
             <div className="text-xs text-gray-400 py-2">
               Needs data. Sensitivity is computed by re-running this agent's forecast at ±20% per input — it appears once there's a real baseline (declare volume or run a sweep).
             </div>
-          ) : m.sensitivity.map((s) => {
-            const tone = s.pct >= 60 ? "var(--severity-critical)"
-                      : s.pct >= 30 ? "var(--severity-high)"
-                      : "var(--severity-safe)"
-            return (
-              <div key={s.label} className="sensitivity-row">
-                <label className="text-xs text-gray-600">{s.label}</label>
-                <div className="h-2 bg-gray-100 rounded-sm overflow-hidden">
-                  <div className="h-full" style={{ width: `${s.pct}%`, background: tone }} />
-                </div>
-                <span className="text-right mono font-semibold text-xs" style={{ color: tone }}>{s.pct}%</span>
+          ) : m.sensitivity.map((s) => (
+            /* One accent, not the severity ramp: "how much this input moves
+               the forecast" is a magnitude, and bar length already says it.
+               Painting it red/amber/green borrowed the severity scale for
+               something that carries no severity. */
+            <div key={s.label} className="sensitivity-row">
+              <label className="text-xs text-gray-600">{s.label}</label>
+              <div className="h-2 rounded-sm overflow-hidden" style={{ background: "var(--line-soft)" }}>
+                <div className="h-full" style={{ width: `${s.pct}%`, background: "var(--accent)" }} />
               </div>
-            )
-          })}
+              <span className="text-right mono font-semibold text-xs" style={{ color: "var(--ink-700)" }}>{s.pct}%</span>
+            </div>
+          ))}
         </PanelCard>
 
         <PanelCard title="30-day actuals + 90-day projection" icon={<TrendingUp size={14} />} help="Solid line = observed daily LLM token cost from live traces — tool and infrastructure costs aren't in these traces, so the forecast (which includes them) can sit above the line. Shaded band = forward forecast range." fullWidth>

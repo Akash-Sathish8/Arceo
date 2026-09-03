@@ -13,6 +13,7 @@ import {
   Copy,
   Plus,
   MoreHorizontal,
+  FlaskConical,
 } from 'lucide-react'
 import { apiFetch, getToken } from '@/lib/api'
 import { toast } from '@/components/shared/Toast'
@@ -246,6 +247,15 @@ const actionRiskDot = (tool: string, action: string): string => {
 
 const blastLabel = (score: number): string => bandDescription(scoreBand(score).key)
 
+/** Stable dot colour per service. Uses the neutral chart ramp on purpose —
+ *  a service identity must not borrow the severity or risk-label scales. */
+const SERVICE_DOTS = ['#0E3C90', '#5578B8', '#9DB3DC', '#1E2836', '#747783']
+function serviceColor(name: string): string {
+  let h = 0
+  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0
+  return SERVICE_DOTS[h % SERVICE_DOTS.length]
+}
+
 const fmtUsd = (usd: number): string => {
   if (usd >= 1_000_000) return `$${(usd / 1_000_000).toFixed(1)}M`
   if (usd >= 1_000) return `$${Math.round(usd / 1_000)}k`
@@ -326,9 +336,11 @@ function AuthorityMap({ graph, serviceFilter }: AuthorityMapProps) {
           {(['all', 'irreversible', 'risky', 'safe'] as const).map((f) => (
             <button
               key={f}
+              /* Graphite, not the accent: this selects a view, it doesn't
+                 make a claim — the deep blue stays reserved for actions. */
               style={riskFilter === f
-                ? { background: 'var(--color-cta)', color: 'var(--text-inverse)', borderRadius: 'var(--radius-full)', border: 'none', padding: '4px 12px', fontSize: 12, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer' }
-                : { background: 'transparent', border: '1px solid var(--border-strong)', color: 'var(--text-primary)', borderRadius: 'var(--radius-full)', padding: '4px 12px', fontSize: 12, fontFamily: 'inherit', cursor: 'pointer' }}
+                ? { background: 'var(--graphite)', color: '#ffffff', borderRadius: 'var(--radius-full)', border: 'none', padding: '5px 14px', fontSize: 12, fontWeight: 600, fontFamily: 'var(--font-mono)', cursor: 'pointer' }
+                : { background: 'var(--card)', border: '1px solid var(--line)', color: 'var(--ink-700)', borderRadius: 'var(--radius-full)', padding: '5px 14px', fontSize: 12, fontFamily: 'var(--font-mono)', cursor: 'pointer' }}
               className="hover:opacity-80 transition-opacity"
               onClick={() => setRiskFilter(f)}
             >
@@ -563,165 +575,213 @@ function WorstCasePanel({
 
   const scoreColor = scoreToColor(br.score)
   const criticalUnreviewed = chains.some((c) => c.severity === 'critical') && !hasCoveringPolicy
+  // The irreversible-actions sentence has its own line in this panel — saying
+  // it again beside the score read as two findings when there is only one.
+  // It also can't simply fall through to the band description: the low band's
+  // wording ("no irreversible capabilities") would contradict that line.
   const dynamicScoreLabel = criticalUnreviewed
     ? 'Critical chain detected — no policy set'
     : irreversibleCount > 0
-    ? `${irreversibleCount} irreversible action${irreversibleCount !== 1 ? 's' : ''} — cannot be undone once triggered`
+    ? `${scoreBand(br.score).label} blast radius`
     : blastLabel(br.score)
 
+  // Contributors are real per-action dollar exposure — show them whenever the
+  // engine returns any, not only once a residual score exists.
+  const exposures = (br.top_contributors ?? []).filter((c) => c.usd > 0).slice(0, 3)
+
   return (
-    <div className="bg-amber-50 border border-amber-200 rounded-xl p-5 mb-4">
-      <div className="flex items-center gap-2 mb-3">
-        <AlertTriangle className="w-4 h-4 text-amber-600" />
-        <strong className="text-sm text-amber-900">Worst Case Scenario</strong>
+    <div
+      className="rounded-xl p-5 mb-4"
+      style={{ background: 'var(--caution-bg)', border: '1px solid var(--caution-line)' }}
+    >
+      <div className="flex items-center gap-2 mb-4">
+        <AlertTriangle size={14} style={{ color: 'var(--amber-ink)' }} />
+        <span
+          className="font-semibold uppercase"
+          style={{ fontSize: 'var(--fs-micro)', letterSpacing: 0.5, color: 'var(--amber-ink)' }}
+        >
+          Worst case scenario
+        </span>
+        {topChain && (
+          <span
+            className="text-[10px] px-1.5 py-0.5 rounded font-bold uppercase tracking-wider"
+            style={{
+              background: SEV_STYLE[topChain.severity]?.bg ?? 'var(--high-bg)',
+              color: SEV_STYLE[topChain.severity]?.color ?? 'var(--high)',
+            }}
+          >
+            {topChain.severity}
+          </span>
+        )}
         {hasCoveringPolicy && (
-          <span className="ml-auto text-xs px-2 py-0.5 bg-green-100 text-green-700 rounded-full border border-green-200">
+          <span
+            className="ml-auto text-xs px-2 py-0.5 rounded-full"
+            style={{ background: 'var(--safe-bg)', color: 'var(--safe)', border: '1px solid var(--safe-line)' }}
+          >
             Partially covered by policies
           </span>
         )}
       </div>
 
-      {chainText && (
-        <div
-          className="flex gap-3 mb-3 p-3 rounded-lg border"
-          style={
-            topChain?.severity === 'critical' && !hasCoveringPolicy
-              ? { background: 'var(--critical-bg)', borderColor: 'var(--critical-line)' }
-              : { background: '#fff', borderColor: 'var(--caution-line)' }
-          }
-        >
-          <span className="text-base leading-none mt-0.5 flex-shrink-0">⛓</span>
-          <div className="space-y-1 flex-1 min-w-0">
-            <div className="text-sm font-medium text-gray-800">{chainText}</div>
-            <div className="flex items-center gap-2 flex-wrap">
-              {topChain && (
-                <span
-                  className="text-xs px-1.5 py-0.5 rounded font-medium"
-                  style={{
-                    background: SEV_STYLE[topChain.severity]?.bg ?? 'var(--high-bg)',
-                    color: SEV_STYLE[topChain.severity]?.color ?? 'var(--high)',
-                  }}
-                >
-                  {topChain.severity.toUpperCase()}
-                </span>
-              )}
-              {topChain?.name && (
-                <span className="text-xs text-gray-500">{topChain.name}</span>
-              )}
-              {!hasCoveringPolicy && (
-                <>
-                  <span className="text-xs text-red-500 font-medium">No policy</span>
-                  <button
-                    type="button"
-                    className="text-xs font-semibold text-red-600 underline underline-offset-2 hover:text-red-800"
-                    style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
-                    onClick={onScrollToPolicies}
-                  >
-                    Add Policy
-                  </button>
-                </>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {irreversibleCount > 0 && (
-        <div className="flex items-center gap-2 mb-3 text-sm text-gray-700">
-          <Lock className="w-4 h-4 text-gray-500 flex-shrink-0" />
-          <span>
-            {irreversibleCount} irreversible action{irreversibleCount !== 1 ? 's' : ''} — cannot
-            be undone once triggered
-          </span>
-        </div>
-      )}
-
-      <div className="flex items-center justify-between flex-wrap gap-2">
-        <div className="flex items-center gap-2">
-          <span className="text-2xl font-bold mono" style={{ color: scoreColor }}>
-            {br.score}
-          </span>
-          <span className="text-xs text-gray-600">Risk Score — {dynamicScoreLabel}</span>
-        </div>
-        <div className="flex gap-2">
-          {!hasCoveringPolicy && (
-            <button
-              style={{ background: 'transparent', border: '1px solid var(--border-strong)', color: 'var(--text-primary)', borderRadius: 'var(--radius-full)', padding: '5px 14px', fontSize: 12, fontFamily: 'inherit', cursor: 'pointer' }}
-              className="hover:opacity-70 transition-opacity"
-              onClick={onScrollToPolicies}
+      {/* Two columns: the chain that could fire, and what it would cost.
+          Cause on the left, consequence on the right. */}
+      <div
+        className="grid gap-5"
+        style={{ gridTemplateColumns: exposures.length > 0 ? 'minmax(0, 1fr) minmax(0, 330px)' : '1fr' }}
+      >
+        <div className="min-w-0">
+          {chainText && (
+            <div
+              className="rounded-lg p-4 mb-3"
+              style={
+                topChain?.severity === 'critical' && !hasCoveringPolicy
+                  ? { background: 'var(--critical-bg)', border: '1px solid var(--critical-line)' }
+                  : { background: 'var(--paper)', border: '1px solid var(--caution-line)' }
+              }
             >
-              Add Policies
-            </button>
-          )}
-          {/* "Simulate Worst Case" removed — redundant with the header's single
-              "Simulate in Sandbox" entry (same /sandbox route, just a preset). */}
-        </div>
-      </div>
-
-      {br.residual_score !== undefined && (
-        <div className="mt-3 pt-3 border-t border-amber-200 space-y-2">
-          <div className="flex items-center justify-between flex-wrap gap-2">
-            <div className="flex items-center gap-2">
-              <span className="text-xl font-bold" style={{ color: scoreToColor(br.residual_score) }}>
-                {br.residual_score}
-              </span>
-              <span className="text-xs text-gray-600">
-                Exposed now (after your policies)
-                {br.residual_score < br.score && (
-                  <span className="text-green-700 font-medium"> · −{Math.round(br.score - br.residual_score)} from gates</span>
-                )}
-              </span>
+              <div className="text-sm font-medium" style={{ color: 'var(--ink-900)', lineHeight: 1.5 }}>
+                {chainText}
+              </div>
             </div>
-            {br.confidence && (
-              <span
-                className="text-xs px-2 py-0.5 rounded-full border"
-                style={{
-                  background: CONF_STYLE[br.confidence].background,
-                  color: CONF_STYLE[br.confidence].color,
-                  borderColor: 'transparent',
-                }}
-                title="How the score is graded: static estimate vs simulated vs confirmed by a simulation"
-              >
-                {br.evidence?.dryRunOnly
-                  ? 'Static analysis only — run a live simulation to confirm'
-                  : CONF_STYLE[br.confidence].label}
-              </span>
+          )}
+
+          <div className="flex items-center gap-2 flex-wrap text-xs mb-2">
+            {topChain?.name && (
+              <span className="mono" style={{ color: 'var(--ink-600)' }}>⛓ {topChain.name}</span>
+            )}
+            {!hasCoveringPolicy && (
+              <>
+                <span style={{ color: 'var(--ink-400)' }}>·</span>
+                <span style={{ color: 'var(--critical)' }}>No policy</span>
+                <button
+                  type="button"
+                  className="underline underline-offset-2 hover:opacity-70"
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, fontSize: 12, fontWeight: 600, color: 'var(--critical)', fontFamily: 'inherit' }}
+                  onClick={onScrollToPolicies}
+                >
+                  Add policy
+                </button>
+              </>
             )}
           </div>
 
-          {br.top_contributors && br.top_contributors.filter((c) => c.usd > 0).length > 0 && (
-            <div className="space-y-1">
-              <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Top dollar exposure</div>
-              {br.top_contributors
-                .filter((c) => c.usd > 0)
-                .slice(0, 3)
-                .map((c) => (
-                  <div key={c.action} className="flex items-center justify-between text-xs gap-2">
-                    <span className="font-mono text-gray-700 truncate">{c.action}</span>
-                    <span className="text-gray-500 flex-shrink-0">
-                      {fmtUsd(c.usd)} · {c.why}
-                    </span>
-                  </div>
-                ))}
+          {irreversibleCount > 0 && (
+            <div className="flex items-center gap-2 text-sm" style={{ color: 'var(--critical)' }}>
+              <Lock className="w-3.5 h-3.5 flex-shrink-0" />
+              <span>
+                {irreversibleCount} irreversible action{irreversibleCount !== 1 ? 's' : ''} — cannot
+                be undone once triggered
+              </span>
             </div>
           )}
 
-          {br.exposure_context?.multiplier !== undefined && br.exposure_context.multiplier !== 1 && (
-            <div className="text-xs text-gray-600">
-              In deployment context: <strong style={{ color: scoreToColor(br.contextual_score ?? br.score) }}>{br.contextual_score ?? br.score}</strong>
-              {' ('}
-              {[
-                br.exposure_context.environment,
-                br.exposure_context.trigger_source ? `${br.exposure_context.trigger_source}-triggered` : null,
-                br.exposure_context.human_in_loop ? 'human-in-loop' : null,
-              ]
-                .filter(Boolean)
-                .join(', ')}
-              {')'}
+          <div className="flex items-center justify-between flex-wrap gap-2 mt-4 pt-3" style={{ borderTop: '1px solid var(--caution-line)' }}>
+            <div className="flex items-center gap-2">
+              <span className="text-2xl font-bold mono" style={{ color: scoreColor }}>
+                {br.score}
+              </span>
+              <span className="text-xs text-gray-600">Risk score — {dynamicScoreLabel}</span>
+            </div>
+            {!hasCoveringPolicy && (
+              <button
+                style={{ background: 'transparent', border: '1px solid var(--border-strong)', color: 'var(--text-primary)', borderRadius: 'var(--radius-full)', padding: '5px 14px', fontSize: 12, fontFamily: 'inherit', cursor: 'pointer' }}
+                className="hover:opacity-70 transition-opacity"
+                onClick={onScrollToPolicies}
+              >
+                Add policies
+              </button>
+            )}
+          </div>
+
+          {br.residual_score !== undefined && (
+            <div className="mt-3 pt-3 space-y-2" style={{ borderTop: '1px solid var(--caution-line)' }}>
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <div className="flex items-center gap-2">
+                  <span className="text-xl font-bold mono" style={{ color: scoreToColor(br.residual_score) }}>
+                    {br.residual_score}
+                  </span>
+                  <span className="text-xs text-gray-600">
+                    Exposed now (after your policies)
+                    {br.residual_score < br.score && (
+                      <span style={{ color: 'var(--safe)', fontWeight: 500 }}> · −{Math.round(br.score - br.residual_score)} from gates</span>
+                    )}
+                  </span>
+                </div>
+                {br.confidence && (
+                  <span
+                    className="text-xs px-2 py-0.5 rounded-full border"
+                    style={{
+                      background: CONF_STYLE[br.confidence].background,
+                      color: CONF_STYLE[br.confidence].color,
+                      borderColor: 'transparent',
+                    }}
+                    title="How the score is graded: static estimate vs simulated vs confirmed by a simulation"
+                  >
+                    {br.evidence?.dryRunOnly
+                      ? 'Static analysis only — run a live simulation to confirm'
+                      : CONF_STYLE[br.confidence].label}
+                  </span>
+                )}
+              </div>
+
+              {br.exposure_context?.multiplier !== undefined && br.exposure_context.multiplier !== 1 && (
+                <div className="text-xs text-gray-600">
+                  In deployment context: <strong style={{ color: scoreToColor(br.contextual_score ?? br.score) }}>{br.contextual_score ?? br.score}</strong>
+                  {' ('}
+                  {[
+                    br.exposure_context.environment,
+                    br.exposure_context.trigger_source ? `${br.exposure_context.trigger_source}-triggered` : null,
+                    br.exposure_context.human_in_loop ? 'human-in-loop' : null,
+                  ]
+                    .filter(Boolean)
+                    .join(', ')}
+                  {')'}
+                </div>
+              )}
             </div>
           )}
         </div>
-      )}
+
+        {exposures.length > 0 && (
+          <div className="min-w-0">
+            <div
+              className="font-semibold uppercase mb-2"
+              style={{ fontSize: 'var(--fs-micro)', letterSpacing: 0.5, color: 'var(--amber-ink)' }}
+            >
+              Top dollar exposure
+            </div>
+            <div className="space-y-2.5">
+              {exposures.map((c) => (
+                <div key={c.action} className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="mono text-xs truncate" style={{ color: 'var(--ink-900)' }}>{c.action}</div>
+                    <div className="flex flex-wrap gap-1 mt-1">
+                      {/* The worst-case dollar figure is already set to the
+                          right — repeating it as a pill said it twice. */}
+                      {c.why
+                        .split(',')
+                        .map((w) => w.trim())
+                        .filter((w) => w && !w.includes('worst-case'))
+                        .map((w) => (
+                          <span
+                            key={w}
+                            className="text-[10px] px-1.5 py-0.5 rounded"
+                            style={{ background: 'var(--paper)', color: 'var(--ink-500)', border: '1px solid var(--caution-line)' }}
+                          >
+                            {w}
+                          </span>
+                        ))}
+                    </div>
+                  </div>
+                  <span className="mono text-sm font-semibold flex-shrink-0" style={{ color: 'var(--ink-900)' }}>
+                    {fmtUsd(c.usd)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   )
 }
@@ -1724,7 +1784,7 @@ export default function AgentDetail() {
   const hasCriticalChain = chains.some((c) => c.severity === 'critical')
 
   const TABS = [
-    { id: 'graph' as const, label: 'Tool Map', dot: false },
+    { id: 'graph' as const, label: `Tool Map (${br.coverage?.totalActions ?? agent.tools.reduce((n, t) => n + t.actions.length, 0)})`, dot: false },
     { id: 'policies' as const, label: `Policies (${sortedPolicies.length})`, dot: false },
     { id: 'executions' as const, label: `Executions (${executions?.length ?? 0})`, dot: false },
     { id: 'chains' as const, label: `Chains (${chains.length})`, dot: hasCriticalChain },
@@ -1733,7 +1793,7 @@ export default function AgentDetail() {
   // ── Render ───────────────────────────────────────────────────────────────
 
   return (
-    <div className="p-8 max-w-5xl mx-auto">
+    <div className="px-container-padding py-stack-gap w-full">
       {/* Top bar */}
       <div className="flex items-center justify-between mb-5 flex-wrap gap-2">
         <Link
@@ -1744,13 +1804,6 @@ export default function AgentDetail() {
           All Agents
         </Link>
         <div className="flex items-center gap-2 flex-wrap">
-          <Link
-            to={`/sandbox?agent=${agentId}`}
-            className="inline-flex items-center gap-1.5 hover:opacity-80 transition-opacity"
-            style={{ background: 'var(--color-cta)', color: 'var(--text-inverse)', borderRadius: 'var(--radius-full)', border: 'none', padding: '8px 20px', fontWeight: 600, fontSize: 13 }}
-          >
-            Simulate in Sandbox
-          </Link>
           {confirmDelete && (
             <>
               <span className="text-xs text-gray-500">Are you sure?</span>
@@ -1878,14 +1931,21 @@ export default function AgentDetail() {
                         setActiveTab('graph')
                       }}
                       style={{
-                        padding: '4px 10px', fontSize: 12, fontWeight: isActive ? 600 : 500,
-                        fontFamily: 'inherit', borderRadius: 999, cursor: 'pointer',
-                        border: isActive ? '1.5px solid var(--text-primary)' : '1px solid var(--border)',
-                        background: isActive ? 'var(--text-primary)' : 'var(--bg-sunken)',
-                        color: isActive ? 'white' : 'var(--text-secondary)',
+                        display: 'inline-flex', alignItems: 'center', gap: 7,
+                        padding: '5px 11px', fontSize: 12.5, fontWeight: 500,
+                        fontFamily: 'var(--font-mono)', borderRadius: 999, cursor: 'pointer',
+                        border: isActive ? '1.5px solid var(--accent)' : '1px solid var(--line)',
+                        background: isActive ? 'var(--accent-soft)' : 'var(--paper-2)',
+                        color: isActive ? 'var(--accent-ink)' : 'var(--ink-700)',
                         transition: 'all 120ms',
                       }}
                     >
+                      <span
+                        style={{
+                          width: 6, height: 6, borderRadius: 999, flexShrink: 0,
+                          background: serviceColor(t.service || t.name),
+                        }}
+                      />
                       {t.service}
                     </button>
                   )
@@ -1896,8 +1956,8 @@ export default function AgentDetail() {
 
           <Tooltip content={RISK_SCORE_METHODOLOGY}>
             <div
-              className="flex flex-col items-center flex-shrink-0 cursor-help"
-              style={{ color: scoreColor }}
+              className="flex flex-col items-center flex-shrink-0 cursor-help pl-6"
+              style={{ color: scoreColor, borderLeft: '1px solid var(--line)' }}
             >
               <div className="relative w-24 h-24">
                 <svg viewBox="0 0 110 110" className="w-full h-full">
@@ -1931,20 +1991,42 @@ export default function AgentDetail() {
                 </div>
               </div>
               <div className="text-xs font-medium mt-1">Risk Score</div>
-              <div className="text-xs opacity-80">{scoreLevel}</div>
+              <div className="text-xs opacity-80 flex items-center gap-1.5">
+                <span style={{ width: 6, height: 6, borderRadius: 999, background: scoreColor, display: 'inline-block' }} />
+                {scoreLevel}
+              </div>
+              <Link
+                to={`/sandbox?agent=${agentId}`}
+                onClick={(e) => e.stopPropagation()}
+                className="inline-flex items-center gap-1.5 hover:opacity-90 transition-opacity mt-4 no-underline"
+                style={{ background: 'var(--color-cta)', color: 'var(--text-inverse)', borderRadius: 'var(--radius-md)', padding: '9px 18px', fontWeight: 600, fontSize: 13, whiteSpace: 'nowrap' }}
+              >
+                <FlaskConical size={15} strokeWidth={1.9} />
+                Simulate in Sandbox
+              </Link>
             </div>
           </Tooltip>
         </div>
 
         <div
-          className="grid mt-6"
-          style={{ gridTemplateColumns: `repeat(${visibleStats.length}, 1fr)` }}
+          className="grid mt-5 pt-5"
+          style={{ gridTemplateColumns: `repeat(${visibleStats.length}, 1fr)`, borderTop: '1px solid var(--line)' }}
         >
           {visibleStats.map((s) => {
             const clickable = s.value > 0
             const isActive = activeStatFilter === s.riskKey
             return (
-              <div key={s.label} className="flex flex-col items-center gap-0.5 text-center">
+              <div key={s.label} className="flex flex-col">
+                <span className="stat-block__label">
+                  {s.label}
+                  {s.tooltip && (
+                    <Tooltip text={s.tooltip}>
+                      <span className="inline-flex items-center justify-center w-3.5 h-3.5 text-[10px] bg-gray-200 text-gray-600 rounded-full cursor-help">
+                        ?
+                      </span>
+                    </Tooltip>
+                  )}
+                </span>
                 <button
                   type="button"
                   disabled={!clickable}
@@ -1952,33 +2034,33 @@ export default function AgentDetail() {
                   style={{
                     background: isActive ? (s.color ?? '#374151') + '18' : 'transparent',
                     border: isActive ? `1.5px solid ${s.color ?? '#374151'}30` : '1.5px solid transparent',
-                    borderRadius: 6, padding: '2px 8px',
+                    borderRadius: 6, padding: '0 6px', marginLeft: -6, width: 'fit-content',
                     cursor: clickable ? 'pointer' : 'default',
-                    color: s.color ?? 'inherit',
+                    color: s.color ?? undefined,
                     transition: 'all 120ms',
+                    fontFamily: 'inherit',
                   }}
-                  className="text-lg font-bold leading-snug hover:opacity-80"
+                  className="stat-block__value hover:opacity-80 text-left"
                 >
                   {s.value}
                 </button>
-                <span className="text-xs text-gray-500 flex items-center gap-0.5">
-                  {s.label}
-                  {s.tooltip && (
-                    <Tooltip text={s.tooltip}>
-                      <span className="inline-flex items-center justify-center w-3.5 h-3.5 text-xs bg-gray-200 text-gray-600 rounded-full cursor-help ml-0.5">
-                        ?
-                      </span>
-                    </Tooltip>
-                  )}
-                </span>
               </div>
             )
           })}
         </div>
 
-        {/* Coverage caveat — the score is only as good as our catalog coverage */}
+        {/* Classification caveats — the score is only as good as our catalog
+            coverage, so both notes sit together on one quiet surface. */}
+        {br.coverage && (
+          (br.coverage.totalActions > 0 && br.coverage.recognizedActions < br.coverage.totalActions) ||
+          (br.coverage.unclassifiedActions ?? 0) > 0
+        ) && (
+        <div
+          className="mt-5 rounded-lg px-3.5 py-2.5 space-y-2"
+          style={{ background: 'var(--paper-2)', border: '1px solid var(--line)' }}
+        >
         {br.coverage && br.coverage.totalActions > 0 && br.coverage.recognizedActions < br.coverage.totalActions && (
-          <div className="mt-4 text-xs flex items-start gap-1.5 opacity-90" style={{ lineHeight: 1.45 }}>
+          <div className="text-xs flex items-start gap-1.5" style={{ lineHeight: 1.45, color: 'var(--ink-600)' }}>
             <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
             <span>
               {br.coverage.totalActions - br.coverage.recognizedActions} of {br.coverage.totalActions} actions run on tools outside our risk catalog
@@ -1991,13 +2073,15 @@ export default function AgentDetail() {
             They contribute 0 to the score while their true risk is unknown:
             surfacing them is the honest alternative to silently scoring them safe. */}
         {br.coverage && (br.coverage.unclassifiedActions ?? 0) > 0 && (
-          <div className="mt-2 text-xs flex items-start gap-1.5" style={{ lineHeight: 1.45, color: 'var(--severity-high, #b45309)' }}>
+          <div className="text-xs flex items-start gap-1.5" style={{ lineHeight: 1.45, color: 'var(--severity-high, #b45309)' }}>
             <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
             <span>
               {br.coverage.unclassifiedActions} {(br.coverage.unclassifiedActions ?? 0) === 1 ? 'action' : 'actions'} could not be classified at all
               {(br.coverage.unclassifiedList?.length ?? 0) > 0 ? ` (${br.coverage.unclassifiedList!.slice(0, 3).join(', ')}${br.coverage.unclassifiedList!.length > 3 ? ', …' : ''})` : ''} — the name and description carry no risk signal, so these score 0 while their true risk is unknown. Verify them manually.
             </span>
           </div>
+        )}
+        </div>
         )}
 
         {/* Stat drill-down panel */}
@@ -2087,6 +2171,8 @@ export default function AgentDetail() {
         />
       )}
 
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+      <div className="lg:col-span-8 min-w-0">
       {/* Tab bar */}
       <div className="flex gap-1 border-b border-gray-200 mb-4">
         {TABS.map((t) => (
@@ -2795,7 +2881,10 @@ export default function AgentDetail() {
         </div>
       )}
 
-      {/* ── Recommendations (always visible below tabs) ── */}
+      </div>
+
+      {/* ── Recommendations rail ── */}
+      <div className="lg:col-span-4 min-w-0">
       {visibleRecs.length > 0 && (
         <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-6 mb-6">
           <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
@@ -2937,6 +3026,9 @@ export default function AgentDetail() {
           </div>
         </div>
       )}
+
+      </div>
+      </div>
 
       {/* ── Integration Guide ── */}
       <div className="bg-white border border-gray-200 rounded-xl shadow-sm mb-4 overflow-hidden">

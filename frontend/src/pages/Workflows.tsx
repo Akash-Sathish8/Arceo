@@ -1,9 +1,9 @@
 import { useState, useEffect, useCallback } from "react";
 import { Link } from "react-router-dom";
-import { Link2, CheckCircle, Square, CheckSquare, ArrowUpDown, X } from "lucide-react";
+import { Link2, CheckCircle, Square, CheckSquare, ArrowUpDown, X, Plus, Clock, Route, MoreVertical } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { toast } from "@/components/shared/Toast";
-import { scoreBand, scoreToColor } from "@/lib/utils";
+import { scoreBand, scoreToColor, timeAgo } from "@/lib/utils";
 import { chainShortLabel, chainNarrative } from "@/lib/chainLabels";
 import Tooltip from "@/components/shared/Tooltip";
 import ErrorState from "@/components/shared/ErrorState";
@@ -16,8 +16,12 @@ import { RISK_SCORE_METHODOLOGY, OVER_PERMISSION_METHODOLOGY } from "@/lib/metho
    severity palette — the old set reused safe-green and high-orange, which made
    agent chips read as status. Order validated for CVD + normal-vision
    separation (dataviz six-checks, 2026-08-27); agent names always accompany
-   the color, so identity is never color-alone. */
-const AGENT_COLORS = ["#c2417f", "#2E7BB0", "#8b5cf6", "#0d9488"] as const;
+   the color, so identity is never color-alone.
+   2026-09-02: member 2 moved from Carolina #2E7BB0 to brand deep blue #0E3C90.
+   Re-checked rather than assumed — separation improved on both axes: minimum
+   pairwise ΔE 44.0 → 45.9 normal vision, and 17.0 → 24.1 under simulated
+   deuteranopia. The other three members are untouched. */
+const AGENT_COLORS = ["#c2417f", "#0E3C90", "#8b5cf6", "#0d9488"] as const;
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -42,6 +46,8 @@ interface AgentData {
   /** The list endpoint returns tool service names as plain strings. */
   tools?: string[];
   blast_radius?: AgentBlastRadius;
+  /** Last time this agent actually called the enforcement API, if ever. */
+  last_execution_at?: string | null;
 }
 
 interface CrossAgentChain {
@@ -268,6 +274,7 @@ function OptimizeResult({ result, onApply, applying, appliedCount }: OptimizeRes
       >
         <div style={{ textAlign: "center" }}>
           <div
+            className="mono"
             style={{
               fontSize: 20,
               fontWeight: 700,
@@ -280,6 +287,7 @@ function OptimizeResult({ result, onApply, applying, appliedCount }: OptimizeRes
         </div>
         <div style={{ textAlign: "center" }}>
           <div
+            className="mono"
             style={{
               fontSize: 20,
               fontWeight: 700,
@@ -292,6 +300,7 @@ function OptimizeResult({ result, onApply, applying, appliedCount }: OptimizeRes
         </div>
         <div style={{ textAlign: "center" }}>
           <div
+            className="mono"
             style={{
               fontSize: 20,
               fontWeight: 700,
@@ -305,6 +314,7 @@ function OptimizeResult({ result, onApply, applying, appliedCount }: OptimizeRes
         <Tooltip content={OVER_PERMISSION_METHODOLOGY}>
           <div style={{ textAlign: "center", cursor: "help" }}>
             <div
+              className="mono"
               style={{
                 fontSize: 20,
                 fontWeight: 700,
@@ -625,6 +635,7 @@ function WorkflowResult({ result, agentNames, agentColors, mode }: WorkflowResul
       >
         <div style={{ textAlign: "center" }}>
           <div
+            className="mono"
             style={{
               fontSize: 20,
               fontWeight: 700,
@@ -637,6 +648,7 @@ function WorkflowResult({ result, agentNames, agentColors, mode }: WorkflowResul
         </div>
         <div style={{ textAlign: "center" }}>
           <div
+            className="mono"
             style={{
               fontSize: 20,
               fontWeight: 700,
@@ -653,6 +665,7 @@ function WorkflowResult({ result, agentNames, agentColors, mode }: WorkflowResul
         </div>
         <div style={{ textAlign: "center" }}>
           <div
+            className="mono"
             style={{
               fontSize: 20,
               fontWeight: 700,
@@ -1155,6 +1168,15 @@ export default function Workflows() {
     }
   };
 
+  /** Empty the workflow: no lead, no specialists. */
+  const clearTeam = () => {
+    setCoordinatorId("");
+    setSpecialistIds([]);
+  };
+
+  /** The lead agent — the workflow's target, and the first one picked. */
+  const lead = agents.find((a) => a.id === coordinatorId);
+
   const textareaStyle: React.CSSProperties = {
     width: "100%",
     background: "var(--bg-sunken)",
@@ -1228,143 +1250,238 @@ export default function Workflows() {
   }
 
   return (
-    <div style={{ padding: "34px 40px 64px", fontFamily: "var(--font-sans)", maxWidth: 1140, margin: "0 auto" }}>
-      <PageHeader
-        title="Workflows"
-        description="Map the risky handoffs between your agents, then test the whole flow safely."
-      />
-
-      <div style={{ display: "flex", gap: 24, alignItems: "flex-start", marginTop: 24 }}>
-        {/* ── Left: Agent picker ── */}
-        <div
-          style={{
-            width: 360,
-            flexShrink: 0,
-            display: "flex",
-            flexDirection: "column",
-            gap: 16,
-          }}
+    <div style={{ padding: "34px 40px 64px", fontFamily: "var(--font-sans)", width: "100%" }}>
+      <div className="flex flex-col sm:flex-row items-start sm:items-end justify-between gap-3 w-full">
+        <div className="flex flex-col">
+          <h1 className="font-page-title text-page-title text-on-surface mb-1 m-0">Workflows</h1>
+          <p className="font-body text-body text-neutral-secondary m-0">
+            Map the risky handoffs between your agents, then test the whole flow safely.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => { setStaticChains(null); setOptimizeResult(null); setResult(null); clearTeam(); }}
+          className="bg-primary text-on-primary font-monospace-label text-monospace-label px-4 py-2.5 rounded hover:opacity-90 transition-opacity flex items-center gap-2 self-start sm:self-auto border-0 cursor-pointer"
         >
-          {/* Agent team picker */}
-          <div
-            style={{
-              background: "var(--bg-card)",
-              border: "1px solid var(--border)",
-              borderRadius: "var(--radius-lg)",
-              padding: 16,
-            }}
-          >
-            <div
-              style={{
-                fontSize: 11,
-                fontWeight: 600,
-                textTransform: "uppercase",
-                letterSpacing: "0.05em",
-                color: "var(--ink-400)",
-                marginBottom: 2,
-              }}
-            >
-              Pick your team
-            </div>
-            <div style={{ fontSize: 12, color: "var(--ink-500)", marginBottom: 12 }}>
-              Pick 2 or more — the first one leads.
-            </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-              {agents.map((a) => {
-                const isSelected = allAgentIds.includes(a.id);
-                const isLead = a.id === coordinatorId;
-                return (
-                  <button
-                    key={a.id}
-                    onClick={() => toggleAgent(a.id)}
-                    style={{
-                      width: "100%",
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 10,
-                      padding: "8px 12px",
-                      borderRadius: "var(--radius-md)",
-                      border: `1px solid ${isSelected ? "var(--accent)" : "var(--border)"}`,
-                      background: isSelected ? "var(--accent-soft)" : "#ffffff",
-                      textAlign: "left",
-                      cursor: "pointer",
-                    }}
-                  >
-                    {isSelected ? (
-                      <CheckSquare size={15} style={{ color: "var(--accent)", flexShrink: 0 }} />
-                    ) : (
-                      <Square size={15} style={{ color: "var(--ink-300)", flexShrink: 0 }} />
-                    )}
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 6,
-                          fontSize: 12,
-                          fontWeight: 500,
-                          color: "var(--text-primary)",
-                        }}
-                      >
-                        <span
-                          style={{
-                            overflow: "hidden",
-                            textOverflow: "ellipsis",
-                            whiteSpace: "nowrap",
-                          }}
-                        >
-                          {a.name}
-                        </span>
-                        {isLead && (
-                          <span
-                            style={{
-                              fontSize: 9,
-                              fontWeight: 700,
-                              letterSpacing: "0.05em",
-                              padding: "1px 5px",
-                              borderRadius: 4,
-                              background: "var(--accent)",
-                              color: "#ffffff",
-                              flexShrink: 0,
-                            }}
-                          >
-                            Lead
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                    <RiskPill score={a.blast_radius?.score || 0} />
-                  </button>
-                );
-              })}
-            </div>
-            <button
-              onClick={handleAnalyze}
-              disabled={allAgentIds.length < 2 || analyzing}
-              style={{
-                width: "100%",
-                marginTop: 12,
-                background: "var(--color-cta)",
-                color: "var(--text-inverse)",
-                padding: "10px 20px",
-                borderRadius: "var(--radius-full)",
-                fontSize: 13,
-                fontWeight: 600,
-                border: "none",
-                cursor: allAgentIds.length < 2 || analyzing ? "not-allowed" : "pointer",
-                opacity: allAgentIds.length < 2 || analyzing ? 0.5 : 1,
-              }}
-            >
-              {analyzing ? "Checking…" : "Map the risky handoffs"}
-            </button>
-          </div>
+          <Plus size={18} strokeWidth={2.2} />
+          Create workflow
+        </button>
+      </div>
 
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-inline-gap mt-stack-gap">
+        {/* ── Workflow table ── */}
+        <div className="lg:col-span-8 bg-surface-container-lowest border border-neutral-border rounded shadow-sm overflow-hidden flex flex-col">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="border-b border-neutral-border bg-surface-container-low">
+                  <th className="py-3 px-3 font-eyebrow text-eyebrow text-neutral-secondary uppercase tracking-wider font-semibold">Workflow name</th>
+                  <th className="py-3 px-3 font-eyebrow text-eyebrow text-neutral-secondary uppercase tracking-wider font-semibold">Services</th>
+                  <th className="py-3 px-3 font-eyebrow text-eyebrow text-neutral-secondary uppercase tracking-wider font-semibold">Frequency</th>
+                  <th className="py-3 px-3 font-eyebrow text-eyebrow text-neutral-secondary uppercase tracking-wider font-semibold text-right">Last run</th>
+                  <th className="py-3 px-3 font-eyebrow text-eyebrow text-neutral-secondary uppercase tracking-wider font-semibold text-center">Status</th>
+                  <th className="py-3 px-3 font-eyebrow text-eyebrow text-neutral-secondary uppercase tracking-wider font-semibold text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-neutral-border font-body text-body text-on-surface">
+                {agents.map((a) => {
+                  const inTeam = allAgentIds.includes(a.id);
+                  const isLead = a.id === coordinatorId;
+                  // Status is read off real state — membership plus how far the
+                  // analysis has got. Nothing here is a stand-in.
+                  const status = analyzing && inTeam
+                    ? { label: "RUNNING", bg: "var(--accent-soft)", fg: "var(--accent)", dot: "var(--accent)", pulse: true }
+                    : inTeam && staticChains !== null
+                      ? { label: "ANALYZED", bg: "var(--aqua-soft)", fg: "var(--aqua-deep)", dot: "var(--aqua-ink)", pulse: false }
+                      : inTeam
+                        ? { label: "SELECTED", bg: "var(--accent-soft)", fg: "var(--accent)", dot: "var(--accent)", pulse: false }
+                        : { label: "IDLE", bg: "var(--paper-2)", fg: "var(--ink-500)", dot: "var(--ink-300)", pulse: false };
+                  return (
+                    <tr
+                      key={a.id}
+                      onClick={() => toggleAgent(a.id)}
+                      className="hover:bg-surface-container transition-colors cursor-pointer group"
+                      style={inTeam ? { background: "var(--accent-soft)" } : undefined}
+                    >
+                      <td className="py-3 px-3">
+                        <span className="flex items-center gap-3">
+                          {inTeam
+                            ? <CheckSquare size={18} style={{ color: "var(--accent)", flexShrink: 0 }} />
+                            : <Square size={18} style={{ color: "var(--ink-300)", flexShrink: 0 }} />}
+                          <span className="font-medium text-on-surface whitespace-nowrap">{a.name}</span>
+                          {isLead && (
+                            <span className="font-monospace-label text-[10px] px-1.5 py-0.5 rounded" style={{ background: "var(--accent)", color: "#fff" }}>
+                              LEAD
+                            </span>
+                          )}
+                        </span>
+                      </td>
+                      <td className="py-3 px-3">
+                        <span className="font-monospace-data text-monospace-data text-neutral-secondary whitespace-nowrap">
+                          {(a.tools ?? []).filter(Boolean).join(", ") || "—"}
+                        </span>
+                      </td>
+                      {/* These flows run when someone asks for them — there is no
+                          scheduler behind this page, so the column says so. */}
+                      <td className="py-3 px-3 text-on-surface-variant whitespace-nowrap">On demand</td>
+                      <td className="py-3 px-3 font-monospace-data text-monospace-data text-right text-neutral-secondary whitespace-nowrap">
+                        {a.last_execution_at ? timeAgo(a.last_execution_at) : "Never"}
+                      </td>
+                      <td className="py-3 px-3 text-center">
+                        <span
+                          className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full font-monospace-label text-monospace-label border"
+                          style={{ background: status.bg, color: status.fg, borderColor: "transparent" }}
+                        >
+                          <span
+                            className={`w-1.5 h-1.5 rounded-full ${status.pulse ? "animate-pulse" : ""}`}
+                            style={{ background: status.dot }}
+                          />
+                          {status.label}
+                        </span>
+                      </td>
+                      <td className="py-3 px-3 text-right">
+                        <Link
+                          to={`/agent/${a.id}`}
+                          onClick={(e) => e.stopPropagation()}
+                          aria-label={`Open ${a.name}`}
+                          className="inline-flex text-neutral-secondary hover:text-on-surface transition-colors"
+                        >
+                          <MoreVertical size={18} />
+                        </Link>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          <div className="mt-auto p-4 border-t border-neutral-border bg-surface-container-low flex justify-between items-center text-meta font-meta text-neutral-secondary">
+            <span>
+              {allAgentIds.length} of {agents.length} {agents.length === 1 ? "agent" : "agents"} in this workflow
+            </span>
+            <span className="font-monospace-label text-monospace-label">
+              {allAgentIds.length < 2 ? "Pick 2 or more" : "Ready to map"}
+            </span>
+          </div>
         </div>
 
-        {/* ── Right: Results ── */}
-        <div
-          style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 16 }}
-        >
+        {/* ── Workflow definition ── */}
+        <div className="lg:col-span-4 flex flex-col gap-inline-gap">
+          <div className="bg-surface-container-lowest border border-neutral-border rounded shadow-sm flex flex-col">
+            <div className="p-container-padding border-b border-neutral-border">
+              <div className="flex items-center justify-between mb-4">
+                <span className="font-eyebrow text-eyebrow text-neutral-secondary uppercase tracking-wider">Workflow definition</span>
+                {allAgentIds.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => clearTeam()}
+                    aria-label="Clear selection"
+                    title="Clear selection"
+                    className="text-neutral-secondary hover:text-on-surface bg-transparent border-0 p-0 cursor-pointer"
+                  >
+                    <X size={18} />
+                  </button>
+                )}
+              </div>
+              <h2 className="font-card-title text-card-title text-on-surface mb-1 m-0">
+                {lead ? lead.name : "No workflow selected"}
+              </h2>
+              <p className="font-monospace-data text-monospace-data text-neutral-secondary m-0">
+                Target: {lead ? lead.name : "—"}
+                {allAgentIds.length > 1 ? ` +${allAgentIds.length - 1}` : ""}
+              </p>
+            </div>
+
+            <div className="p-container-padding flex flex-col gap-6">
+              <div>
+                <h3 className="font-eyebrow text-eyebrow text-neutral-secondary uppercase tracking-wider mb-2 flex items-center gap-2">
+                  <Clock size={16} /> Trigger
+                </h3>
+                <div className="bg-surface-container-low border border-neutral-border rounded p-3 text-body font-body text-on-surface">
+                  On demand — run from this page
+                </div>
+              </div>
+
+              <div>
+                <h3 className="font-eyebrow text-eyebrow text-neutral-secondary uppercase tracking-wider mb-3 flex items-center gap-2">
+                  <Route size={16} /> Pipeline steps
+                </h3>
+                <div className="relative pl-6 flex flex-col gap-4">
+                  <span className="absolute left-[11px] top-2 bottom-2 w-[2px] bg-neutral-border" />
+                  {[
+                    { label: "Map the risky handoffs", value: `${allAgentIds.length || 0} agents`, done: staticChains !== null },
+                    { label: "Check policy", value: "No critical violations", done: optimizeResult !== null },
+                    { label: "Simulate the flow", value: "Multi-agent simulation", done: result !== null },
+                  ].map((step, si) => (
+                    <div key={step.label} className="relative">
+                      <span
+                        className="absolute -left-6 w-6 h-6 rounded-full flex items-center justify-center z-10 font-monospace-label text-[10px] font-bold"
+                        style={{
+                          background: "var(--card)",
+                          border: `2px solid ${step.done ? "var(--aqua-ink)" : "var(--accent)"}`,
+                          color: step.done ? "var(--aqua-deep)" : "var(--accent)",
+                        }}
+                      >
+                        {si + 1}
+                      </span>
+                      <div className="bg-surface-container-low border border-neutral-border rounded p-3">
+                        <div className="text-meta font-meta text-neutral-secondary mb-1">{step.label}</div>
+                        <div className="font-monospace-data text-monospace-data text-on-surface bg-surface-container-lowest px-2 py-1 rounded border border-neutral-border inline-block">
+                          {step.value}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <button
+                onClick={handleAnalyze}
+                disabled={allAgentIds.length < 2 || analyzing}
+                className="w-full font-monospace-label text-monospace-label px-4 py-2.5 rounded border-0 cursor-pointer transition-opacity disabled:cursor-not-allowed"
+                style={{
+                  background: "var(--color-cta)",
+                  color: "var(--text-inverse)",
+                  opacity: allAgentIds.length < 2 || analyzing ? 0.5 : 1,
+                }}
+              >
+                {analyzing ? "Checking…" : "Map the risky handoffs"}
+              </button>
+            </div>
+
+            {/* Team risk, by agent. The canvas charts execution time; nothing
+                records per-run duration yet, so this bar row carries the number
+                the page actually has rather than a stand-in. */}
+            {allAgentIds.length > 0 && (
+              <div className="p-container-padding border-t border-neutral-border" style={{ background: "var(--paper-2)" }}>
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="font-eyebrow text-eyebrow text-neutral-secondary uppercase tracking-wider m-0">Team risk, by agent</h3>
+                  <span className="font-monospace-data text-monospace-data text-on-surface">
+                    Max: {Math.max(...allAgentIds.map((id) => agents.find((x) => x.id === id)?.blast_radius?.score ?? 0), 0)}
+                  </span>
+                </div>
+                <div className="h-16 w-full flex items-end justify-between gap-1">
+                  {allAgentIds.map((id) => {
+                    const a = agents.find((x) => x.id === id);
+                    const score = a?.blast_radius?.score ?? 0;
+                    return (
+                      <div
+                        key={id}
+                        title={`${a?.name ?? id} — ${score}`}
+                        className="w-full rounded-t transition-colors"
+                        style={{ height: `${Math.max(score, 4)}%`, background: scoreToColor(score), opacity: 0.55 }}
+                      />
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* ── Results ── */}
+      <div className="mt-stack-gap" style={{ display: "flex", flexDirection: "column", gap: 16 }}>
           {/* Static chain analysis */}
           {staticChains !== null && (
             <div
@@ -1827,7 +1944,6 @@ export default function Workflows() {
             </div>
           )}
         </div>
-      </div>
     </div>
   );
 }

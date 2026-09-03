@@ -8,9 +8,11 @@
  * exposes it — swap SAMPLE for that fetch and delete the badge.
  *
  * Chart decisions (dataviz pass): single series → no legend, the title names
- * it; line stroke uses --accent-ink (#2E7BB0, ≥3:1 on the card surface —
- * validated; the lighter --accent failed contrast and only paints the area
- * fill); hover = crosshair + nearest-point tooltip with a white-ringed dot.
+ * it; line stroke uses --accent-ink (#092C6E, 13.15:1 on the card surface).
+ * The contrast caveat here predated the brand palette — the old Carolina
+ * --accent failed and only painted the area fill; brand deep blue #0E3C90 is
+ * 10.16:1, so both members now clear it. Hover = crosshair + nearest-point
+ * tooltip with a white-ringed dot.
  */
 
 import { useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -50,7 +52,7 @@ function useContainerWidth() {
   return { ref, width };
 }
 
-export default function SpendTrendCard(): React.ReactElement {
+export default function SpendTrendCard({ compact = false }: { compact?: boolean } = {}): React.ReactElement {
   const { ref, width } = useContainerWidth();
   const [hoverIdx, setHoverIdx] = useState<number | null>(null);
 
@@ -93,17 +95,19 @@ export default function SpendTrendCard(): React.ReactElement {
 
   return (
     <div
-      style={{
-        background: "var(--card)",
-        border: "1px solid var(--line)",
-        borderRadius: 12,
-        padding: "18px 24px 12px",
-        boxShadow: "var(--shadow-card-new)",
-        margin: "24px 0 0",
-        fontFamily: "var(--font-sans)",
-      }}
+      style={compact
+        ? { fontFamily: "var(--font-sans)" }
+        : {
+            background: "var(--card)",
+            border: "1px solid var(--line)",
+            borderRadius: 12,
+            padding: "18px 24px 12px",
+            boxShadow: "var(--shadow-card-new)",
+            margin: "24px 0 0",
+            fontFamily: "var(--font-sans)",
+          }}
     >
-      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 6 }}>
+      <div style={{ display: compact ? "none" : "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 6 }}>
         <div>
           <div
             style={{
@@ -144,6 +148,19 @@ export default function SpendTrendCard(): React.ReactElement {
         </span>
       </div>
 
+      {compact && (
+        <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 4 }}>
+          <span
+            title="Placeholder series — will be wired to forecast snapshots"
+            style={{
+              fontSize: 11, fontWeight: 500, color: "var(--ink-400)",
+              border: "1px dashed var(--line)", borderRadius: 6, padding: "3px 8px", whiteSpace: "nowrap",
+            }}
+          >
+            Sample data
+          </span>
+        </div>
+      )}
       <div ref={ref} style={{ position: "relative" }}>
         {width > 0 && (
           <svg

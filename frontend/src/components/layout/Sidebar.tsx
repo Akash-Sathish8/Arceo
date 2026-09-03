@@ -1,3 +1,19 @@
+/**
+ * Left navigation rail — ported from the Stitch canvas.
+ *
+ * Stitch's rail: 240px of `neutral-sunken` (#F7F7F5) against a tinted page,
+ * a square brand tile beside an `ARCEO` wordmark set in the display mono,
+ * uppercase eyebrow group headers, and — the move that reads loudest at a
+ * glance — an active item filled with `primary-container` (#0e3c90) rather
+ * than the faint grey wash it had before.
+ *
+ * Classes use Stitch's own token names (registered in index.css `@theme`) so
+ * this file stays diffable against the canvas markup.
+ *
+ * Kept beyond the canvas, because they are real behaviour and not styling:
+ * the collapse toggle, the polled pending-approvals badge, org name, sign-out.
+ */
+
 import { useEffect, useState } from "react";
 import { NavLink } from "react-router-dom";
 import {
@@ -28,15 +44,8 @@ interface NavItem {
   group: string | null;
 }
 
-const ACCENT = "var(--accent)";
-
 // deriveOrgName (with its demo-session / consumer-domain rules) lives in
 // @/lib/orgName so the CFO PDF exports print the same org name as the chrome.
-
-function getUserInitial(email: string | undefined): string {
-  if (!email) return "A";
-  return email[0].toUpperCase();
-}
 
 export default function Sidebar(): React.ReactElement {
   const [pendingCount, setPendingCount] = useState(0);
@@ -45,7 +54,7 @@ export default function Sidebar(): React.ReactElement {
 
   const user = getUser() as { email?: string } | null;
   const orgName = deriveOrgName(user?.email);
-  const initial = getUserInitial(user?.email);
+  const initial = (user?.email?.[0] ?? "A").toUpperCase();
 
   useEffect(() => {
     if (!isLoggedIn()) return;
@@ -61,8 +70,7 @@ export default function Sidebar(): React.ReactElement {
         const items = data?.approvals ?? [];
         // Backend status is PENDING_APPROVAL — the old "PENDING" filter kept the
         // badge permanently at 0.
-        const pending = items.filter((a) => a.status === "PENDING_APPROVAL").length;
-        setPendingCount(pending);
+        setPendingCount(items.filter((a) => a.status === "PENDING_APPROVAL").length);
       } catch {
         /* silent by design — a badge is not worth an error surface */
       }
@@ -79,16 +87,15 @@ export default function Sidebar(): React.ReactElement {
   }, []);
 
   const navItems: NavItem[] = [
-    { id: "agents",    label: "Agents",    to: "/",          Icon: LayoutGrid,    group: null },
-    { id: "approvals", label: "Approvals", to: "/approvals", Icon: ShieldCheck,   group: "Monitor", badge: pendingCount > 0 ? pendingCount : undefined },
-    { id: "history",   label: "History",   to: "/history",   Icon: Clock,         group: "Monitor" },
-    { id: "spend",     label: "Spend",     to: "/spend",     Icon: Banknote,      group: "Monitor" },
-    { id: "sandbox",   label: "Sandbox",   to: "/sandbox",   Icon: FlaskConical,  group: "Tools" },
-    { id: "workflows", label: "Workflows", to: "/workflows", Icon: GitBranch,     group: "Tools" },
-    { id: "compare",   label: "Compare",   to: "/compare",   Icon: GitCompare,    group: "Tools" },
+    { id: "agents",    label: "Agents",    to: "/",          Icon: LayoutGrid,   group: null },
+    { id: "approvals", label: "Approvals", to: "/approvals", Icon: ShieldCheck,  group: "Monitor", badge: pendingCount > 0 ? pendingCount : undefined },
+    { id: "history",   label: "History",   to: "/history",   Icon: Clock,        group: "Monitor" },
+    { id: "spend",     label: "Spend",     to: "/spend",     Icon: Banknote,     group: "Monitor" },
+    { id: "sandbox",   label: "Sandbox",   to: "/sandbox",   Icon: FlaskConical, group: "Tools" },
+    { id: "workflows", label: "Workflows", to: "/workflows", Icon: GitBranch,    group: "Tools" },
+    { id: "compare",   label: "Compare",   to: "/compare",   Icon: GitCompare,   group: "Tools" },
   ];
 
-  // Group items, preserving order.
   const groups: { name: string | null; items: NavItem[] }[] = [];
   for (const item of navItems) {
     const existing = groups.find((g) => g.name === item.group);
@@ -96,39 +103,22 @@ export default function Sidebar(): React.ReactElement {
     else groups.push({ name: item.group, items: [item] });
   }
 
-  // Dark rail palette — sourced from the --sidebar-* tokens (single source).
-  const C = {
-    bg: "var(--sidebar-bg)",
-    word: "var(--sidebar-text-active)",
-    mark: ACCENT,
-    grp: "var(--sidebar-text-dim)",
-    txt: "var(--sidebar-text)",
-    txtOn: "var(--sidebar-text-active)",
-    icon: "var(--sidebar-text-dim)",
-    iconOn: ACCENT,
-    onBg: "var(--sidebar-active)",
-    border: "var(--sidebar-border)",
-    subA: "var(--sidebar-active)",
-    subT: "var(--sidebar-text-active)",
-    subS: "var(--sidebar-text-dim)",
-  };
+  const linkClass = ({ isActive }: { isActive: boolean }) =>
+    [
+      "flex items-center rounded-lg text-body transition-colors no-underline",
+      collapsed ? "justify-center px-0 py-2.5" : "px-4 py-2.5",
+      isActive
+        ? "bg-primary-container text-on-primary-container font-semibold"
+        : "text-on-surface-variant font-normal hover:bg-surface-container-high hover:text-on-surface",
+    ].join(" ");
 
   const toggleBtn = (
     <button
+      type="button"
       onClick={toggle}
       aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
       title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-      style={{
-        background: "none",
-        border: "none",
-        color: C.icon,
-        cursor: "pointer",
-        padding: 5,
-        borderRadius: 7,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-      }}
+      className="flex items-center justify-center p-1.5 rounded-lg bg-transparent border-0 cursor-pointer text-neutral-muted hover:text-on-surface hover:bg-surface-container-high transition-colors"
     >
       {collapsed ? <PanelLeftOpen size={17} strokeWidth={1.8} /> : <PanelLeftClose size={17} strokeWidth={1.8} />}
     </button>
@@ -136,245 +126,98 @@ export default function Sidebar(): React.ReactElement {
 
   return (
     <aside
-      style={{
-        width: collapsed ? 72 : 248,
-        flexShrink: 0,
-        background: C.bg,
-        display: "flex",
-        flexDirection: "column",
-        padding: collapsed ? "22px 10px" : "22px 14px",
-        minHeight: "100vh",
-        transition: "width 0.18s ease",
-      }}
+      className="shrink-0 h-screen flex flex-col bg-neutral-sunken border-r border-neutral-border font-body transition-[width] duration-200"
+      style={{ width: collapsed ? 72 : 240 }}
     >
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 10,
-          padding: collapsed ? "2px 0 14px" : "2px 8px 24px",
-          justifyContent: collapsed ? "center" : "flex-start",
-        }}
-      >
-        <LogoMark size={28} />
-        {!collapsed && (
-          <span
-            style={{
-              fontWeight: 600,
-              fontSize: 19,
-              color: C.word,
-              letterSpacing: -0.3,
-              fontFamily: "var(--font-sans)",
-            }}
-          >
-            Arceo
-          </span>
-        )}
+      {/* Brand */}
+      <div className={`flex items-center gap-2 ${collapsed ? "px-3 justify-center" : "px-5"} pt-6 pb-5`}>
+        <LogoMark size={30} />
         {!collapsed && (
           <>
-            <div style={{ flex: 1 }} />
+            <span className="font-display text-[18px] tracking-tight text-primary leading-none">
+              ARCEO
+            </span>
+            <div className="flex-1" />
             {toggleBtn}
           </>
         )}
       </div>
+      {collapsed && <div className="flex justify-center pb-3">{toggleBtn}</div>}
 
-      {collapsed && (
-        <div style={{ display: "flex", justifyContent: "center", marginBottom: 8 }}>
-          {toggleBtn}
-        </div>
-      )}
-
-      {groups.map((g, gi) => (
-        <div key={gi} style={{ marginBottom: 4 }}>
-          {g.name && !collapsed && (
-            <div
-              style={{
-                fontSize: 10.5,
-                fontWeight: 600,
-                letterSpacing: 1.1,
-                textTransform: "uppercase",
-                color: C.grp,
-                padding: "14px 8px 6px",
-              }}
-            >
-              {g.name}
-            </div>
-          )}
-          {g.name && collapsed && (
-            <div
-              style={{
-                height: 1,
-                background: C.border,
-                margin: "10px 8px 8px",
-              }}
-            />
-          )}
-          {g.items.map((item) => (
-            <NavLink
-              key={item.id}
-              to={item.to}
-              end={item.to === "/"}
-              className={({ isActive }) => `ag-nav${isActive ? " ag-nav--active" : ""}`}
-              title={collapsed ? item.label : undefined}
-              style={({ isActive }) => ({
-                display: "flex",
-                alignItems: "center",
-                justifyContent: collapsed ? "center" : "flex-start",
-                gap: collapsed ? 0 : 11,
-                padding: collapsed ? "9px 0" : "8px 9px",
-                borderRadius: 8,
-                marginBottom: 1,
-                color: isActive ? C.txtOn : C.txt,
-                background: isActive ? C.onBg : "transparent",
-                fontWeight: isActive ? 600 : 450,
-                fontSize: 14,
-                textDecoration: "none",
-                fontFamily: "var(--font-sans)",
-              })}
-            >
-              {({ isActive }) => (
-                <>
-                  <span style={{ color: isActive ? C.iconOn : C.icon, display: "flex", position: "relative" }}>
-                    <item.Icon size={17} strokeWidth={1.7} />
-                    {collapsed && item.badge !== undefined && item.badge > 0 && (
-                      <span
-                        style={{
-                          position: "absolute",
-                          top: -3,
-                          right: -4,
-                          width: 7,
-                          height: 7,
-                          borderRadius: 999,
-                          background: "var(--critical-ring)",
-                          border: `1.5px solid ${C.bg}`,
-                        }}
-                      />
-                    )}
-                  </span>
-                  {!collapsed && <span style={{ flex: 1 }}>{item.label}</span>}
-                  {!collapsed && item.badge !== undefined && item.badge > 0 && (
-                    <span
-                      style={{
-                        background: "var(--critical-ring)",
-                        color: "#fff",
-                        fontSize: 10,
-                        fontWeight: 700,
-                        borderRadius: 999,
-                        padding: "1px 6px",
-                        minWidth: 18,
-                        textAlign: "center",
-                        lineHeight: "14px",
-                        fontFamily: "var(--font-mono)",
-                      }}
-                    >
-                      {item.badge > 99 ? "99+" : item.badge}
-                    </span>
+      {/* Sections */}
+      <nav className="flex-1 px-3 space-y-1 overflow-y-auto">
+        {groups.map((g, gi) => (
+          <div key={gi}>
+            {g.name && !collapsed && (
+              <div className="pt-4 pb-2 px-4 font-eyebrow text-eyebrow text-neutral-secondary uppercase">
+                {g.name}
+              </div>
+            )}
+            {g.name && collapsed && <div className="h-px bg-neutral-border mx-2 my-2.5" />}
+            {g.items.map((item) => (
+              <NavLink
+                key={item.id}
+                to={item.to}
+                end={item.to === "/"}
+                className={linkClass}
+                title={collapsed ? item.label : undefined}
+              >
+                <span className={`relative flex ${collapsed ? "" : "mr-3"}`}>
+                  <item.Icon size={20} strokeWidth={1.7} />
+                  {collapsed && item.badge !== undefined && item.badge > 0 && (
+                    <span className="absolute -top-1 -right-1.5 w-2 h-2 rounded-full bg-error ring-2 ring-neutral-sunken" />
                   )}
-                </>
-              )}
-            </NavLink>
-          ))}
-        </div>
-      ))}
-
-      <div style={{ flex: 1 }} />
-
-      <NavLink
-        to="/settings"
-        className={({ isActive }) => `ag-nav${isActive ? " ag-nav--active" : ""}`}
-        title={collapsed ? "Settings" : undefined}
-        style={({ isActive }) => ({
-          display: "flex",
-          alignItems: "center",
-          justifyContent: collapsed ? "center" : "flex-start",
-          gap: collapsed ? 0 : 11,
-          padding: collapsed ? "9px 0" : "8px 9px",
-          borderRadius: 8,
-          color: isActive ? C.txtOn : C.txt,
-          background: isActive ? C.onBg : "transparent",
-          fontSize: 14,
-          fontWeight: isActive ? 600 : 450,
-          textDecoration: "none",
-          fontFamily: "var(--font-sans)",
-        })}
-      >
-        {({ isActive }) => (
-          <>
-            <span style={{ color: isActive ? C.iconOn : C.icon, display: "flex" }}>
-              <SettingsIcon size={17} strokeWidth={1.7} />
-            </span>
-            {!collapsed && "Settings"}
-          </>
-        )}
-      </NavLink>
-
-      <div
-        style={{
-          display: "flex",
-          flexDirection: collapsed ? "column" : "row",
-          alignItems: "center",
-          gap: collapsed ? 8 : 10,
-          padding: collapsed ? "12px 0 2px" : "12px 8px 2px",
-          marginTop: 8,
-          borderTop: `1px solid ${C.border}`,
-        }}
-      >
-        <div
-          style={{
-            width: 28,
-            height: 28,
-            borderRadius: "50%",
-            background: "var(--accent-soft)",
-            border: "1px solid var(--accent-line)",
-            color: "var(--accent-ink)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            fontWeight: 600,
-            fontSize: 13,
-            fontFamily: "var(--font-sans)",
-            flexShrink: 0,
-          }}
-          title={user?.email ?? ""}
-        >
-          {initial}
-        </div>
-        {!collapsed && (
-          <div style={{ lineHeight: 1.25, minWidth: 0, flex: 1 }}>
-            <div
-              style={{
-                fontSize: 12.5,
-                fontWeight: 550,
-                color: C.subT,
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                whiteSpace: "nowrap",
-                fontFamily: "var(--font-sans)",
-              }}
-            >
-              {user?.email ?? ""}
-            </div>
-            <div style={{ fontSize: 11, color: C.subS, fontFamily: "var(--font-sans)" }}>
-              {orgName}
-            </div>
+                </span>
+                {!collapsed && <span className="flex-1">{item.label}</span>}
+                {!collapsed && item.badge !== undefined && item.badge > 0 && (
+                  <span className="font-monospace-label text-[10px] font-bold rounded-full px-1.5 min-w-[18px] text-center bg-error text-on-error">
+                    {item.badge > 99 ? "99+" : item.badge}
+                  </span>
+                )}
+              </NavLink>
+            ))}
           </div>
-        )}
-        <button
-          onClick={logout}
-          aria-label="Sign out"
-          title="Sign out"
-          style={{
-            background: "none",
-            border: "none",
-            color: C.subS,
-            cursor: "pointer",
-            padding: 4,
-            display: "flex",
-            alignItems: "center",
-          }}
-        >
-          <LogOut size={13} />
-        </button>
+        ))}
+
+        <div className="mt-8 pt-4 border-t border-neutral-border">
+          <NavLink
+            to="/settings"
+            className={linkClass}
+            title={collapsed ? "Settings" : undefined}
+          >
+            <span className={`flex ${collapsed ? "" : "mr-3"}`}>
+              <SettingsIcon size={20} strokeWidth={1.7} />
+            </span>
+            {!collapsed && <span className="flex-1">Settings</span>}
+          </NavLink>
+        </div>
+      </nav>
+
+      {/* Signed-in user — its own tonal panel, as on the canvas */}
+      <div className="p-4 border-t border-neutral-border bg-surface-container-low">
+        <div className={`flex items-center gap-3 ${collapsed ? "flex-col" : "px-2"}`}>
+          <div
+            className="w-8 h-8 rounded-full bg-primary text-on-primary flex items-center justify-center text-body font-semibold shrink-0"
+            title={user?.email ?? ""}
+          >
+            {initial}
+          </div>
+          {!collapsed && (
+            <div className="flex flex-col min-w-0 flex-1">
+              <span className="text-body font-semibold truncate text-on-surface">{user?.email ?? ""}</span>
+              <span className="text-meta text-neutral-secondary truncate">{orgName}</span>
+            </div>
+          )}
+          <button
+            type="button"
+            onClick={logout}
+            aria-label="Sign out"
+            title="Sign out"
+            className="flex items-center p-1 bg-transparent border-0 cursor-pointer text-neutral-muted hover:text-on-surface transition-colors"
+          >
+            <LogOut size={14} />
+          </button>
+        </div>
       </div>
     </aside>
   );

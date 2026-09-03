@@ -170,10 +170,12 @@ export default function Authority() {
   const [chainSeverityFilter, setChainSeverityFilter] = useState('all')
 
   // Agent catalog layout: horizontal rail / vertical scroll-in-box / open grid.
-  // Persisted so the choice survives reloads.
+  // Persisted so the choice survives reloads. Defaults to the vertical stack:
+  // the Stitch canvas lists agents as full-width rows, and the row form only
+  // reads correctly at full width — a sideways rail crops the services line.
   const [agentView, setAgentView] = useState<'rail' | 'vscroll' | 'grid'>(() => {
     const saved = localStorage.getItem('agentCatalogView')
-    return saved === 'vscroll' || saved === 'grid' ? saved : 'rail'
+    return saved === 'rail' || saved === 'grid' ? saved : 'vscroll'
   })
   const changeAgentView = (v: 'rail' | 'vscroll' | 'grid') => {
     setAgentView(v)

@@ -14,7 +14,6 @@
  * var(--accent), var(--safe|caution|critical*).
  */
 
-import { Bot } from "lucide-react";
 import RiskRing from "@/components/shared/RiskRing";
 import { scoreBand } from "@/lib/utils";
 import { formatMoney } from "@/lib/format";
@@ -210,87 +209,60 @@ export default function AgentCard({ agent, onOpen }: AgentCardProps): React.Reac
       style={{
         background: "var(--card)",
         border: "1px solid var(--line)",
-        borderRadius: 12,
+        // Severity reads before anything else is parsed — the eye should land
+        // on the riskiest row without reading a number first.
+        borderLeft: `3px solid ${b.ring}`,
+        borderRadius: 10,
         padding: "14px 18px",
         boxShadow: "var(--shadow-card-new)",
-        display: "grid",
-        gridTemplateRows: "auto 1fr",
-        rowGap: 12,
+        display: "flex",
+        alignItems: "center",
+        gap: 16,
         cursor: "pointer",
         fontFamily: "var(--font-sans)",
         height: "100%",
       }}
     >
-      {/* Row 1 — Header (icon + name/desc + risk dial) */}
-      <div style={{ display: "grid", gridTemplateColumns: "34px 1fr auto", alignItems: "center", columnGap: 13 }}>
+      <RiskRing
+        value={agent.score}
+        size={48}
+        stroke={3}
+        color={b.ring}
+        label={Math.round(agent.score)}
+      />
+      <div style={{ minWidth: 0, flex: 1 }}>
         <div
+          title={agent.name}
           style={{
-            width: 34,
-            height: 34,
-            borderRadius: 8,
-            background: "var(--accent-soft)",
-            color: "var(--accent)",
-            border: "1px solid var(--accent-line)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
+            fontSize: "var(--fs-title)", fontWeight: 600, color: "var(--ink-900)",
+            letterSpacing: -0.2, lineHeight: 1.3,
+            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
           }}
         >
-          <Bot size={17} strokeWidth={1.6} />
+          {agent.name}
         </div>
-        <div style={{ minWidth: 0 }}>
-          <div
-            title={agent.name}
-            style={{
-              fontSize: "var(--fs-title)", fontWeight: 600, color: "var(--ink-900)",
-              letterSpacing: -0.2, lineHeight: 1.3,
-              overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-            }}
-          >
-            {agent.name}
-          </div>
-        </div>
-        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 5 }}>
-          <RiskRing
-            value={agent.score}
-            size={46}
-            stroke={4.5}
-            color={b.ring}
-            label={Math.round(agent.score)}
-          />
+        {/* Band word and number always travel together — colour alone is never
+            allowed to carry severity. */}
+        <div style={{ marginTop: 3, display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
           <span
             style={{
-              fontSize: "var(--fs-micro)",
-              fontWeight: 600,
-              textTransform: "uppercase",
-              letterSpacing: 0.5,
-              color: b.color,
+              fontSize: "var(--fs-micro)", fontWeight: 700, textTransform: "uppercase",
+              letterSpacing: 0.5, color: b.color, flexShrink: 0,
             }}
           >
             {b.label}
           </span>
-        </div>
-      </div>
-
-      {/* Row 2 — Tool chips, pinned to the card's bottom edge */}
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignSelf: "end" }}>
-        {agent.tools.map((t) => (
+          <span style={{ color: "var(--ink-300)", flexShrink: 0 }}>·</span>
           <span
-            key={t}
+            title={agent.tools.map(fmtTool).join(", ")}
             style={{
-              fontSize: 12,
-              fontWeight: 500,
-              color: "var(--ink-600)",
-              background: "var(--paper-2)",
-              border: "1px solid var(--line)",
-              borderRadius: 6,
-              padding: "3px 9px",
-              lineHeight: 1.4,
+              fontSize: "var(--fs-small)", color: "var(--ink-500)",
+              overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
             }}
           >
-            {fmtTool(t)}
+            {agent.tools.map(fmtTool).join(", ")}
           </span>
-        ))}
+        </div>
       </div>
     </div>
   );
