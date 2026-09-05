@@ -11,12 +11,21 @@ interface FleetStripProps {
   spend: number | null;
   criticalChains: number;
   unguarded: number;
+  /** Fleet forecast split by observed deployment state. The headline number is
+   *  one figure answering two different CFO questions — what the fleet costs
+   *  today, and what it will cost once the rest ships — so the tile shows both.
+   *  Omit either to fall back to the undivided total. */
+  spendDeployed?: number | null;
+  spendPreDeployment?: number | null;
+  deployedCount?: number;
+  preDeploymentCount?: number;
 }
 
 interface Cell {
   label: string;
   value: React.ReactNode;
   color?: string;
+  sub?: React.ReactNode;
 }
 
 export default function FleetStrip({
@@ -24,10 +33,32 @@ export default function FleetStrip({
   spend,
   criticalChains,
   unguarded,
+  spendDeployed,
+  spendPreDeployment,
+  deployedCount,
+  preDeploymentCount,
 }: FleetStripProps): React.ReactElement {
+  const split =
+    spendDeployed != null && spendPreDeployment != null ? (
+      <>
+        <span style={{ color: "var(--ink-600)" }}>{formatMoney(spendDeployed)}</span> in production
+        <span style={{ color: "var(--ink-300)" }}> · </span>
+        <span style={{ color: "var(--ink-600)" }}>{formatMoney(spendPreDeployment)}</span> pending
+      </>
+    ) : undefined;
+
+  const agentSplit =
+    deployedCount != null && preDeploymentCount != null ? (
+      <>
+        {deployedCount} running
+        <span style={{ color: "var(--ink-300)" }}> · </span>
+        {preDeploymentCount} not yet
+      </>
+    ) : undefined;
+
   const cells: Cell[] = [
-    { label: "Agents",           value: total },
-    { label: "Forecast / mo",    value: spend !== null ? formatMoney(spend) : "—" },
+    { label: "Agents",           value: total, sub: agentSplit },
+    { label: "Forecast / mo",    value: spend !== null ? formatMoney(spend) : "—", sub: split },
     { label: "Critical chains",  value: criticalChains, color: criticalChains > 0 ? "var(--critical)" : undefined },
     { label: "Unguarded",        value: unguarded,      color: unguarded > 0 ? "var(--caution)" : undefined },
   ];
@@ -74,6 +105,20 @@ export default function FleetStrip({
             }}
           >
             {c.value}
+          </div>
+          {/* Rendered on every tile, empty or not, so the four cards keep a
+              shared baseline instead of two growing taller than the others. */}
+          <div
+            style={{
+              fontSize: 12,
+              color: "var(--ink-400)",
+              marginTop: 5,
+              whiteSpace: "nowrap",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+            }}
+          >
+            {c.sub ?? "\u00a0"}
           </div>
         </div>
       ))}

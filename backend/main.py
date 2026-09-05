@@ -1995,6 +1995,34 @@ def restore_teammate(user_id: str, user: dict = Depends(get_current_user)):
 
 # ── Authority Engine: READ endpoints ────────────────────────────────────────
 
+def _deployment_state(agent, last_execution_at, live_calls_7d: int) -> tuple[str, str | None]:
+    """Deployment state from what the agent DID, plus the declared/observed gap.
+
+    `agents.environment` is what someone typed at registration; an execution row
+    or a captured LLM call is what actually happened. We report the observed
+    state, and flag the two ways the declaration can disagree with it:
+    prod-but-never-ran is a stalled deployment, dev-under-load is a governance
+    problem — production traffic on an agent nobody signed off as production.
+    """
+    has_run = last_execution_at is not None or live_calls_7d > 0
+    environment = (agent.get("environment") or "").lower()
+    mismatch = None
+    if environment == "prod" and not has_run:
+        mismatch = "stalled"
+    elif environment in ("dev", "staging") and live_calls_7d > 0:
+        mismatch = "ungoverned"
+    return ("deployed" if has_run else "pre_deployment"), mismatch
+
+
+def _live_calls_7d(conn, agent_id: str, org_id: str) -> int:
+    row = conn.execute(
+        "SELECT COUNT(*) AS n FROM audit_log WHERE user_email = %s "
+        "AND action IN ('LLM_CALL', 'LLM_CALL_PROXY') AND org_id = %s AND timestamp > %s",
+        (agent_id, org_id, (datetime.utcnow() - timedelta(days=7)).isoformat()),
+    ).fetchone()
+    return int(row["n"]) if row else 0
+
+
 @app.get("/api/authority/agents")
 def list_agents(user: dict = Depends(get_current_user)):
     with get_db() as conn:
@@ -2005,6 +2033,20 @@ def list_agents(user: dict = Depends(get_current_user)):
         agents = get_all_agents_from_db(conn, org_id=_org(user))
 
     with get_db() as conn:
+        # Captured LLM calls per agent over the last 7 days, in ONE query for
+        # the whole fleet — the per-agent form of this count already exists at
+        # the forecast call sites, but running it inside this loop would add a
+        # query per agent to an endpoint the dashboard polls on an interval.
+        seven_days_ago = (datetime.utcnow() - timedelta(days=7)).isoformat()
+        live_calls: dict[str, int] = {}
+        for row in conn.execute(
+            "SELECT user_email AS agent_id, COUNT(*) AS n FROM audit_log "
+            "WHERE action IN ('LLM_CALL', 'LLM_CALL_PROXY') AND org_id = %s AND timestamp > %s "
+            "GROUP BY user_email",
+            (_org(user), seven_days_ago),
+        ).fetchall():
+            live_calls[row["agent_id"]] = int(row["n"])
+
         results = []
         for agent in agents:
             summary = _compute_agent_summary(agent, conn)
@@ -2026,6 +2068,11 @@ def list_agents(user: dict = Depends(get_current_user)):
             last_exec = conn.execute(
                 "SELECT timestamp FROM execution_log WHERE agent_id = %s ORDER BY timestamp DESC LIMIT 1", (agent["id"],)
             ).fetchone()
+            calls_7d = live_calls.get(agent["id"], 0)
+            state, mismatch = _deployment_state(
+                agent, last_exec["timestamp"] if last_exec else None, calls_7d
+            )
+
             results.append({
                 "id": agent["id"],
                 "name": agent["name"],
@@ -2037,6 +2084,10 @@ def list_agents(user: dict = Depends(get_current_user)):
                 "pending_count": pending_count,
                 "last_execution_at": last_exec["timestamp"] if last_exec else None,
                 "default_effect": agent.get("default_effect", "ALLOW"),
+                "environment": agent.get("environment"),
+                "live_calls_7d": calls_7d,
+                "deployment_state": state,
+                "deployment_mismatch": mismatch,
                 **summary,
             })
 
@@ -2066,6 +2117,13 @@ def get_agent_detail(agent_id: str, user: dict = Depends(get_current_user)):
         # Signals for the residual/evidence/magnitude blast model (need the conn).
         sev_overrides = _fetch_breach_overrides(conn, _org(user))
         sim_evidence = _latest_sim_evidence(conn, agent_id, _org(user))
+
+        # Same verdict the fleet list renders, so the two screens can never
+        # disagree about whether this agent is in production.
+        detail_calls_7d = _live_calls_7d(conn, agent_id, _org(user))
+        detail_state, detail_mismatch = _deployment_state(
+            agent, executions[0]["timestamp"] if executions else None, detail_calls_7d
+        )
 
     config = _db_agent_to_config(agent)
     catalog = _db_agent_to_action_catalog(agent)
@@ -2124,6 +2182,10 @@ def get_agent_detail(agent_id: str, user: dict = Depends(get_current_user)):
             "id": agent["id"], "name": agent["name"], "description": agent["description"],
             "created_at": agent["created_at"],
             "default_effect": agent.get("default_effect", "ALLOW"),
+            "environment": agent.get("environment"),
+            "live_calls_7d": detail_calls_7d,
+            "deployment_state": detail_state,
+            "deployment_mismatch": detail_mismatch,
             "tools": enriched_tools,
         },
         "graph": graph_to_dict(graph),

@@ -17,7 +17,8 @@ import {
 } from 'lucide-react'
 import { apiFetch, getToken } from '@/lib/api'
 import { toast } from '@/components/shared/Toast'
-import { bandDescription, scoreBand, scoreToColor } from '@/lib/utils'
+import { bandDescription, scoreBand, scoreToColor, riskLabelBg, riskLabelColor, riskLabelName } from '@/lib/utils'
+import type { RiskLabel } from '@/lib/types'
 import Tooltip from '@/components/shared/Tooltip'
 import ErrorState from '@/components/shared/ErrorState'
 import { RISK_SCORE_METHODOLOGY } from '@/lib/methodology'
@@ -44,6 +45,14 @@ interface AgentDetailAgent {
   description: string
   agent_type: string
   default_effect?: 'ALLOW' | 'DENY'
+  /** Declared at registration. Kept beside the observed state below, never used as it. */
+  environment?: string | null
+  live_calls_7d?: number
+  deployment_state?: 'deployed' | 'pre_deployment'
+  /** `stalled` = declared prod but never ran; `ungoverned` = declared dev/staging
+   *  but carrying live traffic. Either way the declaration and the traffic
+   *  disagree, and that disagreement is the finding. */
+  deployment_mismatch?: 'stalled' | 'ungoverned' | null
   tools: AgentTool[]
 }
 
@@ -557,7 +566,6 @@ function WorstCasePanel({
   chains,
   policies,
   onScrollToPolicies,
-  agentId,
 }: WorstCasePanelProps) {
   if (!br || (br.score < 30 && chains.length === 0)) return null
 
@@ -565,220 +573,240 @@ function WorstCasePanel({
     chains.find((c) => c.severity === 'critical') ||
     chains.find((c) => c.severity === 'high') ||
     chains[0]
-  const irreversibleCount = br.irreversible_actions || 0
   const hasCoveringPolicy = (policies || []).some(
     (p) => p.effect === 'BLOCK' || p.effect === 'REQUIRE_APPROVAL'
   )
-  // Backend agent-detail chains carry `description` (a plain-English sentence)
-  // and `name` (a short title) — not the legacy `chain_name`/`from_label`.
-  const chainText = topChain ? (topChain.description || topChain.name) : null
+  const chainText = topChain ? topChain.description || topChain.name : null
 
-  const scoreColor = scoreToColor(br.score)
-  const criticalUnreviewed = chains.some((c) => c.severity === 'critical') && !hasCoveringPolicy
-  // The irreversible-actions sentence has its own line in this panel — saying
-  // it again beside the score read as two findings when there is only one.
-  // It also can't simply fall through to the band description: the low band's
-  // wording ("no irreversible capabilities") would contradict that line.
-  const dynamicScoreLabel = criticalUnreviewed
-    ? 'Critical chain detected — no policy set'
-    : irreversibleCount > 0
-    ? `${scoreBand(br.score).label} blast radius`
-    : blastLabel(br.score)
+  // Per-action worst-case dollars, keyed the same way the chain's
+  // matching_actions are (`tool.action`), so the two join.
+  const priced = new Map(
+    (br.top_contributors ?? []).filter((c) => c.usd > 0).map((c) => [c.action, c])
+  )
 
-  // Contributors are real per-action dollar exposure — show them whenever the
-  // engine returns any, not only once a residual score exists.
-  const exposures = (br.top_contributors ?? []).filter((c) => c.usd > 0).slice(0, 3)
+  // The chain as its own steps: each risk label paired with the actions that
+  // satisfy it. `steps` is [from_label, to_label] and `matching_actions` is the
+  // matching action list per step, so they index together.
+  const steps = (topChain?.steps ?? []).map((label, i) => {
+    const actions = topChain?.matching_actions?.[i] ?? []
+    const hits = actions.map((a) => priced.get(a)).filter(Boolean) as NonNullable<
+      BlastRadius['top_contributors']
+    >
+    const worst = [...hits].sort((a, b) => b.usd - a.usd)[0]
+    return {
+      label,
+      action: worst?.action ?? actions[0],
+      usd: worst?.usd ?? null,
+      irreversible: worst ? worst.why.includes('irreversible') : false,
+      alternatives: Math.max(0, actions.length - 1),
+    }
+  })
+
+  // The engine's own worst case is the largest SINGLE per-incident ceiling
+  // (graph.py: `magnitude_usd = max(...)`). It never totals a chain, so this
+  // panel must not either.
+  //
+  // Prefer the peak across the chain's own steps: `magnitude_usd` is the max
+  // over EVERY action the agent has, so under a heading about this chain it
+  // could quote a figure from an action the chain never touches.
+  const stepUsds = steps.map((st) => st.usd).filter((u): u is number => u != null)
+  const chainPeak = stepUsds.length > 0 ? Math.max(...stepUsds) : null
+  const peakUsd =
+    chainPeak ??
+    br.magnitude_usd ??
+    Math.max(0, ...(br.top_contributors ?? []).map((c) => c.usd || 0))
+
+  const gated = br.residual_score !== undefined && br.residual_score < br.score
+  const scoreBandLabel = scoreBand(br.score).label
+
+  const sevStyle = topChain
+    ? SEV_STYLE[topChain.severity] ?? { bg: 'var(--high-bg)', color: 'var(--high)' }
+    : null
+
+  const rule = { borderTop: '1px solid var(--line)' }
+  const eyebrow: React.CSSProperties = {
+    fontSize: 'var(--fs-micro)',
+    fontWeight: 700,
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
+    color: 'var(--ink-500)',
+  }
 
   return (
     <div
-      className="rounded-xl p-5 mb-4"
-      style={{ background: 'var(--caution-bg)', border: '1px solid var(--caution-line)' }}
+      className="rounded-xl mb-4 overflow-hidden"
+      style={{
+        background: 'var(--card)',
+        border: '1px solid var(--line)',
+        boxShadow: 'var(--shadow-card-new)',
+      }}
     >
-      <div className="flex items-center gap-2 mb-4">
+      {/* Header band. Amber marks the section as a warning; it no longer floods
+          the whole card, where it collided with a green score and a green
+          coverage pill. */}
+      <div
+        className="flex items-center gap-2 flex-wrap px-5 py-3"
+        style={{ background: 'var(--caution-bg)', borderBottom: '1px solid var(--caution-line)' }}
+      >
         <AlertTriangle size={14} style={{ color: 'var(--amber-ink)' }} />
-        <span
-          className="font-semibold uppercase"
-          style={{ fontSize: 'var(--fs-micro)', letterSpacing: 0.5, color: 'var(--amber-ink)' }}
-        >
-          Worst case scenario
+        <span className="font-semibold uppercase" style={{ ...eyebrow, color: 'var(--amber-ink)' }}>
+          Worst case
         </span>
-        {topChain && (
+        {topChain && sevStyle && (
+          // Spelled out, because a bare "HIGH" beside a "Low blast radius"
+          // score reads as the card contradicting itself. They are two
+          // different scales: this one rates the sequence.
           <span
-            className="text-[10px] px-1.5 py-0.5 rounded font-bold uppercase tracking-wider"
-            style={{
-              background: SEV_STYLE[topChain.severity]?.bg ?? 'var(--high-bg)',
-              color: SEV_STYLE[topChain.severity]?.color ?? 'var(--high)',
-            }}
+            className="text-[10px] px-2 py-0.5 rounded-full font-bold uppercase tracking-wider"
+            style={{ background: sevStyle.bg, color: sevStyle.color }}
           >
-            {topChain.severity}
+            {topChain.severity}-severity chain
           </span>
         )}
-        {hasCoveringPolicy && (
-          <span
-            className="ml-auto text-xs px-2 py-0.5 rounded-full"
-            style={{ background: 'var(--safe-bg)', color: 'var(--safe)', border: '1px solid var(--safe-line)' }}
-          >
-            Partially covered by policies
-          </span>
-        )}
+        <span className="ml-auto text-xs" style={{ color: hasCoveringPolicy ? 'var(--safe)' : 'var(--critical)' }}>
+          {hasCoveringPolicy ? 'Some steps are gated by your policies' : 'Nothing is gating this yet'}
+        </span>
       </div>
 
-      {/* Two columns: the chain that could fire, and what it would cost.
-          Cause on the left, consequence on the right. */}
-      <div
-        className="grid gap-5"
-        style={{ gridTemplateColumns: exposures.length > 0 ? 'minmax(0, 1fr) minmax(0, 330px)' : '1fr' }}
-      >
-        <div className="min-w-0">
-          {chainText && (
-            <div
-              className="rounded-lg p-4 mb-3"
-              style={
-                topChain?.severity === 'critical' && !hasCoveringPolicy
-                  ? { background: 'var(--critical-bg)', border: '1px solid var(--critical-line)' }
-                  : { background: 'var(--paper)', border: '1px solid var(--caution-line)' }
-              }
-            >
-              <div className="text-sm font-medium" style={{ color: 'var(--ink-900)', lineHeight: 1.5 }}>
-                {chainText}
-              </div>
-            </div>
-          )}
+      <div className="px-5 py-4">
+        {/* 1 — what could happen, in one sentence then as steps. */}
+        <div style={eyebrow}>What could happen</div>
+        {chainText && (
+          <p className="mt-2 mb-4" style={{ fontSize: 15, lineHeight: 1.5, color: 'var(--ink-900)' }}>
+            {chainText}
+          </p>
+        )}
 
-          <div className="flex items-center gap-2 flex-wrap text-xs mb-2">
-            {topChain?.name && (
-              <span className="mono" style={{ color: 'var(--ink-600)' }}>⛓ {topChain.name}</span>
-            )}
-            {!hasCoveringPolicy && (
-              <>
-                <span style={{ color: 'var(--ink-400)' }}>·</span>
-                <span style={{ color: 'var(--critical)' }}>No policy</span>
-                <button
-                  type="button"
-                  className="underline underline-offset-2 hover:opacity-70"
-                  style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, fontSize: 12, fontWeight: 600, color: 'var(--critical)', fontFamily: 'inherit' }}
-                  onClick={onScrollToPolicies}
+        {steps.length > 0 && (
+          <div className="space-y-1.5 mb-4">
+            {steps.map((st, i) => (
+              <div key={`${st.label}-${i}`} className="flex items-center gap-3 flex-wrap">
+                <span
+                  className="mono flex-shrink-0 flex items-center justify-center"
+                  style={{
+                    width: 20, height: 20, borderRadius: 999,
+                    background: 'var(--paper-2)', color: 'var(--ink-500)',
+                    fontSize: 11, fontWeight: 600,
+                  }}
                 >
-                  Add policy
-                </button>
-              </>
-            )}
-          </div>
-
-          {irreversibleCount > 0 && (
-            <div className="flex items-center gap-2 text-sm" style={{ color: 'var(--critical)' }}>
-              <Lock className="w-3.5 h-3.5 flex-shrink-0" />
-              <span>
-                {irreversibleCount} irreversible action{irreversibleCount !== 1 ? 's' : ''} — cannot
-                be undone once triggered
-              </span>
-            </div>
-          )}
-
-          <div className="flex items-center justify-between flex-wrap gap-2 mt-4 pt-3" style={{ borderTop: '1px solid var(--caution-line)' }}>
-            <div className="flex items-center gap-2">
-              <span className="text-2xl font-bold mono" style={{ color: scoreColor }}>
-                {br.score}
-              </span>
-              <span className="text-xs text-gray-600">Risk score — {dynamicScoreLabel}</span>
-            </div>
-            {!hasCoveringPolicy && (
-              <button
-                style={{ background: 'transparent', border: '1px solid var(--border-strong)', color: 'var(--text-primary)', borderRadius: 'var(--radius-full)', padding: '5px 14px', fontSize: 12, fontFamily: 'inherit', cursor: 'pointer' }}
-                className="hover:opacity-70 transition-opacity"
-                onClick={onScrollToPolicies}
-              >
-                Add policies
-              </button>
-            )}
-          </div>
-
-          {br.residual_score !== undefined && (
-            <div className="mt-3 pt-3 space-y-2" style={{ borderTop: '1px solid var(--caution-line)' }}>
-              <div className="flex items-center justify-between flex-wrap gap-2">
-                <div className="flex items-center gap-2">
-                  <span className="text-xl font-bold mono" style={{ color: scoreToColor(br.residual_score) }}>
-                    {br.residual_score}
+                  {i + 1}
+                </span>
+                <span
+                  className="text-xs px-2 py-0.5 rounded flex-shrink-0"
+                  style={{
+                    background: riskLabelBg(st.label as RiskLabel),
+                    color: riskLabelColor(st.label as RiskLabel),
+                    fontWeight: 600,
+                  }}
+                >
+                  {riskLabelName(st.label)}
+                </span>
+                <span className="mono text-xs truncate" style={{ color: 'var(--ink-700)' }}>
+                  {st.action}
+                </span>
+                {st.alternatives > 0 && (
+                  <span className="text-xs" style={{ color: 'var(--ink-400)' }}>
+                    +{st.alternatives} other{st.alternatives !== 1 ? 's' : ''}
                   </span>
-                  <span className="text-xs text-gray-600">
-                    Exposed now (after your policies)
-                    {br.residual_score < br.score && (
-                      <span style={{ color: 'var(--safe)', fontWeight: 500 }}> · −{Math.round(br.score - br.residual_score)} from gates</span>
-                    )}
-                  </span>
-                </div>
-                {br.confidence && (
+                )}
+                {st.irreversible && (
                   <span
-                    className="text-xs px-2 py-0.5 rounded-full border"
-                    style={{
-                      background: CONF_STYLE[br.confidence].background,
-                      color: CONF_STYLE[br.confidence].color,
-                      borderColor: 'transparent',
-                    }}
-                    title="How the score is graded: static estimate vs simulated vs confirmed by a simulation"
+                    className="text-xs inline-flex items-center gap-1 flex-shrink-0"
+                    style={{ color: 'var(--critical)' }}
                   >
-                    {br.evidence?.dryRunOnly
-                      ? 'Static analysis only — run a live simulation to confirm'
-                      : CONF_STYLE[br.confidence].label}
+                    <Lock className="w-3 h-3" />
+                    can&rsquo;t be undone
+                  </span>
+                )}
+                {st.usd !== null && (
+                  <span className="mono text-xs ml-auto flex-shrink-0" style={{ color: 'var(--ink-600)' }}>
+                    up to {fmtUsd(st.usd)}
                   </span>
                 )}
               </div>
+            ))}
+          </div>
+        )}
 
-              {br.exposure_context?.multiplier !== undefined && br.exposure_context.multiplier !== 1 && (
-                <div className="text-xs text-gray-600">
-                  In deployment context: <strong style={{ color: scoreToColor(br.contextual_score ?? br.score) }}>{br.contextual_score ?? br.score}</strong>
-                  {' ('}
-                  {[
-                    br.exposure_context.environment,
-                    br.exposure_context.trigger_source ? `${br.exposure_context.trigger_source}-triggered` : null,
-                    br.exposure_context.human_in_loop ? 'human-in-loop' : null,
-                  ]
-                    .filter(Boolean)
-                    .join(', ')}
-                  {')'}
-                </div>
-              )}
+        {/* 2 — the money, stated as what it is: a ceiling, never a total. */}
+        {peakUsd > 0 && (
+          <div className="pt-4 mb-4" style={rule}>
+            <div style={eyebrow}>What one incident could cost</div>
+            <div className="flex items-baseline gap-2 mt-2">
+              <span className="text-xs" style={{ color: 'var(--ink-500)' }}>up to</span>
+              <span className="mono text-2xl font-bold" style={{ color: 'var(--ink-900)' }}>
+                {fmtUsd(peakUsd)}
+              </span>
+              <span className="text-xs" style={{ color: 'var(--ink-500)' }}>per incident</span>
             </div>
+            <p className="text-xs mt-2" style={{ color: 'var(--ink-500)', lineHeight: 1.6, maxWidth: '86ch' }}>
+              {chainPeak !== null && steps.length > 1
+                ? 'The costlier of the two steps above. They are separate incident types, so the model does not add them together.'
+                : 'The largest single-incident ceiling across this agent\u2019s actions.'}
+              {' '}Each figure is the ceiling for that action&rsquo;s risk category, not an estimate for
+              the specific action, and it is not weighted by how likely the incident is.
+            </p>
+          </div>
+        )}
+
+        {/* 3 — where you stand: one before/after pair, not two loose numbers. */}
+        <div className="pt-4 flex items-end justify-between gap-4 flex-wrap" style={rule}>
+          <div>
+            <div style={eyebrow}>Where you stand</div>
+            <div className="flex items-baseline gap-2 mt-2 flex-wrap">
+              <span className="mono text-2xl font-bold" style={{ color: scoreToColor(br.score) }}>
+                {br.score}
+              </span>
+              {gated && (
+                <>
+                  <span style={{ color: 'var(--ink-300)' }}>&rarr;</span>
+                  <span className="mono text-2xl font-bold" style={{ color: scoreToColor(br.residual_score!) }}>
+                    {br.residual_score}
+                  </span>
+                </>
+              )}
+              <span className="text-xs" style={{ color: 'var(--ink-600)' }}>
+                {gated
+                  ? `blast radius after your policies (−${Math.round(br.score - br.residual_score!)})`
+                  : `blast radius — ${scoreBandLabel.toLowerCase()}, out of 100`}
+              </span>
+            </div>
+            <p className="text-xs mt-1.5" style={{ color: 'var(--ink-400)' }}>
+              {br.evidence?.dryRunOnly || br.confidence === 'low'
+                ? 'Static analysis of what the agent can do — run a simulation to confirm.'
+                : CONF_STYLE[br.confidence ?? 'low'].label + ' — graded against a simulation run.'}
+            </p>
+          </div>
+          {!hasCoveringPolicy && (
+            <button
+              style={{
+                background: 'var(--color-cta)', border: 'none', color: '#fff',
+                borderRadius: 'var(--radius-full)', padding: '7px 16px',
+                fontSize: 12, fontFamily: 'inherit', cursor: 'pointer', fontWeight: 500,
+              }}
+              className="hover:opacity-90 transition-opacity"
+              onClick={onScrollToPolicies}
+            >
+              Add a policy
+            </button>
           )}
         </div>
 
-        {exposures.length > 0 && (
-          <div className="min-w-0">
-            <div
-              className="font-semibold uppercase mb-2"
-              style={{ fontSize: 'var(--fs-micro)', letterSpacing: 0.5, color: 'var(--amber-ink)' }}
-            >
-              Top dollar exposure
-            </div>
-            <div className="space-y-2.5">
-              {exposures.map((c) => (
-                <div key={c.action} className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="mono text-xs truncate" style={{ color: 'var(--ink-900)' }}>{c.action}</div>
-                    <div className="flex flex-wrap gap-1 mt-1">
-                      {/* The worst-case dollar figure is already set to the
-                          right — repeating it as a pill said it twice. */}
-                      {c.why
-                        .split(',')
-                        .map((w) => w.trim())
-                        .filter((w) => w && !w.includes('worst-case'))
-                        .map((w) => (
-                          <span
-                            key={w}
-                            className="text-[10px] px-1.5 py-0.5 rounded"
-                            style={{ background: 'var(--paper)', color: 'var(--ink-500)', border: '1px solid var(--caution-line)' }}
-                          >
-                            {w}
-                          </span>
-                        ))}
-                    </div>
-                  </div>
-                  <span className="mono text-sm font-semibold flex-shrink-0" style={{ color: 'var(--ink-900)' }}>
-                    {fmtUsd(c.usd)}
-                  </span>
-                </div>
-              ))}
-            </div>
+        {br.exposure_context?.multiplier !== undefined && br.exposure_context.multiplier !== 1 && (
+          <div className="text-xs mt-3" style={{ color: 'var(--ink-500)' }}>
+            In deployment context:{' '}
+            <strong style={{ color: scoreToColor(br.contextual_score ?? br.score) }}>
+              {br.contextual_score ?? br.score}
+            </strong>
+            {' ('}
+            {[
+              br.exposure_context.environment,
+              br.exposure_context.trigger_source ? `${br.exposure_context.trigger_source}-triggered` : null,
+              br.exposure_context.human_in_loop ? 'human-in-loop' : null,
+            ]
+              .filter(Boolean)
+              .join(', ')}
+            {')'}
           </div>
         )}
       </div>
@@ -2051,14 +2079,36 @@ export default function AgentDetail() {
 
         {/* Classification caveats — the score is only as good as our catalog
             coverage, so both notes sit together on one quiet surface. */}
-        {br.coverage && (
+        {((br.coverage && (
           (br.coverage.totalActions > 0 && br.coverage.recognizedActions < br.coverage.totalActions) ||
           (br.coverage.unclassifiedActions ?? 0) > 0
-        ) && (
+        )) || !!agent.deployment_mismatch) && (
         <div
           className="mt-5 rounded-lg px-3.5 py-2.5 space-y-2"
           style={{ background: 'var(--paper-2)', border: '1px solid var(--line)' }}
         >
+        {/* Declared environment vs observed traffic. Sits with the other
+            caveats because it is the same kind of statement: something about
+            this agent is not what it was written down to be. */}
+        {agent.deployment_mismatch === 'ungoverned' && (
+          <div className="text-xs flex items-start gap-1.5" style={{ lineHeight: 1.45, color: 'var(--severity-high, #b45309)' }}>
+            <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
+            <span>
+              Registered as <strong>{agent.environment}</strong>, but{' '}
+              {agent.live_calls_7d ? `${agent.live_calls_7d.toLocaleString()} calls were captured` : 'traffic was captured'}{' '}
+              in the last 7 days — production load on an agent nobody signed off as production.
+            </span>
+          </div>
+        )}
+        {agent.deployment_mismatch === 'stalled' && (
+          <div className="text-xs flex items-start gap-1.5" style={{ lineHeight: 1.45, color: 'var(--ink-600)' }}>
+            <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
+            <span>
+              Registered as <strong>production</strong>, but has never run and captured no calls in the
+              last 7 days — either it never shipped, or it is failing silently.
+            </span>
+          </div>
+        )}
         {br.coverage && br.coverage.totalActions > 0 && br.coverage.recognizedActions < br.coverage.totalActions && (
           <div className="text-xs flex items-start gap-1.5" style={{ lineHeight: 1.45, color: 'var(--ink-600)' }}>
             <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
