@@ -1129,7 +1129,7 @@ def _pricing_note(
             return (
                 f"Introductory pricing on {key} ends {until.isoformat()} ({rates}). "
                 f"Spend already recorded is priced at what was actually billed, and the "
-                f"forecast above already uses the standard rate — so no forecast changes "
+                f"forecast above already uses the standard rate, so no forecast changes "
                 f"that day, but this model becomes {rise} to run from "
                 f"{(until + _td(days=1)).isoformat()}."
             )
@@ -2354,7 +2354,7 @@ def compute_budget_fit(
             "label": _switch,
             "projectedSaving": round(base_point - pick[1]),
             "newPoint": pick[1],
-            "tradeoff": "Cheaper per token — verify quality on your evals before switching.",
+            "tradeoff": "Cheaper per token. Check quality on your evals before switching.",
         })
 
     # ── Lever 2: cache hit rate — only if there's real headroom
@@ -2367,7 +2367,7 @@ def compute_budget_fit(
                 "label": f"Raise cache hit rate to 80% (now {cur_cache}%)",
                 "projectedSaving": round(base_point - p),
                 "newPoint": p,
-                "tradeoff": "Depends on reusing a stable system prompt — not a dial you just turn.",
+                "tradeoff": "Depends on reusing a stable system prompt, so it is not a dial you just turn.",
             })
 
     # ── Lever 3: call volume — the always-available "do less work" lever.
@@ -2383,7 +2383,7 @@ def compute_budget_fit(
                 "label": f"Cut usage to ~{target_runs} runs/day (now {cur_runs})",
                 "projectedSaving": round(base_point - p),
                 "newPoint": p,
-                "tradeoff": "This is doing less work — fewer runs, not cheaper runs.",
+                "tradeoff": "This is doing less work: fewer runs, not cheaper runs.",
             })
 
     cost_recs.sort(key=lambda r: r["projectedSaving"], reverse=True)
@@ -2413,7 +2413,7 @@ def compute_budget_fit(
                     "label": f"Require approval on {action_key}",
                     "projectedSaving": round(tool_saving),
                     "newPoint": round(base_point - tool_saving),
-                    "tradeoff": "Adds a human check on that action — small cost impact, large risk cut.",
+                    "tradeoff": "Adds a human check on that action. Small cost impact, large risk cut.",
                 }
 
     recs = cost_recs[:3]

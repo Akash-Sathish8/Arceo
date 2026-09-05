@@ -615,7 +615,7 @@ async def _run_heavy_job(fn, *args, **kwargs):
         raise HTTPException(
             status_code=503,
             detail=("The server is at capacity for long-running jobs. "
-                    "Retry shortly — nothing was started or charged."),
+                    "Try again shortly. Nothing was started or charged."),
         )
     try:
         return await anyio.to_thread.run_sync(functools.partial(fn, *args, **kwargs))
@@ -1702,7 +1702,7 @@ def _generate_recommendations(radius, chain_result) -> list[dict]:
     if radius.irreversible_actions > 0:
         recs.append({"severity": "critical" if radius.irreversible_actions > 2 else "high",
                       "title": "Irreversible actions need gates",
-                      "description": f"{radius.irreversible_actions} actions are irreversible (deletes, terminates, sends). These cannot be undone — add approval or block policies."})
+                      "description": f"{radius.irreversible_actions} actions are irreversible (deletes, terminates, sends). These cannot be undone, so add approval or block policies."})
 
     # Only add label-count recs if no chain already covers it
     chain_labels = set()
@@ -1723,10 +1723,10 @@ def _generate_recommendations(radius, chain_result) -> list[dict]:
                       "description": f"{radius.reads_secrets} action(s) can read secrets or credentials. Scope them tightly and gate any that combine with an external-send action."})
     if radius.evades_detection > 0:
         recs.append({"severity": "critical", "title": "Logging/monitoring can be disabled",
-                      "description": f"{radius.evades_detection} action(s) can turn off logging, audit trails, or alerting — an agent that can go dark should never do so without approval. Block these outright."})
+                      "description": f"{radius.evades_detection} action(s) can turn off logging, audit trails, or alerting. An agent that can go dark should never do so without approval. Block these outright."})
     if radius.executes_code > 0:
         recs.append({"severity": "critical", "title": "Arbitrary code execution exposed",
-                      "description": f"{radius.executes_code} action(s) run arbitrary code, shell, or SQL — effectively unlimited blast radius. Sandbox or require approval."})
+                      "description": f"{radius.executes_code} action(s) run arbitrary code, shell, or SQL, which is effectively an unlimited blast radius. Sandbox or require approval."})
 
     if not recs:
         recs.append({"severity": "info", "title": "Low risk profile",
@@ -2883,7 +2883,7 @@ def _extract_and_register(content: str, filename: str = "", agent_name_hint: str
     """
     api_key = os.getenv("ANTHROPIC_API_KEY")
     if not api_key:
-        raise HTTPException(status_code=503, detail="ANTHROPIC_API_KEY not configured on server — code extraction unavailable")
+        raise HTTPException(status_code=503, detail="The server has no ANTHROPIC_API_KEY set, so code extraction isn't available")
 
     if not content.strip():
         raise HTTPException(status_code=400, detail="Empty content")
@@ -2910,7 +2910,7 @@ def _extract_and_register(content: str, filename: str = "", agent_name_hint: str
             }],
         )
         if getattr(response, "stop_reason", None) == "max_tokens":
-            raise HTTPException(status_code=422, detail="File exposes too many tools to extract in one pass — split it or register the agent manually.")
+            raise HTTPException(status_code=422, detail="This file has too many tools to extract in one pass. Split it up, or register the agent by hand.")
         text = response.content[0].text.strip()
         if text.startswith("```"):
             text = text.split("\n", 1)[1].rsplit("```", 1)[0].strip()
@@ -2918,7 +2918,7 @@ def _extract_and_register(content: str, filename: str = "", agent_name_hint: str
     except HTTPException:
         raise
     except json.JSONDecodeError:
-        raise HTTPException(status_code=502, detail="Extraction returned invalid JSON — the file may not be a recognizable agent definition.")
+        raise HTTPException(status_code=502, detail="Extraction came back with invalid JSON. This file may not be a recognizable agent definition.")
     except Exception as e:
         # MED-016: this caught anything the Anthropic SDK raised — auth failures,
         # rate-limit bodies, internal request ids — and handed it to the caller.
@@ -2947,7 +2947,7 @@ def _extract_and_register(content: str, filename: str = "", agent_name_hint: str
 
     total_actions = sum(len(t["actions"]) for t in tools_payload)
     if skip_if_empty and total_actions == 0:
-        raise HTTPException(status_code=422, detail="No agent tools/actions found — not an agent file")
+        raise HTTPException(status_code=422, detail="We found no agent tools or actions, so this isn't an agent file")
 
     # Persist the forecast inputs the extractor already recovered: the model
     # (so pricing isn't blindly Sonnet) and the system prompt. A large system
@@ -3047,7 +3047,7 @@ async def extract_agents_from_github(req: GithubExtractInput, user: dict = Depen
 
     m = _re.match(r"^https?://github\.com/([^/]+)/([^/?#]+?)(?:\.git)?(?:/.*)?/?$", req.url.strip())
     if not m:
-        raise HTTPException(status_code=400, detail="Invalid GitHub URL — expected https://github.com/owner/repo")
+        raise HTTPException(status_code=400, detail="That GitHub URL doesn't look right. We expect https://github.com/owner/repo")
     owner, repo = m.group(1), m.group(2)
 
     skip_dirs = ("node_modules/", ".venv/", "venv/", "__pycache__/", "dist/", "build/", ".git/", ".next/", "vendor/")
@@ -3116,7 +3116,7 @@ async def extract_agents_from_github(req: GithubExtractInput, user: dict = Depen
                     "Settings → API & Integration → Credentials."))
             if last_status in (401, 403):
                 raise HTTPException(status_code=403, detail=(
-                    f"Access to {owner}/{repo} was denied by GitHub — "
+                    f"Access to {owner}/{repo} was denied by GitHub. "
                     + ("your workspace's GitHub credential does not have access to it."
                        if gh_token_source == "org" else
                        "add a GitHub token with access to it under Settings → "
@@ -3220,10 +3220,10 @@ async def extract_agents_from_github(req: GithubExtractInput, user: dict = Depen
     if candidates_capped:
         notes.append(f"scanned first {CANDIDATE_SCAN_CAP} of {len(candidates)} candidate files")
     if max_files_reached:
-        notes.append(f"stopped at the {req.max_files}-file limit — more agents may exist")
+        notes.append(f"stopped at the {req.max_files}-file limit, so there may be more agents")
     if fetch_errors:
         notes.append(f"{fetch_errors} file(s) could not be fetched"
-                     + (" (GitHub rate limit — add your own GitHub credential in Settings"
+                     + (" (GitHub rate limit reached. Add your own GitHub credential in Settings"
                         " to scan on your own limit)" if rate_limited else ""))
     if oversized_files:
         shown = ", ".join(oversized_files[:3])
@@ -3232,7 +3232,7 @@ async def extract_agents_from_github(req: GithubExtractInput, user: dict = Depen
                      + ("…" if len(oversized_files) > 3 else ""))
     if notes_budget_hit:
         notes.append(f"stopped at the {GITHUB_MAX_SCAN_BYTES // (1024 * 1024)}MB "
-                     f"total-download budget — more agents may exist")
+                     f"total-download budget, so there may be more agents")
 
     return {
         "owner": owner,
@@ -3494,7 +3494,7 @@ def scan_files(req: ScanRequest, request: Request):
     opaque_pct = round(100 * total_unclassified / total_actions) if total_actions else 0
     if total_actions and total_unclassified / total_actions > 0.25:
         fail_reasons.append(
-            f"{opaque_pct}% of actions are unclassifiable — the scanner can't vouch "
+            f"{opaque_pct}% of actions can't be classified, so the scanner can't vouch "
             f"for this agent's blast radius (opaque capability)")
     if exec_code_agents:
         fail_reasons.append(
@@ -3511,7 +3511,7 @@ def scan_files(req: ScanRequest, request: Request):
         shown = ", ".join(unscannable_files[:5])
         fail_reasons.append(
             f"{unscannable_pct}% of files could not be scanned ({len(unscannable_files)} of "
-            f"{len(req.files)}: {shown}{'…' if len(unscannable_files) > 5 else ''}) — the "
+            f"{len(req.files)}: {shown}{'…' if len(unscannable_files) > 5 else ''}), so the "
             f"scanner can't vouch for what they contain")
 
     if fail_reasons:
@@ -3635,7 +3635,7 @@ def _maybe_fire_spend_anomaly_alert(agent_id: str):
                             f":rotating_light: *Arceo spend alert*\n"
                             f"*Agent:* `{agent_id}`\n"
                             f"In the last 24 hours this agent spent "
-                            f"*${result['last24hUsd']:.2f}* — "
+                            f"*${result['last24hUsd']:.2f}*, "
                             f"*{result['ratio']:.1f}x* its usual daily rate "
                             f"(~${result['baselineDailyUsd']:.2f}/day).\n"
                             f"*What changed:* {drivers}"
@@ -3787,9 +3787,9 @@ def _maybe_fire_budget_alert(agent_id: str):
         egress.post_webhook(slack_url, {"blocks": [{"type": "section", "text": {"type": "mrkdwn", "text": (
             f":moneybag: *Arceo budget alert*\n"
             f"*Agent:* `{agent_id}`\n"
-            f"This agent has spent *${mtd:.2f}* this month — *{pct}%* of its "
+            f"This agent has spent *${mtd:.2f}* this month, which is *{pct}%* of its "
             f"*${budget:.0f}* budget (alert set at {threshold_pct}%).\n"
-            f"_Counts measured LLM token spend only — tool and infrastructure "
+            f"_Counts measured LLM token spend only. Tool and infrastructure "
             f"costs aren't captured per call, so total spend runs higher._"
         )}}]}, timeout=4)
     except Exception:
@@ -4895,7 +4895,7 @@ def verify_audit_chain(user: dict = Depends(get_current_user)):
         if (r["prev_hash"] or "") != prev_hash or r["entry_hash"] != expected:
             return {"valid": False, "broken_at": r["id"], "checked": len(sealed),
                     "legacy_unsealed": legacy_unsealed, "sealed_from": sealed_from,
-                    "detail": "audit chain integrity check failed — a record was altered or removed"}
+                    "detail": "audit chain integrity check failed, so a record was altered or removed"}
         prev_hash = r["entry_hash"]
     return {"valid": True, "checked": len(sealed),
             "legacy_unsealed": legacy_unsealed, "sealed_from": sealed_from}
@@ -5146,7 +5146,7 @@ def get_test_data(agent_id: str, user: dict = Depends(get_current_user)):
             raise HTTPException(status_code=404, detail=f"Agent '{agent_id}' not found")
         row = conn.execute("SELECT data_json FROM test_data WHERE agent_id = %s", (agent_id,)).fetchone()
     if not row:
-        return {"agent_id": agent_id, "data": None, "message": "No custom test data — using defaults"}
+        return {"agent_id": agent_id, "data": None, "message": "No custom test data, so we're using the defaults"}
     return {"agent_id": agent_id, "data": json.loads(row["data_json"])}
 
 
@@ -5158,7 +5158,7 @@ def delete_test_data(agent_id: str, user: dict = Depends(get_current_user)):
         if not owns:
             raise HTTPException(status_code=404, detail=f"Agent '{agent_id}' not found")
         conn.execute("DELETE FROM test_data WHERE agent_id = %s", (agent_id,))
-    return {"message": "Test data deleted — simulations will use defaults"}
+    return {"message": "Test data deleted. Simulations will use the defaults."}
 
 
 def _get_custom_data(agent_id: str) -> dict | None:
@@ -5272,7 +5272,7 @@ def generate_llm_scenarios(agent_id: str, user: dict = Depends(get_current_user)
         "in the dangerous second step of a chain."
     )
     user_block = (
-        f"Agent: {agent['name']} — {agent['description'] or 'no description'}\n\n"
+        f"Agent: {agent['name']}: {agent['description'] or 'no description'}\n\n"
         f"Actions it can take:\n" + "\n".join(tool_lines) + "\n\n"
         f"Detected dangerous chains:\n" + ("\n".join(chain_lines) if chain_lines else "(none)")
     )
@@ -5678,7 +5678,7 @@ def optimize_workflow_permissions(req: WorkflowOptimizeRequest, user: dict = Dep
                 "description": info["description"], "risk_labels": info["risk_labels"],
                 "reversible": info["reversible"], "severity": severity,
                 "recommendation": "BLOCK",
-                "reason": f"Not needed for this workflow — creates unnecessary {'irreversible ' if not info['reversible'] else ''}{'/'.join(info['risk_labels']) or 'risk'} exposure",
+                "reason": f"Not needed for this workflow, and creates unnecessary {'irreversible ' if not info['reversible'] else ''}{'/'.join(info['risk_labels']) or 'risk'} exposure",
             })
 
         # Permission gaps: blocked actions the workflow actually tried to call
@@ -5689,7 +5689,7 @@ def optimize_workflow_permissions(req: WorkflowOptimizeRequest, user: dict = Dep
                 "action": key, "description": info.get("description", ""),
                 "risk_labels": info.get("risk_labels", []),
                 "recommendation": "REVIEW_POLICY",
-                "reason": f"Workflow tried to call this action but it was blocked — review if the blocking policy should allow it",
+                "reason": f"The workflow tried to call this action but it was blocked. Check whether the blocking policy should allow it.",
             })
 
         # Approval gates: cross-agent chains involving this agent
@@ -5741,9 +5741,9 @@ def optimize_workflow_permissions(req: WorkflowOptimizeRequest, user: dict = Dep
         "total_overprivileged": total_over,
         "total_permission_gaps": total_gaps,
         "verdict": (
-            "Well optimized — minimal unnecessary permissions" if overall_opt_score < 20 else
-            "Moderately overprivileged — review flagged actions" if overall_opt_score < 50 else
-            "Significantly overprivileged — agents have more permissions than this workflow needs"
+            "Well optimized, with almost no unnecessary permissions" if overall_opt_score < 20 else
+            "Moderately overprivileged, so review the flagged actions" if overall_opt_score < 50 else
+            "Significantly overprivileged. These agents have more permissions than this workflow needs."
         ),
     }
 
@@ -6699,7 +6699,7 @@ def set_agent_budget(agent_id: str, req: AgentBudgetInput, user: dict = Depends(
     if req.monthly_budget_usd <= 0:
         raise HTTPException(status_code=400, detail="monthly_budget_usd must be > 0")
     if not (1 <= req.alert_threshold_pct <= 100):
-        raise HTTPException(status_code=400, detail="alert_threshold_pct must be 1–100")
+        raise HTTPException(status_code=400, detail="alert_threshold_pct must be between 1 and 100")
     org_id = _org(user)
     with get_db() as conn:
         agent = get_agent_from_db(conn, agent_id, org_id=org_id)
@@ -7095,7 +7095,7 @@ def set_org_default_model(req: DefaultModelInput, user: dict = Depends(get_curre
     org_id = _org(user)
     model = (req.model or "").strip() or None
     if model and not _model_recognized(model, load_defaults()):
-        raise HTTPException(status_code=400, detail=f"Unknown model '{model}' — not in the pricing catalog")
+        raise HTTPException(status_code=400, detail=f"Unknown model '{model}' isn't in the pricing catalog")
     now = datetime.utcnow().isoformat()
     with get_db() as conn:
         existing = conn.execute("SELECT id FROM workspace_settings WHERE org_id = %s", (org_id,)).fetchone()
@@ -8022,7 +8022,7 @@ def create_api_key(req: CreateApiKeyRequest, user: dict = Depends(get_current_us
 
     # Return full key only once — it's never stored in plaintext
     return {"id": key_id, "key": full_key, "prefix": key_prefix, "name": req.name,
-            "message": "Save this key — it won't be shown again."}
+            "message": "Save this key now. We won't show it again."}
 
 
 @app.get("/api/keys")

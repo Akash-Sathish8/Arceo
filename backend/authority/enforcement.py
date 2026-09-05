@@ -406,7 +406,7 @@ def enforce_check(agent_id: str, tool: str, action: str, params: dict = None, se
             status = "EXECUTED"
 
         if unevaluable:
-            detail = f"unevaluable policy {matched_policy.get('id')} — conditions could not be evaluated; failing closed"
+            detail = f"unevaluable policy {matched_policy.get('id')}. We could not evaluate the conditions, so this failed closed"
         elif matched_policy:
             detail = matched_policy["reason"]
         elif deny_by_default:
@@ -425,9 +425,9 @@ def enforce_check(agent_id: str, tool: str, action: str, params: dict = None, se
         if matched_policy:
             message = detail if unevaluable else matched_policy["reason"]
         elif deny_by_default:
-            message = "Blocked — no policy matched and this agent is deny-by-default"
+            message = "Blocked. No policy matched and this agent is deny-by-default."
         else:
-            message = "Action allowed — no matching policy"
+            message = "Action allowed. No policy matched it."
 
         return {
             "decision": effect,

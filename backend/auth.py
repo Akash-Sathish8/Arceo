@@ -172,14 +172,14 @@ def get_current_user(request: Request) -> dict:
     # unexpired JWT kept authenticating — the revocation control failing open on
     # precisely the event it exists to catch.
     if row is None:
-        raise HTTPException(status_code=401, detail="Session expired — please log in again")
+        raise HTTPException(status_code=401, detail="Your session expired. Please log in again.")
     # disabled_at before token_version: a revoke bumps BOTH, and "your account was
     # deactivated" tells the user what actually happened where "session expired"
     # would send them to a login screen that will never let them in.
     if _row_get(row, "disabled_at"):
         raise HTTPException(status_code=401, detail="This account has been deactivated")
     if int(payload.get("tv", 0)) != int(row["token_version"] or 0):
-        raise HTTPException(status_code=401, detail="Session expired — please log in again")
+        raise HTTPException(status_code=401, detail="Your session expired. Please log in again.")
     # Trust the DB role over the token's (a role change takes effect without re-login).
     payload["role"] = row["role"]
     return payload

@@ -15,7 +15,7 @@ RISK_LABELS = {
     "changes_access": "Modifies permissions, roles, credential issuance, or account access (IAM grants, admin promotion, password resets, API-key creation)",
     "reads_secrets": "Reads secrets, credentials, tokens, API keys, private keys, or environment variables",
     "evades_detection": "Disables, deletes, or tampers with logging, audit trails, monitoring, or alerting",
-    "bulk_export": "Reads or exports data in bulk — mass export, full dumps, or list-all at volume",
+    "bulk_export": "Reads or exports data in bulk, meaning mass exports, full dumps, or list-all at volume",
     "executes_code": "Runs arbitrary code, shell commands, or SQL",
 }
 

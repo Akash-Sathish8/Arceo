@@ -101,7 +101,7 @@ def run_prelaunch_audit(
                 fix = "Add REQUIRE_APPROVAL policy on %s to break this chain" % fix_action
                 category = "chain_unprotected"
             else:
-                problem = "Dangerous action %s defaults to ALLOW — no policy" % fix_action
+                problem = "Dangerous action %s defaults to ALLOW with no policy on it" % fix_action
                 fix = "Add BLOCK or REQUIRE_APPROVAL policy on %s" % fix_action
                 category = "policy_gap"
 
@@ -149,7 +149,7 @@ def run_prelaunch_audit(
                     category="regression",
                     action=reg.action,
                     problem="REGRESSION: %s was %s, now %s" % (reg.action, reg.baseline_decision, reg.current_decision),
-                    fix="Restore the %s policy on %s — it was removed or modified" % (reg.baseline_decision, reg.action),
+                    fix="Restore the %s policy on %s. It was removed or changed." % (reg.baseline_decision, reg.action),
                     fix_type="modify_policy",
                     auto_fixable=True,
                     policy_suggestion={
@@ -221,8 +221,8 @@ def run_prelaunch_audit(
                         severity="critical",
                         category="historical_gap",
                         action=action,
-                        problem="Historical trace shows %s was called with no policy — this already happened in production" % action,
-                        fix="Add policy on %s immediately — this is not theoretical" % action,
+                        problem="A past trace shows %s was called with no policy, so this already happened in production" % action,
+                        fix="Add a policy on %s right away. This is not theoretical." % action,
                         fix_type="add_policy",
                         auto_fixable=True,
                         policy_suggestion={

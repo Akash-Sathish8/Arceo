@@ -111,14 +111,14 @@ def parse_invoice_csv(text: str) -> dict:
     no usable cost column is found — the caller surfaces it verbatim.
     """
     if len(text.encode("utf-8", errors="ignore")) > MAX_CSV_BYTES:
-        raise ValueError("CSV is larger than 2 MB — export a single billing period.")
+        raise ValueError("That CSV is larger than 2 MB. Export a single billing period instead.")
     reader = csv.DictReader(io.StringIO(text))
     headers = reader.fieldnames or []
     cost_col = _pick_column(headers, _COST_HEADERS)
     if not cost_col:
         raise ValueError(
             "Couldn't find a cost column. Expected a header like 'cost', 'amount' "
-            f"or 'cost_usd' — found: {', '.join(headers[:12]) or 'no headers'}."
+            f"or 'cost_usd'. We found: {', '.join(headers[:12]) or 'no headers'}."
         )
     date_col = _pick_column(headers, _DATE_HEADERS)
     model_col = _pick_column(headers, _MODEL_HEADERS)
@@ -127,7 +127,7 @@ def parse_invoice_csv(text: str) -> dict:
     skipped = 0
     for i, row in enumerate(reader):
         if i >= MAX_CSV_ROWS:
-            raise ValueError("CSV has more than 50,000 rows — export a single billing period.")
+            raise ValueError("That CSV has more than 50,000 rows. Export a single billing period instead.")
         usd = _parse_money(row.get(cost_col))
         if usd is None:
             skipped += 1
@@ -236,7 +236,7 @@ def reconcile(invoice: dict, captured: dict) -> dict:
     if verdict in ("partial", "large_gap"):
         if delta < 0:
             causes.append(
-                "The invoice includes traffic Arceo never saw — anything on this "
+                "The invoice includes traffic Arceo never saw. Anything on this "
                 "API key that isn't wrapped by the SDK or routed through the "
                 "proxy (other apps, notebooks, humans testing in a console)."
             )

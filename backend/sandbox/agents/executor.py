@@ -64,7 +64,7 @@ def execute_tool_call(
             enforce_policy = {**(enforce_policy or {}), "_auto_approved": True}
         elif approval_mode == "deny":
             # Treat REQUIRE_APPROVAL as a hard block in this simulation
-            result = {"blocked": True, "reason": "(approval denied — simulation deny mode)"}
+            result = {"blocked": True, "reason": "(approval denied, simulation is in deny mode)"}
             enforce_decision = "BLOCK"
         else:
             # "pause" — realistic: return pending status, runner will halt the loop
@@ -74,13 +74,13 @@ def execute_tool_call(
                 "reason": reason,
                 "simulation_note": (
                     "This action requires human approval. "
-                    "The request has been submitted. Do not retry — wait for approval before continuing."
+                    "The request has been submitted. Do not retry, and wait for approval before continuing."
                 ),
             }
     elif enforce_decision == "ERROR":
         # Enforcement was unreachable — do NOT execute the mock; surface the error.
         error = "enforce endpoint unavailable"
-        result = {"error": True, "reason": "Enforcement unavailable — action not executed"}
+        result = {"error": True, "reason": "Enforcement was unavailable, so the action did not run"}
     else:
         try:
             result = call_mock(tool, action, params, state)
