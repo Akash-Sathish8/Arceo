@@ -2102,6 +2102,15 @@ def forecast_spend(
     monthly_low = monthly_point * band["low_multiplier"]
     monthly_high = monthly_point * band["high_multiplier"]
 
+    # The LLM-only slice of the same forecast, under the same band multipliers.
+    # Realized spend can only ever measure LLM tokens — tool and infra dollars are
+    # estimated, never observed — so anything grading this forecast against what an
+    # agent actually spent has to compare against this slice, not `point`, or every
+    # agent reads as under budget. Same multiplier on a smaller base, so the band is
+    # exact rather than apportioned. Unrounded for the same reason `pointExact` is.
+    monthly_llm_low = monthly_llm * band["low_multiplier"]
+    monthly_llm_high = monthly_llm * band["high_multiplier"]
+
     # ── Composition percentages ──
     if monthly_point > 0:
         tokens_pct = round((monthly_llm / monthly_point) * 100)
@@ -2230,6 +2239,12 @@ def forecast_spend(
         "tokensUsd": round(monthly_llm),
         "toolsUsd": round(monthly_tools),
         "infraUsd": round(monthly_infra),
+        # Unrounded LLM-only point and band — what the observation ledger records
+        # and what a forecast-vs-actual comparison grades against. Displayed
+        # figures stay `tokensUsd` / `low` / `high`; these are for the math.
+        "tokensUsdExact": monthly_llm,
+        "tokensLowUsd": monthly_llm_low,
+        "tokensHighUsd": monthly_llm_high,
         "topTools": top_tools,
         # Unit econ outcomes are per-RUN (sandbox occurrences are per run) → pass runs_per_day, not llm_calls.
         "unitEcon": _compute_unit_econ(agent_config, sandbox_traces, monthly_point, runs_per_day),
