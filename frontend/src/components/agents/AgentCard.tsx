@@ -14,8 +14,9 @@
  * var(--accent), var(--safe|caution|critical*).
  */
 
+import { AlertTriangle } from "lucide-react";
 import RiskRing from "@/components/shared/RiskRing";
-import { scoreBand } from "@/lib/utils";
+import { scoreBand, timeAgo } from "@/lib/utils";
 import { formatMoney } from "@/lib/format";
 
 export interface AgentCardData {
@@ -55,6 +56,15 @@ export interface AgentCardData {
    *  (amber — NOT a green "approved" check). */
   policiesByEffect?: { BLOCK?: number; REQUIRE_APPROVAL?: number; ALLOW?: number };
   lastActive?: string;
+  /** Decided by what the agent DID — an execution row, or captured LLM calls in
+   *  the last 7 days — never by the declared `environment` field. Same
+   *  measured-over-declared discipline as the provenance chips. */
+  deploymentState?: "deployed" | "pre_deployment";
+  /** Where declared and observed disagree, and that disagreement is itself the
+   *  finding: `stalled` = declared prod but never ran; `ungoverned` = declared
+   *  dev/staging but carrying live traffic. */
+  deploymentMismatch?: "stalled" | "ungoverned" | null;
+  liveCalls7d?: number;
 }
 
 interface RiskBand {
@@ -264,6 +274,100 @@ export default function AgentCard({ agent, onOpen }: AgentCardProps): React.Reac
           </span>
         </div>
       </div>
+      <DeploymentSlot agent={agent} />
     </div>
   );
+}
+
+const MISMATCH_COPY: Record<"stalled" | "ungoverned", { label: string; title: string }> = {
+  stalled: {
+    label: "Stalled",
+    title: "Declared production, but has never run — shipped nothing, or failed silently.",
+  },
+  ungoverned: {
+    label: "Ungoverned",
+    title: "Declared dev/staging, but carrying live traffic — production load on an agent nobody signed off.",
+  },
+};
+
+/**
+ * Right edge of the card: deployment state, and the evidence for it.
+ *
+ * The state word is paired with what we observed rather than standing alone —
+ * the row should say why it claims what it claims, the same way the forecast
+ * chips do, and it keeps the card self-describing outside the grouped fleet
+ * list (search results, the drawer).
+ *
+ * The mismatch flag is filled amber where the band word beside it is plain
+ * text. That register difference is deliberate: amber is also the Medium band
+ * colour, and a filled chip carrying an icon and its own word ("Stalled") can
+ * never be misread as the severity band.
+ */
+function DeploymentSlot({ agent }: { agent: AgentCardData }): React.ReactElement | null {
+  const { deploymentState: state, deploymentMismatch: mismatch } = agent;
+  if (!state) return null;
+
+  const calls = agent.liveCalls7d ?? 0;
+  const evidence =
+    state === "pre_deployment"
+      ? "Not yet run"
+      : calls > 0
+        ? `${calls.toLocaleString()} ${pluralCalls(calls)} · 7d`
+        : agent.lastActive
+          ? `Ran ${timeAgo(agent.lastActive)}`
+          : "Running";
+
+  return (
+    <div
+      style={{
+        flexShrink: 0, display: "flex", alignItems: "center", gap: 8,
+        marginLeft: "auto", paddingLeft: 8,
+      }}
+    >
+      {mismatch && (
+        <span
+          title={MISMATCH_COPY[mismatch].title}
+          style={{
+            display: "inline-flex", alignItems: "center", gap: 4,
+            fontSize: "var(--fs-micro)", fontWeight: 600,
+            color: "var(--caution)", background: "var(--caution-bg)",
+            border: "1px solid var(--caution-line)",
+            borderRadius: 999, padding: "2px 8px", whiteSpace: "nowrap",
+          }}
+        >
+          <AlertTriangle size={11} strokeWidth={2.4} />
+          {MISMATCH_COPY[mismatch].label}
+        </span>
+      )}
+      <span
+        className="mono"
+        title={
+          state === "deployed"
+            ? "Deployed — observed traffic in the last 7 days, or a recorded execution."
+            : "Pre-deployment — no execution and no captured calls in the last 7 days."
+        }
+        style={{
+          fontSize: "var(--fs-micro)", color: "var(--ink-400)",
+          whiteSpace: "nowrap", letterSpacing: 0.2,
+        }}
+      >
+        {evidence}
+      </span>
+      <span
+        aria-hidden
+        title={state === "deployed" ? "Deployed" : "Pre-deployment"}
+        style={{
+          width: 7, height: 7, borderRadius: 999,
+          // Filled vs hollow, not green vs grey: "deployed" is a state, not a
+          // safety verdict, and green here would read as the Low severity band.
+          background: state === "deployed" ? "var(--ink-500)" : "transparent",
+          border: state === "deployed" ? "none" : "1.5px solid var(--ink-300)",
+        }}
+      />
+    </div>
+  );
+}
+
+function pluralCalls(n: number): string {
+  return n === 1 ? "call" : "calls";
 }

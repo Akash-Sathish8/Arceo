@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from 'react'
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
@@ -62,6 +62,11 @@ interface AgentListItem {
   policies_by_effect?: { BLOCK?: number; REQUIRE_APPROVAL?: number; ALLOW?: number }
   pending_count: number
   last_execution_at: string | null
+  /** Declared at registration — kept beside the observed state, never used as it. */
+  environment?: string | null
+  live_calls_7d?: number
+  deployment_state?: 'deployed' | 'pre_deployment'
+  deployment_mismatch?: 'stalled' | 'ungoverned' | null
   /** ISO timestamp — compares chronologically as a plain string. */
   created_at: string
 }
@@ -184,6 +189,16 @@ export default function Authority() {
 
   // Create agent form
   const [showCreate, setShowCreate] = useState(false)
+  // One close path for the Connect dialog: the X, the footer button, the scrim
+  // and Esc. Declared with the other hooks — this component returns early for
+  // its loading and error states, so a hook below those runs conditionally.
+  const closeConnect = useCallback(() => setShowCreate(false), [])
+  useEffect(() => {
+    if (!showCreate) return
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') closeConnect() }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [showCreate, closeConnect])
   // Default to 'agents' — Overview is the empty-state landing only.
   // On first load completion, this gets switched to 'overview' if there
   // are no agents connected (see initialTabRef effect below).
@@ -570,6 +585,7 @@ export default function Authority() {
   // The form is only *visible* on the Agents tab — the CTA label must track
   // that, not the raw showCreate flag (which can be true on Overview).
   const formVisible = showCreate && agentTab === 'agents'
+
   return (
     <div style={{ padding: '34px 40px 64px', fontFamily: 'var(--font-sans)' }}>
       <PageHeader
@@ -579,8 +595,7 @@ export default function Authority() {
           <button
             type="button"
             onClick={() => {
-              const next = !formVisible
-              setShowCreate(next); setShowMcpConnect(false); setAgentTab('agents')
+              setShowCreate(true); setShowMcpConnect(false); setAgentTab('agents')
             }}
             className="ag-btn"
             style={{
@@ -590,8 +605,8 @@ export default function Authority() {
               cursor: 'pointer', boxShadow: 'var(--shadow-card-new)',
             }}
           >
-            {formVisible ? <X size={16} strokeWidth={1.8} /> : <Plus size={16} strokeWidth={1.8} />}
-            {formVisible ? 'Cancel' : 'Connect agent'}
+            <Plus size={16} strokeWidth={1.8} />
+            Connect agent
           </button>
         }
       />
@@ -638,17 +653,58 @@ export default function Authority() {
         })}
       </div>
 
-      {/* Create agent panel */}
-      <AnimatePresence mode="wait" initial={false}>
+      {/* Connect agent — the same centred-dialog shell as Configure Simulation,
+          so every "start something new" flow in the product opens the same way.
+          Every tab and form below is unchanged; only the container moved. */}
+      {/* No enter animation, matching Configure Simulation exactly — the
+          framer-motion fade stalled mid-transition here and left the dialog
+          translucent over the page. */}
       {showCreate && agentTab === 'agents' && (
-        <motion.div
-          ref={connectFormRef}
-          className="bg-white border border-gray-200 rounded-xl shadow-sm p-6"
-          initial={{ opacity: 0, y: 6 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: -4 }}
-          transition={{ duration: 0.15, ease: 'easeOut' }}
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 overflow-y-auto"
+          style={{ background: 'rgba(30, 40, 54, 0.5)', backdropFilter: 'blur(2px)' }}
+          onClick={closeConnect}
         >
+        <div
+          ref={connectFormRef}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="connect-agent-title"
+          onClick={(e) => e.stopPropagation()}
+          className="w-full max-w-4xl bg-surface-container-lowest border border-neutral-border rounded-lg flex flex-col my-auto outline-none"
+          style={{
+            maxHeight: 'calc(100vh - 2rem)',
+            boxShadow: '0 4px 24px rgba(30, 40, 54, 0.08), 0 1px 2px rgba(15,15,15,0.03)',
+          }}
+        >
+          {/* Header band */}
+          <div className="px-8 pt-8 pb-6 border-b border-neutral-border shrink-0 flex items-start gap-4">
+            <div className="min-w-0 flex-1">
+              <h2
+                id="connect-agent-title"
+                className="text-page-title font-page-title text-on-surface mb-2 tracking-tight m-0"
+              >
+                Connect an agent
+              </h2>
+              <p className="text-body font-body text-neutral-secondary leading-relaxed m-0">
+                Point Arceo at an agent&rsquo;s tools &mdash; from a code file, a repo, a live MCP
+                server, or by routing its calls through the proxy. Every route ends the same way: a
+                scored map of every action it can take.
+              </p>
+            </div>
+            <button
+              type="button"
+              aria-label="Close"
+              onClick={closeConnect}
+              className="shrink-0 text-neutral-secondary hover:text-on-surface transition-colors"
+              style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4, lineHeight: 0 }}
+            >
+              <X size={20} strokeWidth={1.8} />
+            </button>
+          </div>
+
+          {/* Body */}
+          <div className="px-8 py-6 overflow-y-auto">
 
           {/* ── Empty-state template picker ── */}
           {agents.length === 0 && !showConnectTabs && (
@@ -1175,9 +1231,21 @@ export default function Authority() {
             </form>
           )}
           </>)}
-        </motion.div>
+          </div>
+
+          {/* Footer band */}
+          <div className="px-8 py-5 border-t border-neutral-border bg-neutral-sunken flex items-center justify-end gap-3 rounded-b-lg shrink-0">
+            <button
+              type="button"
+              onClick={closeConnect}
+              className="bg-surface-container-lowest border border-neutral-border text-neutral-secondary font-body text-body font-medium px-5 py-2.5 rounded hover:text-on-surface transition-colors cursor-pointer"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+        </div>
       )}
-      </AnimatePresence>
 
       {agentTab === 'overview' && (() => {
         const sumSpend = Object.values(spendForecasts).reduce<number | null>((acc, f) => {
@@ -1509,17 +1577,38 @@ export default function Authority() {
 
       {agentTab === 'agents' && (
       <section>
-        {agents.length > 0 && (
-          <FleetStrip
-            total={agents.length}
-            spend={Object.values(spendForecasts).reduce<number | null>((acc, f) => {
-              if (f === null) return acc
-              return (acc ?? 0) + f.point
-            }, null)}
-            criticalChains={chains.filter((c) => c.severity === 'critical').length}
-            unguarded={agents.filter((a) => a.policy_count === 0).length}
-          />
-        )}
+        {agents.length > 0 && (() => {
+          // Sum the forecast twice more, split on observed deployment state, so
+          // the tile can separate spend the CFO is already paying from spend
+          // that only lands once these agents ship. Deployment state comes from
+          // the server; when it is absent the split is dropped, not guessed.
+          const sumFor = (pred: (a: AgentListItem) => boolean) =>
+            agents.reduce<number | null>((acc, a) => {
+              if (!pred(a)) return acc
+              const f = spendForecasts[a.id]
+              return f == null ? acc : (acc ?? 0) + f.point
+            }, null)
+          const isDeployed = (a: AgentListItem) => a.deployment_state === 'deployed'
+          const graded = agents.some((a) => a.deployment_state)
+          const deployed = graded ? sumFor(isDeployed) ?? 0 : null
+          const pending = graded ? sumFor((a) => !isDeployed(a)) ?? 0 : null
+
+          return (
+            <FleetStrip
+              total={agents.length}
+              spend={Object.values(spendForecasts).reduce<number | null>((acc, f) => {
+                if (f === null) return acc
+                return (acc ?? 0) + f.point
+              }, null)}
+              criticalChains={chains.filter((c) => c.severity === 'critical').length}
+              unguarded={agents.filter((a) => a.policy_count === 0).length}
+              spendDeployed={deployed}
+              spendPreDeployment={pending}
+              deployedCount={graded ? agents.filter(isDeployed).length : undefined}
+              preDeploymentCount={graded ? agents.filter((a) => !isDeployed(a)).length : undefined}
+            />
+          )
+        })()}
         <div className="flex items-center justify-between mb-5">
           <h2 style={{ fontSize: 16, fontWeight: 600, color: 'var(--ink-900)', letterSpacing: -0.2, margin: 0, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             Agent risk scores
@@ -1589,9 +1678,10 @@ export default function Authority() {
             <span className="text-xs">Try a different name or tool</span>
           </div>
           )
-        ) : (
-          <div className={`agent-rail${agentView === 'vscroll' ? ' agent-rail--v' : agentView === 'grid' ? ' agent-rail--grid' : ''}`}>
-            {filteredAgents.map((a) => {
+        ) : (() => {
+          const railClass = `agent-rail${agentView === 'vscroll' ? ' agent-rail--v' : agentView === 'grid' ? ' agent-rail--grid' : ''}`
+
+          const renderCard = (a: AgentListItem) => {
               const br = a.blast_radius
               const data: AgentCardData = {
                 id: a.id,
@@ -1616,6 +1706,10 @@ export default function Authority() {
                 critical: a.critical_chains,
                 policies: a.policy_count,
                 policiesByEffect: a.policies_by_effect,
+                lastActive: a.last_execution_at ?? undefined,
+                deploymentState: a.deployment_state,
+                deploymentMismatch: a.deployment_mismatch ?? null,
+                liveCalls7d: a.live_calls_7d,
               }
               return (
                 <div key={a.id} className="agent-rail-item">
@@ -1629,9 +1723,66 @@ export default function Authority() {
                   />
                 </div>
               )
-            })}
-          </div>
-        )}
+          }
+
+          // Older backends don't send deployment_state; render one flat list
+          // rather than inventing a section every agent falls into.
+          const graded = filteredAgents.some((a) => a.deployment_state)
+          if (!graded) {
+            return <div className={railClass}>{filteredAgents.map(renderCard)}</div>
+          }
+
+          const sections = [
+            {
+              key: 'deployed',
+              title: 'In production',
+              note: 'Ran, or captured traffic in the last 7 days',
+              items: filteredAgents.filter((a) => a.deployment_state === 'deployed'),
+            },
+            {
+              key: 'pre_deployment',
+              title: 'Pre-deployment',
+              note: 'No execution and no captured calls — forecast only',
+              items: filteredAgents.filter((a) => a.deployment_state !== 'deployed'),
+            },
+          ].filter((sec) => sec.items.length > 0)
+
+          return (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 28 }}>
+              {sections.map((sec) => (
+                <div key={sec.key}>
+                  {/* The section header carries the state, so the card's own
+                      slot carries the evidence for it rather than repeating
+                      the word. */}
+                  <div
+                    style={{
+                      display: 'flex', alignItems: 'baseline', gap: 10,
+                      paddingBottom: 8, marginBottom: 14,
+                      borderBottom: '1px solid var(--line)',
+                    }}
+                  >
+                    <span style={{
+                      fontSize: 'var(--fs-micro)', fontWeight: 700, letterSpacing: 0.6,
+                      textTransform: 'uppercase', color: 'var(--ink-600)',
+                    }}>
+                      {sec.title}
+                    </span>
+                    <span className="mono" style={{ fontSize: 'var(--fs-micro)', color: 'var(--ink-400)' }}>
+                      {sec.items.length}
+                    </span>
+                    <span style={{
+                      fontSize: 'var(--fs-small)', color: 'var(--ink-400)',
+                      marginLeft: 'auto', textAlign: 'right',
+                    }}>
+                      {sec.note}
+                    </span>
+                  </div>
+                  <div className={railClass}>{sec.items.map(renderCard)}</div>
+                </div>
+              ))}
+            </div>
+          )
+        })()}
       </section>
 
       )}

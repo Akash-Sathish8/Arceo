@@ -8,7 +8,7 @@
  */
 
 import { useEffect, useRef, useState } from "react";
-import { X, FlaskConical, AlertTriangle, Lock, Link2, TrendingUp } from "lucide-react";
+import { X, FlaskConical, AlertTriangle, Lock, Link2, TrendingUp, DollarSign } from "lucide-react";
 import { Link } from "react-router-dom";
 import { apiFetch } from "@/lib/api";
 import RiskRing from "@/components/shared/RiskRing";
@@ -571,7 +571,11 @@ export default function AgentDrawer({
               </div>
               {a.spend !== null && (
                 <div style={{ fontSize: 12, color: "var(--ink-400)", marginTop: 3 }}>
-                  pre-deployment estimate
+                  {/* Was hardcoded "pre-deployment estimate", which contradicted
+                      the fleet list as soon as an agent showed observed traffic. */}
+                  {a.deploymentState === "deployed"
+                    ? `from ${a.liveCalls7d ? `${a.liveCalls7d.toLocaleString()} captured calls` : "observed traffic"}`
+                    : "pre-deployment estimate"}
                 </div>
               )}
             </div>
@@ -592,6 +596,13 @@ export default function AgentDrawer({
 
         {/* Footer band */}
         <div className="px-8 py-5 border-t border-neutral-border bg-neutral-sunken flex items-center justify-end gap-3 rounded-b-lg shrink-0">
+          <Link
+            to={`/agent/${a.id}/spend`}
+            className="bg-surface-container-lowest border border-neutral-border text-neutral-secondary font-body text-body font-medium px-5 py-2.5 rounded hover:bg-surface-container-low hover:text-on-surface transition-colors no-underline inline-flex items-center gap-2"
+          >
+            <DollarSign size={16} strokeWidth={1.8} />
+            View spend
+          </Link>
           <Link
             to={`/agent/${a.id}`}
             className="bg-surface-container-lowest border border-neutral-border text-neutral-secondary font-body text-body font-medium px-5 py-2.5 rounded hover:bg-surface-container-low hover:text-on-surface transition-colors no-underline inline-flex items-center gap-2"

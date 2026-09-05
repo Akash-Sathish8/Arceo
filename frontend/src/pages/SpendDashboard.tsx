@@ -8,12 +8,12 @@
  * brain/Signals/Cost calculation methodology.md
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Link } from "react-router-dom"
 import {
   FileText, Banknote, X, Download,
   Headset, Terminal, BarChart2, Settings2, Bot,
-  Calendar, TrendingUp, ShieldCheck,
+  Calendar, TrendingUp, ShieldCheck, Search, ChevronRight, ListTree,
 } from "lucide-react"
 import type { LucideIcon } from "lucide-react"
 import { lazy, Suspense } from "react"
@@ -113,6 +113,7 @@ export default function SpendDashboard() {
   const [loadedAt, setLoadedAt] = useState<string | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [showMethodology, setShowMethodology] = useState(false)
+  const [pickerOpen, setPickerOpen] = useState(false)
 
   const load = useCallback(() => {
     setLoading(true)
@@ -322,6 +323,14 @@ export default function SpendDashboard() {
           </span>
           <button
             type="button"
+            onClick={() => setPickerOpen(true)}
+            className="flex items-center gap-2 bg-surface-container-lowest border border-neutral-border text-neutral-secondary px-4 py-2 rounded-lg font-body text-body font-medium hover:text-on-surface hover:bg-neutral-sunken transition-colors cursor-pointer"
+          >
+            <ListTree size={18} />
+            View agent forecasts
+          </button>
+          <button
+            type="button"
             onClick={handleExportCsv}
             className="flex items-center gap-2 bg-primary text-on-primary px-4 py-2 rounded-lg font-body text-body font-medium hover:opacity-90 transition-opacity shadow-sm border-0 cursor-pointer"
           >
@@ -525,6 +534,10 @@ export default function SpendDashboard() {
       </div>
       </>
       )}
+
+      {/* Rendered outside the loaded/empty branch so the picker is reachable
+          even while a forecast batch is still coming back. */}
+      <AgentForecastPicker open={pickerOpen} rows={fleet} onClose={() => setPickerOpen(false)} />
     </div>
   )
 }
@@ -602,6 +615,165 @@ function BreakdownCard({
         <Link to={linkTo} style={{ color: "var(--text-link)" }} className="no-underline">
           {linkLabel} →
         </Link>
+      </div>
+    </div>
+  )
+}
+
+// ── Agent forecast picker ─────────────────────────────────────────────────────
+
+interface FleetRow {
+  id: string
+  name: string
+  agentType: string
+  risk: number
+  riskTone: string
+  forecast: MockSpend | null
+}
+
+/**
+ * Centred picker for jumping from the fleet rollup to one agent's own forecast.
+ *
+ * Same shell as the Configure Simulation dialog — scrim, header band, footer
+ * band — so every modal in the product opens the same way. Rows are links, not
+ * click handlers, so a forecast can be opened in a new tab.
+ */
+function AgentForecastPicker({
+  open,
+  rows,
+  onClose,
+}: {
+  open: boolean
+  rows: FleetRow[]
+  onClose: () => void
+}) {
+  const [query, setQuery] = useState("")
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    setQuery("")
+    const t = window.setTimeout(() => inputRef.current?.focus(), 0)
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose() }
+    window.addEventListener("keydown", onKey)
+    return () => { window.clearTimeout(t); window.removeEventListener("keydown", onKey) }
+  }, [open, onClose])
+
+  if (!open) return null
+
+  const q = query.trim().toLowerCase()
+  const visible = q
+    ? rows.filter((r) => r.name.toLowerCase().includes(q) || r.agentType.toLowerCase().includes(q))
+    : rows
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 overflow-y-auto"
+      style={{ background: "rgba(30, 40, 54, 0.5)", backdropFilter: "blur(2px)" }}
+      onClick={onClose}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="agent-forecast-picker-title"
+        onClick={(e) => e.stopPropagation()}
+        className="w-full max-w-2xl bg-surface-container-lowest border border-neutral-border rounded-lg flex flex-col my-auto outline-none"
+        style={{ maxHeight: "calc(100vh - 2rem)", boxShadow: "0 4px 24px rgba(30, 40, 54, 0.08), 0 1px 2px rgba(15,15,15,0.03)" }}
+      >
+        {/* Header */}
+        <div className="px-8 pt-8 pb-6 border-b border-neutral-border shrink-0">
+          <h2
+            id="agent-forecast-picker-title"
+            className="text-page-title font-page-title text-on-surface mb-2 tracking-tight m-0"
+          >
+            Agent forecasts
+          </h2>
+          <p className="text-body font-body text-neutral-secondary leading-relaxed m-0">
+            Open one agent&rsquo;s forecast — its drivers, confidence tier and sensitivity — instead of the fleet rollup.
+          </p>
+          <div className="relative mt-5">
+            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-secondary" />
+            <input
+              ref={inputRef}
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search agents…"
+              aria-label="Search agents"
+              className="w-full pl-9 pr-3 py-2.5 rounded-lg border border-neutral-border bg-surface-container-lowest text-body font-body text-on-surface outline-none focus:border-primary"
+            />
+          </div>
+        </div>
+
+        {/* Body */}
+        <div className="px-8 py-5 overflow-y-auto">
+          {visible.length === 0 ? (
+            <p className="text-body font-body text-neutral-secondary m-0 py-6 text-center">
+              No agents match “{query}”.
+            </p>
+          ) : (
+            <div className="flex flex-col">
+              {visible.map((r) => {
+                const f = r.forecast
+                const usable = f !== null && f.available !== false && f.point != null
+                return (
+                  <Link
+                    key={r.id}
+                    to={`/agent/${r.id}/spend`}
+                    onClick={onClose}
+                    className="flex items-center gap-4 py-3 px-3 -mx-3 rounded-lg no-underline hover:bg-neutral-sunken transition-colors"
+                  >
+                    <span
+                      aria-hidden
+                      className="shrink-0 rounded-full"
+                      style={{ width: 8, height: 8, background: r.riskTone }}
+                    />
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-body font-body font-medium text-on-surface truncate">
+                        {r.name}
+                      </span>
+                      <span className="block font-monospace-label text-monospace-label text-neutral-secondary truncate">
+                        {r.agentType || "agent"} · risk {Math.round(r.risk)}
+                      </span>
+                    </span>
+                    <span className="shrink-0 text-right">
+                      {usable ? (
+                        <>
+                          <span className="block font-monospace-data text-monospace-data text-on-surface">
+                            {formatMoney(f!.point!)}
+                          </span>
+                          <span className="block font-monospace-label text-monospace-label text-neutral-secondary">
+                            per month
+                          </span>
+                        </>
+                      ) : (
+                        // Never render an uncalibrated forecast as $0 — the
+                        // fleet rollup makes the same distinction.
+                        <span className="block font-monospace-label text-monospace-label text-neutral-secondary">
+                          Needs data
+                        </span>
+                      )}
+                    </span>
+                    <ChevronRight size={16} className="shrink-0 text-neutral-secondary" />
+                  </Link>
+                )
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="px-8 py-5 border-t border-neutral-border bg-neutral-sunken flex items-center justify-between gap-3 rounded-b-lg shrink-0">
+          <span className="font-monospace-label text-monospace-label text-neutral-secondary">
+            {visible.length} of {rows.length} {rows.length === 1 ? "agent" : "agents"}
+          </span>
+          <button
+            type="button"
+            onClick={onClose}
+            className="bg-surface-container-lowest border border-neutral-border text-neutral-secondary font-body text-body font-medium px-5 py-2.5 rounded hover:text-on-surface transition-colors cursor-pointer"
+          >
+            Close
+          </button>
+        </div>
       </div>
     </div>
   )
