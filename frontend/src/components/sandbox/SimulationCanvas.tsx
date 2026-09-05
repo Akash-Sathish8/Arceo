@@ -220,15 +220,17 @@ export default function SimulationCanvas({ tools, running, progress, lastRun }: 
               );
             })}
 
-            {/* Output node — fills with batch progress while a run is in flight */}
-            <circle cx="600" cy="300" r="16" fill="var(--aqua-ink)" opacity={running ? 0.25 : 1} />
+            {/* Output node — fills with batch progress while a run is in flight.
+                Cyan, not the aquamarine "controlled" tone: progress is activity,
+                not a safety verdict, and the run has not reached one yet. */}
+            <circle cx="600" cy="300" r="16" fill="var(--cyan-ring)" opacity={running ? 0.25 : 1} />
             {running && (
               <circle
                 cx="600"
                 cy="300"
                 r="16"
                 fill="none"
-                stroke="var(--aqua-ink)"
+                stroke="var(--cyan-ring)"
                 strokeWidth="4"
                 strokeDasharray={`${progressPct * 100.5} 100.5`}
                 transform="rotate(-90 600 300)"
@@ -238,7 +240,7 @@ export default function SimulationCanvas({ tools, running, progress, lastRun }: 
 
             <g
               fill="var(--ink-700)"
-              fontFamily="var(--font-mono)"
+              fontFamily="var(--font-num)"
               fontSize="11"
               fontWeight="500"
               textAnchor="middle"
@@ -266,7 +268,7 @@ export default function SimulationCanvas({ tools, running, progress, lastRun }: 
             y="300"
             textAnchor="middle"
             fill="var(--ink-400)"
-            fontFamily="var(--font-mono)"
+            fontFamily="var(--font-num)"
             fontSize="12"
           >
             SELECT AN AGENT TO MAP ITS TOOLS
@@ -296,7 +298,7 @@ export default function SimulationCanvas({ tools, running, progress, lastRun }: 
         <div
           /* Clear of the run pill, which sits bottom-centre. */
           className="absolute left-4 bottom-24 rounded-lg px-3 py-2 pointer-events-none"
-          style={{ background: "var(--card)", border: "1px solid var(--line)", boxShadow: "var(--shadow-md)", maxWidth: 300 }}
+          style={{ background: "var(--card)", boxShadow: "var(--shadow-md)", maxWidth: 300 }}
         >
           <div className="font-monospace-data text-monospace-data text-on-surface">{tip}</div>
           {tipStats ? (
@@ -321,7 +323,7 @@ export default function SimulationCanvas({ tools, running, progress, lastRun }: 
       {replayStep && (
         <div
           className="absolute left-4 top-3 rounded-lg px-3 py-1.5 pointer-events-none"
-          style={{ background: "var(--card)", border: "1px solid var(--line)", boxShadow: "var(--shadow-md)" }}
+          style={{ background: "var(--card)", boxShadow: "var(--shadow-md)" }}
         >
           <span className="font-monospace-data text-monospace-data text-on-surface">
             {replayStep.tool}.{replayStep.action}

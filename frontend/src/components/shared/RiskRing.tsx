@@ -28,7 +28,7 @@ export default function RiskRing({
   size = 64,
   stroke = 6,
   color,
-  track = "var(--line-soft)",
+  track = "var(--cyan-tint)",
   label,
   labelColor = "var(--ink-900)",
   sub,
@@ -66,7 +66,7 @@ export default function RiskRing({
       >
         <span
           style={{
-            fontFamily: numFont ?? "var(--font-mono)",
+            fontFamily: numFont ?? "var(--font-num)",
             fontWeight: 600,
             fontSize: size * 0.27,
             color: labelColor,

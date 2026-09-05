@@ -34,7 +34,7 @@ export default class ErrorBoundary extends Component<Props, State> {
         <div style={{ minHeight: '70vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
           <div
             style={{
-              background: 'var(--card)', border: '1px solid var(--line)',
+              background: 'var(--card)',
               borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-sm)',
               padding: 32, maxWidth: 440, width: '100%', textAlign: 'center',
             }}

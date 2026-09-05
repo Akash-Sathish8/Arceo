@@ -192,13 +192,17 @@ export default function SpendDashboard() {
   // and this figure also feeds the fleet CFO PDF. Agents with nothing captured
   // fall back to their declared model, and an agent reporting no model at all
   // lands in "Unspecified" so we never silently double-count.
+  // A model name is not a risk level. This map used to paint Opus with
+  // --severity-critical and gpt-4o-mini with --severity-high, so the spend
+  // chart read as if the expensive model were the dangerous one. Peers now take
+  // the categorical series ramp, which carries no severity meaning at all.
   const MODEL_COLORS: Record<string, string> = {
-    "claude-opus-4-8":   "var(--severity-critical)",
-    "claude-sonnet-4-6": "var(--chart-tokens)",
-    "claude-haiku-4-5":  "var(--chart-tools)",
-    "gpt-4o":            "var(--severity-safe)",
-    "gpt-4o-mini":       "var(--severity-high)",
-    "gpt-5":             "var(--severity-medium)",
+    "claude-opus-4-8":   "var(--series-1)",
+    "claude-sonnet-4-6": "var(--series-2)",
+    "claude-haiku-4-5":  "var(--series-3)",
+    "gpt-4o":            "var(--series-4)",
+    "gpt-4o-mini":       "var(--series-5)",
+    "gpt-5":             "var(--series-6)",
   }
   const byModelMap = new Map<string, number>()
   for (const r of withForecast) {
@@ -218,9 +222,13 @@ export default function SpendDashboard() {
       name,
       amount,
       pctOfLlm: llmTotal > 0 ? Math.round((amount / llmTotal) * 100) : 0,
-      color: MODEL_COLORS[name] ?? "var(--text-muted)",
+      color: MODEL_COLORS[name] ?? null,
     }))
     .sort((a, b) => b.amount - a.amount)
+    // Any model the map doesn't name takes the next series colour rather than
+    // dropping to grey. The map only covers the models we happened to list, so
+    // a real fleet on anything else rendered its whole breakdown in muted grey.
+    .map((row, i) => ({ ...row, color: row.color ?? SERIES[i % SERIES.length] }))
 
   const sortedFleet = [...withForecast].sort(
     (a, b) => (b.forecast?.point ?? 0) - (a.forecast?.point ?? 0),
@@ -373,7 +381,7 @@ export default function SpendDashboard() {
                   className="text-xs font-monospace-label px-2 py-0.5 rounded font-semibold"
                   style={
                     weightedDelta >= 0
-                      ? { background: "var(--caution-bg)", color: "var(--amber-ink)" }
+                      ? { background: "var(--caution-bg)", color: "var(--on-caution)" }
                       : { background: "var(--aqua-soft)", color: "var(--aqua-deep)" }
                   }
                 >
@@ -436,18 +444,18 @@ export default function SpendDashboard() {
         >
           <div className="min-w-0">
             <div className="flex items-center gap-2">
-              <Gauge size={16} style={{ color: "var(--amber-ink)" }} />
-              <span className="font-eyebrow text-eyebrow uppercase tracking-widest" style={{ color: "var(--amber-ink)" }}>
+              <Gauge size={16} style={{ color: "var(--on-caution)" }} />
+              <span className="font-eyebrow text-eyebrow uppercase tracking-widest" style={{ color: "var(--on-caution)" }}>
                 Forecast built from defaults
               </span>
             </div>
-            <p className="font-body text-body text-neutral-primary m-0 mt-2">
+            <p className="font-body text-body m-0 mt-2" style={{ color: "var(--on-caution)" }}>
               {lowConfidence.length} {pluralize(lowConfidence.length, "agent")}, worth{" "}
               <strong className="font-monospace-data">{formatMoney(lowConfidenceSpend)}/mo</strong> of the
               fleet total, {lowConfidence.length === 1 ? "is" : "are"} forecast from capabilities
               alone, with no measurement behind the number.
             </p>
-            <p className="font-meta text-meta text-neutral-secondary m-0 mt-1">
+            <p className="font-meta text-meta m-0 mt-1" style={{ color: "var(--on-caution)", opacity: 0.8 }}>
               A calibration run measures each agent&rsquo;s turns and tokens and lifts it to medium
               confidence (about &plusmn;28%).
             </p>
@@ -463,7 +471,7 @@ export default function SpendDashboard() {
       )}
 
       {/* ── Fleet spend trend ── */}
-      <div className="bg-white p-6 rounded-xl border border-neutral-border shadow-sm flex flex-col gap-4">
+      <div className="bg-white p-6 rounded-xl flex flex-col gap-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
           <div>
             <span className="font-eyebrow text-eyebrow text-neutral-secondary uppercase">Historical trajectory</span>
@@ -512,7 +520,7 @@ export default function SpendDashboard() {
       </div>
 
       {/* ── Fleet-wide tool actions ── */}
-      <div className="bg-white rounded-xl border border-neutral-border shadow-sm overflow-hidden">
+      <div className="bg-white rounded-xl overflow-hidden">
         <div className="p-6 border-b border-neutral-border flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
             <span className="font-eyebrow text-eyebrow text-neutral-secondary uppercase">Granular telemetry</span>
@@ -531,7 +539,7 @@ export default function SpendDashboard() {
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse">
             <thead>
-              <tr className="bg-neutral-sunken font-eyebrow text-eyebrow text-neutral-secondary uppercase border-b border-neutral-border">
+              <tr className="bg-bar-dark font-eyebrow text-eyebrow text-on-bar-dark-muted uppercase">
                 <th className="py-3 px-6">Tool &amp; action</th>
                 <th className="py-3 px-6">Agent</th>
                 <th className="py-3 px-6 text-right">Calls / mo</th>
@@ -566,7 +574,7 @@ export default function SpendDashboard() {
             </tbody>
           </table>
         </div>
-        <div className="p-4 px-6 border-t border-neutral-border bg-neutral-sunken flex items-center justify-between font-meta text-meta text-neutral-secondary">
+        <div className="p-4 px-6 bg-bar-dark flex items-center justify-between font-meta text-meta text-on-bar-dark-muted">
           <span>
             Showing {shownToolActions.length} of {topToolActions.length} priced tool {pluralize(topToolActions.length, "integration")}
           </span>
@@ -587,7 +595,13 @@ export default function SpendDashboard() {
 
 /** Bar colours for the per-agent split — the single-hue chart ramp, so an
  *  agent's bar never borrows the severity or risk-label scales. */
-const AGENT_BAR_COLORS = ["var(--chart-tokens)", "var(--chart-tools)", "var(--chart-infra)", "var(--aqua-ink)", "var(--ink-400)"]
+/** Categorical series ramp: deep blue and cyan alternating, then their
+ *  tints. Peers, not a severity scale. */
+const SERIES = [
+  "var(--series-1)", "var(--series-2)", "var(--series-3)",
+  "var(--series-4)", "var(--series-5)", "var(--series-6)",
+]
+const AGENT_BAR_COLORS = SERIES
 
 /** One hero metric card: eyebrow + icon, then the figure block. */
 function KpiCard({
@@ -599,7 +613,7 @@ function KpiCard({
   children: React.ReactNode
 }) {
   return (
-    <div className="bg-white p-6 rounded-xl border border-neutral-border shadow-sm flex flex-col justify-between">
+    <div className="bg-white p-6 rounded-xl flex flex-col justify-between">
       <div className="flex items-center justify-between">
         <span className="font-eyebrow text-eyebrow text-neutral-secondary uppercase">{label}</span>
         <Icon size={20} style={{ color: iconColor ?? "var(--accent)" }} />
@@ -622,7 +636,7 @@ function BreakdownCard({
   linkTo: string
 }) {
   return (
-    <div className="bg-white p-6 rounded-xl border border-neutral-border shadow-sm flex flex-col justify-between">
+    <div className="bg-white p-6 rounded-xl flex flex-col justify-between">
       <div>
         <div className="flex items-start justify-between gap-3 mb-4">
           <div>

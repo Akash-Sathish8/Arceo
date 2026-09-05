@@ -1,4 +1,5 @@
 @import '@fontsource-variable/schibsted-grotesk';
+@import '@fontsource-variable/manrope';
 @import '@fontsource-variable/jetbrains-mono';
 @import "tailwindcss";
 
@@ -49,11 +50,11 @@
   --color-orange-700: #a53709;
   --color-orange-800: #872d08;
   --color-orange-900: #6f2507;
-  --color-amber-50:  #fbf2e0;  /* --caution-bg */
+  --color-amber-50:  #f59e0b;  /* --caution-bg — brand amber fill */
   --color-amber-100: #f6e8c9;
-  --color-amber-200: #efdcb4;  /* --caution-line */
+  --color-amber-200: #f59e0b;  /* --caution-line — matches the fill, no outline */
   --color-amber-300: #e3c286;
-  --color-amber-400: #f49d0a;  /* --caution-ring — brand amber */
+  --color-amber-400: #f59e0b;  /* --caution-ring — brand amber */
   --color-amber-500: #c07c08;
   --color-amber-600: #9c6206;  /* --caution */
   --color-amber-700: #7f5005;
@@ -143,7 +144,7 @@
   --color-aquamarine-tint:   #ECF7F2;
   --color-aquamarine-border: #C3E3D5;
   --color-amber-text:        #9C6206;
-  --color-amber-tint:        #FBF2E0;
+  --color-amber-tint:        #f59e0b;
   --color-graphite:          #1E2836;
   --color-severity-high:     #C2410C;
   --color-severity-critical: #B3261E;
@@ -151,17 +152,42 @@
   --color-neutral-secondary: #787774;
   --color-neutral-muted:     #9B9A97;
   --color-neutral-border:    #E9E9E7;
-  --color-neutral-sunken:    #F7F7F5;
+  /* The rail stays a cold neutral, one step off the page. Cyan lives on the
+     INTERACTIONS instead, which is where a colour earns its keep: hover takes
+     the pale wash from the spend graph, the selected item takes the saturated
+     cyan from the simulation canvas. Both carry dark text — white on the
+     selected pill is 2.0:1 and unusable. */
+  --color-neutral-sunken:    #e8e7f0;
+  --color-rail-primary:      #37352F;   /* 10.0:1 on the rail */
+  --color-rail-secondary:    #4c4a45;   /*  6.6:1 — the page default is 3.7:1 here */
+  --color-rail-muted:        #63615c;   /*  4.6:1 */
+  --color-rail-hover:        #e1f7f9;   /* spend-graph wash */
+  --color-rail-active:       #34c9d5;   /* simulation-canvas cyan */
+  --color-on-rail-active:    #0f2126;   /*  8.3:1 on it */
+
+  /* Charcoal bars that bracket a data table: the header row and the footer
+     summary. On a borderless, shadowless card the old --neutral-sunken bar was
+     within 1.03:1 of the page and read as nothing, so the table lost its frame
+     entirely. Graphite gives the table two hard edges instead. */
+  --color-bar-dark:          #1E2836;
+  --color-on-bar-dark:       #ffffff;   /* 14.9:1 */
+  --color-on-bar-dark-muted: #aab6c2;   /*  7.2:1 */
 
   /* Typography — Stitch's eight named steps */
-  --font-display:         'JetBrains Mono Variable', 'JetBrains Mono', monospace;
+  --font-display:         'Manrope Variable', 'Manrope', system-ui, sans-serif;
   --font-page-title:      'Schibsted Grotesk Variable', 'Schibsted Grotesk', system-ui, sans-serif;
   --font-card-title:      'Schibsted Grotesk Variable', 'Schibsted Grotesk', system-ui, sans-serif;
   --font-body:            'Schibsted Grotesk Variable', 'Schibsted Grotesk', system-ui, sans-serif;
   --font-meta:            'Schibsted Grotesk Variable', 'Schibsted Grotesk', system-ui, sans-serif;
   --font-eyebrow:         'Schibsted Grotesk Variable', 'Schibsted Grotesk', system-ui, sans-serif;
-  --font-monospace-data:  'JetBrains Mono Variable', 'JetBrains Mono', monospace;
-  --font-monospace-label: 'JetBrains Mono Variable', 'JetBrains Mono', monospace;
+  /* Names kept so ported Stitch markup still matches; the family is Manrope. */
+  --font-monospace-data:  'Manrope Variable', 'Manrope', system-ui, sans-serif;
+  --font-monospace-label: 'Manrope Variable', 'Manrope', system-ui, sans-serif;
+  /* Tailwind's own `font-mono` utility. Pointed at the code stack so the two
+     ideas stop being one: `font-mono` on a curl snippet keeps a real monospace,
+     while every FIGURE goes through --font-num / .mono / font-monospace-* and
+     lands on Manrope. */
+  --font-mono: 'JetBrains Mono Variable', 'JetBrains Mono', 'Fira Code', monospace;
 
   --text-display: 26px;
   --text-display--line-height: 32px;
@@ -194,17 +220,34 @@
   --spacing-inline-gap:        12px;
   --spacing-section-margin:    32px;
 
-  --radius-lg: 0.5rem;
-  --radius-xl: 0.75rem;
+  /* Corners, tightened. A 12px radius on a full-width panel is the single
+     loudest "generated dashboard" tell; 5-6px reads as a drawn edge rather
+     than a rounded blob, and small elements go tighter still. */
+  --radius-sm: 0.125rem;   /* 2px  */
+  --radius-md: 0.25rem;    /* 4px  */
+  --radius-lg: 0.3125rem;  /* 5px  */
+  --radius-xl: 0.375rem;   /* 6px  */
+  --radius-2xl: 0.5rem;    /* 8px — the largest thing in the product */
 }
 
 :root {
   /* ── Typography ──────────────────────────────────────────────── */
-  /* Schibsted Grotesk (self-hosted via @fontsource) is THE product font;
-     JetBrains Mono for numerals/code. No CDN fonts — index.html is clean. */
+  /* Schibsted Grotesk (self-hosted via @fontsource) is THE product font.
+     Manrope carries every FIGURE. No CDN fonts — index.html is clean.
+
+     Manrope is proportional, not monospace, so `tabular-nums` is not optional
+     here: it is the only thing keeping a column of dollar amounts aligned now
+     that the glyphs are no longer fixed-width. Every rule that sets --font-num
+     sets it too.
+
+     --font-code stays a true monospace and is used for ONE thing: literal code
+     the reader may copy (curl commands, JSON payloads). Proportional code
+     misaligns its own indentation, which is a different job from displaying a
+     number. */
   --font-sans: 'Schibsted Grotesk Variable', 'Schibsted Grotesk', system-ui, -apple-system, sans-serif;
-  --font-mono: 'JetBrains Mono Variable', 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
-  --font-num:  var(--font-mono);
+  --font-num:  'Manrope Variable', 'Manrope', system-ui, -apple-system, sans-serif;
+  --font-code: 'JetBrains Mono Variable', 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
+
 
   /* ── Type scale ──────────────────────────────────────────────── */
   /* Six steps. Rule: --fs-micro is the ONLY uppercase tier and appears at
@@ -267,12 +310,29 @@
   --aqua-soft: #ECF7F2;
   --aqua-line: #C3E3D5;
 
-  /* Amber — Attention. Brand amber fills; amber-ink is the readable sibling. */
-  --amber:      #F49D0A;
+  /* Amber — Attention. Brand amber fills; amber-ink is the readable sibling.
+     One definition: --caution-bg, --caution-line and --caution-ring all derive
+     from this, so the brand amber is changed in exactly one place. */
+  --amber:      #f59e0b;
   --amber-ink:  #9C6206;  /* 5.04:1 on white */
 
   /* Graphite — the one dark surface tone. */
   --graphite:   #1E2836;
+
+  /* Cyan — the third brand colour, and the only one of the three that carries
+     NO meaning. Deep blue speaks authority, amber signals attention, and both
+     are spoken for; the severity scale and the aquamarine "controlled" tone are
+     spoken for too. Cyan is deliberately semantic-free, which is exactly what
+     lets it be used for warmth: chart series, empty and waiting states,
+     progress, and brand chrome. Never for state.
+
+     At 1.65:1 on white it can never be text on a light ground — it is a FILL.
+     --cyan-ink is its readable sibling (5.26:1) for the rare text case. */
+  --cyan-tint:  #e1f7f9;   /* wash behind a selected or waiting surface */
+  --cyan-soft:  #c4eff3;   /* secondary fill, chart bands */
+  --cyan:       #71d9e2;   /* the brand third colour */
+  --cyan-ring:  #34c9d5;   /* strokes, lines, focus */
+  --cyan-ink:   #1a777f;   /* 5.26:1 on white */
 
   /* safe IS the brand's Controlled aquamarine and caution IS its Attention
      amber, so two of the four bands now carry the brand's own assigned
@@ -280,7 +340,17 @@
      2026-09-02). Bands separate by HUE, not luminance — keep pairing them with
      the number and the word. */
   --safe:        #0b7f66; --safe-bg:     #ecf7f2; --safe-line:     #c3e3d5;
-  --caution:     #9c6206; --caution-bg:  #fbf2e0; --caution-line:  #efdcb4;
+  /* The caution SURFACE is the brand amber itself, not its pale tint. Amber
+     fills need a dark foreground: --caution (#9c6206) reads 2.3:1 on #f49d0a
+     and is unusable there, so anything sitting ON --caution-bg takes
+     --on-caution. --caution stays the text tone for amber-on-white. */
+  --caution:     #9c6206; --caution-bg:  var(--amber);
+  /* The amber fill carries no outline: a darker rule around a solid block just
+     muddies its edge. Borders drawn with --caution-line therefore disappear on
+     amber and read as a clean amber hairline on white. Both derive from
+     --caution-bg, so changing the fill changes everything with it. */
+  --caution-line:  var(--caution-bg);
+  --on-caution:    #1E2836;  /* graphite, 6.85:1 on brand amber */
   /* High band (60-79) — added 2026-07-03. Orange-700 family: 5.4:1 on white,
      distinct from both amber (medium) and red (critical). Replaces the
      unreadable #fed7aa/#ea580c hardcodes. */
@@ -291,18 +361,23 @@
   --critical:    #b3261e; --critical-bg: #fbece8; --critical-line: #f3d6cf;
   /* Ring/score variants — slightly punchier than the text tones. */
   --safe-ring:     #0e9b7d;
-  --caution-ring:  #f49d0a;
+  --caution-ring:  var(--amber);
   --high-ring:     #d9560f;
   --critical-ring: #ad2418;
 
-  --shadow-card-new: 0 1px 2px rgba(15,15,15,.03);
+  /* No shadow anywhere. Separation is tonal: white card, tinted ground. */
+  --shadow-card-new: none;
 
   /* ── Surfaces ────────────────────────────────────────────────── */
   /* Aliased to handoff surfaces so legacy pages pick up the new palette.
      The page takes Stitch's tinted `surface` (#faf8ff) while cards stay
      pure white — that contrast is what makes a card read as floating
      rather than as a region fenced off by a hairline. */
-  --bg-page:          #faf8ff;
+  /* Cards carry no border and no shadow, so TONE is the only thing left to
+     separate them from the page. White on the old #faf8ff is 1.05:1, which is
+     invisible; this is Stitch's own `surface-container`, and at 1.16:1 a white
+     card reads as a distinct plane with nothing drawn around it. */
+  --bg-page:          #eeedf5;
   --bg-card:          var(--card);
   --bg-sunken:        var(--paper-2);
   --bg-overlay:       rgba(30, 40, 54, 0.52);
@@ -385,7 +460,7 @@
   --status-blocked-bg:   var(--critical-bg);
   --status-blocked:      var(--critical);
   --status-pending-bg:   var(--caution-bg);
-  --status-pending:      var(--caution);
+  --status-pending:      var(--on-caution);
 
   /* ── Shadows ─────────────────────────────────────────────────── */
   /* Near-flat (Notion pass): hairline borders separate surfaces; elevation
@@ -396,13 +471,13 @@
   --shadow-lg:    0 4px 12px rgba(15,15,15,0.08), 0 12px 32px rgba(15,15,15,0.10);
 
   /* ── Radii ───────────────────────────────────────────────────── */
-  --radius-sm:    4px;
+  --radius-sm:    2px;
   /* Buttons carry their own corner so every action matches the reference
      exactly (Tailwind `rounded`), independent of card radii. */
-  --radius-btn:   4px;
-  --radius-md:    6px;
-  --radius-lg:    8px;
-  --radius-xl:    10px;
+  --radius-btn:   3px;
+  --radius-md:    4px;
+  --radius-lg:    5px;
+  --radius-xl:    6px;
   --radius-full:  9999px;
 
   /* ── Chart series (forecast composition, fleet by-model) ─────── */
@@ -412,13 +487,25 @@
      palette was fixed for on 2026-08-27 ("the old set reused safe-green and
      high-orange, which made agent chips read as status").
 
-     Spend composition is a part-to-whole breakdown of ONE number, so it takes a
-     single-hue ramp off the brand deep blue, ordered by magnitude, rather than
-     three categorical colors. It reads as one total split into parts, and it
-     borrows no meaning from the severity or risk-label scales. */
+     Spend composition is a part-to-whole breakdown of ONE number, so it is a
+     magnitude-ordered ramp rather than categorical colors: it reads as one
+     total split into parts, and borrows no meaning from the severity or
+     risk-label scales. It now steps deep blue -> cyan -> pale instead of three
+     tints of one blue, because two brand hues separate the slices at a glance
+     where three tints of the same hue did not, and cyan carries no severity
+     meaning, so a bigger "tools" slice never reads as a worse one. */
   --chart-tokens:    #0E3C90;   /* largest slice — brand deep blue */
-  --chart-tools:     #5578B8;
-  --chart-infra:     #9DB3DC;
+  --chart-tools:     var(--cyan-ring);
+  --chart-infra:     var(--cyan-soft);
+  /* Categorical series (models, agents) where slices are peers, not a
+     part-to-whole ramp. Deliberately NOT the severity palette: a model name is
+     not a risk level, and painting Opus red said it was. */
+  --series-1:        #0E3C90;
+  --series-2:        var(--cyan-ring);
+  --series-3:        #5578B8;
+  --series-4:        var(--cyan-soft);
+  --series-5:        #9DB3DC;
+  --series-6:        var(--ink-400);
   --chart-grid:      var(--line-soft);
   --chart-axis:      var(--text-muted);
 }
@@ -447,7 +534,9 @@ body {
 
 /* ── Monospace contexts ──────────────────────────────────────────── */
 .mono {
-  font-family: var(--font-mono);
+  font-family: var(--font-num);
+  font-feature-settings: "tnum" 1;
+  font-variant-numeric: tabular-nums;
 }
 
 /* ── Spinner keyframe ────────────────────────────────────────────── */
@@ -496,8 +585,8 @@ body {
 
 /* ── Action buttons ───────────────────────────────────────────────────────
    One shape and one voice for every action in the product, taken from the
-   Sandbox "New Simulation" button: JetBrains Mono at the label step, a 4px
-   corner, 16/8 padding, an 8px icon gap.
+   Sandbox "New Simulation" button: the label type step, a 4px corner, 16/8
+   padding, an 8px icon gap.
 
    This covers ACTIONS. Tabs, segmented controls, icon-only toggles and
    controls styled as text links are different controls and keep their own
@@ -567,7 +656,7 @@ body {
 
 /* ─── Redesign primitives (handoff: tokens.css) ──────────────────── */
 .mono {
-  font-family: var(--font-num, var(--font-mono));
+  font-family: var(--font-num);
   font-feature-settings: "tnum" 1;
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.01em;
@@ -746,7 +835,6 @@ summary:focus-visible {
 /* Card chrome used across Cost portfolio and the spend dashboard. */
 .panel-card {
   background: var(--bg-card);
-  border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   padding: 20px;
 }
@@ -900,15 +988,15 @@ summary:focus-visible {
 .prov-chip--default {
   border-color: var(--caution-line);
   background: var(--caution-bg);
-  color: var(--amber-ink);
+  color: var(--on-caution);
 }
-.prov-chip--default .prov-chip__state { color: var(--amber-ink); }
+.prov-chip--default .prov-chip__state { color: var(--on-caution); }
 
 /* Monospace identifier chip. Every tool.action in the product reads the
    same way — measured, technical, quietly in the accent. */
 .tool-chip {
   display: inline-block;
-  font-family: var(--font-mono);
+  font-family: var(--font-num);
   font-size: 12.5px;
   line-height: 18px;
   color: var(--accent);
@@ -931,7 +1019,9 @@ summary:focus-visible {
   gap: 5px;
 }
 .stat-block__value {
-  font-family: var(--font-mono);
+  font-family: var(--font-num);
+  font-feature-settings: "tnum" 1;
+  font-variant-numeric: tabular-nums;
   font-size: 22px;
   font-weight: 600;
   color: var(--ink-900);

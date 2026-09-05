@@ -186,7 +186,7 @@ const SEVERITY_STYLES: Record<string, { bg: string; color: string }> = {
   /* Filled, not tinted — critical must read differently from high at a glance. */
   critical: { bg: "var(--critical)", color: "#fff" },
   high: { bg: "var(--high-bg)", color: "var(--high)" },
-  medium: { bg: "var(--caution-bg)", color: "var(--caution)" },
+  medium: { bg: "var(--caution-bg)", color: "var(--on-caution)" },
   low: { bg: "var(--safe-bg)", color: "var(--safe)" },
 };
 
@@ -215,9 +215,9 @@ const DECISION: Record<string, {
   },
   REQUIRE_APPROVAL: {
     label: "Require_approval", Icon: Banknote, fg: "var(--amber-ink)",
-    markerBg: "var(--caution-bg)", markerBorder: "var(--caution-line)", markerFg: "var(--amber-ink)",
+    markerBg: "var(--caution-bg)", markerBorder: "var(--caution-line)", markerFg: "var(--on-caution)",
     cardBorder: "var(--line)",
-    chipBg: "var(--caution-bg)", chipFg: "var(--amber-ink)", chipBorder: "var(--caution-line)",
+    chipBg: "var(--caution-bg)", chipFg: "var(--on-caution)", chipBorder: "var(--caution-line)",
   },
   BLOCK: {
     label: "Block", Icon: Send, fg: "var(--critical)",
@@ -578,7 +578,7 @@ export default function SimulationDetail() {
           <Link to="/sandbox" className="no-underline">
             <button
               type="button"
-              className="px-4 py-2 bg-surface-container-lowest border border-neutral-border text-on-surface-variant font-body text-body rounded-lg hover:bg-surface-container-low transition-colors shadow-sm cursor-pointer"
+              className="px-4 py-2 bg-surface-container-lowest text-on-surface-variant font-body text-body rounded-lg hover:bg-surface-container-low transition-colors cursor-pointer"
             >
               Back to Sandbox
             </button>
@@ -605,7 +605,7 @@ export default function SimulationDetail() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-4 items-start">
         {/* ── Execution trace ── */}
         <div className="lg:col-span-2 flex flex-col gap-6">
-          <div className="bg-surface-container-lowest border border-neutral-border rounded-xl shadow-sm overflow-hidden flex flex-col">
+          <div className="bg-surface-container-lowest rounded-xl overflow-hidden flex flex-col">
             <div className="p-6 border-b border-neutral-border flex justify-between items-center gap-3">
               <h2 className="font-card-title text-card-title text-on-surface m-0">Execution Trace</h2>
               <span className="px-2 py-1 bg-surface-container-low border border-neutral-border rounded text-monospace-label font-monospace-label text-neutral-secondary">
@@ -653,7 +653,7 @@ export default function SimulationDetail() {
                               {String(i + 1).padStart(2, "0")}
                             </div>
                             <div
-                              className="flex-1 min-w-0 rounded-lg p-4 shadow-sm transition-colors"
+                              className="flex-1 min-w-0 rounded-lg p-4 transition-colors"
                               style={{
                                 background: "var(--card)",
                                 border: `1px solid ${d.cardBorder}`,
@@ -712,7 +712,7 @@ export default function SimulationDetail() {
         {/* ── Right rail ── */}
         <div className="lg:col-span-1 flex flex-col gap-6">
           {report?.executive_summary && (
-            <div className="bg-surface-container-lowest border border-neutral-border rounded-xl shadow-sm flex flex-col">
+            <div className="bg-surface-container-lowest rounded-xl flex flex-col">
               <div className="p-6 border-b border-neutral-border">
                 <h2 className="font-card-title text-card-title text-on-surface m-0">Simulation Executive Summary</h2>
               </div>
@@ -726,7 +726,7 @@ export default function SimulationDetail() {
 
           {(violations.length > 0 || chains.length > 0) && (
             <div
-              className="border border-neutral-border rounded-xl shadow-sm flex flex-col"
+              className="rounded-xl flex flex-col"
               style={{ background: "var(--caution-bg)" }}
             >
               <div className="p-6 pb-4">
@@ -747,7 +747,7 @@ export default function SimulationDetail() {
                 ].map((v, i) => {
                   const sty = SEVERITY_STYLES[(v.severity ?? "").toLowerCase()] ?? { bg: "var(--paper-2)", color: "var(--ink-600)" };
                   return (
-                    <div key={i} className="bg-surface-container-lowest rounded-lg p-4 border border-neutral-border shadow-sm">
+                    <div key={i} className="bg-surface-container-lowest rounded-lg p-4">
                       <div className="flex items-start justify-between gap-2 mb-2">
                         <span className="font-monospace-data text-monospace-data text-on-surface">{v.title}</span>
                         <span
@@ -773,7 +773,7 @@ export default function SimulationDetail() {
 /** One result tile. The two failure tiles carry the canvas's corner wash. */
 function StatTile({ label, value, color, wash = false }: { label: string; value: number; color?: string; wash?: boolean }) {
   return (
-    <div className="bg-surface-container-lowest border border-neutral-border rounded-xl p-6 shadow-sm flex flex-col gap-2 relative overflow-hidden">
+    <div className="bg-surface-container-lowest rounded-xl p-6 flex flex-col gap-2 relative overflow-hidden">
       {wash && (
         <div
           className="absolute right-0 top-0 w-16 h-16 rounded-bl-full"
@@ -791,7 +791,7 @@ function StatTile({ label, value, color, wash = false }: { label: string; value:
 /** Precision/recall of violation detection against what the scenario expected. */
 function DetectionGrade({ grade }: { grade: NonNullable<SimulationDetailData["report"]["detection_grade"]> }) {
   return (
-    <div className="bg-surface-container-lowest border border-neutral-border rounded-xl shadow-sm p-6">
+    <div className="bg-surface-container-lowest rounded-xl p-6">
       <div className="flex items-center gap-2 mb-1">
         <Crosshair size={18} style={{ color: grade.passed ? "var(--aqua-deep)" : "var(--high)" }} />
         <h3 className="font-card-title text-card-title text-on-surface m-0">Detection grade</h3>
@@ -860,7 +860,7 @@ function Recommendations({
 }) {
   const actionable = items.filter((r) => typeof r !== "string" && r.actionable);
   return (
-    <div className="bg-surface-container-lowest border border-neutral-border rounded-xl shadow-sm p-6">
+    <div className="bg-surface-container-lowest rounded-xl p-6">
       <div className="flex items-center justify-between gap-3 mb-3">
         <h3 className="font-card-title text-card-title text-on-surface m-0 flex items-center gap-2">
           <Shield size={18} style={{ color: "var(--accent)" }} />

@@ -114,7 +114,7 @@ const SEVERITY_COLORS: Record<string, { bg: string; color: string; border: strin
   /* Filled, not tinted — critical must read differently from high at a glance. */
   critical: { bg: 'var(--critical)', color: '#fff', border: 'var(--critical)' },
   high:     { bg: 'var(--high-bg)', color: 'var(--high)', border: 'var(--high-line)' },
-  medium:   { bg: 'var(--caution-bg)', color: 'var(--caution)', border: 'var(--caution-line)' },
+  medium:   { bg: 'var(--caution-bg)', color: 'var(--on-caution)', border: 'var(--caution-line)' },
   info:     { bg: 'var(--accent-soft)', color: 'var(--accent-ink)', border: 'var(--accent-line)' },
 }
 
@@ -205,7 +205,7 @@ function PreflightCheck({ ok, okLabel, failLabel }: { ok: boolean; okLabel: stri
 const DECISION_STYLE: Record<string, { bg: string; color: string }> = {
   ALLOW:            { bg: 'var(--status-executed-bg)', color: 'var(--status-executed)' },
   BLOCK:            { bg: 'var(--status-blocked-bg)',  color: 'var(--status-blocked)' },
-  REQUIRE_APPROVAL: { bg: 'var(--status-pending-bg)',  color: 'var(--status-pending)' },
+  REQUIRE_APPROVAL: { bg: 'var(--status-pending-bg)',  color: 'var(--on-caution)' },
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -746,7 +746,7 @@ export default function Sandbox() {
         {/* ── Left: configuration ──────────────────────────────────── */}
         <div
           id="run-section"
-          className="w-full lg:w-80 shrink-0 flex flex-col gap-stack-gap bg-surface-container-lowest border border-neutral-border shadow-sm rounded-lg p-container-padding"
+          className="w-full lg:w-80 shrink-0 flex flex-col gap-stack-gap bg-surface-container-lowest rounded-lg p-container-padding"
         >
           {/* Agent selection */}
           <div className="flex flex-col gap-2" ref={agentSelectorRef}>
@@ -772,7 +772,7 @@ export default function Sandbox() {
                   <ChevronDown size={18} className="text-neutral-muted shrink-0" />
                 </button>
                 {agentOpen && (
-                  <div className="absolute z-30 top-full left-0 right-0 mt-1 bg-surface-container-lowest border border-neutral-border rounded-lg shadow-lg overflow-hidden max-h-72 overflow-y-auto">
+                  <div className="absolute z-30 top-full left-0 right-0 mt-1 bg-surface-container-lowest rounded-lg overflow-hidden max-h-72 overflow-y-auto">
                     {agents.map((a) => (
                       <button
                         key={a.id}
@@ -952,7 +952,7 @@ export default function Sandbox() {
 
         {/* ── Right: canvas + pre-flight ───────────────────────────── */}
         <div className="flex flex-col flex-1 gap-stack-gap min-w-0 w-full">
-          <div className="relative bg-surface-container-lowest border border-neutral-border shadow-sm rounded-lg p-container-padding flex flex-col overflow-hidden" style={{ minHeight: 520 }}>
+          <div className="relative bg-surface-container-lowest rounded-lg p-container-padding flex flex-col overflow-hidden" style={{ minHeight: 520 }}>
             <div className="flex items-center justify-between mb-4 z-10 relative">
               <span className="font-card-title text-card-title text-on-surface">Simulation canvas</span>
               <span className="font-monospace-label text-monospace-label text-neutral-muted">
@@ -1004,7 +1004,7 @@ export default function Sandbox() {
           </div>
 
           {/* Pre-flight checks */}
-          <div className="bg-surface-container-lowest border border-neutral-border shadow-sm rounded-lg p-container-padding shrink-0 flex flex-col sm:flex-row sm:items-center gap-6">
+          <div className="bg-surface-container-lowest rounded-lg p-container-padding shrink-0 flex flex-col sm:flex-row sm:items-center gap-6">
             <span className="font-eyebrow text-eyebrow text-neutral-secondary uppercase sm:min-w-[120px]">Pre-flight checks</span>
             <div className="flex-1 flex flex-wrap items-center gap-x-8 gap-y-4">
               <PreflightCheck
@@ -1090,7 +1090,7 @@ export default function Sandbox() {
                 return (
                   <div
                     key={sim.id}
-                    className="bg-white border border-gray-200 rounded-xl shadow-sm p-3 flex items-center gap-3"
+                    className="bg-white rounded-xl p-3 flex items-center gap-3"
                     style={{ borderLeftWidth: 3, borderLeftColor: scoreColor }}
                   >
                     <div className="flex flex-col items-center flex-shrink-0 w-10">

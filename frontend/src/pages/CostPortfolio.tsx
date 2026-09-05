@@ -33,8 +33,8 @@ const STATUS_TONE: Record<SourceStatus, string> = {
 type Confidence = "low" | "medium" | "high"
 
 const CONFIDENCE_CHIP: Record<Confidence, { label: string; bg: string; color: string; border: string; tooltip: string }> = {
-  low:    { label: "LOW CONFIDENCE",    bg: "var(--severity-medium-bg)",   color: "var(--severity-high)",     border: "var(--severity-medium-border)", tooltip: "Based on the agent's capabilities alone. Confidence improves as sandbox runs and live traces build up. The Data sources panel below shows what's connected." },
-  medium: { label: "MEDIUM CONFIDENCE", bg: "var(--severity-medium-bg)",   color: "var(--severity-medium)",   border: "var(--severity-medium-border)", tooltip: "Test runs measured how this agent behaves, like steps per task and response sizes. They can't see production volumes such as document sizes or which actions dominate real traffic, so the range stays wide on the high side. Connect live traffic to tighten it." },
+  low:    { label: "LOW CONFIDENCE",    bg: "var(--severity-medium-bg)",   color: "var(--on-caution)",     border: "var(--severity-medium-border)", tooltip: "Based on the agent's capabilities alone. Confidence improves as sandbox runs and live traces build up. The Data sources panel below shows what's connected." },
+  medium: { label: "MEDIUM CONFIDENCE", bg: "var(--severity-medium-bg)",   color: "var(--on-caution)",   border: "var(--severity-medium-border)", tooltip: "Test runs measured how this agent behaves, like steps per task and response sizes. They can't see production volumes such as document sizes or which actions dominate real traffic, so the range stays wide on the high side. Connect live traffic to tighten it." },
   high:   { label: "HIGH CONFIDENCE",   bg: "var(--severity-safe-bg)",     color: "var(--severity-safe)",     border: "var(--severity-safe-border)",   tooltip: "Based on this agent's real production calls. The longer the observed window, the more the monthly number can be trusted." },
 }
 
@@ -726,7 +726,7 @@ function CostPortfolioContent({
           <span
             className="align-middle ml-3 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full cursor-help"
             title="This agent's traffic is sample data we seeded for the demo. The math is real, but the calls were generated rather than captured from a live agent."
-            style={{ background: "var(--severity-medium-bg)", color: "var(--severity-high)", border: "1px solid var(--severity-medium-border)" }}
+            style={{ background: "var(--severity-medium-bg)", color: "var(--on-caution)", border: "1px solid var(--severity-medium-border)" }}
           >Demo data</span>
         )}
       </h1>
@@ -1186,8 +1186,8 @@ function CostPortfolioContent({
           {timeseries && timeseries.hasData ? (
             <ActualsChart data={timeseries} />
           ) : (
-            <div className="rounded-lg p-8 text-center" style={{ background: "var(--bg-sunken)", border: "1px dashed var(--border)" }}>
-              <TrendingUp size={28} className="mx-auto text-gray-400" />
+            <div className="rounded-lg p-8 text-center" style={{ background: "var(--cyan-tint)", border: "1px dashed var(--cyan-ring)" }}>
+              <TrendingUp size={28} className="mx-auto" style={{ color: "var(--cyan-ink)" }} />
               <div className="mt-3 text-sm font-semibold text-gray-700">Awaiting live data</div>
               <p className="mt-1 text-xs text-gray-500 max-w-md mx-auto leading-relaxed">
                 The actuals-vs-forecast view populates once live LLM traces accumulate. Connect production traces via the SDK's <span className="mono">wrap_llm()</span> helper, or import from LangSmith/LangFuse, to backfill the past 30 days.

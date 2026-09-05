@@ -36,7 +36,7 @@ const SOURCE_BADGE: Record<string, { label: string; bg: string; color: string }>
   sandbox:       { label: 'Sandbox simulation',  bg: '#f5f3ff',                     color: '#7c3aed' },
   boundary_test: { label: 'Boundary test',       bg: '#f5f3ff',                     color: '#7c3aed' },
   replay:        { label: 'Trace replay',        bg: '#f5f3ff',                     color: '#7c3aed' },
-  test:          { label: 'Test data (seeded)',  bg: 'var(--status-pending-bg)',    color: 'var(--status-pending)' },
+  test:          { label: 'Test data (seeded)',  bg: 'var(--status-pending-bg)',    color: 'var(--on-caution)' },
 }
 const UNKNOWN_SOURCE_BADGE = { label: 'Unlabeled (recorded before source tracking)', bg: 'var(--bg-sunken)', color: 'var(--text-muted)' }
 
@@ -290,7 +290,7 @@ export default function Approvals() {
           </p>
         </div>
         {approvals.length > 0 && (
-          <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold" style={{ background: 'var(--status-pending-bg)', color: 'var(--status-pending)', border: '1px solid var(--severity-medium-border)' }}>
+          <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold" style={{ background: 'var(--status-pending-bg)', color: 'var(--on-caution)', border: '1px solid var(--severity-medium-border)' }}>
             {approvals.length} pending
           </span>
         )}
@@ -384,7 +384,7 @@ export default function Approvals() {
             return (
               <div
                 key={a.id}
-                className="relative bg-white border border-gray-200 rounded-xl shadow-sm p-6 mb-6 overflow-hidden"
+                className="relative bg-white rounded-xl p-6 mb-6 overflow-hidden"
               >
                 {/* Post-decision flash overlay */}
                 {postDecision != null && (

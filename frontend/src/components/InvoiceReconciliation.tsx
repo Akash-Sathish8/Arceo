@@ -116,7 +116,7 @@ export default function InvoiceReconciliationPanel() {
               <span
                 className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full cursor-help"
                 title="This comparison uses a sample bill we seeded for the demo. Import your real provider export to reconcile against it."
-                style={{ background: "var(--severity-medium-bg)", color: "var(--severity-high)", border: "1px solid var(--severity-medium-border)" }}
+                style={{ background: "var(--severity-medium-bg)", color: "var(--on-caution)", border: "1px solid var(--severity-medium-border)" }}
               >Sample import</span>
             )}
           </h3>

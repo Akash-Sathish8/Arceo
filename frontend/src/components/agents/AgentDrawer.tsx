@@ -323,7 +323,6 @@ export default function AgentDrawer({
             style={{
               display: "flex",
               background: "#fff",
-              border: "1px solid var(--line)",
               borderRadius: 12,
               padding: "18px 8px",
               marginTop: 22,
@@ -470,7 +469,6 @@ export default function AgentDrawer({
             <div
               style={{
                 background: "#fff",
-                border: "1px solid var(--line)",
                 borderRadius: 12,
                 padding: "18px 20px",
                 boxShadow: "var(--shadow-card-new)",
@@ -514,7 +512,6 @@ export default function AgentDrawer({
               <div
                 style={{
                   background: "#fff",
-                  border: "1px solid var(--line)",
                   borderRadius: 12,
                   padding: "4px 20px",
                   boxShadow: "var(--shadow-card-new)",
@@ -528,7 +525,6 @@ export default function AgentDrawer({
               <div
                 style={{
                   background: "#fff",
-                  border: "1px solid var(--line)",
                   borderRadius: 12,
                   padding: "24px 20px",
                   textAlign: "center",

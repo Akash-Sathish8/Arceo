@@ -209,7 +209,7 @@ const RISK_LABELS: Record<string, string> = {
 const SEV_STYLE: Record<string, { bg: string; color: string }> = {
   critical: { bg: 'var(--critical-bg)', color: 'var(--critical)' },
   high: { bg: 'var(--high-bg)', color: 'var(--high)' },
-  medium: { bg: 'var(--caution-bg)', color: 'var(--caution)' },
+  medium: { bg: 'var(--caution-bg)', color: 'var(--on-caution)' },
 }
 
 const EFFECT_STYLE: Record<string, { bg: string; color: string }> = {
@@ -221,7 +221,7 @@ const EFFECT_STYLE: Record<string, { bg: string; color: string }> = {
 const EXEC_STATUS_STYLE: Record<string, { bg: string; color: string }> = {
   EXECUTED:         { bg: 'var(--status-executed-bg)', color: 'var(--status-executed)' },
   BLOCKED:          { bg: 'var(--status-blocked-bg)',  color: 'var(--status-blocked)' },
-  PENDING_APPROVAL: { bg: 'var(--status-pending-bg)',  color: 'var(--status-pending)' },
+  PENDING_APPROVAL: { bg: 'var(--status-pending-bg)',  color: 'var(--on-caution)' },
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -348,8 +348,8 @@ function AuthorityMap({ graph, serviceFilter }: AuthorityMapProps) {
               /* Graphite, not the accent: this selects a view, it doesn't
                  make a claim — the deep blue stays reserved for actions. */
               style={riskFilter === f
-                ? { background: 'var(--graphite)', color: '#ffffff', borderRadius: 'var(--radius-full)', border: 'none', padding: '5px 14px', fontSize: 12, fontWeight: 600, fontFamily: 'var(--font-mono)', cursor: 'pointer' }
-                : { background: 'var(--card)', border: '1px solid var(--line)', color: 'var(--ink-700)', borderRadius: 'var(--radius-full)', padding: '5px 14px', fontSize: 12, fontFamily: 'var(--font-mono)', cursor: 'pointer' }}
+                ? { background: 'var(--graphite)', color: '#ffffff', borderRadius: 'var(--radius-full)', border: 'none', padding: '5px 14px', fontSize: 12, fontWeight: 600, fontFamily: 'var(--font-num)', cursor: 'pointer' }
+                : { background: 'var(--card)', border: '1px solid var(--line)', color: 'var(--ink-700)', borderRadius: 'var(--radius-full)', padding: '5px 14px', fontSize: 12, fontFamily: 'var(--font-num)', cursor: 'pointer' }}
               className="hover:opacity-80 transition-opacity"
               onClick={() => setRiskFilter(f)}
             >
@@ -645,7 +645,6 @@ function WorstCasePanel({
       className="rounded-xl mb-4 overflow-hidden"
       style={{
         background: 'var(--card)',
-        border: '1px solid var(--line)',
         boxShadow: 'var(--shadow-card-new)',
       }}
     >
@@ -656,8 +655,8 @@ function WorstCasePanel({
         className="flex items-center gap-2 flex-wrap px-5 py-3"
         style={{ background: 'var(--caution-bg)', borderBottom: '1px solid var(--caution-line)' }}
       >
-        <AlertTriangle size={14} style={{ color: 'var(--amber-ink)' }} />
-        <span className="font-semibold uppercase" style={{ ...eyebrow, color: 'var(--amber-ink)' }}>
+        <AlertTriangle size={14} style={{ color: 'var(--on-caution)' }} />
+        <span className="font-semibold uppercase" style={{ ...eyebrow, color: 'var(--on-caution)' }}>
           Worst case
         </span>
         {topChain && sevStyle && (
@@ -671,7 +670,10 @@ function WorstCasePanel({
             {topChain.severity}-severity chain
           </span>
         )}
-        <span className="ml-auto text-xs" style={{ color: hasCoveringPolicy ? 'var(--safe)' : 'var(--critical)' }}>
+        {/* On the amber fill, the safe/critical text tones drop to ~2:1. The
+            coverage state is carried by the words, which the band still needs
+            to be readable. */}
+        <span className="ml-auto text-xs" style={{ color: 'var(--on-caution)', opacity: 0.85 }}>
           {hasCoveringPolicy ? 'Some steps are gated by your policies' : 'Nothing is gating this yet'}
         </span>
       </div>
@@ -871,7 +873,7 @@ function ActionPicker({ tools, selectedPatterns, onAdd }: ActionPickerProps) {
       </button>
 
       {open && (
-        <div className="absolute z-30 top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-xl shadow-lg overflow-hidden">
+        <div className="absolute z-30 top-full left-0 right-0 mt-1 bg-white rounded-xl overflow-hidden">
           <div className="p-2 border-b border-gray-100">
             <input
               autoFocus
@@ -1849,7 +1851,7 @@ export default function AgentDetail() {
                   <div className="fixed inset-0 z-40" onClick={() => setHeaderMenuOpen(false)} />
                   <div
                     className="absolute right-0 top-full mt-2 z-50"
-                    style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow-md)', minWidth: 160, padding: 4 }}
+                    style={{ background: 'var(--bg-card)', borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow-md)', minWidth: 160, padding: 4 }}
                   >
                     <button
                       type="button"
@@ -1884,7 +1886,7 @@ export default function AgentDetail() {
       </div>
 
       {/* Header card */}
-      <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-6 mb-6">
+      <div className="bg-white rounded-xl p-6 mb-6">
         <div className="flex items-start justify-between gap-4">
           {editMode ? (
             <form className="flex-1 space-y-2" onSubmit={handleEdit}>
@@ -1933,7 +1935,7 @@ export default function AgentDetail() {
                       style={{
                         display: 'inline-flex', alignItems: 'center', gap: 7,
                         padding: '5px 11px', fontSize: 12.5, fontWeight: 500,
-                        fontFamily: 'var(--font-mono)', borderRadius: 999, cursor: 'pointer',
+                        fontFamily: 'var(--font-num)', borderRadius: 999, cursor: 'pointer',
                         border: isActive ? '1.5px solid var(--accent)' : '1px solid var(--line)',
                         background: isActive ? 'var(--accent-soft)' : 'var(--paper-2)',
                         color: isActive ? 'var(--accent-ink)' : 'var(--ink-700)',
@@ -2216,7 +2218,7 @@ export default function AgentDetail() {
       </div>
 
       {activeTab === 'graph' && (
-        <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-6 mb-6">
+        <div className="bg-white rounded-xl p-6 mb-6">
           <div className="flex items-center justify-between mb-4">
             <h2 className="font-semibold text-gray-800 flex items-center gap-1.5">
               Tool Map
@@ -2245,7 +2247,7 @@ export default function AgentDetail() {
       {/* ── Tab: Policies ── */}
       {activeTab === 'policies' && (
         <div
-          className="bg-white border border-gray-200 rounded-xl shadow-sm p-6 mb-6 relative z-10"
+          className="bg-white rounded-xl p-6 mb-6 relative z-10"
           ref={policySectionRef}
         >
           <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
@@ -2643,7 +2645,7 @@ export default function AgentDetail() {
 
       {/* ── Tab: Executions ── */}
       {activeTab === 'executions' && (
-        <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-6 mb-6">
+        <div className="bg-white rounded-xl p-6 mb-6">
           <h2 className="font-semibold text-gray-800 mb-3">
             Recent Executions ({executions?.length ?? 0})
           </h2>
@@ -2713,7 +2715,7 @@ export default function AgentDetail() {
 
       {/* ── Tab: Chains ── */}
       {activeTab === 'chains' && (
-        <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-6 mb-6">
+        <div className="bg-white rounded-xl p-6 mb-6">
           <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
             <h2 className="font-semibold text-gray-800 flex items-center gap-1.5">
               Dangerous Chains ({chains.length})
@@ -2901,7 +2903,7 @@ export default function AgentDetail() {
       {/* ── Recommendations rail ── */}
       <div className="lg:col-span-4 min-w-0">
       {visibleRecs.length > 0 && (
-        <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-6 mb-6">
+        <div className="bg-white rounded-xl p-6 mb-6">
           <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
             <h2 className="font-semibold text-gray-800 flex items-center gap-1.5">
               Recommendations ({visibleRecs.length})
@@ -2942,7 +2944,7 @@ export default function AgentDetail() {
                   <ChevronDown className={`w-3.5 h-3.5 transition-transform ${showRecsMenu ? 'rotate-180' : ''}`} />
                 </button>
                 {showRecsMenu && (
-                  <div className="absolute right-0 top-full mt-1 w-72 bg-white border border-gray-200 rounded-xl shadow-lg z-20">
+                  <div className="absolute right-0 top-full mt-1 w-72 bg-white rounded-xl z-20">
                     <div className="flex items-center justify-between px-3 py-2 border-b border-gray-100">
                       <span className="text-xs font-medium text-gray-600">Select to apply</span>
                       <button
@@ -3031,7 +3033,7 @@ export default function AgentDetail() {
       </div>
 
       {/* ── Integration Guide ── */}
-      <div className="bg-white border border-gray-200 rounded-xl shadow-sm mb-4 overflow-hidden">
+      <div className="bg-white rounded-xl mb-4 overflow-hidden">
         <button
           className="w-full flex items-center justify-between px-5 py-4 text-sm text-gray-900 hover:bg-gray-50 transition-colors"
           onClick={() => setShowIntegration((v) => !v)}

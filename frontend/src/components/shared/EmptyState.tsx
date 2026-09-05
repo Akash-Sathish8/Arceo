@@ -26,7 +26,10 @@ export default function EmptyState({ icon, title, body, action, compact }: Empty
           style={{
             display: "grid", placeItems: "center",
             width: 44, height: 44, borderRadius: "var(--radius-full)",
-            background: "var(--paper-2)", color: "var(--ink-400)", marginBottom: 4,
+            // Empty is not an error. Cyan is the one brand colour with no
+            // state attached, so a blank screen can be warm without implying
+            // anything is wrong.
+            background: "var(--cyan-tint)", color: "var(--cyan-ink)", marginBottom: 4,
           }}
         >
           {icon}

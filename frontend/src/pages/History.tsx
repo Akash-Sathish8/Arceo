@@ -85,7 +85,7 @@ const STATUS_CONFIG: Record<string, { bg: string; color: string; label: string }
   {
     EXECUTED: { bg: "var(--status-executed-bg)", color: "var(--status-executed)", label: "Executed" },
     BLOCKED: { bg: "var(--status-blocked-bg)",  color: "var(--status-blocked)",  label: "Blocked" },
-    PENDING_APPROVAL: { bg: "var(--status-pending-bg)",  color: "var(--status-pending)",  label: "Pending" },
+    PENDING_APPROVAL: { bg: "var(--status-pending-bg)",  color: "var(--on-caution)",  label: "Pending" },
   };
 
 const TIME_FILTERS: { value: TimeFilter; label: string }[] = [
@@ -534,7 +534,7 @@ export default function History(): React.ReactElement {
                             <span
                               title={meta.label}
                               style={{
-                                fontFamily: 'var(--font-mono)', fontSize: 10.5,
+                                fontFamily: 'var(--font-num)', fontSize: 10.5,
                                 letterSpacing: 0.4, textTransform: 'uppercase',
                                 color: meta.dot,
                               }}
@@ -655,7 +655,7 @@ export default function History(): React.ReactElement {
                         )}
                       </div>
                     </td>
-                    <td style={{ ...TD_STYLE, fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--ink-500)' }}>
+                    <td style={{ ...TD_STYLE, fontFamily: 'var(--font-num)', fontSize: 12, color: 'var(--ink-500)' }}>
                       {e.resource ?? <span style={{ color: 'var(--ink-300)' }}>None</span>}
                     </td>
                     <td style={{ ...TD_STYLE, fontSize: 'var(--fs-small)', color: 'var(--ink-500)' }}>
@@ -711,7 +711,7 @@ function SegControl<T extends string>({
             style={{
               border: 'none', borderRadius: 'var(--radius-btn)', padding: '5px 12px',
               cursor: 'pointer', whiteSpace: 'nowrap',
-              fontFamily: 'var(--font-mono)', fontSize: 12,
+              fontFamily: 'var(--font-num)', fontSize: 12,
               background: active ? 'var(--card)' : 'transparent',
               color: active ? 'var(--ink-900)' : 'var(--ink-500)',
               boxShadow: active ? '0 1px 2px rgba(15,15,15,.06)' : 'none',

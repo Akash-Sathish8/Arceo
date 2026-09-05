@@ -757,7 +757,7 @@ export default function Authority() {
                     onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.borderColor = 'var(--text-secondary)'; (e.currentTarget as HTMLButtonElement).style.boxShadow = '0 1px 6px rgba(0,0,0,0.06)' }}
                     onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.borderColor = 'var(--border)'; (e.currentTarget as HTMLButtonElement).style.boxShadow = 'none' }}
                   >
-                    <div style={{ width: 28, height: 28, borderRadius: 6, background: 'var(--bg)', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <div style={{ width: 28, height: 28, borderRadius: 6, background: 'var(--bg)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                       <Icon size={14} style={{ color: 'var(--text-muted)' }} />
                     </div>
                     <div>
@@ -810,7 +810,7 @@ export default function Authority() {
               ) => (
                 <div style={{
                   position: 'absolute', top: 'calc(100% + 4px)', left: 0,
-                  background: '#fff', border: '1px solid var(--border)',
+                  background: '#fff',
                   borderRadius: 'var(--radius-lg)',
                   boxShadow: 'var(--shadow-md)',
                   minWidth: 240, zIndex: 50, padding: 4,
@@ -1322,7 +1322,6 @@ export default function Authority() {
             style={{
               textAlign: 'left', width: '100%', font: 'inherit',
               background: 'var(--card)',
-              border: '1px solid var(--line)',
               borderRadius: 'var(--radius-lg)',
               padding: '18px 20px',
               boxShadow: 'var(--shadow-card-new)',
@@ -1375,7 +1374,6 @@ export default function Authority() {
               <div
                 style={{
                   background: 'var(--card)',
-                  border: '1px solid var(--line)',
                   borderRadius: 12,
                   padding: '18px 20px',
                   boxShadow: 'var(--shadow-card-new)',
@@ -1432,7 +1430,6 @@ export default function Authority() {
               <div
                 style={{
                   background: 'var(--card)',
-                  border: '1px solid var(--line)',
                   borderRadius: 12,
                   padding: '18px 20px',
                   boxShadow: 'var(--shadow-card-new)',
@@ -1500,7 +1497,6 @@ export default function Authority() {
               <div
                 style={{
                   background: 'var(--card)',
-                  border: '1px solid var(--line)',
                   borderRadius: 12,
                   padding: '4px 20px',
                   boxShadow: 'var(--shadow-card-new)',
@@ -1860,17 +1856,17 @@ export default function Authority() {
           </div>
 
           {visible.length === 0 ? (
-            <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: '40px 24px', textAlign: 'center', boxShadow: 'var(--shadow-card-new)' }}>
+            <div style={{ background: 'var(--card)', borderRadius: 14, padding: '40px 24px', textAlign: 'center', boxShadow: 'var(--shadow-card-new)' }}>
               <div style={{ fontSize: 15, fontWeight: 500, color: 'var(--ink-600)' }}>No risk chains match this filter.</div>
               <div style={{ fontSize: 13.5, color: 'var(--ink-400)', marginTop: 6 }}>
                 {allChains.length === 0 ? 'Run a simulation to surface dangerous capability sequences.' : 'Switch to All to see every chain across the fleet.'}
               </div>
             </div>
           ) : (
-            <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, boxShadow: 'var(--shadow-card-new)', overflow: 'hidden' }}>
+            <div style={{ background: 'var(--card)', borderRadius: 14, boxShadow: 'var(--shadow-card-new)', overflow: 'hidden' }}>
               {visible.map((c, i) => {
                 const sev = sevKey(c.severity)
-                const sevColor = sev === 'critical' ? 'var(--critical)' : 'var(--caution)'
+                const sevColor = sev === 'critical' ? 'var(--critical)' : 'var(--on-caution)'
                 const sevBg    = sev === 'critical' ? 'var(--critical-bg)' : 'var(--caution-bg)'
                 return (
                   <div

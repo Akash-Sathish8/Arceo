@@ -95,12 +95,12 @@ const GRAPH_NODES: GraphNode[] = [
   { id: 2,  xPct: 88, yPct: 83, r: 26, type: 'large',  fill: '#111827',                        label: 'Database',     opacity: 0.88, driftXAmp: 14, driftXFreq: 0.70, driftXPhase: 1.0, driftYAmp: 17, driftYFreq: 1.02, driftYPhase: 0.7 },
   { id: 3,  xPct: 9,  yPct: 85, r: 26, type: 'large',  fill: '#111827',                        label: 'Email',        opacity: 0.88, driftXAmp: 20, driftXFreq: 0.88, driftXPhase: 2.3, driftYAmp: 14, driftYFreq: 0.75, driftYPhase: 1.8 },
   // Medium nodes (r=16, 32px diameter) — white fill, 2px stroke
-  { id: 4,  xPct: 27, yPct: 7,  r: 16, type: 'medium', fill: '#ffffff', stroke: '#9ca3af', strokeWidth: 1.5, opacity: 0.80, driftXAmp: 17, driftXFreq: 1.02, driftXPhase: 0.8, driftYAmp: 20, driftYFreq: 0.82, driftYPhase: 3.0 },
-  { id: 5,  xPct: 67, yPct: 18, r: 16, type: 'medium', fill: '#ffffff', stroke: '#9ca3af', strokeWidth: 1.5, opacity: 0.78, driftXAmp: 21, driftXFreq: 0.75, driftXPhase: 1.5, driftYAmp: 16, driftYFreq: 0.98, driftYPhase: 0.3 },
-  { id: 6,  xPct: 93, yPct: 42, r: 16, type: 'medium', fill: '#ffffff', stroke: '#9ca3af', strokeWidth: 1.5, opacity: 0.82, driftXAmp: 15, driftXFreq: 0.88, driftXPhase: 2.8, driftYAmp: 19, driftYFreq: 0.68, driftYPhase: 1.1 },
-  { id: 7,  xPct: 78, yPct: 63, r: 16, type: 'medium', fill: '#ffffff', stroke: '#9ca3af', strokeWidth: 1.5, opacity: 0.76, driftXAmp: 18, driftXFreq: 0.80, driftXPhase: 0.2, driftYAmp: 15, driftYFreq: 1.08, driftYPhase: 2.5 },
-  { id: 8,  xPct: 30, yPct: 87, r: 16, type: 'medium', fill: '#ffffff', stroke: '#9ca3af', strokeWidth: 1.5, opacity: 0.80, driftXAmp: 22, driftXFreq: 0.65, driftXPhase: 1.7, driftYAmp: 14, driftYFreq: 0.88, driftYPhase: 0.9 },
-  { id: 9,  xPct: 5,  yPct: 53, r: 16, type: 'medium', fill: '#ffffff', stroke: '#9ca3af', strokeWidth: 1.5, opacity: 0.82, driftXAmp: 16, driftXFreq: 0.93, driftXPhase: 3.2, driftYAmp: 21, driftYFreq: 0.72, driftYPhase: 1.4 },
+  { id: 4,  xPct: 27, yPct: 7,  r: 16, type: 'medium', fill: 'var(--cyan-tint)', stroke: 'var(--cyan-ring)', strokeWidth: 1.5, opacity: 0.80, driftXAmp: 17, driftXFreq: 1.02, driftXPhase: 0.8, driftYAmp: 20, driftYFreq: 0.82, driftYPhase: 3.0 },
+  { id: 5,  xPct: 67, yPct: 18, r: 16, type: 'medium', fill: 'var(--cyan-tint)', stroke: 'var(--cyan-ring)', strokeWidth: 1.5, opacity: 0.78, driftXAmp: 21, driftXFreq: 0.75, driftXPhase: 1.5, driftYAmp: 16, driftYFreq: 0.98, driftYPhase: 0.3 },
+  { id: 6,  xPct: 93, yPct: 42, r: 16, type: 'medium', fill: 'var(--cyan-tint)', stroke: 'var(--cyan-ring)', strokeWidth: 1.5, opacity: 0.82, driftXAmp: 15, driftXFreq: 0.88, driftXPhase: 2.8, driftYAmp: 19, driftYFreq: 0.68, driftYPhase: 1.1 },
+  { id: 7,  xPct: 78, yPct: 63, r: 16, type: 'medium', fill: 'var(--cyan-tint)', stroke: 'var(--cyan-ring)', strokeWidth: 1.5, opacity: 0.76, driftXAmp: 18, driftXFreq: 0.80, driftXPhase: 0.2, driftYAmp: 15, driftYFreq: 1.08, driftYPhase: 2.5 },
+  { id: 8,  xPct: 30, yPct: 87, r: 16, type: 'medium', fill: 'var(--cyan-tint)', stroke: 'var(--cyan-ring)', strokeWidth: 1.5, opacity: 0.80, driftXAmp: 22, driftXFreq: 0.65, driftXPhase: 1.7, driftYAmp: 14, driftYFreq: 0.88, driftYPhase: 0.9 },
+  { id: 9,  xPct: 5,  yPct: 53, r: 16, type: 'medium', fill: 'var(--cyan-tint)', stroke: 'var(--cyan-ring)', strokeWidth: 1.5, opacity: 0.82, driftXAmp: 16, driftXFreq: 0.93, driftXPhase: 3.2, driftYAmp: 21, driftYFreq: 0.72, driftYPhase: 1.4 },
   // Small nodes (r=9, 18px diameter) — light gray fill, thin stroke
   { id: 10, xPct: 4,  yPct: 30, r: 9,  type: 'small',  fill: '#f3f4f6', stroke: '#d1d5db', strokeWidth: 1, opacity: 0.80, driftXAmp: 20, driftXFreq: 1.05, driftXPhase: 0.4, driftYAmp: 16, driftYFreq: 0.80, driftYPhase: 2.8 },
   { id: 11, xPct: 46, yPct: 4,  r: 9,  type: 'small',  fill: '#f3f4f6', stroke: '#d1d5db', strokeWidth: 1, opacity: 0.72, driftXAmp: 18, driftXFreq: 0.88, driftXPhase: 1.2, driftYAmp: 19, driftYFreq: 1.00, driftYPhase: 0.6 },
@@ -281,7 +281,7 @@ function NodeGraph() {
           key={i}
           data-edge={String(i)}
           x1="0" y1="0" x2="0" y2="0"
-          stroke={edge.isRed ? 'var(--critical-line)' : '#d1d5db'}
+          stroke={edge.isRed ? 'var(--critical-line)' : 'var(--cyan-soft)'}
           strokeWidth={edge.isRed ? 2 : 1.5}
           strokeDasharray={edge.isRed ? '6 3' : undefined}
           className={edge.isRed ? 'lgn-red-edge' : undefined}

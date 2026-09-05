@@ -77,7 +77,6 @@ export default function FleetStrip({
           key={c.label}
           style={{
             background: "var(--card)",
-            border: "1px solid var(--line)",
             borderRadius: 12,
             boxShadow: "var(--shadow-card-new)",
             padding: "16px 20px",

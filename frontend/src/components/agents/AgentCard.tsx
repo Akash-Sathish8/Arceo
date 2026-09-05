@@ -218,7 +218,6 @@ export default function AgentCard({ agent, onOpen }: AgentCardProps): React.Reac
       }}
       style={{
         background: "var(--card)",
-        border: "1px solid var(--line)",
         // Severity reads before anything else is parsed — the eye should land
         // on the riskiest row without reading a number first.
         borderLeft: `3px solid ${b.ring}`,
@@ -330,7 +329,7 @@ function DeploymentSlot({ agent }: { agent: AgentCardData }): React.ReactElement
           style={{
             display: "inline-flex", alignItems: "center", gap: 4,
             fontSize: "var(--fs-micro)", fontWeight: 600,
-            color: "var(--caution)", background: "var(--caution-bg)",
+            color: "var(--on-caution)", background: "var(--caution-bg)",
             border: "1px solid var(--caution-line)",
             borderRadius: 999, padding: "2px 8px", whiteSpace: "nowrap",
           }}

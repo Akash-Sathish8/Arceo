@@ -2,8 +2,8 @@
  * The product's action button.
  *
  * Shape and voice come from one place — the `.btn` classes in index.css,
- * taken from the Sandbox "New Simulation" button (JetBrains Mono at the label
- * step, 4px corner, 16/8 padding). Variants only change colour; nothing here
+ * taken from the Sandbox "New Simulation" button (the label type step, 4px
+ * corner, 16/8 padding). Variants only change colour; nothing here
  * may change the geometry, or the buttons drift apart again.
  *
  * This is for ACTIONS. Tabs, segmented controls and icon-only toggles are

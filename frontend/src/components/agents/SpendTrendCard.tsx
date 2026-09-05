@@ -99,7 +99,6 @@ export default function SpendTrendCard({ compact = false }: { compact?: boolean 
         ? { fontFamily: "var(--font-sans)" }
         : {
             background: "var(--card)",
-            border: "1px solid var(--line)",
             borderRadius: 12,
             padding: "18px 24px 12px",
             boxShadow: "var(--shadow-card-new)",
@@ -126,7 +125,8 @@ export default function SpendTrendCard({ compact = false }: { compact?: boolean 
               style={{
                 display: "inline-flex", alignItems: "center", gap: 4,
                 fontSize: 12, fontWeight: 600,
-                color: rising ? "var(--caution)" : "var(--safe)",
+                // Amber fill needs the on-amber ink; --caution reads 2.3:1 on it.
+                color: rising ? "var(--on-caution)" : "var(--safe)",
                 background: rising ? "var(--caution-bg)" : "var(--safe-bg)",
                 border: `1px solid ${rising ? "var(--caution-line)" : "var(--safe-line)"}`,
                 borderRadius: 7, padding: "2px 8px",
@@ -189,7 +189,10 @@ export default function SpendTrendCard({ compact = false }: { compact?: boolean 
                 </text>
               ) : null,
             )}
-            <path d={geom.area} fill="var(--accent)" opacity={0.1} />
+            {/* Cyan under a deep-blue line: the fill is decoration, so it
+                takes the brand colour that means nothing, and the line keeps
+                the authority tone that carries the reading. */}
+            <path d={geom.area} fill="var(--cyan)" opacity={0.22} />
             <path d={geom.line} fill="none" stroke="var(--accent-ink)" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
             {hover && (
               <g>
