@@ -282,11 +282,11 @@ export default function AgentCard({ agent, onOpen }: AgentCardProps): React.Reac
 const MISMATCH_COPY: Record<"stalled" | "ungoverned", { label: string; title: string }> = {
   stalled: {
     label: "Stalled",
-    title: "Declared production, but has never run — shipped nothing, or failed silently.",
+    title: "Declared production, but it has never run. Either it shipped nothing or it is failing silently.",
   },
   ungoverned: {
     label: "Ungoverned",
-    title: "Declared dev/staging, but carrying live traffic — production load on an agent nobody signed off.",
+    title: "Declared dev or staging, but carrying live traffic. That is production load on an agent nobody signed off.",
   },
 };
 
@@ -343,8 +343,8 @@ function DeploymentSlot({ agent }: { agent: AgentCardData }): React.ReactElement
         className="mono"
         title={
           state === "deployed"
-            ? "Deployed — observed traffic in the last 7 days, or a recorded execution."
-            : "Pre-deployment — no execution and no captured calls in the last 7 days."
+            ? "Deployed. We saw traffic in the last 7 days, or a recorded execution."
+            : "Pre-deployment. Nothing has run and we captured no calls in the last 7 days."
         }
         style={{
           fontSize: "var(--fs-micro)", color: "var(--ink-400)",

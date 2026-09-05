@@ -138,7 +138,7 @@ export default function SpendTrendCard({ compact = false }: { compact?: boolean 
           </div>
         </div>
         <span
-          title="Placeholder series — will be wired to forecast snapshots"
+          title="Placeholder series, to be wired to forecast snapshots"
           style={{
             fontSize: 11, fontWeight: 500, color: "var(--ink-400)",
             border: "1px dashed var(--line)", borderRadius: 6, padding: "3px 8px", whiteSpace: "nowrap",
@@ -151,7 +151,7 @@ export default function SpendTrendCard({ compact = false }: { compact?: boolean 
       {compact && (
         <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 4 }}>
           <span
-            title="Placeholder series — will be wired to forecast snapshots"
+            title="Placeholder series, to be wired to forecast snapshots"
             style={{
               fontSize: 11, fontWeight: 500, color: "var(--ink-400)",
               border: "1px dashed var(--line)", borderRadius: 6, padding: "3px 8px", whiteSpace: "nowrap",

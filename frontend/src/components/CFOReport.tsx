@@ -154,7 +154,7 @@ function Badge({ tone, label }: { tone: "low" | "medium" | "high"; label: string
 
 export function CFOReport({ data }: { data: CFOReportData }) {
   return (
-    <Document title={`${data.agentDisplayName} — CFO Report`}>
+    <Document title={`${data.agentDisplayName} CFO Report`}>
       <Page size="LETTER" style={styles.page}>
         {/* Header */}
         <View style={styles.topbar}>
@@ -173,7 +173,7 @@ export function CFOReport({ data }: { data: CFOReportData }) {
         {data.isDemo && (
           <View style={styles.demoBanner}>
             <Text style={styles.demoBannerText}>
-              DEMO DATA — the traffic behind these numbers is illustrative, not measured
+              DEMO DATA. The traffic behind these numbers is illustrative, not measured
             </Text>
           </View>
         )}
@@ -198,7 +198,7 @@ export function CFOReport({ data }: { data: CFOReportData }) {
           <View style={[styles.numberRow, { marginTop: 8 }]}>
             <Text style={styles.numberLabel}>Likely range</Text>
             <Text style={styles.numberValue}>
-              {fmtUsd(data.monthlyLow)} – {fmtUsd(data.monthlyHigh)}
+              {fmtUsd(data.monthlyLow)} to {fmtUsd(data.monthlyHigh)}
             </Text>
           </View>
           <View style={styles.numberRow}>

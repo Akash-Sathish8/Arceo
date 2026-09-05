@@ -17,6 +17,7 @@
 import { useEffect, useRef } from "react";
 import {
   Activity, AlertTriangle, FileUp, KeyRound, Link2, PlusCircle, ChevronsUpDown,
+  Search, Gauge, Check,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
@@ -35,6 +36,25 @@ export interface ModalAgent {
 
 /** The sentinel the "Custom or More…" card selects. */
 export const CUSTOM_SCENARIO_ID = "__custom__";
+
+/**
+ * Why the run is happening. The two answers want different scenarios and
+ * different settings, and conflating them is how someone ends up running an
+ * adversarial dry run and wondering why their forecast is still LOW.
+ *
+ * `explore` — probe what could go wrong. Any scenario, dry run allowed.
+ * `calibrate` — measure how this agent actually behaves so the forecast can
+ *   leave the capability-only tier. Normal-path scenarios, real model, no
+ *   dry run (see CALIBRATION_NOTE).
+ */
+export type RunPurpose = "explore" | "calibrate";
+
+/** The one constraint the calibrate path cannot bend, stated where it is set.
+ *  `_sandbox_traces_for_tier` selects `run_mode = 'live'` only, and
+ *  `compute_sandbox_averages` needs `turn_usage` with non-zero tokens — a dry
+ *  run appends neither, so it is not a weaker measurement but no measurement. */
+export const CALIBRATION_NOTE =
+  "A dry run records no token usage, so it cannot move the forecast. This runs against the real model.";
 
 const CATEGORY_ICON: Record<string, LucideIcon> = {
   adversarial: AlertTriangle,
@@ -62,6 +82,16 @@ interface Props {
   agents: ModalAgent[];
   agentId: string;
   onAgentChange: (id: string) => void;
+  purpose: RunPurpose;
+  onPurposeChange: (p: RunPurpose) => void;
+  /** The normal-path scenarios the calibrate path will run, in order. */
+  calibrationScenarios: ModalScenario[];
+  /** This agent's current forecast tier, so the dialog can say what the run
+   *  will actually change rather than promising a jump it may not produce. */
+  currentConfidence?: "low" | "medium" | "high" | null;
+  /** More than one agent means a bulk calibration queued from the fleet spend
+   *  page — the agent picker gives way to the queue it was handed. */
+  queuedAgents?: ModalAgent[];
   /** Full catalogue; the first three are featured as cards. */
   scenarios: ModalScenario[];
   scenarioId: string;
@@ -78,6 +108,8 @@ interface Props {
 
 export default function NewSimulationModal({
   open, onClose, agents, agentId, onAgentChange,
+  purpose, onPurposeChange, calibrationScenarios, currentConfidence,
+  queuedAgents = [],
   scenarios, scenarioId, onScenarioChange,
   strictMode, onStrictModeChange,
   mockExternal, onMockExternalChange,
@@ -103,6 +135,9 @@ export default function NewSimulationModal({
   if (!open) return null;
 
   const featured = scenarios.slice(0, 3);
+  const calibrating = purpose === "calibrate";
+  const queued = calibrating && queuedAgents.length > 1 ? queuedAgents : [];
+  const runCount = queued.length || 1;
 
   return (
     <div
@@ -135,7 +170,57 @@ export default function NewSimulationModal({
 
         {/* Body */}
         <div className="p-8 space-y-8">
-          {/* Agent selection */}
+          {/* Run purpose — asked first, because it changes what the rest of the
+              dialog offers. */}
+          <div className="flex flex-col gap-3">
+            <span className="text-eyebrow font-eyebrow text-neutral-secondary uppercase tracking-widest">
+              Run Purpose
+            </span>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <PurposeCard
+                Icon={Search}
+                title="Explore risk"
+                description="Probe what this agent could do wrong. Any scenario, dry run or real model."
+                checked={!calibrating}
+                onSelect={() => onPurposeChange("explore")}
+              />
+              <PurposeCard
+                Icon={Gauge}
+                title="Calibrate the forecast"
+                description={
+                  currentConfidence === "low"
+                    ? "Measure how this agent behaves so its spend forecast leaves LOW confidence."
+                    : "Re-measure this agent's behaviour to refresh the sandbox basis of its forecast."
+                }
+                checked={calibrating}
+                onSelect={() => onPurposeChange("calibrate")}
+              />
+            </div>
+          </div>
+
+          {/* Agent selection — replaced by the queue when the fleet page has
+              already chosen who runs. */}
+          {queued.length > 0 ? (
+            <div className="flex flex-col gap-3">
+              <span className="text-eyebrow font-eyebrow text-neutral-secondary uppercase tracking-widest">
+                Queue &middot; {queued.length} agents
+              </span>
+              <div className="rounded border border-neutral-border divide-y divide-neutral-border">
+                {queued.map((a) => (
+                  <div key={a.id} className="px-5 py-3 flex items-center justify-between gap-3">
+                    <span className="text-body font-body text-on-surface truncate">{a.name}</span>
+                    <span className="text-monospace-label font-monospace-label text-neutral-secondary shrink-0">
+                      LOW
+                    </span>
+                  </div>
+                ))}
+              </div>
+              <p className="text-meta font-meta text-neutral-secondary m-0">
+                Runs one after another, {calibrationScenarios.length} scenarios each, for{" "}
+                {queued.length * calibrationScenarios.length} simulations in total.
+              </p>
+            </div>
+          ) : (
           <div className="flex flex-col gap-3">
             <label
               htmlFor="configure-simulation-agent"
@@ -160,8 +245,51 @@ export default function NewSimulationModal({
               </div>
             </div>
           </div>
+          )}
+
+          {/* What a calibration run does — shown in place of the scenario
+              picker, because the whole point is that the run is chosen FOR you
+              from what the forecaster can actually read. */}
+          {calibrating && (
+            <div className="flex flex-col gap-3">
+              <span className="text-eyebrow font-eyebrow text-neutral-secondary uppercase tracking-widest">
+                What This Run Does
+              </span>
+              <div className="rounded border border-neutral-border overflow-hidden">
+                <div className="px-5 py-4 flex flex-col gap-2.5">
+                  <CalibrationLine>
+                    Runs {calibrationScenarios.length}{" "}
+                    {calibrationScenarios.length === 1 ? "normal-path scenario" : "normal-path scenarios"},
+                    not adversarial ones. The forecast wants typical behaviour, not a worst case.
+                  </CalibrationLine>
+                  <CalibrationLine>
+                    Records turns per run and tokens per turn from the trace, replacing the
+                    archetype defaults the forecast falls back on today.
+                  </CalibrationLine>
+                  <CalibrationLine>
+                    {currentConfidence === "low"
+                      ? "Lifts the forecast from LOW to MEDIUM confidence (about \u00b128%)."
+                      : "Refreshes the measurement behind the current MEDIUM-tier band."}{" "}
+                    HIGH needs live production traffic, which a sandbox run cannot supply.
+                  </CalibrationLine>
+                </div>
+                {calibrationScenarios.length > 0 && (
+                  <div className="px-5 py-3 border-t border-neutral-border bg-neutral-sunken flex flex-wrap gap-x-2 gap-y-1">
+                    {calibrationScenarios.map((sc, i) => (
+                      <span key={sc.id} className="text-monospace-label font-monospace-label text-neutral-secondary">
+                        {i > 0 && <span className="text-neutral-muted mr-2">&middot;</span>}
+                        {sc.name}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <p className="text-meta font-meta text-neutral-secondary m-0">{CALIBRATION_NOTE}</p>
+            </div>
+          )}
 
           {/* Scenario template */}
+          {!calibrating && (
           <div className="flex flex-col gap-3">
             <span className="text-eyebrow font-eyebrow text-neutral-secondary uppercase tracking-widest">
               Scenario Template
@@ -264,6 +392,7 @@ export default function NewSimulationModal({
               </label>
             </div>
           </div>
+          )}
 
           {/* Configuration overrides */}
           <div className="flex flex-col rounded border border-neutral-border overflow-hidden">
@@ -284,9 +413,14 @@ export default function NewSimulationModal({
               />
               <OverrideRow
                 label="Mock External APIs"
-                description="Intercept outbound calls and return deterministic JSON responses."
-                checked={mockExternal}
+                description={
+                  calibrating
+                    ? "Off for calibration \u2014 a mocked run never calls the model, so it measures nothing."
+                    : "Intercept outbound calls and return deterministic JSON responses."
+                }
+                checked={calibrating ? false : mockExternal}
                 onChange={onMockExternalChange}
+                disabled={calibrating}
               />
               <OverrideRow
                 label="Enable Debug Logging"
@@ -303,17 +437,25 @@ export default function NewSimulationModal({
           <button
             type="button"
             onClick={onClose}
-            className="bg-surface-container-lowest border border-neutral-border text-neutral-secondary font-body text-body font-medium px-5 py-2.5 rounded hover:bg-surface-container-low hover:text-on-surface transition-colors cursor-pointer"
+            className="btn btn--secondary"
           >
             Cancel
           </button>
           <button
             type="button"
             onClick={onCreate}
-            disabled={creating || !agentId || !scenarioId}
-            className="bg-primary text-on-primary font-body text-body font-medium px-6 py-2.5 rounded hover:opacity-90 transition-opacity shadow-sm border-0 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+            disabled={
+              creating ||
+              (queued.length === 0 && !agentId) ||
+              (calibrating ? calibrationScenarios.length === 0 : !scenarioId)
+            }
+            className="btn btn--primary disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {creating ? "Creating…" : "Create Simulation"}
+            {creating
+              ? (calibrating ? "Calibrating…" : "Creating…")
+              : calibrating
+                ? (queued.length > 0 ? `Run ${runCount} calibrations` : "Run calibration")
+                : "Create Simulation"}
           </button>
         </div>
       </div>
@@ -323,15 +465,22 @@ export default function NewSimulationModal({
 
 /** One override row: label, description, and the canvas's 40×20 switch. */
 function OverrideRow({
-  label, description, checked, onChange,
+  label, description, checked, onChange, disabled = false,
 }: {
   label: string
   description: string
   checked: boolean
   onChange: (v: boolean) => void
+  disabled?: boolean
 }) {
   return (
-    <label className="flex items-center justify-between gap-4 px-5 py-4 hover:bg-surface-container-low transition-colors cursor-pointer">
+    <label
+      className="flex items-center justify-between gap-4 px-5 py-4 transition-colors"
+      style={{
+        cursor: disabled ? "default" : "pointer",
+        opacity: disabled ? 0.6 : 1,
+      }}
+    >
       <span className="flex flex-col">
         <span className="text-body font-body font-medium text-on-surface">{label}</span>
         <span className="text-meta font-meta text-neutral-secondary">{description}</span>
@@ -341,6 +490,7 @@ function OverrideRow({
           type="checkbox"
           className="sr-only peer"
           checked={checked}
+          disabled={disabled}
           onChange={(e) => onChange(e.target.checked)}
         />
         <span
@@ -354,5 +504,56 @@ function OverrideRow({
         </span>
       </span>
     </label>
+  );
+}
+
+/** One choice of run purpose. Same selected treatment as the scenario cards so
+ *  the two rows read as the same kind of control. */
+function PurposeCard({
+  Icon, title, description, checked, onSelect,
+}: {
+  Icon: LucideIcon
+  title: string
+  description: string
+  checked: boolean
+  onSelect: () => void
+}) {
+  return (
+    <label className="relative block h-full cursor-pointer">
+      <input
+        type="radio"
+        name="configure-simulation-purpose"
+        className="sr-only"
+        checked={checked}
+        onChange={onSelect}
+      />
+      <div
+        className="h-full rounded p-4 flex gap-3 transition-all"
+        style={{
+          border: `1px solid ${checked ? "var(--accent)" : "var(--line)"}`,
+          background: checked ? "var(--accent-soft)" : "var(--card)",
+        }}
+      >
+        <Icon
+          size={20}
+          strokeWidth={1.9}
+          className="shrink-0 mt-0.5"
+          style={{ color: checked ? "var(--accent)" : "var(--ink-500)" }}
+        />
+        <span className="flex flex-col gap-1 min-w-0">
+          <span className="text-card-title font-card-title text-on-surface">{title}</span>
+          <span className="text-meta font-meta text-neutral-secondary leading-snug">{description}</span>
+        </span>
+      </div>
+    </label>
+  );
+}
+
+function CalibrationLine({ children }: { children: React.ReactNode }) {
+  return (
+    <span className="flex items-start gap-2.5">
+      <Check size={15} strokeWidth={2.2} className="shrink-0 mt-0.5" style={{ color: "var(--safe)" }} />
+      <span className="text-body font-body text-neutral-secondary leading-snug">{children}</span>
+    </span>
   );
 }

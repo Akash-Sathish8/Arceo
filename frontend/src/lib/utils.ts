@@ -52,10 +52,10 @@ export function simRiskBand(score: number): ScoreBand {
 
 export function bandDescription(key: Severity): string {
   switch (key) {
-    case "critical": return "Critical — can cause irreversible real-world damage";
-    case "high":     return "High risk — can move money, delete data, or affect production";
-    case "medium":   return "Medium risk — can send emails, modify records, or form dangerous chains";
-    default:         return "Low risk — read-only actions, no irreversible capabilities";
+    case "critical": return "Critical. Can cause irreversible real-world damage.";
+    case "high":     return "High risk. Can move money, delete data, or change production.";
+    case "medium":   return "Medium risk. Can send emails, change records, or form dangerous chains.";
+    default:         return "Low risk. Read-only actions, with nothing irreversible.";
   }
 }
 

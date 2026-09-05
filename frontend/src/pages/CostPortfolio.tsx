@@ -11,7 +11,7 @@ import { useEffect, useRef, useState } from "react"
 import {
   Banknote, Sliders, PieChart, Target,
   TrendingUp, Shield, Search, FileText, Plus, HelpCircle, X,
-  AlertTriangle, Check, ArrowRight, Info,
+  AlertTriangle, Check, ArrowRight, Info, Gauge,
 } from "lucide-react"
 import type { MockSpend } from "@/lib/mockSpend"
 import { fetchSpendForecast, fetchSpendTimeseries, fetchSpendAnomalies, fetchBudgetFit, fetchSavedBudget, saveBudget, applyGatePolicy, setForecastInputs, runSweep } from "@/lib/spendApi"
@@ -33,8 +33,8 @@ const STATUS_TONE: Record<SourceStatus, string> = {
 type Confidence = "low" | "medium" | "high"
 
 const CONFIDENCE_CHIP: Record<Confidence, { label: string; bg: string; color: string; border: string; tooltip: string }> = {
-  low:    { label: "LOW CONFIDENCE",    bg: "var(--severity-medium-bg)",   color: "var(--severity-high)",     border: "var(--severity-medium-border)", tooltip: "Based on the agent's capabilities alone. Confidence improves as sandbox runs and live traces accumulate — the Data sources panel below shows what's connected." },
-  medium: { label: "MEDIUM CONFIDENCE", bg: "var(--severity-medium-bg)",   color: "var(--severity-medium)",   border: "var(--severity-medium-border)", tooltip: "Test runs measured how this agent behaves (steps per task, response sizes) — but not production volumes like document sizes or which actions dominate real traffic, so the range stays wide on the high side. Connect live traffic to tighten it." },
+  low:    { label: "LOW CONFIDENCE",    bg: "var(--severity-medium-bg)",   color: "var(--severity-high)",     border: "var(--severity-medium-border)", tooltip: "Based on the agent's capabilities alone. Confidence improves as sandbox runs and live traces build up. The Data sources panel below shows what's connected." },
+  medium: { label: "MEDIUM CONFIDENCE", bg: "var(--severity-medium-bg)",   color: "var(--severity-medium)",   border: "var(--severity-medium-border)", tooltip: "Test runs measured how this agent behaves, like steps per task and response sizes. They can't see production volumes such as document sizes or which actions dominate real traffic, so the range stays wide on the high side. Connect live traffic to tighten it." },
   high:   { label: "HIGH CONFIDENCE",   bg: "var(--severity-safe-bg)",     color: "var(--severity-safe)",     border: "var(--severity-safe-border)",   tooltip: "Based on this agent's real production calls. The longer the observed window, the more the monthly number can be trusted." },
 }
 
@@ -53,7 +53,7 @@ const HIGH_GATE_DAYS = 3
 const SOURCE_BADGE: Record<string, { label: string; variant: string; tip: string }> = {
   declared: { label: "declared", variant: "",                     tip: "You declared this value." },
   measured: { label: "measured", variant: " prov-chip--measured", tip: "Measured from this agent's sandbox or live traces." },
-  default:  { label: "default",  variant: " prov-chip--default",  tip: "Industry-typical default — not measured for this agent. Declare it or run a sweep to make it real." },
+  default:  { label: "default",  variant: " prov-chip--default",  tip: "A typical industry default. We have not measured this one for your agent, so declare it or run a sweep to make it real." },
   volume:   { label: "in volume", variant: "",                    tip: "Your declared daily volume already counts every model call, so no extra per-run multiplier is applied. Declare turns per run if your number was runs, not calls." },
 }
 
@@ -227,7 +227,7 @@ function AnomalyBanner({ anomaly, displayName }: { anomaly: SpendAnomaly; displa
         </div>
         <div className="text-gray-700 mt-1">
           {displayName} spent <span className="mono font-semibold">${anomaly.last24hUsd.toFixed(2)}</span> in
-          the last 24 hours — <span className="font-semibold">{anomaly.ratio.toFixed(1)}× its usual daily
+          the last 24 hours, <span className="font-semibold">{anomaly.ratio.toFixed(1)}× its usual daily
           rate</span> (normally about <span className="mono">${anomaly.baselineDailyUsd.toFixed(2)}</span> per day).
         </div>
         {anomaly.drivers.length > 0 && (
@@ -311,7 +311,7 @@ function relativeTime(iso: string | undefined): string {
 }
 
 function formatCalibrationDate(iso: string | undefined): string {
-  if (!iso) return "—"
+  if (!iso) return "Not set"
   const d = new Date(iso)
   if (Number.isNaN(d.getTime())) return iso
   return d.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })
@@ -436,9 +436,9 @@ function ForecastUnavailableView({
     const swept = await runSweep(agentId)
     if (!swept) {
       // Inputs still landed, so the forecast leaves "unavailable" — just at low tier.
-      toast("Sandbox run didn't complete — showing the estimate from your inputs", "error")
+      toast("The sandbox run didn't finish, so we're showing the estimate from your inputs", "error")
     } else {
-      toast("Agent sandboxed — measured forecast ready")
+      toast("Sandbox run finished. Your measured forecast is ready.")
     }
     setPhase("done")
     onDeclared()
@@ -456,7 +456,7 @@ function ForecastUnavailableView({
           <div className="mt-4 text-base font-semibold text-gray-800">Sandboxing {displayName}…</div>
           <p className="mt-2 text-sm text-gray-500 leading-relaxed">
             Running {displayName} through every risk scenario to measure its real token and turn
-            usage. This takes up to a minute — sit tight, we'll show the measured forecast when it's done.
+            usage. This takes up to a minute. Hang tight and we'll show the measured forecast as soon as it's done.
           </p>
         </div>
       </div>
@@ -480,7 +480,7 @@ function ForecastUnavailableView({
               </div>
               <p className="mt-2 text-sm text-gray-500 leading-relaxed">
                 {liveCalls7d} of {liveCallsNeeded ?? 5} calls captured so far. Once {liveCallsNeeded ?? 5} real
-                calls come through, a spend forecast built from your actual traffic appears here automatically —
+                calls come through, a spend forecast built from your real traffic shows up here automatically.
                 usually within a day. Don't want to wait? Answer three questions below and we'll estimate it now.
               </p>
             </>
@@ -489,7 +489,7 @@ function ForecastUnavailableView({
               <div className="mt-3 text-base font-semibold text-gray-800">No forecast yet for {displayName}</div>
               <p className="mt-2 text-sm text-gray-500 leading-relaxed">
                 We won't show a dollar figure built only from defaults. Tell us three things about how this
-                agent runs — we'll sandbox it against every risk scenario and hand back a measured
+                agent runs. We'll sandbox it against every risk scenario and hand back a measured
                 forecast with a real ± band.
               </p>
             </>
@@ -543,7 +543,7 @@ function ForecastUnavailableView({
                   <option key={opt.id} value={opt.id}>{opt.label}</option>
                 ))}
               </select>
-              <span className="text-[11px] text-gray-400">The model this agent calls — sets the price per token.</span>
+              <span className="text-[11px] text-gray-400">The model this agent calls. This sets the price per token.</span>
             </label>
             <label className="block">
               <span className="text-xs font-medium text-gray-600">How much does it read per run? <span className="font-normal text-gray-400">(optional)</span></span>
@@ -553,14 +553,14 @@ function ForecastUnavailableView({
                 className="mt-1 w-full px-3 py-2 rounded-md border bg-white text-sm"
                 style={{ borderColor: "var(--border)" }}
               >
-                <option value="">Not sure — estimate for me</option>
-                <option value="small">Just instructions — no documents</option>
+                <option value="">Not sure, estimate it for me</option>
+                <option value="small">Just instructions, no documents</option>
                 <option value="medium">A few pages (emails, tickets)</option>
                 <option value="large">Long documents (contracts, reports)</option>
                 <option value="xlarge">Whole knowledge bases (RAG, large retrievals)</option>
               </select>
               <span className="text-[11px] text-gray-400">
-                Agents that read big documents each run cost far more per call — this is the
+                Agents that read big documents on every run cost far more per call. This is the
                 single biggest thing a tool list can't tell us.
               </span>
             </label>
@@ -572,14 +572,14 @@ function ForecastUnavailableView({
               Sandbox agent &amp; generate report
             </button>
             <p className="text-[11px] text-gray-400 text-center">
-              Runs real scenarios against your agent (~30s–1min) to measure its actual usage.
+              Runs real scenarios against your agent (about 30 seconds to a minute) to measure what it actually uses.
             </p>
           </div>
         )}
 
         {coverage && coverage.declaredModel && !coverage.modelRecognized && (
           <div className="mt-4 text-[11px] text-gray-400 text-center">
-            Declared model <span className="mono">{coverage.declaredModel}</span> isn't in our price list —
+            We don't have a price for <span className="mono">{coverage.declaredModel}</span> yet, so
             add your rate in Settings → Cost model for an accurate number.
           </div>
         )}
@@ -682,7 +682,7 @@ function CostPortfolioContent({
     // Preserve an existing saved threshold instead of silently resetting to 80.
     const threshold = savedBudget?.alertThresholdPct ?? 80
     const ok = await saveBudget(agentId, budget, threshold)
-    toast(ok ? `Alert set — we'll ping Slack at ${threshold}% of $${budget.toLocaleString()}/mo` : "Couldn't save the alert", ok ? undefined : "error")
+    toast(ok ? `Alert set. We'll ping Slack at ${threshold}% of $${budget.toLocaleString()}/mo.` : "Couldn't save the alert", ok ? undefined : "error")
     if (ok) loadSavedBudget.current()
   }
 
@@ -725,7 +725,7 @@ function CostPortfolioContent({
         {m.isDemo && (
           <span
             className="align-middle ml-3 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full cursor-help"
-            title="This agent's traffic is sample data seeded for demonstration — the math is real, but the calls were generated, not captured from a live agent."
+            title="This agent's traffic is sample data we seeded for the demo. The math is real, but the calls were generated rather than captured from a live agent."
             style={{ background: "var(--severity-medium-bg)", color: "var(--severity-high)", border: "1px solid var(--severity-medium-border)" }}
           >Demo data</span>
         )}
@@ -754,7 +754,7 @@ function CostPortfolioContent({
                   <li>
                     This agent runs <span className="font-medium">{m.coverage.declaredModel}</span>, which isn't in our
                     price list. The forecast is priced at <span className="font-medium">{m.coverage.pricedModel}</span>{" "}
-                    rates — {m.coverage.modelMatch === "family"
+                    rates. {m.coverage.modelMatch === "family"
                       ? "the closest model family we know, but the real rate could be very different (some models cost double their siblings)"
                       : "a placeholder that could be materially off"}. Add your rate in{" "}
                     <Link to="/settings" className="underline" style={{ color: "var(--text-link)" }}>Settings → Cost model</Link>,
@@ -783,17 +783,7 @@ function CostPortfolioContent({
               Estimated monthly spend
             </span>
             <div className="relative">
-              <button
-                type="button"
-                onClick={() => setShowMethodology((v) => !v)}
-                className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-medium transition-colors cursor-pointer"
-                style={{
-                  background: "var(--card)",
-                  border: "1px solid var(--line)",
-                  borderRadius: "var(--radius-full)",
-                  color: "var(--ink-500)",
-                }}
-              >
+              <button type="button" onClick={() => setShowMethodology((v) => !v)} className="btn btn--secondary inline-flex items-center gap-1.5 transition-colors cursor-pointer" >
                 <HelpCircle size={13} />
                 How this is calculated
               </button>
@@ -826,7 +816,7 @@ function CostPortfolioContent({
                       </div>
                       <div>
                         <div className="text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-1">Confidence range</div>
-                        <p>The <strong className="mono">${m.low.toLocaleString()}–${m.high.toLocaleString()}</strong> band reflects how much data backs this forecast ({m.confidence} confidence), not measured run-to-run variance. It narrows as evidence accumulates: high confidence (about ±15%) unlocks at {HIGH_GATE_CALLS}+ captured production calls spanning {HIGH_GATE_DAYS}+ distinct days in a week.</p>
+                        <p>The <strong className="mono">${m.low.toLocaleString()} to ${m.high.toLocaleString()}</strong> band reflects how much data backs this forecast ({m.confidence} confidence), not measured run-to-run variance. It narrows as evidence accumulates: high confidence (about ±15%) unlocks at {HIGH_GATE_CALLS}+ captured production calls spanning {HIGH_GATE_DAYS}+ distinct days in a week.</p>
                       </div>
                       <div>
                         <div className="text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-1">How to raise confidence</div>
@@ -845,7 +835,7 @@ function CostPortfolioContent({
               ${m.point.toLocaleString()}
             </div>
             <div className="mono" style={{ fontSize: 16, color: "var(--ink-400)" }}>
-              ${m.low.toLocaleString()} – ${m.high.toLocaleString()}
+              ${m.low.toLocaleString()} to ${m.high.toLocaleString()}
             </div>
           </div>
           <div className="mt-3 flex items-center gap-2 flex-wrap text-sm text-gray-600">
@@ -854,7 +844,7 @@ function CostPortfolioContent({
               title={m.confidenceCap === "single_day_burst"
                 ? `This agent has enough captured calls for high confidence, but they all arrived within ${m.activeDays ?? 1} day${(m.activeDays ?? 1) === 1 ? "" : "s"}. One burst says little about a full month, so the range stays wider until traffic lands on at least 3 different days.`
                 : m.observedDays != null && m.confidence !== "high"
-                ? "Built from this agent's first captured production calls — real traffic, but not enough of it yet to promise a tight range. The range narrows automatically as calls accumulate; high confidence unlocks at 50 calls."
+                ? "Built from this agent's first captured production calls. That's real traffic, but not enough of it yet to promise a tight range. The range narrows automatically as calls accumulate; high confidence unlocks at 50 calls."
                 : conf.tooltip}
               style={{ background: conf.bg, color: conf.color, border: `1px solid ${conf.border}` }}
             >{conf.label}</span>
@@ -867,8 +857,8 @@ function CostPortfolioContent({
                   ? "based on 1 day of observed traffic"
                   : `averaged over the last ${Math.round(m.observedDays)} days of traffic, including any days this agent didn't run`}
                 {m.confidence !== "high" && (m.confidenceCap === "single_day_burst"
-                  ? " — the calls cluster in a short burst; high confidence unlocks once traffic spreads across 3+ different days"
-                  : " — early days, so the range is wide; it tightens as more calls come through")}
+                  ? ", though the calls cluster in a short burst. High confidence unlocks once traffic spreads across 3 or more different days."
+                  : ". It is early days, so the range is wide. It tightens as more calls come through.")}
               </span>
             )}
             {/* HIGH-gate progress: numbers even for a sandbox-only agent, so
@@ -887,7 +877,7 @@ function CostPortfolioContent({
           {/* A vendor rate that changes on a known date. Renders above the
               confidence guidance because it is the one caption that explains a
               step the customer will otherwise see in the chart and read as a
-              bug — observed spend is priced at what was billed, the forecast at
+              bug. Observed spend is priced at what was billed, and the forecast at
               the standard rate. Backend decides whether there is anything to
               say (spend_forecast._pricing_note); null the rest of the time. */}
           {m.pricingNote && (
@@ -906,6 +896,26 @@ function CostPortfolioContent({
                 className="underline underline-offset-2 bg-transparent border-0 p-0 cursor-pointer text-gray-700 font-medium hover:text-gray-900"
               >Confidence sources</button>.
             </div>
+          )}
+          {/* The one step that is actionable from here. Live traces are the
+              bigger gain but need production traffic; a calibration run is
+              something you can do right now, and it is the only thing that
+              moves LOW to MEDIUM. Shown only at LOW, where that jump exists. */}
+          {m.confidence === "low" && agentId && (
+            <Link
+              to={`/sandbox?agent=${agentId}&purpose=calibrate`}
+              className="mt-3 inline-flex items-center gap-2 no-underline"
+              style={{
+                background: "var(--card)", border: "1px solid var(--line)",
+                color: "var(--ink-700)", borderRadius: "var(--radius-md)",
+                padding: "8px 14px", fontSize: 13, fontWeight: 500,
+                fontFamily: "var(--font-sans)",
+              }}
+            >
+              <Gauge size={15} strokeWidth={1.8} />
+              Calibrate with a sandbox run
+              <span style={{ color: "var(--ink-400)" }}>&rarr; medium</span>
+            </Link>
           )}
           {m.coverage?.declaredModel && (
             <div className="mt-3 text-[11px] text-gray-500">
@@ -1000,7 +1010,7 @@ function CostPortfolioContent({
                 {recalculating ? "Recalculating…" : "Live forecast"}
               </span>
               <span className="mono" style={{ fontSize: 21, fontWeight: 600, color: "var(--aqua-deep)" }}>
-                ${m.low.toLocaleString()} – ${m.high.toLocaleString()}
+                ${m.low.toLocaleString()} to ${m.high.toLocaleString()}
               </span>
             </div>
           }
@@ -1127,15 +1137,15 @@ function CostPortfolioContent({
           </table>
         </PanelCard>
 
-        <PanelCard title="Sensitivity — what affects cost most" icon={<Target size={14} />} help={(() => {
+        <PanelCard title="What affects cost most" icon={<Target size={14} />} help={(() => {
           const top = m.sensitivity[0]
           if (!top || top.pct <= 0) return "Each bar shows how much that input changes your forecast. Improving the top driver has the biggest accuracy payoff."
           const dollarImpact = Math.round((m.point * top.pct) / 100)
-          return `Each bar shows how much that input changes your forecast. A swing in ${top.label.toLowerCase()} moves cost by ~$${dollarImpact.toLocaleString()}/mo — improving this input has the biggest accuracy payoff.`
+          return `Each bar shows how much that input changes your forecast. A swing in ${top.label.toLowerCase()} moves cost by about $${dollarImpact.toLocaleString()}/mo, so improving this input has the biggest accuracy payoff.`
         })()} fullWidth>
           {m.sensitivity.length === 0 ? (
             <div className="text-xs text-gray-400 py-2">
-              Needs data. Sensitivity is computed by re-running this agent's forecast at ±20% per input — it appears once there's a real baseline (declare volume or run a sweep).
+              Needs data. Sensitivity is computed by re-running this agent's forecast at plus or minus 20% per input. It appears once there's a real baseline, so declare a volume or run a sweep.
             </div>
           ) : m.sensitivity.map((s) => (
             /* One accent, not the severity ramp: "how much this input moves
@@ -1166,13 +1176,13 @@ function CostPortfolioContent({
               {m.modelChoice.changesProvider && m.modelChoice.cheapestProvider
                 ? ` (${m.modelChoice.cheapestProvider}, a different provider)` : ""} at{" "}
               <strong className="mono text-gray-900">${m.modelChoice.cheapestPoint.toLocaleString()}</strong>/mo.
-              <span className="text-gray-400"> Cheaper models are not equivalent — this is the size
+              <span className="text-gray-400"> Cheaper models are not equivalent. This is the size
               of the choice, not a recommendation.</span>
             </div>
           )}
         </PanelCard>
 
-        <PanelCard title="30-day actuals + 90-day projection" icon={<TrendingUp size={14} />} help="Solid line = observed daily LLM token cost from live traces — tool and infrastructure costs aren't in these traces, so the forecast (which includes them) can sit above the line. Shaded band = forward forecast range." fullWidth>
+        <PanelCard title="30-day actuals + 90-day projection" icon={<TrendingUp size={14} />} help="Solid line = observed daily LLM token cost from live traces. Tool and infrastructure costs aren't in these traces, so the forecast (which includes them) can sit above the line. Shaded band = forward forecast range." fullWidth>
           {timeseries && timeseries.hasData ? (
             <ActualsChart data={timeseries} />
           ) : (
@@ -1193,7 +1203,7 @@ function CostPortfolioContent({
           )}
         </PanelCard>
 
-        <PanelCard title="Fit it to a budget" icon={<Shield size={14} />} help="Enter your monthly budget. If the agent doesn't fit, we show the honest ways to close the gap — each with its trade-off. We rank options; you decide.">
+        <PanelCard title="Fit it to a budget" icon={<Shield size={14} />} help="Enter your monthly budget. If the agent doesn't fit, we show the honest ways to close the gap, each with its trade-off. We rank options; you decide.">
           <div className="flex items-center gap-3 mb-3">
             <label className="text-sm text-gray-600 whitespace-nowrap">Monthly budget</label>
             <div className="relative flex-1">
@@ -1223,7 +1233,7 @@ function CostPortfolioContent({
             <div className="text-[11px] text-gray-500 mb-3">
               The spend alert tracks measured LLM token spend only. This forecast also includes about{" "}
               <span className="mono">${(((m.toolsUsd ?? 0) + (m.infraUsd ?? 0))).toLocaleString()}/mo</span> of tool and
-              infrastructure costs that per-call capture can't see — total spend runs that much above what the alert watches.
+              infrastructure costs that per-call capture can't see, so total spend runs that much above what the alert watches.
             </div>
           )}
 
@@ -1239,7 +1249,7 @@ function CostPortfolioContent({
 
           {budgetFit && budgetFit.available === false ? (
             <div className="text-xs text-gray-500 px-3 py-2.5 rounded-lg" style={{ background: "var(--bg-sunken)" }}>
-              Needs a forecast before a budget can be fitted — declare this agent's
+              We need a forecast before we can fit a budget. Declare this agent's
               volume above, or run a sandbox sweep.
             </div>
           ) : budgetFit && (
@@ -1251,7 +1261,7 @@ function CostPortfolioContent({
                 >
                   <Check size={15} />
                   <span>
-                    Fits — forecast <span className="mono font-semibold">${budgetFit.forecastPoint.toLocaleString()}</span> is
+                    It fits. The forecast of <span className="mono font-semibold">${budgetFit.forecastPoint.toLocaleString()}</span> is
                     <strong> ${Math.abs(budgetFit.gap).toLocaleString()} under</strong> your ${budgetFit.budget.toLocaleString()} budget.
                   </span>
                 </div>
@@ -1296,14 +1306,14 @@ function CostPortfolioContent({
                             className="mt-2 text-xs px-3 py-1.5 rounded-md border font-medium cursor-pointer disabled:opacity-50"
                             style={{ borderColor: "var(--border)", background: "var(--card)" }}
                           >
-                            {applyingGate ? "Applying…" : "Apply — require approval"}
+                            {applyingGate ? "Applying…" : "Apply and require approval"}
                           </button>
                         )}
                       </div>
                     ))}
                   </div>
                   <div className="text-[11px] text-gray-400 mt-3">
-                    Only the guardrail auto-applies — the rest are your call.
+                    Only the guardrail applies automatically. The rest are your call.
                   </div>
                 </>
               )}

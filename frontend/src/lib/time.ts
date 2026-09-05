@@ -16,7 +16,7 @@ export function parseTimestamp(ts: string): Date {
 
 export function timeAgo(ts: string): string {
   const d = parseTimestamp(ts);
-  if (isNaN(d.getTime())) return "—";
+  if (isNaN(d.getTime())) return "Unknown";
   const diffSec = Math.floor((Date.now() - d.getTime()) / 1000);
   if (diffSec < 0) return "just now"; // clock skew — never show a negative age
   if (diffSec < 10) return "just now";
@@ -34,7 +34,7 @@ export function timeAgo(ts: string): string {
 
 export function formatDateTime(ts: string): string {
   const d = parseTimestamp(ts);
-  if (isNaN(d.getTime())) return "—";
+  if (isNaN(d.getTime())) return "Unknown";
   return d.toLocaleString("en-US", {
     month: "short", day: "numeric", year: "numeric",
     hour: "numeric", minute: "2-digit", hour12: true,
@@ -43,6 +43,6 @@ export function formatDateTime(ts: string): string {
 
 export function formatDateShort(ts: string): string {
   const d = parseTimestamp(ts);
-  if (isNaN(d.getTime())) return "—";
+  if (isNaN(d.getTime())) return "Unknown";
   return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }

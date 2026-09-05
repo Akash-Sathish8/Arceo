@@ -420,7 +420,7 @@ export default function Login() {
       }
       const wanted = selectedTypes.filter((id) => id !== 'custom' && AGENT_TYPE_TEMPLATES[id]).length
       if (wanted > 0 && created < wanted) {
-        toast(`Signed in — but ${wanted - created} of ${wanted} starter agents couldn't be created`, 'error')
+        toast(`Signed in, but ${wanted - created} of ${wanted} starter agents couldn't be created`, 'error')
       }
       navigate('/')
     } catch (err) {
@@ -474,8 +474,8 @@ export default function Login() {
             </p>
             <ol className="list-none p-0 m-0 flex flex-col">
               {[
-                { num: 1, title: 'Register your agent', body: 'List the tools your AI agent can access — Stripe, Zendesk, Salesforce, or any custom tool.' },
-                { num: 2, title: 'Assess the risk exposure', body: 'Instantly see which actions can move money, delete data, or leak PII — and how dangerous they are.' },
+                { num: 1, title: 'Register your agent', body: 'List the tools your AI agent can reach, like Stripe, Zendesk, Salesforce, or anything custom.' },
+                { num: 2, title: 'Assess the risk exposure', body: 'See straight away which actions can move money, delete data, or leak personal data, and how dangerous each one is.' },
                 { num: 3, title: 'Enforce policies', body: 'Block or require human approval for risky actions before they run in production.' },
               ].map((s, i, arr) => (
                 <li key={s.num} className="flex gap-4 py-5 pl-8 ml-3 relative"

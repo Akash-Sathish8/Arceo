@@ -7,7 +7,7 @@
  * $1.2k / $3.4M for tight spaces. `cents` keeps two decimals ($12.34).
  */
 export function formatMoney(n: number | null | undefined, opts?: { compact?: boolean; cents?: boolean }): string {
-  if (n == null || isNaN(n)) return "—";
+  if (n == null || isNaN(n)) return "No data";
   if (opts?.compact) {
     if (Math.abs(n) >= 1_000_000) return `$${(n / 1_000_000).toFixed(1)}M`;
     if (Math.abs(n) >= 1_000) return `$${(n / 1_000).toFixed(1)}k`;

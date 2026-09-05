@@ -356,7 +356,7 @@ export default function AgentDrawer({
               }}
             >
               <AlertTriangle size={13} strokeWidth={1.8} style={{ flexShrink: 0, color: "var(--caution)" }} />
-              {a.unclassified} unverified {a.unclassified === 1 ? "action" : "actions"} — no classifiable risk
+              {a.unclassified} unverified {a.unclassified === 1 ? "action" : "actions"} with no classifiable risk
               signal; scores may understate exposure. Review on the agent page.
             </div>
           )}
@@ -398,7 +398,7 @@ export default function AgentDrawer({
               >
                 <Lock size={14} strokeWidth={1.8} style={{ position: "relative", top: 2, flexShrink: 0 }} />
                 <span>
-                  <b className="mono" style={{ color: "var(--ink-900)" }}>{a.irreversible}</b> irreversible actions — cannot be undone once triggered.
+                  <b className="mono" style={{ color: "var(--ink-900)" }}>{a.irreversible}</b> irreversible actions that cannot be undone once they run.
                 </span>
               </div>
               {a.critical > 0 && (
@@ -416,7 +416,7 @@ export default function AgentDrawer({
                   <Link2 size={14} strokeWidth={1.8} style={{ position: "relative", top: 2, flexShrink: 0 }} />
                   <span>
                     <b className="mono" style={{ color: "var(--critical)" }}>{a.critical}</b> critical chains detected
-                    {unguarded ? " — no policy set." : "."}
+                    {unguarded ? ", and no policy is set." : "."}
                   </span>
                 </div>
               )}
@@ -538,7 +538,7 @@ export default function AgentDrawer({
                 }}
               >
                 {detailError
-                  ? "Couldn't load chains — reopen to retry."
+                  ? "We couldn't load the chains. Reopen to try again."
                   : chains === null
                   ? "Loading chains…"
                   : "No dangerous chains detected."}
@@ -598,14 +598,14 @@ export default function AgentDrawer({
         <div className="px-8 py-5 border-t border-neutral-border bg-neutral-sunken flex items-center justify-end gap-3 rounded-b-lg shrink-0">
           <Link
             to={`/agent/${a.id}/spend`}
-            className="bg-surface-container-lowest border border-neutral-border text-neutral-secondary font-body text-body font-medium px-5 py-2.5 rounded hover:bg-surface-container-low hover:text-on-surface transition-colors no-underline inline-flex items-center gap-2"
+            className="btn btn--secondary"
           >
             <DollarSign size={16} strokeWidth={1.8} />
             View spend
           </Link>
           <Link
             to={`/agent/${a.id}`}
-            className="bg-surface-container-lowest border border-neutral-border text-neutral-secondary font-body text-body font-medium px-5 py-2.5 rounded hover:bg-surface-container-low hover:text-on-surface transition-colors no-underline inline-flex items-center gap-2"
+            className="btn btn--secondary"
           >
             <TrendingUp size={16} strokeWidth={1.8} />
             Open agent
@@ -613,7 +613,7 @@ export default function AgentDrawer({
           <button
             type="button"
             onClick={() => onSimulate?.(a.id)}
-            className="bg-primary text-on-primary font-body text-body font-medium px-6 py-2.5 rounded hover:opacity-90 transition-opacity shadow-sm border-0 cursor-pointer inline-flex items-center gap-2"
+            className="btn btn--primary"
           >
             <FlaskConical size={16} strokeWidth={1.8} />
             Simulate in Sandbox

@@ -13,7 +13,7 @@ import { Link } from "react-router-dom"
 import {
   FileText, Banknote, X, Download,
   Headset, Terminal, BarChart2, Settings2, Bot,
-  Calendar, TrendingUp, ShieldCheck, Search, ChevronRight, ListTree,
+  Calendar, TrendingUp, ShieldCheck, Search, ChevronRight, ListTree, Gauge,
 } from "lucide-react"
 import type { LucideIcon } from "lucide-react"
 import { lazy, Suspense } from "react"
@@ -157,6 +157,12 @@ export default function SpendDashboard() {
   const totalSpend = withForecast.reduce((s, r) => s + (r.forecast?.point ?? 0), 0)
   // vs-last-month is only meaningful for agents that actually have a ~30-day-old
   // snapshot. Until any do, hide the comparison rather than show an ambiguous 0%.
+  // Agents whose forecast is still built from archetype defaults. A sandbox
+  // calibration is the only thing that moves this tier — live traffic moves
+  // LOW straight past it — so these are exactly the agents worth queueing.
+  const lowConfidence = fleet.filter((r) => r.forecast?.confidence === "low")
+  const lowConfidenceSpend = lowConfidence.reduce((s, r) => s + (r.forecast?.point ?? 0), 0)
+
   const comparable = withForecast.filter((r) => r.forecast?.vsLastMonthAvailable)
   const comparableSpend = comparable.reduce((s, r) => s + (r.forecast?.point ?? 0), 0)
   const hasComparison = comparable.length > 0
@@ -324,7 +330,7 @@ export default function SpendDashboard() {
           <button
             type="button"
             onClick={() => setPickerOpen(true)}
-            className="flex items-center gap-2 bg-surface-container-lowest border border-neutral-border text-neutral-secondary px-4 py-2 rounded-lg font-body text-body font-medium hover:text-on-surface hover:bg-neutral-sunken transition-colors cursor-pointer"
+            className="btn btn--secondary"
           >
             <ListTree size={18} />
             View agent forecasts
@@ -332,9 +338,9 @@ export default function SpendDashboard() {
           <button
             type="button"
             onClick={handleExportCsv}
-            className="flex items-center gap-2 bg-primary text-on-primary px-4 py-2 rounded-lg font-body text-body font-medium hover:opacity-90 transition-opacity shadow-sm border-0 cursor-pointer"
+            className="btn btn--primary"
           >
-            <Download size={18} />
+            <Download size={16} />
             Export Report
           </button>
         </div>
@@ -418,6 +424,43 @@ export default function SpendDashboard() {
           </div>
         </KpiCard>
       </div>
+
+      {/* ── Calibration prompt ──
+          Only shown when there is something to fix. It states the money at
+          stake rather than the agent count alone: "2 agents" is a chore,
+          "$835/mo resting on defaults" is a reason. */}
+      {lowConfidence.length > 0 && (
+        <div
+          className="rounded-xl border p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+          style={{ background: "var(--caution-bg)", borderColor: "var(--caution-line)" }}
+        >
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <Gauge size={16} style={{ color: "var(--amber-ink)" }} />
+              <span className="font-eyebrow text-eyebrow uppercase tracking-widest" style={{ color: "var(--amber-ink)" }}>
+                Forecast built from defaults
+              </span>
+            </div>
+            <p className="font-body text-body text-neutral-primary m-0 mt-2">
+              {lowConfidence.length} {pluralize(lowConfidence.length, "agent")}, worth{" "}
+              <strong className="font-monospace-data">{formatMoney(lowConfidenceSpend)}/mo</strong> of the
+              fleet total, {lowConfidence.length === 1 ? "is" : "are"} forecast from capabilities
+              alone, with no measurement behind the number.
+            </p>
+            <p className="font-meta text-meta text-neutral-secondary m-0 mt-1">
+              A calibration run measures each agent&rsquo;s turns and tokens and lifts it to medium
+              confidence (about &plusmn;28%).
+            </p>
+          </div>
+          <Link
+            to={`/sandbox?purpose=calibrate&agents=${lowConfidence.map((r) => r.id).join(",")}`}
+            className="btn btn--primary shrink-0"
+          >
+            <Gauge size={16} strokeWidth={1.9} />
+            Queue {lowConfidence.length} calibration {pluralize(lowConfidence.length, "run")}
+          </Link>
+        </div>
+      )}
 
       {/* ── Fleet spend trend ── */}
       <div className="bg-white p-6 rounded-xl border border-neutral-border shadow-sm flex flex-col gap-4">
@@ -689,7 +732,7 @@ function AgentForecastPicker({
             Agent forecasts
           </h2>
           <p className="text-body font-body text-neutral-secondary leading-relaxed m-0">
-            Open one agent&rsquo;s forecast — its drivers, confidence tier and sensitivity — instead of the fleet rollup.
+            Open one agent&rsquo;s forecast, with its drivers, confidence tier and sensitivity, instead of the fleet rollup.
           </p>
           <div className="relative mt-5">
             <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-secondary" />
@@ -769,7 +812,7 @@ function AgentForecastPicker({
           <button
             type="button"
             onClick={onClose}
-            className="bg-surface-container-lowest border border-neutral-border text-neutral-secondary font-body text-body font-medium px-5 py-2.5 rounded hover:text-on-surface transition-colors cursor-pointer"
+            className="btn btn--secondary"
           >
             Close
           </button>

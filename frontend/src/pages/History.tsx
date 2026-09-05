@@ -3,7 +3,7 @@ import { useSearchParams } from "react-router-dom";
 import { Download, Search } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { parseTimestamp } from "@/lib/time";
-import { Button } from "@/components/ui/Button";
+import PageHeader from "@/components/shared/PageHeader";
 import { Input } from "@/components/ui/Input";
 
 // Offset-safe CSV timestamp: backend emits naive SQLite datetimes that raw
@@ -52,29 +52,32 @@ type StatusFilter = "all" | "EXECUTED" | "BLOCKED" | "PENDING_APPROVAL";
 // Constants
 // ---------------------------------------------------------------------------
 
+// `short` is the name printed in the row. It replaced a four-colour dot
+// legend floating above the table: if a row needs a key to be read, the row
+// should have said it. Read-only rows say nothing, which is the point.
 const RISK_META: Record<
   RiskCategory,
-  { dot: string; rowBg: string | null; label: string }
+  { dot: string; short: string | null; label: string }
 > = {
   destructive: {
-    dot: "var(--text-muted)",
-    rowBg: "var(--severity-critical-bg)",
-    label: "Destructive — permanently deletes or cancels something",
+    dot: "var(--label-deletes-data)",
+    short: "deletes",
+    label: "Permanently deletes or cancels something",
   },
   financial: {
-    dot: "var(--color-accent)",
-    rowBg: null,
-    label: "Financial — moves or modifies money",
+    dot: "var(--label-moves-money)",
+    short: "money",
+    label: "Moves or modifies money",
   },
   sends: {
-    dot: "var(--label-touches-pii)",
-    rowBg: null,
-    label: "Sends message — emails, SMS, or webhooks",
+    dot: "var(--label-sends-external)",
+    short: "sends",
+    label: "Sends an email, message, or webhook outside your org",
   },
   readonly: {
-    dot: "var(--text-muted)",
-    rowBg: null,
-    label: "Read-only — no data was changed",
+    dot: "var(--ink-400)",
+    short: null,
+    label: "Read-only, nothing was changed",
   },
 };
 
@@ -92,16 +95,13 @@ const TIME_FILTERS: { value: TimeFilter; label: string }[] = [
   { value: "30d", label: "Last 30d" },
 ];
 
-const TOOL_CHIP_COLORS: Record<string, { bg: string; color: string }> = {
-  stripe: { bg: "#ede9fe", color: "#6d28d9" },
-  zendesk: { bg: "#fef3c7", color: "var(--severity-high)" },
-  salesforce: { bg: "#dbeafe", color: "#1e40af" },
-  sendgrid: { bg: "#d1fae5", color: "#065f46" },
-  github: { bg: "#f3f4f6", color: "#111827" },
-  slack: { bg: "#fef3c7", color: "var(--severity-high)" },
-  aws: { bg: "var(--high-bg)", color: "#c2410c" },
-  hubspot: { bg: "#fce7f3", color: "#9d174d" },
-  pagerduty: { bg: "var(--critical-bg)", color: "#991b1b" },
+
+/** Colour for a status tally, applied only when its count is non-zero. */
+const STATUS_TONE: Record<string, string | null> = {
+  all: null,
+  EXECUTED: "var(--safe)",
+  BLOCKED: "var(--critical)",
+  PENDING_APPROVAL: "var(--caution)",
 };
 
 const AUDIT_ACTION_LABELS: Record<string, string> = {
@@ -181,38 +181,19 @@ function actionRiskCategory(tool: string, action: string): RiskCategory {
 // ---------------------------------------------------------------------------
 
 function DetailCell({ detail }: { detail?: string }): React.ReactElement {
+  const base: React.CSSProperties = { fontSize: "var(--fs-small)" };
   if (!detail || detail === "No matching policy") {
-    return <span className="text-xs text-gray-400 italic">No policy set</span>;
+    return <span style={{ ...base, color: "var(--ink-300)" }}>No policy</span>;
   }
   if (detail.toLowerCase().startsWith("matched policy")) {
-    return <span className="text-xs font-medium text-indigo-600">{detail}</span>;
+    return <span style={{ ...base, color: "var(--accent-ink)", fontWeight: 500 }}>{detail}</span>;
   }
-  return <span className="text-xs text-gray-600">{detail}</span>;
+  return <span style={{ ...base, color: "var(--ink-500)" }}>{detail}</span>;
 }
 
 // ---------------------------------------------------------------------------
 // Main component
 // ---------------------------------------------------------------------------
-
-function useCountUp(target: number, enabled: boolean): number {
-  const [val, setVal] = useState(0);
-  const rafRef = useRef<number | undefined>(undefined);
-  const startRef = useRef<number | undefined>(undefined);
-  useEffect(() => {
-    if (!enabled) return;
-    startRef.current = undefined;
-    function tick(ts: number) {
-      if (startRef.current === undefined) startRef.current = ts;
-      const progress = Math.min((ts - startRef.current) / 700, 1);
-      const eased = 1 - Math.pow(1 - progress, 3);
-      setVal(Math.round(target * eased));
-      if (progress < 1) rafRef.current = requestAnimationFrame(tick);
-    }
-    rafRef.current = requestAnimationFrame(tick);
-    return () => { if (rafRef.current !== undefined) cancelAnimationFrame(rafRef.current); };
-  }, [target, enabled]);
-  return enabled ? val : target;
-}
 
 export default function History(): React.ReactElement {
   const [searchParams] = useSearchParams();
@@ -223,8 +204,6 @@ export default function History(): React.ReactElement {
   const [agentMap, setAgentMap] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const animReadyRef = useRef(false);
-  const [animReady, setAnimReady] = useState(false);
   const [filterStatus, setFilterStatus] = useState<StatusFilter>("all");
   const [timeFilter, setTimeFilter] = useState<TimeFilter>("all");
   const [search, setSearch] = useState("");
@@ -257,13 +236,6 @@ export default function History(): React.ReactElement {
         setLoading(false);
       });
   }, []);
-
-  useEffect(() => {
-    if (!loading && !animReadyRef.current) {
-      animReadyRef.current = true;
-      setAnimReady(true);
-    }
-  }, [loading]);
 
   const applyTimeFilter = <T extends { timestamp: string }>(entries: T[]): T[] => {
     if (timeFilter === "all") return entries;
@@ -333,13 +305,7 @@ export default function History(): React.ReactElement {
   const executed = executions.filter((e) => e.status === "EXECUTED").length;
   const pending = executions.filter((e) => e.status === "PENDING_APPROVAL").length;
   const total = executions.length;
-  const blockedPct = total > 0 ? Math.round((blocked / total) * 100) : 0;
-  const executedPct = total > 0 ? Math.round((executed / total) * 100) : 0;
 
-  const animTotal    = useCountUp(total,    animReady);
-  const animExecuted = useCountUp(executed, animReady);
-  const animBlocked  = useCountUp(blocked,  animReady);
-  const animPending  = useCountUp(pending,  animReady);
 
   const handleExport = (): void => {
     const isExec = view === "executions";
@@ -402,11 +368,7 @@ export default function History(): React.ReactElement {
       <div className="p-6">
         <div className="flex items-center gap-3 p-4 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700">
           {error}
-          <button
-            style={{ background: 'var(--color-cta)', color: 'var(--text-inverse)', borderRadius: 'var(--radius-full)', border: 'none', padding: '6px 16px', fontWeight: 600, fontSize: 12, cursor: 'pointer', fontFamily: 'inherit' }}
-            className="ml-4 transition-colors hover:opacity-80"
-            onClick={() => window.location.reload()}
-          >
+          <button className="btn btn--primary ml-4 transition-colors hover:opacity-80" onClick={() => window.location.reload()} >
             Retry
           </button>
         </div>
@@ -422,243 +384,178 @@ export default function History(): React.ReactElement {
   ];
 
   return (
-    <div className="p-10 space-y-8">
-      {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight text-gray-900">History</h1>
-        <div className="flex items-center mt-6">
-          {([
-            { id: 'executions' as const, label: 'Agent Actions' },
-            { id: 'audit' as const, label: 'Audit Log' },
-          ]).map((t) => (
+    <div className="p-10">
+      <PageHeader
+        title="History"
+        description="Every action your agents took, and every change your team made."
+        actions={
+          <button type="button" className="btn btn--secondary" onClick={handleExport}>
+            <Download size={15} strokeWidth={1.9} />
+            Export CSV
+          </button>
+        }
+      />
+
+      {/* Tabs. Counts sit beside the label so the strip says how much is in
+          each view before you switch to it. */}
+      <div style={{ display: 'flex', gap: 26, borderBottom: '1px solid var(--line)', marginBottom: 22 }}>
+        {([
+          { id: 'executions' as const, label: 'Agent actions', count: executions.length },
+          { id: 'audit' as const, label: 'Audit log', count: auditEntries.length },
+        ]).map((t) => {
+          const active = view === t.id
+          return (
             <button
               key={t.id}
-              style={{
-                background: 'transparent',
-                border: 'none',
-                padding: '8px 16px 10px',
-                fontWeight: view === t.id ? 600 : 400,
-                fontSize: 13,
-                color: view === t.id ? 'var(--text-primary)' : 'var(--text-secondary)',
-                borderBottom: view === t.id ? '2px solid var(--text-primary)' : '2px solid transparent',
-                marginBottom: '-1px',
-                cursor: 'pointer',
-                fontFamily: 'inherit',
-              }}
+              type="button"
               onClick={() => { setView(t.id); setFilterStatus("all"); setSearch(""); }}
+              style={{
+                background: 'none', border: 'none', padding: '0 0 10px', cursor: 'pointer',
+                display: 'flex', alignItems: 'center', gap: 7,
+                fontFamily: 'var(--font-sans)', fontSize: 'var(--fs-body)',
+                fontWeight: active ? 600 : 500,
+                color: active ? 'var(--ink-900)' : 'var(--ink-500)',
+                borderBottom: `2px solid ${active ? 'var(--accent)' : 'transparent'}`,
+                marginBottom: -1,
+              }}
             >
               {t.label}
+              <span className="mono" style={{ fontSize: 12.5, color: active ? 'var(--accent-ink)' : 'var(--ink-400)' }}>
+                {t.count}
+              </span>
             </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Search + time filter */}
-      <div className="flex items-center gap-3 flex-wrap">
-        <div className="flex-1 min-w-48">
-          <Input
-            type="text"
-            icon={<Search size={14} />}
-            placeholder={
-              view === "executions"
-                ? "Search by agent, action, or detail…"
-                : "Search by user, action, or resource…"
-            }
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            style={{ height: 42 }}
-          />
-        </div>
-        <div className="flex items-center gap-1">
-          {TIME_FILTERS.map((f) => (
-            <button
-              key={f.value}
-              onClick={() => setTimeFilter(f.value)}
-              style={timeFilter === f.value
-                ? { background: 'var(--color-cta)', color: 'var(--text-inverse)', borderRadius: 'var(--radius-full)', border: 'none', padding: '6px 14px', fontWeight: 600, fontSize: 12, cursor: 'pointer', fontFamily: 'inherit' }
-                : { background: 'var(--bg-sunken)', color: 'var(--text-secondary)', borderRadius: 'var(--radius-full)', border: 'none', padding: '6px 14px', fontWeight: 500, fontSize: 12, cursor: 'pointer', fontFamily: 'inherit' }}
-            >
-              {f.label}
-            </button>
-          ))}
-        </div>
+          )
+        })}
       </div>
 
       {/* ── Executions view ── */}
       {view === "executions" && (
-        <>
-          {/* Stats row */}
-          <div className="grid grid-cols-4 gap-5">
-            <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-6">
-              <div className="text-[26px] font-extrabold leading-none tracking-tight text-gray-900">{animTotal}</div>
-              <div className="text-xs text-gray-500 mt-1">Total Actions</div>
-            </div>
-            <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-6">
-              <div className="text-[26px] font-extrabold leading-none tracking-tight text-green-700">{animExecuted}</div>
-              <div className="text-xs text-gray-500 mt-1">Executed</div>
-              {total > 0 && (
-                <div className="mt-3 h-1 bg-gray-100 rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-green-500 rounded-full"
-                    style={{ width: `${executedPct}%` }}
-                  />
-                </div>
-              )}
-            </div>
-            <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-6">
-              <div className="text-[26px] font-extrabold leading-none tracking-tight text-red-700">{animBlocked}</div>
-              <div className="text-xs text-gray-500 mt-1">Blocked</div>
-              {total > 0 && (
-                <div className="mt-3 h-1 bg-gray-100 rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-red-500 rounded-full"
-                    style={{ width: `${blockedPct}%` }}
-                  />
-                </div>
-              )}
-            </div>
-            <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-6">
-              <div className="text-[26px] font-extrabold leading-none tracking-tight text-yellow-700">{animPending}</div>
-              <div className="text-xs text-gray-500 mt-1">Pending Review</div>
-            </div>
-          </div>
-
-          {/* Filter chips + export */}
-          <div className="flex items-center justify-between gap-3">
-            <div className="flex items-center gap-1.5">
-              {STATUS_CHIPS.map((chip) => (
-                <button
-                  key={chip.value}
-                  onClick={() => setFilterStatus(chip.value)}
-                  style={filterStatus === chip.value
-                    ? { background: 'var(--color-cta)', color: 'var(--text-inverse)', borderRadius: 'var(--radius-full)', border: 'none', padding: '6px 14px', fontWeight: 600, fontSize: 12, cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 6 }
-                    : { background: 'var(--bg-sunken)', color: 'var(--text-secondary)', borderRadius: 'var(--radius-full)', border: 'none', padding: '6px 14px', fontWeight: 500, fontSize: 12, cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 6 }}
-                >
-                  {chip.label}
-                  <span
-                    style={filterStatus === chip.value
-                      ? { background: 'rgba(255,255,255,0.2)', color: 'var(--text-inverse)', borderRadius: 'var(--radius-full)', padding: '1px 6px', fontSize: 10, fontWeight: 700 }
-                      : { background: 'var(--border)', color: 'var(--text-secondary)', borderRadius: 'var(--radius-full)', padding: '1px 6px', fontSize: 10, fontWeight: 700 }}
+        <div className="panel-card panel-card--framed">
+          {/* Head carries the tallies and the filters together: the counts ARE
+              the filters, so they were two controls saying one thing. */}
+          <div className="panel-head" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              {STATUS_CHIPS.map((chip) => {
+                const active = filterStatus === chip.value
+                const tone = STATUS_TONE[chip.value]
+                return (
+                  <button
+                    key={chip.value}
+                    type="button"
+                    onClick={() => setFilterStatus(chip.value)}
+                    style={{
+                      display: 'flex', alignItems: 'baseline', gap: 7,
+                      background: active ? 'var(--card)' : 'transparent',
+                      border: `1px solid ${active ? 'var(--line)' : 'transparent'}`,
+                      borderRadius: 'var(--radius-btn)', padding: '6px 12px',
+                      cursor: 'pointer', fontFamily: 'var(--font-sans)',
+                      boxShadow: active ? 'var(--shadow-card-new)' : 'none',
+                    }}
                   >
-                    {chip.count}
-                  </span>
-                </button>
-              ))}
+                    <span
+                      className="mono"
+                      style={{
+                        fontSize: 17, fontWeight: 600, letterSpacing: -0.4,
+                        // Colour only where the count means something. A red 0
+                        // and an amber 0 are three alarms for nothing happening.
+                        color: chip.count > 0 && tone ? tone : 'var(--ink-900)',
+                      }}
+                    >
+                      {chip.count}
+                    </span>
+                    <span style={{
+                      fontSize: 'var(--fs-small)',
+                      color: active ? 'var(--ink-700)' : 'var(--ink-500)',
+                      fontWeight: active ? 600 : 400,
+                    }}>
+                      {chip.label}
+                    </span>
+                  </button>
+                )
+              })}
             </div>
-            <Button variant="secondary" size="sm" onClick={handleExport} icon={<Download size={13} />}>
-              Export CSV
-            </Button>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+              <div style={{ flex: 1, minWidth: 220 }}>
+                <Input
+                  type="text"
+                  icon={<Search size={14} />}
+                  placeholder="Search by agent, action, or detail"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  style={{ height: 36 }}
+                />
+              </div>
+              <SegControl
+                options={TIME_FILTERS}
+                value={timeFilter}
+                onChange={setTimeFilter}
+              />
+            </div>
           </div>
 
-          {/* Risk legend */}
-          <div className="flex items-center gap-4 text-xs text-gray-500">
-            <span className="flex items-center gap-1.5">
-              <span
-                className="inline-block w-3 h-3 rounded-sm border"
-                style={{ background: "#fff5f5", borderColor: "var(--critical-line)" }}
-              />
-              Destructive
-            </span>
-            <span className="flex items-center gap-1.5">
-              <span
-                className="inline-block w-2.5 h-2.5 rounded-full"
-                style={{ background: "#2563eb" }}
-              />
-              Financial
-            </span>
-            <span className="flex items-center gap-1.5">
-              <span
-                className="inline-block w-2.5 h-2.5 rounded-full"
-                style={{ background: "#7c3aed" }}
-              />
-              Sends message
-            </span>
-            <span className="flex items-center gap-1.5">
-              <span
-                className="inline-block w-2.5 h-2.5 rounded-full"
-                style={{ background: "#9ca3af" }}
-              />
-              Read-only
-            </span>
-          </div>
-
-          {/* Table */}
-          <div className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
-            <table className="w-full text-sm">
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
-                <tr className="border-b border-gray-200">
-                  {["Time", "Agent", "Action", "Status", "Policy / Reason"].map(
-                    (h) => (
-                      <th
-                        key={h}
-                        className="text-left px-4 py-4 text-[11px] font-semibold text-gray-400"
-                      >
-                        {h}
-                      </th>
-                    )
-                  )}
+                <tr>
+                  {["Time", "Agent", "Action", "Status", "Policy"].map((h) => (
+                    <th key={h} style={TH_STYLE}>{h}</th>
+                  ))}
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-200">
+              <tbody>
                 {filteredExecs.map((e) => {
                   const st = STATUS_CONFIG[e.status];
                   const risk = actionRiskCategory(e.tool, e.action);
                   const meta = RISK_META[risk];
-                  const toolKey = e.tool.toLowerCase();
-                  const toolChip = TOOL_CHIP_COLORS[toolKey];
                   return (
-                    <tr
-                      key={e.id}
-                      style={meta.rowBg ? { background: meta.rowBg } : {}}
-                      className="hover:brightness-95 transition-all"
-                    >
-                      <td className="px-4 py-4 whitespace-nowrap">
-                        <span
-                          className="text-sm text-gray-700"
-                          title={fullTime(e.timestamp)}
-                        >
+                    <tr key={e.id} className="hist-row">
+                      <td style={{ ...TD_STYLE, whiteSpace: 'nowrap' }}>
+                        <div className="mono" style={{ fontSize: 12.5, color: 'var(--ink-800)' }}>
                           {relativeTime(e.timestamp)}
-                        </span>
-                        <div className="text-[11px] text-gray-400 mt-0.5">
+                        </div>
+                        <div style={{ fontSize: 'var(--fs-micro)', color: 'var(--ink-400)', marginTop: 2 }}>
                           {fullTime(e.timestamp)}
                         </div>
                       </td>
-                      <td className="px-4 py-4 text-sm text-gray-700 font-medium">
+                      <td style={{ ...TD_STYLE, fontSize: 'var(--fs-small)', color: 'var(--ink-800)' }}>
                         {agentMap[e.agent_id] ?? e.agent_id}
                       </td>
-                      <td className="px-4 py-4">
-                        <div className="flex items-center gap-2">
-                          <span
-                            className="inline-block w-2 h-2 rounded-full shrink-0"
-                            style={{ background: meta.dot }}
-                            title={meta.label}
-                          />
-                          <span
-                            className="px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase"
-                            style={
-                              toolChip
-                                ? { background: toolChip.bg, color: toolChip.color }
-                                : { background: "#f3f4f6", color: "#374151" }
-                            }
-                          >
-                            {e.tool.toUpperCase()}
-                          </span>
-                          <span className="text-sm text-gray-800">
+                      <td style={TD_STYLE}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                          <span className="tool-chip">{e.tool}</span>
+                          <span style={{ fontSize: 'var(--fs-small)', color: 'var(--ink-900)' }}>
                             {formatAction(e.action)}
                           </span>
+                          {/* The category is named, not dotted. A legend that
+                              floats above a table decoding four colours is a
+                              legend the row should have made unnecessary. */}
+                          {meta.short && (
+                            <span
+                              title={meta.label}
+                              style={{
+                                fontFamily: 'var(--font-mono)', fontSize: 10.5,
+                                letterSpacing: 0.4, textTransform: 'uppercase',
+                                color: meta.dot,
+                              }}
+                            >
+                              {meta.short}
+                            </span>
+                          )}
                         </div>
                       </td>
-                      <td className="px-4 py-4">
+                      <td style={TD_STYLE}>
                         {st && (
-                          <span
-                            className="px-2 py-0.5 rounded text-xs font-semibold"
-                            style={{ background: st.bg, color: st.color }}
-                          >
+                          <span style={{
+                            fontSize: 'var(--fs-micro)', fontWeight: 600,
+                            color: st.color, background: st.bg,
+                            borderRadius: 'var(--radius-sm)', padding: '2px 8px',
+                          }}>
                             {st.label}
                           </span>
                         )}
                       </td>
-                      <td className="px-4 py-4">
+                      <td style={TD_STYLE}>
                         <DetailCell detail={e.detail} />
                       </td>
                     </tr>
@@ -666,38 +563,18 @@ export default function History(): React.ReactElement {
                 })}
                 {filteredExecs.length === 0 && (
                   <tr>
-                    <td colSpan={5} className="px-4 py-12 text-center">
-                      <svg
-                        className="w-10 h-10 mx-auto text-gray-200 mb-3"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
-                        strokeWidth={1}
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
-                        />
-                      </svg>
-                      <div className="text-sm font-medium text-gray-600 mb-1">
-                        {executions.length === 0
-                          ? "No agent activity yet"
-                          : "No matching entries"}
+                    <td colSpan={5} style={{ padding: '56px 20px', textAlign: 'center' }}>
+                      <div style={{ fontSize: 'var(--fs-body)', fontWeight: 500, color: 'var(--ink-700)' }}>
+                        {executions.length === 0 ? "No agent activity yet" : "Nothing matches that filter"}
                       </div>
-                      <div className="text-xs text-gray-400">
+                      <div style={{ fontSize: 'var(--fs-small)', color: 'var(--ink-400)', marginTop: 5 }}>
                         {executions.length === 0 ? (
                           <>
-                            Your agents haven&apos;t called the enforcement API yet.{" "}
-                            <a
-                              href="/settings"
-                              className="text-indigo-600 hover:underline"
-                            >
-                              See how to integrate →
-                            </a>
+                            Your agents have not called the enforcement API yet.{" "}
+                            <a href="/settings" style={{ color: 'var(--text-link)' }}>See how to connect one</a>
                           </>
                         ) : (
-                          "Try a different filter or search term."
+                          "Try a different search term or time range."
                         )}
                       </div>
                     </td>
@@ -706,111 +583,96 @@ export default function History(): React.ReactElement {
               </tbody>
             </table>
           </div>
-        </>
+        </div>
       )}
 
       {/* ── Audit view ── */}
       {view === "audit" && (
-        <>
-          <div className="flex items-center justify-between gap-3">
-            <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer select-none">
+        <div className="panel-card panel-card--framed">
+          <div className="panel-head" style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            <div style={{ flex: 1, minWidth: 220 }}>
+              <Input
+                type="text"
+                icon={<Search size={14} />}
+                placeholder="Search by user, action, or resource"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                style={{ height: 36 }}
+              />
+            </div>
+            <SegControl options={TIME_FILTERS} value={timeFilter} onChange={setTimeFilter} />
+            <label style={{
+              display: 'flex', alignItems: 'center', gap: 7, cursor: 'pointer',
+              fontSize: 'var(--fs-small)', color: 'var(--ink-600)', userSelect: 'none',
+            }}>
               <input
                 type="checkbox"
-                className="rounded border-gray-300 text-gray-900 focus:ring-gray-900"
                 checked={hideSystem}
                 onChange={(e) => setHideSystem(e.target.checked)}
               />
               Hide system activity
               {hideSystem && systemHiddenCount > 0 && (
-                <span className="px-1.5 py-0.5 text-[10px] font-semibold bg-gray-100 text-gray-500 rounded">
+                <span className="mono" style={{ fontSize: 11, color: 'var(--ink-400)' }}>
                   {systemHiddenCount} hidden
                 </span>
               )}
             </label>
-            <Button variant="secondary" size="sm" onClick={handleExport} icon={<Download size={13} />}>
-              Export CSV
-            </Button>
           </div>
 
-          <div className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
-            <table className="w-full text-sm">
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
-                <tr className="border-b border-gray-200">
+                <tr>
                   {["Time", "User", "Action", "Resource", "Detail"].map((h) => (
-                    <th
-                      key={h}
-                      className="text-left px-4 py-3 text-[11px] font-semibold text-gray-400"
-                    >
-                      {h}
-                    </th>
+                    <th key={h} style={TH_STYLE}>{h}</th>
                   ))}
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-200">
+              <tbody>
                 {groupedAudit.map((e) => (
-                  <tr key={e.id} className="hover:bg-gray-50 transition-colors">
-                    <td className="px-4 py-3 whitespace-nowrap">
-                      <span
-                        className="text-sm text-gray-700"
-                        title={fullTime(e.timestamp)}
-                      >
+                  <tr key={e.id} className="hist-row">
+                    <td style={{ ...TD_STYLE, whiteSpace: 'nowrap' }}>
+                      <div className="mono" style={{ fontSize: 12.5, color: 'var(--ink-800)' }}>
                         {relativeTime(e.timestamp)}
-                      </span>
-                      <div className="text-[11px] text-gray-400 mt-0.5">
+                      </div>
+                      <div style={{ fontSize: 'var(--fs-micro)', color: 'var(--ink-400)', marginTop: 2 }}>
                         {fullTime(e.timestamp)}
                       </div>
                     </td>
-                    <td className="px-4 py-3 text-sm text-gray-700 font-medium">
-                      {e.user_email ?? "—"}
+                    <td style={{ ...TD_STYLE, fontSize: 'var(--fs-small)', color: 'var(--ink-800)' }}>
+                      {e.user_email ?? "System"}
                     </td>
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm text-gray-800">
+                    <td style={TD_STYLE}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <span style={{ fontSize: 'var(--fs-small)', color: 'var(--ink-900)' }}>
                           {AUDIT_ACTION_LABELS[e.action] ??
-                            e.action
-                              .replace(/_/g, " ")
-                              .replace(/\b\w/g, (c) => c.toUpperCase())}
+                            e.action.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())}
                         </span>
                         {(e._count ?? 1) > 1 && (
-                          <span className="px-1.5 py-0.5 text-[10px] font-semibold bg-gray-100 text-gray-600 rounded">
+                          <span className="mono" style={{ fontSize: 11, color: 'var(--ink-400)' }}>
                             ×{e._count}
                           </span>
                         )}
                       </div>
                     </td>
-                    <td className="px-4 py-3 text-xs text-gray-500 font-mono">
-                      {e.resource ?? <span className="text-gray-300 font-sans">—</span>}
+                    <td style={{ ...TD_STYLE, fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--ink-500)' }}>
+                      {e.resource ?? <span style={{ color: 'var(--ink-300)' }}>None</span>}
                     </td>
-                    <td className="px-4 py-3 text-xs text-gray-500">
-                      {e.detail ?? <span className="text-gray-300">—</span>}
+                    <td style={{ ...TD_STYLE, fontSize: 'var(--fs-small)', color: 'var(--ink-500)' }}>
+                      {e.detail ?? <span style={{ color: 'var(--ink-300)' }}>None</span>}
                     </td>
                   </tr>
                 ))}
                 {groupedAudit.length === 0 && (
                   <tr>
-                    <td colSpan={5} className="px-4 py-12 text-center">
-                      <svg
-                        className="w-10 h-10 mx-auto text-gray-200 mb-3"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
-                        strokeWidth={1}
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"
-                        />
-                      </svg>
-                      <div className="text-sm font-medium text-gray-600 mb-1">
-                        {auditEntries.length === 0
-                          ? "No changes recorded yet"
-                          : "No matching entries"}
+                    <td colSpan={5} style={{ padding: '56px 20px', textAlign: 'center' }}>
+                      <div style={{ fontSize: 'var(--fs-body)', fontWeight: 500, color: 'var(--ink-700)' }}>
+                        {auditEntries.length === 0 ? "No changes recorded yet" : "Nothing matches that filter"}
                       </div>
-                      <div className="text-xs text-gray-400">
+                      <div style={{ fontSize: 'var(--fs-small)', color: 'var(--ink-400)', marginTop: 5 }}>
                         {auditEntries.length === 0
-                          ? "Policy changes, agent connections, and simulations will be logged here for compliance."
-                          : "Try a different filter or search term."}
+                          ? "Policy changes, agent connections, and simulations all get logged here for compliance."
+                          : "Try a different search term or time range."}
                       </div>
                     </td>
                   </tr>
@@ -818,8 +680,65 @@ export default function History(): React.ReactElement {
               </tbody>
             </table>
           </div>
-        </>
+        </div>
       )}
     </div>
   );
+}
+
+/** Segmented control. One shape for every "pick one of a few" filter, in place
+ *  of the navy pill row, which read as four primary buttons competing with the
+ *  page's real actions. */
+function SegControl<T extends string>({
+  options, value, onChange,
+}: {
+  options: readonly { value: T; label: string }[]
+  value: T
+  onChange: (v: T) => void
+}) {
+  return (
+    <div style={{
+      display: 'inline-flex', gap: 2, padding: 3,
+      background: 'var(--bg-sunken)', borderRadius: 'var(--radius-md)',
+    }}>
+      {options.map((o) => {
+        const active = value === o.value
+        return (
+          <button
+            key={o.value}
+            type="button"
+            onClick={() => onChange(o.value)}
+            style={{
+              border: 'none', borderRadius: 'var(--radius-btn)', padding: '5px 12px',
+              cursor: 'pointer', whiteSpace: 'nowrap',
+              fontFamily: 'var(--font-mono)', fontSize: 12,
+              background: active ? 'var(--card)' : 'transparent',
+              color: active ? 'var(--ink-900)' : 'var(--ink-500)',
+              boxShadow: active ? '0 1px 2px rgba(15,15,15,.06)' : 'none',
+            }}
+          >
+            {o.label}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
+const TH_STYLE: React.CSSProperties = {
+  textAlign: 'left',
+  padding: '11px 16px',
+  fontSize: 'var(--fs-micro)',
+  fontWeight: 600,
+  letterSpacing: 0.5,
+  textTransform: 'uppercase',
+  color: 'var(--ink-400)',
+  borderBottom: '1px solid var(--line)',
+  whiteSpace: 'nowrap',
+}
+
+const TD_STYLE: React.CSSProperties = {
+  padding: '13px 16px',
+  borderBottom: '1px solid var(--line)',
+  verticalAlign: 'top',
 }

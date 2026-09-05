@@ -20,17 +20,17 @@ import {
 const VERDICT_COPY: Record<string, { label: string; blurb: string; tone: "safe" | "medium" | "high" }> = {
   reconciled: {
     label: "Reconciles with your bill",
-    blurb: "Arceo's tracked spend matches the provider's bill within 5% — the numbers on this page are the numbers you pay.",
+    blurb: "Arceo's tracked spend matches the provider's bill within 5%, so the numbers on this page are the numbers you pay.",
     tone: "safe",
   },
   partial: {
     label: "Mostly reconciles",
-    blurb: "Tracked spend is within 20% of the bill. The gap usually has a boring explanation — likely causes below.",
+    blurb: "Tracked spend is within 20% of the bill. The gap usually has a boring explanation. Here are the likely causes.",
     tone: "medium",
   },
   large_gap: {
     label: "Large gap vs your bill",
-    blurb: "Tracked spend differs from the bill by more than 20%. Worth understanding before trusting either number — likely causes below.",
+    blurb: "Tracked spend differs from the bill by more than 20%. Worth understanding before you trust either number. Here are the likely causes.",
     tone: "high",
   },
   no_invoice_total: {
@@ -115,7 +115,7 @@ export default function InvoiceReconciliationPanel() {
             {recon?.isDemo && (
               <span
                 className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full cursor-help"
-                title="This comparison uses a sample bill seeded for demonstration — import your real provider export to reconcile against it."
+                title="This comparison uses a sample bill we seeded for the demo. Import your real provider export to reconcile against it."
                 style={{ background: "var(--severity-medium-bg)", color: "var(--severity-high)", border: "1px solid var(--severity-medium-border)" }}
               >Sample import</span>
             )}
@@ -159,7 +159,7 @@ export default function InvoiceReconciliationPanel() {
             <span>→</span>
             <input type="date" value={periodEnd} onChange={(e) => setPeriodEnd(e.target.value)}
                    className="px-2 py-1.5 rounded-md border bg-white" style={{ borderColor: "var(--border)" }} />
-            <span className="text-gray-400">optional — a CSV's own dates win; without any we compare the last 30 days</span>
+            <span className="text-gray-400">optional. A CSV's own dates win, and without any we compare the last 30 days</span>
           </div>
           {mode === "csv" ? (
             <div className="flex items-center gap-3">
@@ -173,7 +173,7 @@ export default function InvoiceReconciliationPanel() {
                 style={{ background: "var(--text-primary, #0f172a)" }}
               ><Upload size={12} /> {busy ? "Importing…" : "Choose the export file"}</button>
               <span className="text-[11px] text-gray-400">
-                Any provider usage/billing CSV works — we auto-detect the cost, date, and model columns.
+                Any provider usage or billing CSV works. We find the cost, date, and model columns for you.
               </span>
             </div>
           ) : (
@@ -205,7 +205,7 @@ export default function InvoiceReconciliationPanel() {
         <div className="mt-4 rounded-lg p-6 text-center" style={{ background: "var(--bg-sunken)", border: "1px dashed var(--border)" }}>
           <div className="text-sm font-semibold text-gray-700">No bill imported yet</div>
           <p className="mt-1 text-xs text-gray-500 max-w-lg mx-auto leading-relaxed">
-            Import a bill to see "Arceo tracked $X — your invoice says $Y."
+            Import a bill to see "Arceo tracked $X, your invoice says $Y."
           </p>
         </div>
       ) : verdict && tone && (
@@ -266,7 +266,7 @@ export default function InvoiceReconciliationPanel() {
 
           <div className="flex items-center justify-between text-[11px] text-gray-400">
             <span>
-              Captured calls are priced at today's rates — a mid-period provider repricing shows up as part of the difference.
+              Captured calls are priced at today's rates, so if the provider repriced mid-period that shows up as part of the difference.
               {recon.windowAssumed30d && " No period on the import, so this compares against the last 30 days."}
             </span>
             <button

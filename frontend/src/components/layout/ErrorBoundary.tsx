@@ -43,7 +43,7 @@ export default class ErrorBoundary extends Component<Props, State> {
               Something went wrong on this page
             </h2>
             <p style={{ fontSize: 'var(--fs-small)', color: 'var(--ink-500)', marginBottom: 20, lineHeight: 1.5 }}>
-              The rest of Arceo is fine — you can retry or head back to your agents.
+              The rest of Arceo is fine. You can retry, or head back to your agents.
             </p>
             <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
               <button

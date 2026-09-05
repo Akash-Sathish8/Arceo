@@ -551,10 +551,10 @@ export default function SimulationDetail() {
   const blocked = steps.filter((st) => decisionOf(st) === "BLOCK").length;
   const criticalViolations = violations.filter((v) => (v.severity ?? "").toLowerCase() === "critical").length
     + chains.filter((c) => (c.severity ?? "").toLowerCase() === "critical").length;
-  const traceId = String(sim.id ?? "").slice(0, 8) || "—";
+  const traceId = String(sim.id ?? "").slice(0, 8) || "None";
   const runDate = sim.created_at
     ? new Date(sim.created_at).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })
-    : "—";
+    : "None";
 
   return (
     <div className="px-container-padding py-stack-gap flex flex-col gap-stack-gap w-full">
@@ -586,7 +586,7 @@ export default function SimulationDetail() {
           <button
             type="button"
             onClick={() => navigate(`/sandbox?agent=${encodeURIComponent(sim.agent_id)}`)}
-            className="px-4 py-2 bg-primary text-on-primary font-body text-body rounded-lg hover:opacity-90 transition-opacity shadow-sm flex items-center gap-2 border-0 cursor-pointer"
+            className="btn btn--primary"
           >
             <RotateCcw size={18} strokeWidth={2} />
             Re-run Simulation
@@ -808,7 +808,7 @@ function DetectionGrade({ grade }: { grade: NonNullable<SimulationDetailData["re
       </div>
       <p className="text-meta font-meta text-neutral-secondary mt-1 mb-4">
         How well this run surfaced the violations the scenario was designed to trigger. Actions that policy
-        blocked still count as detected — catching and stopping a violation is not a miss.
+        blocked still count as detected. Catching and stopping a violation is not a miss.
       </p>
       <div className="flex gap-8 mb-4">
         {grade.recall != null && (

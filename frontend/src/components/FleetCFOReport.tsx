@@ -128,7 +128,7 @@ function fmtUsd(n: number): string {
 export function FleetCFOReport({ data }: { data: FleetReportData }) {
   const agentWord = data.agentCount === 1 ? "agent" : "agents"
   return (
-    <Document title={`${data.org} — Fleet AI Spend Review`}>
+    <Document title={`${data.org} Fleet AI Spend Review`}>
       <Page size="LETTER" style={styles.page}>
         {/* Header */}
         <View style={styles.topbar}>
@@ -167,7 +167,7 @@ export function FleetCFOReport({ data }: { data: FleetReportData }) {
           <View style={[styles.numberRow, { marginTop: 8 }]}>
             <Text style={styles.numberLabel}>Likely range ({data.confidenceBand})</Text>
             <Text style={styles.numberValue}>
-              {fmtUsd(data.monthlyLow)} – {fmtUsd(data.monthlyHigh)}
+              {fmtUsd(data.monthlyLow)} to {fmtUsd(data.monthlyHigh)}
             </Text>
           </View>
           <View style={styles.numberRow}>

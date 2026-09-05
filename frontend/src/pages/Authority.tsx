@@ -109,7 +109,7 @@ const SORT_OPTIONS = [
   { value: 'chains-desc',  label: 'Most Chains' },
   { value: 'created-desc', label: 'Recently Added' },
   { value: 'viewed-desc',  label: 'Recently Viewed' },
-  { value: 'name-asc',     label: 'Name A–Z' },
+  { value: 'name-asc',     label: 'Name A to Z' },
 ]
 
 const TEMPLATES = [
@@ -320,7 +320,7 @@ export default function Authority() {
     // The backend rejects >200K bodies outright (422); send what fits and say so.
     if (text.length > BUNDLE_MAX_CHARS) {
       setUploadFileContent(text.slice(0, BUNDLE_MAX_CHARS))
-      toast(`${file.name} exceeds the 200KB extractor limit — only the first 200KB will be analyzed`, 'error')
+      toast(`${file.name} is over the 200KB limit, so we'll only read the first 200KB`, 'error')
       return
     }
     setUploadFileContent(text)
@@ -374,7 +374,7 @@ export default function Authority() {
     )
     if (usable.length === 0) {
       toast(hasArchive
-        ? "Zip archives aren't supported — drag the unzipped folder in instead"
+        ? "We can't read zip archives yet. Unzip it and drag the folder in instead."
         : 'No code files found to bundle', 'error')
       return
     }
@@ -413,7 +413,7 @@ export default function Authority() {
         const bits: string[] = []
         if (skipped > 0) bits.push(`${skipped} didn't fit`)
         if (truncatedCount > 0) bits.push(`${truncatedCount} truncated`)
-        toast(`Bundled ${meta.length} files — ${bits.join(', ')} (200KB extractor limit)`, 'error')
+        toast(`Bundled ${meta.length} files: ${bits.join(', ')}. The extractor reads up to 200KB.`, 'error')
       }
     } finally {
       setBundling(false)
@@ -439,9 +439,9 @@ export default function Authority() {
       if (data && data.agents_registered > 0) {
         toast(`Registered ${data.agents_registered} agent${data.agents_registered !== 1 ? 's' : ''} from ${data.owner}/${data.repo}`)
       } else if (data && data.agents_detected > 0) {
-        toast(`Detected ${data.agents_detected} agent file${data.agents_detected !== 1 ? 's' : ''} but registration failed — see per-file results`, 'error')
+        toast(`Detected ${data.agents_detected} agent file${data.agents_detected !== 1 ? 's' : ''} but we couldn't register them. Check the per-file results below.`, 'error')
       } else {
-        toast('Scan complete — no agent files detected', 'error')
+        toast("Scan finished, but we didn't find any agent files", 'error')
       }
       loadData()
     } catch (err) {
@@ -485,7 +485,7 @@ export default function Authority() {
       setMcpUrl('')
       setMcpAgentName('')
       setShowMcpConnect(false)
-      toast(`Connected — ${data.tools_imported} tool${data.tools_imported !== 1 ? 's' : ''} imported`)
+      toast(`Connected. We imported ${data.tools_imported} tool${data.tools_imported !== 1 ? 's' : ''}.`)
       loadData()
     } catch (err) {
       setMcpResult({ error: (err as Error).message })
@@ -590,20 +590,14 @@ export default function Authority() {
     <div style={{ padding: '34px 40px 64px', fontFamily: 'var(--font-sans)' }}>
       <PageHeader
         title="Agents"
-        description="Every action your AI agents can take — scored, chained, and governed before production."
+        description="Every action your AI agents can take, scored and governed before they reach production."
         actions={
           <button
             type="button"
             onClick={() => {
               setShowCreate(true); setShowMcpConnect(false); setAgentTab('agents')
             }}
-            className="ag-btn"
-            style={{
-              display: 'inline-flex', alignItems: 'center', gap: 8, whiteSpace: 'nowrap',
-              background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: 'var(--radius-md)',
-              padding: '10px 16px', fontSize: 'var(--fs-body)', fontWeight: 600, fontFamily: 'var(--font-sans)',
-              cursor: 'pointer', boxShadow: 'var(--shadow-card-new)',
-            }}
+            className="btn btn--primary ag-btn"
           >
             <Plus size={16} strokeWidth={1.8} />
             Connect agent
@@ -687,7 +681,7 @@ export default function Authority() {
                 Connect an agent
               </h2>
               <p className="text-body font-body text-neutral-secondary leading-relaxed m-0">
-                Point Arceo at an agent&rsquo;s tools &mdash; from a code file, a repo, a live MCP
+                Point Arceo at an agent&rsquo;s tools, from a code file, a repo, a live MCP
                 server, or by routing its calls through the proxy. Every route ends the same way: a
                 scored map of every action it can take.
               </p>
@@ -728,7 +722,7 @@ export default function Authority() {
                 </div>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 3 }}>Create your agent</div>
-                  <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.5 }}>Name it, describe what it does, and list its tools — Arceo scores the risk in seconds.</div>
+                  <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.5 }}>Name it, describe what it does, and list its tools. Arceo scores the risk in seconds.</div>
                 </div>
                 <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', flexShrink: 0 }}>Get started</div>
               </button>
@@ -807,7 +801,7 @@ export default function Authority() {
                 { id: 'gha',    label: 'GitHub Action', sub: 'Re-scan on every PR' },
               ]
               const postChildren: { id: ConnectTabId; label: string; sub: string }[] = [
-                { id: 'proxy', label: 'Route through Arceo', sub: 'Zero code change — set one env var' },
+                { id: 'proxy', label: 'Route through Arceo', sub: 'No code changes, just one env var' },
                 { id: 'mcp',   label: 'Connect via MCP',     sub: 'Auto-discover an MCP server' },
               ]
               const dropdownMenu = (
@@ -899,7 +893,7 @@ export default function Authority() {
           {connectTab === 'upload' && (
             <div className="space-y-4">
               <p style={{ fontSize: 13, color: 'var(--text-secondary)', background: 'var(--bg-sunken)', borderRadius: 8, padding: '10px 14px', margin: 0 }}>
-                Drop in a file or folder of agent code — Arceo extracts every action and scores the risk in ~30 seconds.
+                Drop in a file or folder of agent code. Arceo pulls out every action and scores the risk in about 30 seconds.
               </p>
               <form onSubmit={handleUploadSubmit} className="space-y-3">
                 <input
@@ -971,7 +965,7 @@ export default function Authority() {
                 {bundledFiles.length > 0 && (
                   <div className="bg-white border border-gray-200 rounded-lg p-3 space-y-1.5 max-h-60 overflow-auto">
                     <div className="text-[11px] font-semibold text-gray-700 mb-1.5">
-                      Bundled into one agent — {bundledFiles.length} files
+                      Bundled into one agent, {bundledFiles.length} files
                     </div>
                     {bundledFiles.map((b, i) => (
                       <div key={i} className="flex items-center gap-2 text-[11px]">
@@ -1015,7 +1009,7 @@ export default function Authority() {
               <ol className="space-y-4 text-xs text-gray-700" style={{ marginTop: 16 }}>
                 <li className="flex gap-3">
                   <span className="flex-shrink-0 w-5 h-5 rounded-full bg-gray-900 text-white text-[11px] font-semibold flex items-center justify-center">1</span>
-                  <div><strong className="text-gray-900">Generate an API key.</strong>{' '}<a href="/settings" className="underline text-gray-900 hover:text-indigo-600">Settings → API &amp; Integration → API Keys</a>. Copy it once — you won't see it again.</div>
+                  <div><strong className="text-gray-900">Generate an API key.</strong>{' '}<a href="/settings" className="underline text-gray-900 hover:text-indigo-600">Settings → API &amp; Integration → API Keys</a>. Copy it once, because you won't see it again.</div>
                 </li>
                 <li className="flex gap-3">
                   <span className="flex-shrink-0 w-5 h-5 rounded-full bg-gray-900 text-white text-[11px] font-semibold flex items-center justify-center">2</span>
@@ -1055,7 +1049,7 @@ export default function Authority() {
           {connectTab === 'github' && (
             <div className="space-y-4">
               <p style={{ fontSize: 13, color: 'var(--text-secondary)', background: 'var(--bg-sunken)', borderRadius: 8, padding: '10px 14px', margin: 0 }}>
-                Arceo scans the repo and registers every agent it finds — one scan, full fleet.
+                Arceo scans the repo and registers every agent it finds. One scan covers your whole fleet.
               </p>
               <form onSubmit={handleGithubScan} className="space-y-3">
                 <div>
@@ -1132,7 +1126,7 @@ export default function Authority() {
                   (main.py:523-532), so the old instructions produced a 401 on
                   every call in exactly the environment that matters. */}
               <p style={{ fontSize: 13, color: 'var(--text-secondary)', background: 'var(--bg-sunken)', borderRadius: 8, padding: '10px 14px', margin: 0 }}>
-                Point your SDK's base URL at Arceo and add two headers — no code changes beyond your client config, no SDK install. Every LLM call flows through us and appears in the dashboard. <span style={{ color: 'var(--text-primary)', fontWeight: 500 }}>~2 minutes to set up.</span>
+                Point your SDK's base URL at Arceo and add two headers. There are no code changes beyond your client config, and nothing to install. Every LLM call flows through us and appears in the dashboard. <span style={{ color: 'var(--text-primary)', fontWeight: 500 }}>~2 minutes to set up.</span>
               </p>
 
               <div>
@@ -1146,7 +1140,7 @@ export default function Authority() {
                     the first call." True only WITH a key: the auto-create branch
                     is gated on key_info and 404s without it (main.py:812-816),
                     in dev too. The key is the registration. */}
-                <p className="text-[11px] text-gray-500 mt-1">No need to create the agent first — your API key registers it automatically on its first call.</p>
+                <p className="text-[11px] text-gray-500 mt-1">No need to create the agent first. Your API key registers it automatically on its first call.</p>
               </div>
 
               <div className="bg-gray-900 text-gray-100 rounded-lg p-4 font-mono text-[12px] leading-relaxed overflow-x-auto">
@@ -1160,7 +1154,7 @@ export default function Authority() {
                     dev (main.py:523-532), and the auto-create branch needs it
                     too (:812-816) — without this header the whole flow 401s. */}
                 <div>X-API-Key: <span className="text-amber-300">"{'<your-arceo-api-key>'}"</span> <span className="text-gray-500">{'# Settings → API & Integration'}</span></div>
-                <div className="mt-3 text-gray-500"># That's it. No SDK install. Restart your service —</div>
+                <div className="mt-3 text-gray-500"># That's it. Nothing to install. Restart your service and</div>
                 <div className="text-gray-500"># every messages.create() and chat.completions.create() now flows</div>
                 <div className="text-gray-500"># through Arceo and appears in the dashboard.</div>
               </div>
@@ -1192,7 +1186,7 @@ export default function Authority() {
           {connectTab === 'mcp' && (
             <form onSubmit={handleMcpConnect} className="space-y-4">
               <p style={{ fontSize: 13, color: 'var(--text-secondary)', background: 'var(--bg-sunken)', borderRadius: 8, padding: '10px 14px', margin: 0 }}>
-                Point Arceo at your <Tooltip content={MCP_GLOSSARY}><span className="cursor-help underline decoration-dotted underline-offset-2">MCP</span></Tooltip> server — we call <code style={{ fontSize: 11, background: 'rgba(0,0,0,0.06)', padding: '1px 4px', borderRadius: 3 }}>tools/list</code> and import every tool your agent exposes automatically. <span style={{ color: 'var(--text-primary)', fontWeight: 500 }}>~1 minute to set up.</span>
+                Point Arceo at your <Tooltip content={MCP_GLOSSARY}><span className="cursor-help underline decoration-dotted underline-offset-2">MCP</span></Tooltip> server and we call <code style={{ fontSize: 11, background: 'rgba(0,0,0,0.06)', padding: '1px 4px', borderRadius: 3 }}>tools/list</code> and import every tool your agent exposes automatically. <span style={{ color: 'var(--text-primary)', fontWeight: 500 }}>~1 minute to set up.</span>
               </p>
               <div className="grid grid-cols-2 gap-3">
                 <div>
@@ -1238,7 +1232,7 @@ export default function Authority() {
             <button
               type="button"
               onClick={closeConnect}
-              className="bg-surface-container-lowest border border-neutral-border text-neutral-secondary font-body text-body font-medium px-5 py-2.5 rounded hover:text-on-surface transition-colors cursor-pointer"
+              className="btn btn--secondary"
             >
               Close
             </button>
@@ -1358,7 +1352,7 @@ export default function Authority() {
                 note: `${pluralize(totalAgents, 'agent')} governed`,
                 onClick: () => setAgentTab('agents'),
               })}
-              {tile('Forecast spend / mo', sumSpend !== null ? formatMoney(sumSpend) : '—', {
+              {tile('Forecast spend / mo', sumSpend !== null ? formatMoney(sumSpend) : 'No data', {
                 valueColor: 'var(--accent)',
                 note: sumSpend === null ? 'Awaiting forecasts' : `Across ${pluralize(forecastRows.length, 'agent')}`,
                 onClick: () => navigate('/spend'),
@@ -1639,9 +1633,9 @@ export default function Authority() {
             </div>
             <div className="view-toggle" role="group" aria-label="Agent catalog layout">
               {([
-                { v: 'rail' as const, icon: GalleryHorizontal, label: 'Rail — scroll sideways' },
-                { v: 'vscroll' as const, icon: GalleryVertical, label: 'Stack — scroll up/down inside the box' },
-                { v: 'grid' as const, icon: LayoutGrid, label: 'Grid — show all' },
+                { v: 'rail' as const, icon: GalleryHorizontal, label: 'Rail, scroll sideways' },
+                { v: 'vscroll' as const, icon: GalleryVertical, label: 'Stack, scroll up and down inside the box' },
+                { v: 'grid' as const, icon: LayoutGrid, label: 'Grid, show everything' },
               ]).map(({ v, icon: Icon, label }) => (
                 <button
                   key={v}
@@ -1742,7 +1736,7 @@ export default function Authority() {
             {
               key: 'pre_deployment',
               title: 'Pre-deployment',
-              note: 'No execution and no captured calls — forecast only',
+              note: 'Nothing has run and no calls captured, so this is forecast only',
               items: filteredAgents.filter((a) => a.deployment_state !== 'deployed'),
             },
           ].filter((sec) => sec.items.length > 0)

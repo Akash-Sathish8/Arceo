@@ -123,22 +123,7 @@ function CodeSnippetTabs({ tabs }: CodeSnippetTabsProps) {
         }}
       >
         {tabs.map((t, i) => (
-          <button
-            key={i}
-            onClick={() => setActive(i)}
-            style={{
-              padding: "5px 14px",
-              fontSize: 13,
-              fontWeight: active === i ? 600 : 400,
-              borderRadius: "var(--radius-full)",
-              border: "none",
-              cursor: "pointer",
-              background: active === i ? "var(--color-cta)" : "transparent",
-              color: active === i ? "var(--text-inverse)" : "var(--text-secondary)",
-              transition: "background 0.15s, color 0.15s",
-              fontFamily: "inherit",
-            }}
-          >
+          <button className="btn btn--primary" key={i} onClick={() => setActive(i)} >
             {t.label}
           </button>
         ))}
@@ -169,7 +154,7 @@ interface CostDefaultsCatalog {
 const MODEL_PRICE_COLUMNS: Array<{ sub: string; label: string }> = [
   { sub: "input_per_mtok", label: "Input $ / MTok" },
   { sub: "output_per_mtok", label: "Output $ / MTok" },
-  { sub: "cache_discount", label: "Cache discount (0–1)" },
+  { sub: "cache_discount", label: "Cache discount (0 to 1)" },
 ];
 
 function CostOverridesSection({ inputStyle }: { inputStyle: React.CSSProperties }) {
@@ -211,7 +196,7 @@ function CostOverridesSection({ inputStyle }: { inputStyle: React.CSSProperties 
           method: "PUT",
           body: JSON.stringify({ scope, key, sub_key: sub, value: parsed }),
         });
-        toast("Custom rate saved — forecasts now use it");
+        toast("Custom rate saved. Forecasts use it from now on.");
         load();
       } else if (existing) {
         await apiFetch(`/api/cost-overrides/${existing.id}`, { method: "DELETE" });
@@ -289,7 +274,7 @@ function CostOverridesSection({ inputStyle }: { inputStyle: React.CSSProperties 
           Model pricing
         </h2>
         <p style={{ fontSize: 13, color: "var(--text-secondary)", marginBottom: 16 }}>
-          If your contract has different prices than the list rates below, type yours in — every
+          If your contract has different prices than the list rates below, type yours in. Every
           forecast for your organization will use your numbers. Setting a price back to the list
           rate removes the custom value.
         </p>
@@ -368,7 +353,7 @@ function CostOverridesSection({ inputStyle }: { inputStyle: React.CSSProperties 
           Custom tool costs
         </h2>
         <p style={{ fontSize: 13, color: "var(--text-secondary)", marginBottom: 12 }}>
-          Price internal or unlisted tools per action — e.g. an internal API that costs $0.02 per
+          Price internal or unlisted tools per action. For example, an internal API that costs $0.02 per
           lookup. Forecasts add these on top of model spend.
         </p>
         {toolOverrides.length > 0 && (
@@ -456,7 +441,7 @@ function ApiKeys({ reloadKey, canManage }: { reloadKey: number; canManage: boole
     if (
       !window.confirm(
         `Revoke the key "${k.name}"?\n\nAny agent still sending it will start getting 401s on ` +
-          `its next call, and its LLM calls will stop being captured. This cannot be undone — ` +
+          `its next call, and its LLM calls will stop being captured. This cannot be undone. ` +
           `issue a new key instead.`,
       )
     )
@@ -477,7 +462,7 @@ function ApiKeys({ reloadKey, canManage }: { reloadKey: number; canManage: boole
   if (loadFailed) {
     return (
       <p style={{ fontSize: 13, color: "var(--text-muted)", margin: 0 }}>
-        Couldn't load your API keys just now — reload to try again. This says nothing about
+        We couldn't load your API keys just now. Reload to try again. This says nothing about
         whether you have any.
       </p>
     );
@@ -762,7 +747,7 @@ function NotificationsSection({ inputStyle }: { inputStyle: React.CSSProperties 
         <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 5 }}>
           {webhookConfigured ? (
             <>
-              Saved and hidden — a webhook URL is a password, so only the host and last few
+              Saved and hidden. A webhook URL is a password, so only the host and last few
               characters are shown. Leave it as-is to keep it, type a new URL to replace it, or
               clear the field to turn alerts off.
             </>
@@ -817,7 +802,7 @@ function NotificationsSection({ inputStyle }: { inputStyle: React.CSSProperties 
 export default function Settings() {
   const user = getUser();
   const token = getToken() || "";
-  const maskedToken = token ? token.slice(0, Math.min(16, token.length)) + "•".repeat(Math.max(0, Math.min(24, token.length - 16))) : "—";
+  const maskedToken = token ? token.slice(0, Math.min(16, token.length)) + "•".repeat(Math.max(0, Math.min(24, token.length - 16))) : "Not set";
   const [showToken, setShowToken] = useState(false);
 
   const [inviteEmail, setInviteEmail] = useState("");
@@ -1097,7 +1082,7 @@ if (await enforce("Stripe", "create_refund", { amount: 500 })) {
                       Key "{createdKeyName}" created
                     </div>
                     <p style={{ fontSize: 12, color: "#15803d", margin: 0 }}>
-                      Copy it now — Arceo stores only a hash, so this is the one and only time it
+                      Copy it now. Arceo stores only a hash, so this is the one and only time it
                       can be shown. If you lose it, revoke this key and issue another.
                     </p>
                     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -1189,7 +1174,7 @@ if (await enforce("Stripe", "create_refund", { amount: 500 })) {
                   Session token
                 </h2>
                 <p style={{ fontSize: 13, color: "var(--text-secondary)", marginBottom: 12 }}>
-                  This is your own sign-in, not an agent credential — it is what the dashboard uses
+                  This is your own sign-in, not an agent credential. It is what the dashboard uses
                   and what{" "}
                   <code
                     style={{
@@ -1270,8 +1255,8 @@ if (await enforce("Stripe", "create_refund", { amount: 500 })) {
                     An agent left running on this token stops working silently,
                     which is exactly why the card above exists. */}
                 <p style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 8, marginBottom: 0 }}>
-                  This token expires with your session — 24 hours unless your workspace sets a
-                  different length — and changing your password ends it immediately.{" "}
+                  This token expires with your session, after 24 hours unless your workspace sets a
+                  different length. Changing your password ends it immediately.{" "}
                   <strong>Don't put it in an agent:</strong> use an API key above, which does not
                   expire until you revoke it. Keep both secret; this one grants your full access.
                 </p>
@@ -1343,7 +1328,7 @@ if (await enforce("Stripe", "create_refund", { amount: 500 })) {
                         ALLOW
                       </span>
                       <span style={{ fontSize: 12, color: "var(--text-secondary)" }}>
-                        Action is permitted — proceed normally.
+                        The action is allowed, so proceed normally.
                       </span>
                     </div>
                     <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
@@ -1362,7 +1347,7 @@ if (await enforce("Stripe", "create_refund", { amount: 500 })) {
                         BLOCK
                       </span>
                       <span style={{ fontSize: 12, color: "var(--text-secondary)" }}>
-                        Action is blocked by policy — do not proceed. Log the attempt.
+                        A policy blocked this action. Do not proceed, and log the attempt.
                       </span>
                     </div>
                     <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
@@ -1381,7 +1366,7 @@ if (await enforce("Stripe", "create_refund", { amount: 500 })) {
                         REQUIRE_APPROVAL
                       </span>
                       <span style={{ fontSize: 12, color: "var(--text-secondary)" }}>
-                        Action needs human approval — pause and wait for confirmation.
+                        This action needs human approval. Pause and wait for confirmation.
                       </span>
                     </div>
                   </div>
@@ -1438,7 +1423,7 @@ if (await enforce("Stripe", "create_refund", { amount: 500 })) {
                 </h3>
                 <p style={{ fontSize: 13, color: "var(--text-secondary)", marginBottom: 12 }}>
                   Add someone to this workspace. They'll see the same agents, spend, and
-                  simulations you do — what they can change depends on the role you pick.
+                  simulations you do. What they can change depends on the role you pick.
                 </p>
 
                 {inviteSent ? (
@@ -1568,7 +1553,7 @@ if (await enforce("Stripe", "create_refund", { amount: 500 })) {
                       {inviteRole === "viewer"
                         ? "Can look at agents, spend, and simulation results, but not change anything."
                         : inviteRole === "editor"
-                        ? "Can register agents, run simulations, and set policies — but not manage API keys, cost settings, or teammates."
+                        ? "Can register agents, run simulations, and set policies, but not manage API keys, cost settings, or teammates."
                         : "Full access, including API keys, cost settings, and inviting other people."}
                     </p>
                     {inviteError && (

@@ -397,6 +397,9 @@
 
   /* ── Radii ───────────────────────────────────────────────────── */
   --radius-sm:    4px;
+  /* Buttons carry their own corner so every action matches the reference
+     exactly (Tailwind `rounded`), independent of card radii. */
+  --radius-btn:   4px;
   --radius-md:    6px;
   --radius-lg:    8px;
   --radius-xl:    10px;
@@ -490,6 +493,71 @@ body {
   background: #c82828 !important;
   box-shadow: 0 2px 8px rgba(229, 53, 53, 0.25);
 }
+
+/* ── Action buttons ───────────────────────────────────────────────────────
+   One shape and one voice for every action in the product, taken from the
+   Sandbox "New Simulation" button: JetBrains Mono at the label step, a 4px
+   corner, 16/8 padding, an 8px icon gap.
+
+   This covers ACTIONS. Tabs, segmented controls, icon-only toggles and
+   controls styled as text links are different controls and keep their own
+   treatment — giving a tab strip button chrome is how a toolbar stops being
+   readable. */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 8px 16px;
+  border-radius: var(--radius-btn);
+  border: 1px solid transparent;
+  font-family: var(--font-monospace-label);
+  font-size: var(--text-monospace-label);
+  line-height: var(--text-monospace-label--line-height);
+  font-weight: var(--text-monospace-label--font-weight);
+  letter-spacing: 0;
+  white-space: nowrap;
+  cursor: pointer;
+  text-decoration: none;
+  transition: opacity 150ms ease, background 150ms ease, border-color 150ms ease;
+}
+.btn:disabled,
+.btn[aria-disabled="true"] { opacity: .5; cursor: not-allowed; }
+.btn:hover:not(:disabled):not([aria-disabled="true"]) { opacity: .9; }
+
+.btn--primary {
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+  box-shadow: 0 1px 2px rgba(15, 15, 15, .05);
+}
+.btn--secondary {
+  background: var(--card);
+  color: var(--ink-700);
+  border-color: var(--line);
+}
+.btn--secondary:hover:not(:disabled) { background: var(--bg-sunken); opacity: 1; }
+.btn--ghost { background: transparent; color: var(--ink-500); }
+.btn--ghost:hover:not(:disabled) {
+  background: var(--bg-sunken); color: var(--ink-900); opacity: 1;
+}
+.btn--danger { background: var(--critical); color: #fff; }
+/* Dark surfaces (the simulation canvas, the graphite panels). */
+.btn--on-dark {
+  background: rgba(255, 255, 255, .08);
+  color: #fff;
+  border-color: rgba(255, 255, 255, .16);
+}
+.btn--on-dark:hover:not(:disabled) { background: rgba(255, 255, 255, .16); opacity: 1; }
+
+.btn--sm { padding: 5px 12px; }
+.btn--lg { padding: 11px 22px; }
+.btn--block { width: 100%; }
+
+/* History table rows. A hairline hover, not a brightness filter — filtering
+   the whole row dims its status chips along with everything else. */
+.hist-row { transition: background 120ms ease; }
+.hist-row:hover { background: var(--paper-2); }
+.hist-row:last-child td { border-bottom: none; }
 
 /* ── Toast entrance animation ────────────────────────────────────── */
 @keyframes toast-in {

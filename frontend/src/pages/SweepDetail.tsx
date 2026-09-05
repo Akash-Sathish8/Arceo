@@ -152,7 +152,7 @@ export default function SweepDetail() {
         { method: "POST", body: JSON.stringify({ agent_id: sweep.agent_id, policies }) },
       );
       const skipped = res.skipped ? `, ${res.skipped} already in place` : "";
-      toast(`Applied ${res.created} polic${res.created === 1 ? "y" : "ies"}${skipped} — re-run the sweep to see the effect`);
+      toast(`Applied ${res.created} polic${res.created === 1 ? "y" : "ies"}${skipped}. Re-run the sweep to see the effect.`);
     } catch (err) {
       toast("Couldn't apply recommendations: " + (err as Error).message, "error");
     } finally {

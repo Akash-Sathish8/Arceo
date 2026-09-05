@@ -58,7 +58,7 @@ export default function FleetStrip({
 
   const cells: Cell[] = [
     { label: "Agents",           value: total, sub: agentSplit },
-    { label: "Forecast / mo",    value: spend !== null ? formatMoney(spend) : "—", sub: split },
+    { label: "Forecast / mo",    value: spend !== null ? formatMoney(spend) : "No data", sub: split },
     { label: "Critical chains",  value: criticalChains, color: criticalChains > 0 ? "var(--critical)" : undefined },
     { label: "Unguarded",        value: unguarded,      color: unguarded > 0 ? "var(--caution)" : undefined },
   ];

@@ -79,7 +79,7 @@ function isMoneyParam(key: string, v: unknown): boolean {
 }
 
 function formatParamValue(key: string, v: unknown): string {
-  if (v === null || v === undefined) return '—'
+  if (v === null || v === undefined) return 'Not set'
   if (typeof v === 'boolean') return v ? 'Yes' : 'No'
   if (typeof v === 'number') {
     return isMoneyParam(key, v) ? `$${v.toLocaleString()}` : v.toLocaleString()
@@ -111,7 +111,7 @@ function scenarioLine(a: ApprovalItem): { pre: string; money: string | null; pos
   const actionPhrase = a.action.replace(/_/g, ' ')
   let post = ''
   if (targetKey) post += ` for ${String(p[targetKey])}`
-  if (reasonKey) post += ` — “${String(p[reasonKey])}”`
+  if (reasonKey) post += `: “${String(p[reasonKey])}”`
   return {
     pre: `Wants to ${actionPhrase}${moneyKey ? ': ' : ''}`,
     money: moneyKey ? formatParamValue(moneyKey, p[moneyKey]) : null,
@@ -170,13 +170,13 @@ export default function Approvals() {
       if (decision === 'reject') {
         toast('Agent blocked')
       } else if (res.replay?.status === 'replayed') {
-        toast('Approved — action executed')
+        toast('Approved. The action ran.')
       } else if (res.replay?.status === 'replay_failed') {
         toast(`Approved, but the action failed: ${res.replay.detail ?? 'unknown'}`, 'error')
       } else if (res.replay?.status === 'skipped') {
-        toast('Approved — will execute when live replay is enabled')
+        toast('Approved. It will run once live replay is enabled.')
       } else {
-        toast('Approved — agent resumed')
+        toast('Approved. The agent has resumed.')
       }
       setDecided((prev) => ({ ...prev, [id]: decision }))
       setTimeout(() => {
@@ -253,7 +253,7 @@ export default function Approvals() {
 
     const verb = decision === 'approve' ? 'resumed' : 'blocked'
     if (failed === 0) toast(`${okIds.length} agent action${okIds.length !== 1 ? 's' : ''} ${verb}`)
-    else toast(`${okIds.length} ${verb}, ${failed} failed — still in the queue`, 'error')
+    else toast(`${okIds.length} ${verb}, ${failed} failed and are still in the queue`, 'error')
 
     setTimeout(() => {
       setApprovals((prev) => prev.filter((a) => !okIds.includes(a.id)))
@@ -543,7 +543,7 @@ export default function Approvals() {
                         )}
                         {Object.entries(a.params!).some(([k, v]) => isMoneyParam(k, v)) && (
                           <p className="text-[11px] mt-2 mb-0" style={{ color: 'var(--text-muted)' }}>
-                            Amounts shown as sent by the agent — no unit conversion applied.
+                            Amounts are shown exactly as the agent sent them, with no unit conversion.
                           </p>
                         )}
                       </div>
@@ -564,8 +564,8 @@ export default function Approvals() {
                     </div>
                     <p className="text-[11px] mt-2 mb-0" style={{ color: 'var(--text-muted)' }}>
                       {['sandbox', 'boundary_test', 'replay'].includes(a.source ?? '')
-                        ? 'This came from a simulation — deciding updates the record for reporting; no agent is waiting to execute.'
-                        : 'Approving marks this action allowed — the paused agent proceeds with exactly the arguments shown. Rejecting records it as blocked.'}
+                        ? 'This came from a simulation. Your decision updates the record for reporting, and no agent is waiting on it.'
+                        : 'Approving marks this action allowed, and the paused agent proceeds with exactly the arguments shown. Rejecting records it as blocked.'}
                     </p>
                   </div>
 

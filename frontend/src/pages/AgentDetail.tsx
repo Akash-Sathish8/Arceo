@@ -587,15 +587,23 @@ function WorstCasePanel({
   // The chain as its own steps: each risk label paired with the actions that
   // satisfy it. `steps` is [from_label, to_label] and `matching_actions` is the
   // matching action list per step, so they index together.
+  // One action can carry both of a chain's labels (terminate_instance is both
+  // changes_production and deletes_data), so the naive "worst action per step"
+  // names the same action twice and the chain stops looking like a sequence.
+  // Prefer a distinct action for the later step whenever the agent has one.
+  const usedActions = new Set<string>()
   const steps = (topChain?.steps ?? []).map((label, i) => {
     const actions = topChain?.matching_actions?.[i] ?? []
-    const hits = actions.map((a) => priced.get(a)).filter(Boolean) as NonNullable<
+    const hits = (actions.map((a) => priced.get(a)).filter(Boolean) as NonNullable<
       BlastRadius['top_contributors']
-    >
-    const worst = [...hits].sort((a, b) => b.usd - a.usd)[0]
+    >).sort((a, b) => b.usd - a.usd)
+    const worst = hits.find((h) => !usedActions.has(h.action)) ?? hits[0]
+    const fallback = actions.find((a) => !usedActions.has(a)) ?? actions[0]
+    const action = worst?.action ?? fallback
+    if (action) usedActions.add(action)
     return {
       label,
-      action: worst?.action ?? actions[0],
+      action,
       usd: worst?.usd ?? null,
       irreversible: worst ? worst.why.includes('irreversible') : false,
       alternatives: Math.max(0, actions.length - 1),
@@ -768,25 +776,17 @@ function WorstCasePanel({
               <span className="text-xs" style={{ color: 'var(--ink-600)' }}>
                 {gated
                   ? `blast radius after your policies (−${Math.round(br.score - br.residual_score!)})`
-                  : `blast radius — ${scoreBandLabel.toLowerCase()}, out of 100`}
+                  : `blast radius, ${scoreBandLabel.toLowerCase()}, out of 100`}
               </span>
             </div>
             <p className="text-xs mt-1.5" style={{ color: 'var(--ink-400)' }}>
               {br.evidence?.dryRunOnly || br.confidence === 'low'
-                ? 'Static analysis of what the agent can do — run a simulation to confirm.'
-                : CONF_STYLE[br.confidence ?? 'low'].label + ' — graded against a simulation run.'}
+                ? 'This is a static read of what the agent can do. Run a simulation to confirm it.'
+                : CONF_STYLE[br.confidence ?? 'low'].label + ', graded against a simulation run.'}
             </p>
           </div>
           {!hasCoveringPolicy && (
-            <button
-              style={{
-                background: 'var(--color-cta)', border: 'none', color: '#fff',
-                borderRadius: 'var(--radius-full)', padding: '7px 16px',
-                fontSize: 12, fontFamily: 'inherit', cursor: 'pointer', fontWeight: 500,
-              }}
-              className="hover:opacity-90 transition-opacity"
-              onClick={onScrollToPolicies}
-            >
+            <button className="btn btn--primary hover:opacity-90 transition-opacity" onClick={onScrollToPolicies} >
               Add a policy
             </button>
           )}
@@ -1064,20 +1064,10 @@ function ConditionBuilder({ conditions, onChange }: ConditionBuilderProps) {
         </div>
       ))}
       <div className="flex gap-2">
-        <button
-          type="button"
-          style={{ background: 'transparent', border: '1px solid var(--border-strong)', color: 'var(--text-primary)', borderRadius: 'var(--radius-full)', padding: '4px 12px', fontSize: 12, fontFamily: 'inherit', cursor: 'pointer' }}
-          className="hover:opacity-70 transition-opacity"
-          onClick={add}
-        >
+        <button type="button" className="btn btn--secondary hover:opacity-70 transition-opacity" onClick={add} >
           + Parameter condition
         </button>
-        <button
-          type="button"
-          style={{ background: 'transparent', border: '1px solid var(--border-strong)', color: 'var(--text-primary)', borderRadius: 'var(--radius-full)', padding: '4px 12px', fontSize: 12, fontFamily: 'inherit', cursor: 'pointer' }}
-          className="hover:opacity-70 transition-opacity"
-          onClick={addPrior}
-        >
+        <button type="button" className="btn btn--secondary hover:opacity-70 transition-opacity" onClick={addPrior} >
           + Requires prior action
         </button>
       </div>
@@ -1097,7 +1087,7 @@ function EffectToggle({ value, onChange }: EffectToggleProps) {
     {
       value: 'BLOCK' as const,
       label: 'Block',
-      desc: 'Agent is stopped — action never executes',
+      desc: 'The agent is stopped and the action never runs',
       Icon: X,
       color: 'var(--critical)',
       bg: 'var(--critical-bg)',
@@ -1115,7 +1105,7 @@ function EffectToggle({ value, onChange }: EffectToggleProps) {
     {
       value: 'ALLOW' as const,
       label: 'Allow',
-      desc: 'Explicitly permitted — logged for audit',
+      desc: 'Explicitly allowed, and logged for audit',
       Icon: Check,
       color: 'var(--safe)',
       bg: 'var(--safe-bg)',
@@ -1182,7 +1172,7 @@ def enforce(tool: str, action: str, params: dict) -> str:
     )
     return resp.json()["decision"]  # "ALLOW" | "BLOCK" | "REQUIRE_APPROVAL"
 
-# Usage — call before every tool action:
+# Call this before every tool action:
 decision = enforce("Stripe", "create_refund", {"amount": 500})
 if decision == "ALLOW":
     stripe.create_refund(...)
@@ -1407,8 +1397,8 @@ export default function AgentDetail() {
       })
       toast(
         next === 'DENY'
-          ? 'Fail-closed on — actions with no matching policy are now blocked'
-          : 'Fail-closed off — unmatched actions are allowed again'
+          ? 'Fail-closed is on. Actions with no matching policy are now blocked.'
+          : 'Fail-closed is off. Unmatched actions are allowed again.'
       )
       loadData({ soft: true })
     } catch (err: unknown) {
@@ -1614,7 +1604,7 @@ export default function AgentDetail() {
       try {
         await apiFetch(`/api/authority/policy/${policy.id}`, { method: 'DELETE' })
       } catch {
-        toast('Effect changed, but the old policy could not be removed — delete it manually', 'error')
+        toast('The effect changed, but we could not remove the old policy. Please delete it manually.', 'error')
         loadData({ soft: true })
         setChangingEffectId(null)
         return
@@ -1689,14 +1679,14 @@ export default function AgentDetail() {
     },
     {
       label: 'Move Money',
-      tooltip: 'Charges, refunds, transfers, and subscription changes — any action that moves funds.',
+      tooltip: 'Charges, refunds, transfers, and subscription changes. Anything that moves funds.',
       value: br.moves_money,
       color: 'var(--critical)',
       riskKey: 'moves_money',
     },
     {
       label: 'Touch PII',
-      tooltip: 'Reads or writes personal data — names, emails, addresses, payment info, or any customer record.',
+      tooltip: 'Reads or writes personal data such as names, emails, addresses, payment info, or any customer record.',
       value: br.touches_pii,
       color: '#7c3aed',
       riskKey: 'touches_pii',
@@ -1724,7 +1714,7 @@ export default function AgentDetail() {
     },
     {
       label: 'Access control',
-      tooltip: 'Can hand out or change who has access — grant roles, promote to admin, reset passwords, or issue API keys.',
+      tooltip: 'Can hand out or change who has access, so it can grant roles, promote to admin, reset passwords, or issue API keys.',
       value: br.changes_access ?? 0,
       color: '#b91c1c',
       riskKey: 'changes_access',
@@ -1738,28 +1728,28 @@ export default function AgentDetail() {
     },
     {
       label: 'Log tampering',
-      tooltip: 'Can turn off or delete logging, audit trails, or alerts — so its own actions go unrecorded.',
+      tooltip: 'Can turn off or delete logging, audit trails, or alerts, so its own actions go unrecorded.',
       value: br.evades_detection ?? 0,
       color: '#4338ca',
       riskKey: 'evades_detection',
     },
     {
       label: 'Bulk export',
-      tooltip: 'Can pull data out in bulk — full exports or whole-table dumps, not one record at a time.',
+      tooltip: 'Can pull data out in bulk, meaning full exports or whole-table dumps rather than one record at a time.',
       value: br.bulk_export ?? 0,
       color: '#15803d',
       riskKey: 'bulk_export',
     },
     {
       label: 'Code exec',
-      tooltip: 'Can run arbitrary code, shell commands, or SQL — effectively unlimited reach.',
+      tooltip: 'Can run arbitrary code, shell commands, or SQL, which gives it effectively unlimited reach.',
       value: br.executes_code ?? 0,
       color: '#334155',
       riskKey: 'executes_code',
     },
     {
       label: 'Irreversible',
-      tooltip: 'Actions that cannot be undone — includes permanent deletions, charges, and outbound sends.',
+      tooltip: 'Actions that cannot be undone, including permanent deletions, charges, and outbound sends.',
       value: br.irreversible_actions,
       color: null as string | null,
       riskKey: 'irreversible',
@@ -1835,18 +1825,10 @@ export default function AgentDetail() {
           {confirmDelete && (
             <>
               <span className="text-xs text-gray-500">Are you sure?</span>
-              <button
-                style={{ background: 'var(--severity-critical)', color: 'var(--text-inverse)', borderRadius: 'var(--radius-full)', border: 'none', padding: '7px 16px', fontWeight: 600, fontSize: 13, fontFamily: 'inherit', cursor: 'pointer' }}
-                className="hover:opacity-80 transition-opacity"
-                onClick={handleDelete}
-              >
+              <button className="btn btn--danger hover:opacity-80 transition-opacity" onClick={handleDelete} >
                 Yes, delete
               </button>
-              <button
-                style={{ background: 'transparent', border: '1px solid var(--border-strong)', color: 'var(--text-primary)', borderRadius: 'var(--radius-full)', padding: '7px 16px', fontSize: 13, fontFamily: 'inherit', cursor: 'pointer' }}
-                className="hover:opacity-70 transition-opacity"
-                onClick={() => setConfirmDelete(false)}
-              >
+              <button className="btn btn--secondary hover:opacity-70 transition-opacity" onClick={() => setConfirmDelete(false)} >
                 Cancel
               </button>
             </>
@@ -1924,20 +1906,10 @@ export default function AgentDetail() {
                 placeholder="Description"
               />
               <div className="flex gap-2">
-                <button
-                  type="submit"
-                  style={{ background: 'var(--color-cta)', color: 'var(--text-inverse)', borderRadius: 'var(--radius-full)', border: 'none', padding: '8px 20px', fontWeight: 600, fontSize: 13, fontFamily: 'inherit', cursor: 'pointer' }}
-                  className="hover:opacity-80 transition-opacity disabled:opacity-50"
-                  disabled={editSaving || !editName.trim()}
-                >
+                <button type="submit" className="btn btn--primary hover:opacity-80 transition-opacity disabled:opacity-50" disabled={editSaving || !editName.trim()} >
                   {editSaving ? 'Saving...' : 'Save Changes'}
                 </button>
-                <button
-                  type="button"
-                  style={{ background: 'transparent', border: '1px solid var(--border-strong)', color: 'var(--text-primary)', borderRadius: 'var(--radius-full)', padding: '7px 16px', fontSize: 13, fontFamily: 'inherit', cursor: 'pointer' }}
-                  className="hover:opacity-70 transition-opacity"
-                  onClick={() => setEditMode(false)}
-                >
+                <button type="button" className="btn btn--secondary hover:opacity-70 transition-opacity" onClick={() => setEditMode(false)} >
                   Cancel
                 </button>
               </div>
@@ -2096,7 +2068,7 @@ export default function AgentDetail() {
             <span>
               Registered as <strong>{agent.environment}</strong>, but{' '}
               {agent.live_calls_7d ? `${agent.live_calls_7d.toLocaleString()} calls were captured` : 'traffic was captured'}{' '}
-              in the last 7 days — production load on an agent nobody signed off as production.
+              in the last 7 days. That is production load on an agent nobody signed off as production.
             </span>
           </div>
         )}
@@ -2105,7 +2077,7 @@ export default function AgentDetail() {
             <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
             <span>
               Registered as <strong>production</strong>, but has never run and captured no calls in the
-              last 7 days — either it never shipped, or it is failing silently.
+              last 7 days. Either it never shipped, or it is failing silently.
             </span>
           </div>
         )}
@@ -2114,7 +2086,7 @@ export default function AgentDetail() {
             <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
             <span>
               {br.coverage.totalActions - br.coverage.recognizedActions} of {br.coverage.totalActions} actions run on tools outside our risk catalog
-              {br.coverage.unrecognizedTools.length > 0 ? ` (${br.coverage.unrecognizedTools.join(', ')})` : ''} and were classified heuristically — this score may understate true exposure.
+              {br.coverage.unrecognizedTools.length > 0 ? ` (${br.coverage.unrecognizedTools.join(', ')})` : ''} and were classified by best guess, so this score may understate the real exposure.
             </span>
           </div>
         )}
@@ -2127,7 +2099,7 @@ export default function AgentDetail() {
             <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
             <span>
               {br.coverage.unclassifiedActions} {(br.coverage.unclassifiedActions ?? 0) === 1 ? 'action' : 'actions'} could not be classified at all
-              {(br.coverage.unclassifiedList?.length ?? 0) > 0 ? ` (${br.coverage.unclassifiedList!.slice(0, 3).join(', ')}${br.coverage.unclassifiedList!.length > 3 ? ', …' : ''})` : ''} — the name and description carry no risk signal, so these score 0 while their true risk is unknown. Verify them manually.
+              {(br.coverage.unclassifiedList?.length ?? 0) > 0 ? ` (${br.coverage.unclassifiedList!.slice(0, 3).join(', ')}${br.coverage.unclassifiedList!.length > 3 ? ', …' : ''})` : ''}. Their names and descriptions carry no risk signal, so they score 0 while their real risk stays unknown. Worth checking these by hand.
             </span>
           </div>
         )}
@@ -2157,7 +2129,7 @@ export default function AgentDetail() {
             <div className="mt-5">
               <div className="flex items-center justify-between mb-2">
                 <span className="text-xs font-semibold" style={{ color: stat?.color ?? 'var(--text-primary)' }}>
-                  {stat?.label} — {matchingActions.length} action{matchingActions.length !== 1 ? 's' : ''}
+                  {stat?.label}, {matchingActions.length} action{matchingActions.length !== 1 ? 's' : ''}
                 </span>
                 <button
                   type="button"
@@ -2279,7 +2251,7 @@ export default function AgentDetail() {
           <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
             <h2 className="font-semibold text-gray-800 flex items-center gap-1.5">
               Enforcement Policies ({sortedPolicies.length})
-              <Tooltip text="Rules that tell Arceo what to do when this agent attempts specific actions — block them outright, require a human to approve first, or explicitly allow them.">
+              <Tooltip text="Rules that tell Arceo what to do when this agent attempts specific actions. You can block them outright, require a human to approve first, or explicitly allow them.">
                 <span className="inline-flex items-center justify-center w-3.5 h-3.5 text-xs bg-gray-200 text-gray-600 rounded-full cursor-help">
                   ?
                 </span>
@@ -2348,7 +2320,7 @@ export default function AgentDetail() {
 
           {allSamePolicyReason && (
             <p className="text-xs text-gray-500 mb-2 italic">
-              Auto-applied from scan — review and adjust below.
+              Applied automatically from the scan. Review and adjust them below.
             </p>
           )}
 
@@ -2362,7 +2334,7 @@ export default function AgentDetail() {
                   {policyConflicts.length !== 1 ? 's' : ''} detected
                 </div>
                 <div className="text-xs text-amber-700">
-                  Overlapping rules — only the highest-priority policy applies per action.
+                  These rules overlap. Only the highest-priority policy applies to each action.
                 </div>
                 <div className="space-y-1 mt-1">
                   {policyConflicts.slice(0, 3).map((c, i) => {
@@ -2372,11 +2344,11 @@ export default function AgentDetail() {
                     return (
                     <div key={i} className="flex items-center gap-2 text-xs flex-wrap">
                       <code className="px-1.5 py-0.5 bg-white border border-amber-200 rounded text-amber-800">
-                        {winnerPattern || '—'}
+                        {winnerPattern || 'None'}
                       </code>
                       <span className="text-amber-500">overrides</span>
                       <code className="px-1.5 py-0.5 bg-white border border-amber-200 rounded text-amber-800">
-                        {loserPattern || '—'}
+                        {loserPattern || 'None'}
                       </code>
                     </div>
                     )
@@ -2633,7 +2605,7 @@ export default function AgentDetail() {
                 {showConditions && (
                   <div className="mt-2 space-y-2">
                     <p className="text-xs text-gray-500">
-                      Only trigger this policy when specific parameters match — e.g. only block
+                      Only trigger this policy when specific parameters match. For example, only block
                       charges over $500, or only require approval for new customers.
                     </p>
                     <ConditionBuilder
@@ -2644,14 +2616,7 @@ export default function AgentDetail() {
                 )}
               </div>
 
-              <button
-                type="submit"
-                style={{ background: 'var(--color-cta)', color: 'var(--text-inverse)', borderRadius: 'var(--radius-full)', border: 'none', padding: '10px 20px', fontWeight: 600, fontSize: 13, width: '100%', fontFamily: 'inherit', cursor: 'pointer' }}
-                className="hover:opacity-80 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
-                disabled={
-                  newPatterns.length === 0 || (newEffect !== 'ALLOW' && !newReason.trim())
-                }
-              >
+              <button type="submit" className="btn btn--primary hover:opacity-80 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed" disabled={ newPatterns.length === 0 || (newEffect !== 'ALLOW' && !newReason.trim()) } >
                 {newPatterns.length > 1
                   ? `Add ${newPatterns.length} Policies`
                   : 'Add Policy'}
@@ -2662,7 +2627,7 @@ export default function AgentDetail() {
               <div className="flex items-center gap-2 mt-3 p-3 bg-green-50 border border-green-200 rounded-lg text-sm text-green-800">
                 <Check className="w-4 h-4 text-green-600 flex-shrink-0" />
                 <span>
-                  Policies saved — they&apos;ll be enforced on your next simulation run.
+                  Policies saved. They&apos;ll be enforced on your next simulation run.
                 </span>
                 <Link
                   to="/sandbox"
@@ -2691,7 +2656,7 @@ export default function AgentDetail() {
             <div className="flex gap-2 p-3 mb-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800">
               <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5 text-amber-600" />
               <div>
-                None of these {executions.length} executions matched a policy — this agent runs
+                None of these {executions.length} executions matched a policy, so this agent runs
                 with no enforcement rules.
                 <span className="block text-xs text-amber-600 mt-0.5">
                   Use the Policies tab above to block or require approval for risky actions.
@@ -2752,7 +2717,7 @@ export default function AgentDetail() {
           <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
             <h2 className="font-semibold text-gray-800 flex items-center gap-1.5">
               Dangerous Chains ({chains.length})
-              <Tooltip text="Multi-step sequences where two or more of this agent's capabilities combine to create elevated risk — e.g. accessing customer PII then emailing it externally.">
+              <Tooltip text="Multi-step sequences where two or more of this agent's capabilities combine to create elevated risk. For example, reading customer data and then emailing it outside your org.">
                 <span className="inline-flex items-center justify-center w-3.5 h-3.5 text-xs bg-gray-200 text-gray-600 rounded-full cursor-help">
                   ?
                 </span>
@@ -2804,7 +2769,7 @@ export default function AgentDetail() {
                         <span
                           className="text-xs px-1.5 py-0.5 rounded font-medium"
                           style={{ background: '#dcfce7', color: '#15803d' }}
-                          title="Confirmed in a sandbox run — data flowed between the steps."
+                          title="Confirmed in a sandbox run. Data actually flowed between the steps."
                         >
                           Demonstrated
                         </span>
@@ -2960,17 +2925,11 @@ export default function AgentDetail() {
                 )}
               </div>
               <div className="apply-recs-wrapper relative flex items-center gap-2">
-                <button
-                  style={{ background: 'var(--color-cta)', color: 'var(--text-inverse)', borderRadius: 'var(--radius-full)', border: 'none', padding: '7px 18px', fontWeight: 600, fontSize: 13, fontFamily: 'inherit', cursor: applyingRecs ? 'not-allowed' : 'pointer', opacity: applyingRecs ? 0.7 : 1 }}
-                  className="hover:opacity-80 transition-opacity"
-                  disabled={applyingRecs}
-                  onClick={() => handleApplyAll(visibleRecs, policies, agent.tools)}
-                >
+                <button className="btn btn--primary hover:opacity-80 transition-opacity" disabled={applyingRecs} onClick={() => handleApplyAll(visibleRecs, policies, agent.tools)} >
                   {applyingRecs ? 'Applying…' : 'Apply All'}
                 </button>
                 <button
-                  style={{ background: 'transparent', border: '1px solid var(--border-strong)', color: 'var(--text-primary)', borderRadius: 'var(--radius-full)', padding: '7px 14px', fontSize: 13, fontFamily: 'inherit', cursor: 'pointer' }}
-                  className="flex items-center gap-1 hover:opacity-70 transition-opacity"
+                  className="btn btn--secondary hover:opacity-70 transition-opacity"
                   onClick={() => {
                     // Open with nothing pre-checked — the user opts in per rec
                     // (pre-checking read as "already applied/approved"). "Select
@@ -3029,19 +2988,10 @@ export default function AgentDetail() {
                       })}
                     </div>
                     <div className="flex gap-2 px-3 py-2 border-t border-gray-100">
-                      <button
-                        style={{ background: 'var(--color-cta)', color: 'var(--text-inverse)', borderRadius: 'var(--radius-full)', border: 'none', padding: '6px 14px', fontWeight: 600, fontSize: 12, flex: 1, fontFamily: 'inherit', cursor: 'pointer' }}
-                        className="hover:opacity-80 transition-opacity disabled:opacity-50"
-                        disabled={applyingRecs || selectedRecs.size === 0}
-                        onClick={() => handleApplySelected(visibleRecs, policies, agent.tools)}
-                      >
+                      <button className="btn btn--primary hover:opacity-80 transition-opacity disabled:opacity-50" disabled={applyingRecs || selectedRecs.size === 0} onClick={() => handleApplySelected(visibleRecs, policies, agent.tools)} >
                         {applyingRecs ? 'Applying…' : `Apply ${selectedRecs.size} selected`}
                       </button>
-                      <button
-                        style={{ background: 'transparent', border: '1px solid var(--border-strong)', color: 'var(--text-primary)', borderRadius: 'var(--radius-full)', padding: '6px 12px', fontSize: 12, fontFamily: 'inherit', cursor: 'pointer' }}
-                        className="hover:opacity-70 transition-opacity"
-                        onClick={() => setShowRecsMenu(false)}
-                      >
+                      <button className="btn btn--secondary hover:opacity-70 transition-opacity" onClick={() => setShowRecsMenu(false)} >
                         Cancel
                       </button>
                     </div>
@@ -3099,7 +3049,7 @@ export default function AgentDetail() {
               <code className="px-1.5 py-0.5 bg-gray-100 rounded text-xs font-mono">
                 POST /api/enforce
               </code>{' '}
-              before every tool action this agent takes. Use the agent ID below — Arceo checks
+              before every tool action this agent takes. Use the agent ID below, and Arceo checks
               your policies and returns a decision in &lt;10ms.
             </p>
             <div className="flex items-center gap-3 p-2.5 bg-gray-50 border border-gray-200 rounded-lg mb-3">
