@@ -2,22 +2,16 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
+import { motion, useScroll } from "motion/react";
 import Logo from "./Logo";
 
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:5173";
 const BOOK_DEMO_HREF = "/book-demo";
 
-// Root-relative so they resolve from /security and /book-demo too, not just "/".
-const NAV_LINKS = [
-  { label: "How it works", href: "/#how-it-works" },
-  { label: "Product",      href: "/#features" },
-  { label: "Why Arceo",    href: "/#positioning" },
-  { label: "Security",     href: "/security" },
-];
-
 export default function Navbar() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [scrolled, setScrolled]     = useState(false);
+  const { scrollYProgress }         = useScroll();
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 24);
@@ -31,13 +25,23 @@ export default function Navbar() {
       top: 0,
       zIndex: 50,
       width: "100%",
-      background: "rgba(250,246,240,0.85)",
+      background: "rgba(255,255,255,0.85)",
       backdropFilter: "blur(12px)",
       WebkitBackdropFilter: "blur(12px)",
-      borderBottom: "1px solid #E0D7C9",
-      boxShadow: scrolled ? "0 4px 18px rgba(44,34,21,0.08)" : "none",
+      borderBottom: "1px solid var(--rule)",
+      boxShadow: scrolled ? "0 4px 18px rgba(17,24,39,0.08)" : "none",
       transition: "box-shadow 0.3s",
     }}>
+      {/* How far down a long page you are. It sits on the bar's own hairline,
+          so it reads as that rule filling rather than as a second element. */}
+      <motion.span
+        aria-hidden="true"
+        style={{
+          position: "absolute", left: 0, right: 0, bottom: -1, height: 2,
+          background: "var(--ink)", transformOrigin: "left",
+          scaleX: scrollYProgress,
+        }}
+      />
       <div style={{
         width: "100%",
         padding: "0 24px",
@@ -68,9 +72,8 @@ export default function Navbar() {
           position: "absolute", left: "50%", top: "50%",
           transform: "translate(-50%, -50%)",
         }} className="desktop-nav">
-          {NAV_LINKS.map((l) => (
-            <Link key={l.href} href={l.href} className="nav-link">{l.label}</Link>
-          ))}
+          <Link href="/pricing" className="nav-link">Pricing</Link>
+          <Link href="/security" className="nav-link">Security</Link>
         </nav>
 
         {/* Right actions */}
@@ -83,7 +86,7 @@ export default function Navbar() {
 
         {/* Hamburger */}
         <button onClick={() => setMobileOpen(!mobileOpen)}
-          style={{ display: "none", background: "none", border: "none", color: "#6B5C4A", cursor: "pointer", padding: 6 }}
+          style={{ display: "none", background: "none", border: "none", color: "var(--muted)", cursor: "pointer", padding: 6 }}
           className="hamburger" aria-label="Menu">
           <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
             {mobileOpen ? <><path d="M4 4l12 12M16 4L4 16"/></> : <><path d="M3 6h14M3 10h14M3 14h14"/></>}
@@ -94,28 +97,25 @@ export default function Navbar() {
       {/* Mobile menu */}
       {mobileOpen && (
         <div style={{
-          borderTop: "1px solid #E0D7C9",
-          background: "rgba(250,246,240,0.98)",
+          borderTop: "1px solid var(--rule)",
+          background: "rgba(255,255,255,0.98)",
           backdropFilter: "blur(12px)",
           padding: "12px 24px 20px",
           display: "flex", flexDirection: "column", gap: 2,
         }}>
-          {NAV_LINKS.map((l) => (
-            <Link
-              key={l.href}
-              href={l.href}
-              onClick={() => setMobileOpen(false)}
-              style={{ fontSize: 15, fontWeight: 500, color: "#2C2215", padding: "10px 4px", textDecoration: "none" }}
-            >
-              {l.label}
-            </Link>
-          ))}
-          <div style={{ height: 1, background: "#E0D7C9", margin: "8px 0" }} />
+          <Link href="/pricing" onClick={() => setMobileOpen(false)}
+            style={{ fontSize: 15, fontWeight: 500, color: "var(--ink)", padding: "10px 4px" }}>
+            Pricing
+          </Link>
+          <Link href="/security" onClick={() => setMobileOpen(false)}
+            style={{ fontSize: 15, fontWeight: 500, color: "var(--ink)", padding: "10px 4px" }}>
+            Security
+          </Link>
           <a href={`${APP_URL}/login`}
-            style={{ fontSize: 15, fontWeight: 500, color: "#2C2215", padding: "10px 4px" }}>
+            style={{ fontSize: 15, fontWeight: 500, color: "var(--ink)", padding: "10px 4px" }}>
             Sign In
           </a>
-          <div style={{ height: 1, background: "#E0D7C9", margin: "8px 0" }} />
+          <div style={{ height: 1, background: "var(--rule)", margin: "8px 0" }} />
           <Link href={BOOK_DEMO_HREF} className="nav-cta" style={{ justifyContent: "center", marginTop: 4 }}>
             Book a demo
           </Link>
@@ -125,29 +125,32 @@ export default function Navbar() {
       <style>{`
         .nav-link {
           font-size: 14px; font-weight: 500;
-          color: #6B5C4A;
+          color: var(--muted);
           padding: 8px 14px; border-radius: 999px;
           transition: color 0.12s, background 0.12s;
           text-decoration: none;
         }
         .nav-link:hover {
-          color: #2C2215;
-          background: #EBE4D8;
+          color: var(--ink);
+          background: var(--ground-2);
         }
         .nav-cta {
           display: inline-flex; align-items: center; gap: 6px;
           font-size: 13px; font-weight: 500;
-          color: #fff; background: #4B9CD3;
+          color: #fff; background: var(--ink);
           padding: 9px 20px; border-radius: 999px;
           border: 1px solid transparent;
-          box-shadow: var(--shadow-sm), inset var(--color-1-400) 0 10px 6px -6px, var(--color-1-700) 4px 8px 18px -6px;
+          /* Was reaching for --color-1-400 / --color-1-700, which this design
+             system has never defined: the whole box-shadow was invalid and the
+             browser dropped it, so the button had no lift at all. */
+          box-shadow: var(--shadow-sm);
           text-decoration: none; white-space: nowrap;
           transition: background 0.15s, transform 0.1s, box-shadow 0.15s;
         }
         .nav-cta:hover {
-          background: #2C6E9E;
+          background: #1f2937;
           transform: translateY(-1px);
-          box-shadow: var(--shadow-md), inset var(--color-1-400) 0 10px 6px -6px, var(--color-1-700) 4px 10px 22px -6px;
+          box-shadow: var(--shadow-md);
         }
         @media (max-width: 768px) {
           .desktop-actions { display: none !important; }

@@ -750,7 +750,10 @@ confidence_bands:
     # is the LIVE tier's job.
     low_multiplier: 0.70
     high_multiplier: 2.00
-  high:                             # live production traces ≥7 days
+  high:                             # live production traces: 50+ calls in a
+                                    # ROLLING 7-day window across 3+ distinct
+                                    # days. Not an elapsed-time requirement —
+                                    # see docs/pilot/CONFIDENCE_AND_LIMITS.md
     low_multiplier: 0.85
     high_multiplier: 1.15
 

@@ -43,34 +43,34 @@ function Leg({ leg, delay }: { leg: typeof LEGS[0]; delay: number }) {
       gap: 32,
       alignItems: "start",
       padding: "32px 0",
-      borderTop: "1px solid var(--clay-border)",
+      borderTop: "1px solid var(--rule)",
     }}>
       <div>
         <div style={{
           fontSize: 52,
-          fontWeight: 800,
+          fontWeight: 600,
           lineHeight: 1,
           letterSpacing: "-2px",
-          color: "var(--clay-brand-strong)",
+          color: "var(--ink)",
         }}>
           {leg.stat}
         </div>
-        <div style={{ fontSize: 13, color: "var(--clay-body-subtle)", marginTop: 8, lineHeight: 1.4 }}>
+        <div style={{ fontSize: 13, color: "var(--muted-2)", marginTop: 8, lineHeight: 1.4 }}>
           {leg.statLabel}
         </div>
       </div>
 
       <div>
-        <h3 style={{ fontSize: 20, fontWeight: 700, color: "var(--clay-heading)", marginBottom: 10, letterSpacing: "-0.2px" }}>
+        <h3 style={{ fontSize: 20, fontWeight: 600, color: "var(--ink)", marginBottom: 10, letterSpacing: "-0.2px" }}>
           {leg.title}
         </h3>
-        <p style={{ fontSize: 15.5, color: "var(--clay-body)", lineHeight: 1.7 }}>{leg.body}</p>
+        <p style={{ fontSize: 15.5, color: "var(--muted)", lineHeight: 1.7 }}>{leg.body}</p>
         {leg.href && (
           <Link
             href={leg.href}
             style={{
               display: "inline-flex", alignItems: "center", gap: 6,
-              fontSize: 14, fontWeight: 600, color: "var(--clay-brand-strong)",
+              fontSize: 14, fontWeight: 600, color: "var(--ink)",
               textDecoration: "none", marginTop: 12,
             }}
           >
@@ -89,7 +89,7 @@ export default function Proof() {
   const { ref: headRef, className: headClass } = useFadeInOnScroll();
 
   return (
-    <section id="proof" style={{ padding: "112px 0", background: "var(--clay-cream)" }}>
+    <section id="proof" style={{ padding: "104px 0", background: "var(--ground)", borderTop: "1px solid var(--rule)" }}>
       <div className="container" style={{ maxWidth: 920 }}>
         <div ref={headRef} className={headClass} style={{ marginBottom: 24 }}>
           <span className="eyebrow">Proof</span>
@@ -97,13 +97,13 @@ export default function Proof() {
             fontSize: 44,
             fontWeight: 600,
             letterSpacing: "-0.4px",
-            color: "var(--clay-heading)",
+            color: "var(--ink)",
             maxWidth: 720,
             margin: "8px 0 16px",
           }}>
             Three things you can check before you trust the number
           </h2>
-          <p style={{ fontSize: 19, color: "var(--clay-body)", maxWidth: 620, lineHeight: 1.6 }}>
+          <p style={{ fontSize: 19, color: "var(--muted)", maxWidth: 620, lineHeight: 1.6 }}>
             We are early and we are not going to pretend otherwise with a wall of customer logos.
             Here is what we can actually show you instead.
           </p>

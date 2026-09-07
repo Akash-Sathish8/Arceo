@@ -1,273 +1,526 @@
 "use client";
 
-/* Hero product showcase — slanted, floating UI "screens" sharing one 3D
-   perspective, claymorphism-styled. The deck auto-rotates: each panel cycles
-   to the front large/centered while the others sit back smaller.
-   No real screenshots — each panel is a crafted mini product surface. */
+import { useEffect, useReducer, useRef, useState } from "react";
+import { motion } from "motion/react";
+import { Odometer } from "./motion/odometer";
+import { BorderTrail } from "./motion/border-trail";
+import { ProgressiveBlur } from "./motion/progressive-blur";
+import { RISK } from "@/lib/labels";
 
-import { useEffect, useState } from "react";
+/* The hero asset: an audit tape.
+ *
+ * Arceo's whole claim is that the two halves of an agent — what it costs and
+ * what it can break — come from the same stream of calls. Cost accrues one
+ * line at a time. Risk does not: it emerges from the ORDER of the lines, and
+ * you cannot see it by looking at any single one.
+ *
+ * So the panel runs a real tape. Each call posts with its label and its
+ * fraction of a cent. Nothing is alarming on its own. Then a call lands that
+ * completes a flagged transition with one further up the tape — read customer
+ * records, then send mail outside the company — and Arceo brackets the pair,
+ * names the chain, and the blast-radius score above climbs.
+ *
+ * That moment is the product. It is the only place on the page where a number
+ * changes on its own, and it is the only place red arrives unprompted. */
 
-const RISK = {
-  red:    "#dc2626",
-  orange: "#ea580c",
-  amber:  "#d97706",
-  blue:   "#2563eb",
-  purple: "#7c3aed",
-  green:  "#16a34a",
+type Call = {
+  action: string;
+  label: string | null;
+  color?: string;
+  fill?: string;
+  cost: number;
+  /* Set on the call that completes the chain. */
+  closes?: boolean;
 };
 
-function Dots() {
+/* A support agent's working loop. Real action names, real risk labels, real
+   per-call token costs — the figures are fractions of a cent, which is the
+   point: nothing here looks expensive or dangerous in isolation. */
+const CALLS: Call[] = [
+  { action: "zendesk.get_ticket", label: null, cost: 0.0008 },
+  {
+    action: "salesforce.get_contact",
+    label: RISK.touches_pii.plain,
+    color: "var(--label-pii)",
+    fill: "var(--label-pii-fill)",
+    cost: 0.0012,
+  },
+  { action: "zendesk.add_note", label: null, cost: 0.0006 },
+  { action: "stripe.get_charge", label: null, cost: 0.0009 },
+  {
+    action: "sendgrid.send_email",
+    label: RISK.sends_external.plain,
+    color: "var(--label-external)",
+    fill: "var(--label-external-fill)",
+    cost: 0.0021,
+    closes: true,
+  },
+  { action: "zendesk.close_ticket", label: null, cost: 0.0007 },
+  { action: "salesforce.log_task", label: null, cost: 0.0005 },
+  { action: "zendesk.list_queue", label: null, cost: 0.0004 },
+];
+
+const OPENS = 1; // index of the call the chain starts from
+const CLOSES = 4; // index of the call that completes it
+const WINDOW = 5; // rows visible on the tape
+const ROW = 30; // px per row
+const TICK = 1050; // ms between calls
+
+/* The tape opens part-filled with two quiet calls, so the panel is never an
+   empty box on load and the chain still fires several seconds in — late
+   enough that a reader has finished the headline before it does. */
+const SEED = [CALLS[6], CALLS[7]];
+
+type Row = Call & { key: number; index: number };
+
+const eyebrow: React.CSSProperties = {
+  fontFamily: "var(--font-mono), monospace",
+  fontSize: 9.5,
+  fontWeight: 500,
+  color: "var(--muted-2)",
+  textTransform: "uppercase",
+  letterSpacing: "0.13em",
+};
+
+/* The chain bracket, drawn in the tape's left gutter.
+ *
+ * A row is either where the chain opens, a step in between, or where it
+ * closes. Three glyph states, one per role, so the pair reads as linked
+ * rather than as two separately-highlighted rows. */
+function Gutter({ role, live }: { role: "open" | "mid" | "close" | null; live: boolean }) {
+  const stroke = live ? "var(--label-money)" : "transparent";
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 5, padding: "9px 13px", borderBottom: "1px solid #EBE4D8", background: "#F3EDE4" }}>
-      <span style={{ width: 8, height: 8, borderRadius: "50%", background: "#E0A89A" }} />
-      <span style={{ width: 8, height: 8, borderRadius: "50%", background: "#E6CE9A" }} />
-      <span style={{ width: 8, height: 8, borderRadius: "50%", background: "#A8C9A2" }} />
-      <span style={{ marginLeft: 8, height: 6, width: 72, borderRadius: 999, background: "#E0D7C9" }} />
-    </div>
+    <span style={{ width: 13, flexShrink: 0, alignSelf: "stretch", position: "relative" }}>
+      <svg
+        width="13"
+        height="100%"
+        viewBox="0 0 13 30"
+        preserveAspectRatio="none"
+        style={{ position: "absolute", inset: 0, overflow: "visible" }}
+        aria-hidden="true"
+      >
+        {role === "open" && (
+          <line x1="4" y1="15" x2="4" y2="30" stroke={stroke} strokeWidth="1.25" />
+        )}
+        {role === "mid" && <line x1="4" y1="0" x2="4" y2="30" stroke={stroke} strokeWidth="1.25" />}
+        {role === "close" && (
+          <line x1="4" y1="0" x2="4" y2="15" stroke={stroke} strokeWidth="1.25" />
+        )}
+      </svg>
+      {(role === "open" || role === "close") && (
+        <span
+          style={{
+            position: "absolute",
+            left: 1.6,
+            top: "50%",
+            width: 5,
+            height: 5,
+            marginTop: -2.5,
+            borderRadius: "50%",
+            background: live ? "var(--label-money)" : "transparent",
+            transition: "background .25s",
+          }}
+        />
+      )}
+    </span>
   );
 }
 
-function Screen({
-  children,
-  active,
-  style,
+export default function HeroGraphic({
+  /* Raised whenever a chain is bracketed on the tape, so the hero can light
+     the authority graph behind the headline at the same instant. */
+  onChain,
 }: {
-  children: React.ReactNode;
-  active: boolean;
-  style?: React.CSSProperties;
-}) {
+  onChain?: (live: boolean) => void;
+} = {}) {
+  const [cursor, bump] = useReducer((n: number) => n + 1, 0);
+  const [started, setStarted] = useState(false);
+  const [still, setStill] = useState(false);
+  const keyRef = useRef(0);
+  const [rows, setRows] = useState<Row[]>([]);
+
+  /* Spin the forecast up on mount so the meter reads as a meter. */
+  const [monthly, setMonthly] = useState(0);
+
+  useEffect(() => {
+    if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) {
+      /* Reduced motion still gets the finished picture: the tape at the
+         moment the chain closes, held still. */
+      setStill(true);
+      setMonthly(20);
+      setRows(
+        CALLS.slice(0, CLOSES + 1)
+          .slice(-WINDOW)
+          .map((c, i) => ({ ...c, key: i, index: CALLS.indexOf(c) })),
+      );
+      return;
+    }
+
+    setRows(SEED.map((c, i) => ({ ...c, key: keyRef.current++, index: CALLS.indexOf(c) })));
+    setStarted(true);
+    const spin = setTimeout(() => setMonthly(20), 420);
+    const id = setInterval(bump, TICK);
+    return () => {
+      clearTimeout(spin);
+      clearInterval(id);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!started) return;
+    const call = CALLS[cursor % CALLS.length];
+    setRows((prev) =>
+      [...prev, { ...call, key: keyRef.current++, index: cursor % CALLS.length }].slice(-(WINDOW + 1)),
+    );
+  }, [cursor, started]);
+
+  /* The chain is live while both of its ends are still on the tape. */
+  const visible = rows.map((r) => r.index);
+  const openAt = visible.lastIndexOf(OPENS);
+  const closeAt = visible.lastIndexOf(CLOSES);
+  const chainLive = still || (openAt !== -1 && closeAt !== -1 && closeAt > openAt);
+
+  useEffect(() => {
+    onChain?.(chainLive);
+  }, [chainLive, onChain]);
+
+  const roleFor = (i: number): "open" | "mid" | "close" | null => {
+    if (!chainLive) return null;
+    if (i === openAt) return "open";
+    if (i === closeAt) return "close";
+    if (i > openAt && i < closeAt) return "mid";
+    return null;
+  };
+
   return (
     <div
       style={{
-        position: "absolute",
-        left: "50%",
-        top: "50%",
-        width: 268,
-        background: "#FAF6F0",
-        border: "1px solid #E0D7C9",
-        borderRadius: 18,
-        boxShadow: active
-          ? "26px 40px 80px rgba(44,34,21,0.28), inset 3px 4px 8px rgba(255,255,255,0.6)"
-          : "14px 22px 44px rgba(44,34,21,0.16), inset 3px 4px 8px rgba(255,255,255,0.5)",
+        position: "relative",
+        background: "var(--paper)",
+        border: "1px solid var(--rule)",
+        borderRadius: "var(--r-lg)",
+        boxShadow: chainLive
+          ? "0 8px 40px rgba(17,24,39,0.10), 0 0 0 3px rgba(220,38,38,0.07)"
+          : "var(--shadow-lg)",
+        transition: "box-shadow .5s ease",
+        width: "100%",
+        maxWidth: 468,
+        marginLeft: "auto",
         overflow: "hidden",
-        transition: "transform 0.95s cubic-bezier(0.22,1,0.36,1), opacity 0.95s ease, box-shadow 0.95s ease",
-        ...style,
       }}
     >
-      <Dots />
-      <div style={{ padding: 16 }}>{children}</div>
-    </div>
-  );
-}
+      {/* The scan only runs while a chain is on the tape. A light that
+          circles forever is decoration; a light that circles when something
+          is wrong is an instrument. */}
+      {chainLive && !still && (
+        <BorderTrail
+          size={90}
+          transition={{ repeat: Infinity, duration: 3.4, ease: "linear" }}
+          style={{
+            background:
+              "radial-gradient(circle at 50% 50%, rgba(220,38,38,0.55), rgba(220,38,38,0) 68%)",
+          }}
+        />
+      )}
 
-const labelStyle: React.CSSProperties = {
-  fontSize: 9.5,
-  fontWeight: 700,
-  color: "#87786A",
-  textTransform: "uppercase",
-  letterSpacing: "0.09em",
-  marginBottom: 12,
-};
+      {/* ── Header ─────────────────────────────────────────────── */}
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 12,
+          padding: "13px 18px",
+          borderBottom: "1px solid var(--rule)",
+          background: "var(--ground)",
+        }}
+      >
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+          <span
+            style={{
+              width: 6,
+              height: 6,
+              borderRadius: "50%",
+              background: "var(--risk-clear)",
+              boxShadow: "0 0 0 3px rgba(22,163,74,0.14)",
+            }}
+          />
+          <span style={{ fontSize: 13, fontWeight: 600, color: "var(--ink)" }}>Beacon Support</span>
+        </span>
+        <span
+          className="mono"
+          style={{
+            fontSize: 9.5,
+            fontWeight: 500,
+            color: "var(--muted)",
+            background: "var(--paper)",
+            border: "1px solid var(--rule)",
+            padding: "3px 8px",
+            borderRadius: "var(--r-xs)",
+            whiteSpace: "nowrap",
+            letterSpacing: "0.04em",
+          }}
+        >
+          ±15% · HIGH
+        </span>
+      </div>
 
-/**
- * Marks sample figures as illustrative. Every number in these mockups is a
- * worked example, not a live reading — saying so up front is cheaper than
- * being asked "whose numbers are these?" in an evaluation call.
- */
-const exampleTagStyle: React.CSSProperties = {
-  fontSize: 8,
-  fontWeight: 700,
-  letterSpacing: "0.06em",
-  color: "#A99880",
-  background: "#F3EDE4",
-  border: "1px solid #E0D7C9",
-  borderRadius: 999,
-  padding: "1px 6px",
-  textTransform: "uppercase",
-};
+      {/* ── The two numbers ────────────────────────────────────────
+          Cost on the left in graphite, blast radius on the right in red.
+          Every graphic on this page uses those two channels and only those
+          two, so a reader learns the code once.
 
-/* ── Panel 1: Cost forecast (the money shot) ───────────────────── */
-function CostScreen() {
-  return (
-    <>
-      <div style={{ ...labelStyle, display: "flex", alignItems: "center", gap: 6 }}>
-        <span>Cost Portfolio</span>
-        <span style={exampleTagStyle}>Example</span>
-      </div>
-      <div style={{ display: "flex", alignItems: "baseline", gap: 5, marginBottom: 5 }}>
-        <span style={{ fontSize: 42, fontWeight: 800, color: "#2C6E9E", letterSpacing: "-1.5px", lineHeight: 1 }}>$20</span>
-        <span style={{ fontSize: 14, color: "#C9BBA8" }}>/mo</span>
-      </div>
-      <div style={{ fontSize: 10, fontWeight: 700, color: "#2C6E9E", letterSpacing: "0.04em", marginBottom: 16 }}>±15% · HIGH CONFIDENCE</div>
-      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: "#87786A", marginBottom: 6 }}>
-        <span>Projected range</span><span>$17 to $23 / mo</span>
-      </div>
-      <div style={{ height: 7, background: "#EBE4D8", borderRadius: 999, overflow: "hidden", marginBottom: 16, position: "relative" }}>
-        <div style={{ position: "absolute", left: "20%", width: "32%", top: 0, bottom: 0, background: "linear-gradient(90deg,#7BC0E8,#2C6E9E)", borderRadius: 999 }} />
-      </div>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", paddingTop: 12, borderTop: "1px solid #EBE4D8" }}>
-        <span style={{ fontSize: 10, fontWeight: 600, color: "#BE123C" }}>Worst case if it breaks</span>
-        <span style={{ fontSize: 13, fontWeight: 800, color: "#BE123C" }}>up to $50k</span>
-      </div>
-    </>
-  );
-}
-
-/* ── Panel 2: Fleet blast radius ───────────────────────────────── */
-function FleetScreen() {
-  const rows = [
-    { name: "Atlas Cloud Operator", score: 87, c: RISK.red },
-    { name: "Helix Data Sync",      score: 56, c: RISK.orange },
-    { name: "Beacon Support",       score: 37, c: RISK.amber },
-    { name: "Orbit Scheduler",      score: 14, c: RISK.green },
-  ];
-  return (
-    <>
-      <div style={labelStyle}>Fleet Risk</div>
-      {rows.map((r) => (
-        <div key={r.name} style={{ display: "flex", alignItems: "center", gap: 9, marginBottom: 11 }}>
-          <span style={{ fontSize: 11, fontWeight: 600, color: "#2C2215", width: 96, flexShrink: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{r.name}</span>
-          <div style={{ flex: 1, height: 6, background: "#EBE4D8", borderRadius: 999, overflow: "hidden" }}>
-            <div style={{ height: "100%", width: `${r.score}%`, background: r.c, borderRadius: 999 }} />
+          The right-hand figure used to be a dollar "worst case". Arceo does
+          not produce that number today, so it is the blast-radius score
+          instead — and it moves for a real reason: a detected chain adds up
+          to 12 points (the engine's chain uplift), which is exactly what
+          takes this agent from 55 to 67. */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr" }}>
+        <div style={{ padding: "18px 18px 16px" }}>
+          <div style={{ ...eyebrow, marginBottom: 9 }}>Monthly cost</div>
+          <div
+            className="num"
+            style={{
+              display: "flex",
+              alignItems: "baseline",
+              gap: 4,
+              fontSize: 38,
+              fontWeight: 600,
+              color: "var(--ink)",
+              lineHeight: 1,
+            }}
+          >
+            <span>$</span>
+            <Odometer value={monthly} />
           </div>
-          <span style={{ fontSize: 12, fontWeight: 800, color: r.c, width: 20, textAlign: "right" }}>{r.score}</span>
+          <div className="mono" style={{ fontSize: 10.5, color: "var(--muted-2)", marginTop: 9 }}>
+            $17–$23 projected
+          </div>
         </div>
-      ))}
-    </>
-  );
-}
 
-/* ── Panel 3: Chain detection ──────────────────────────────────── */
-function ChainScreen() {
-  return (
-    <>
-      <div style={labelStyle}>Chain Detected</div>
-      <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 12 }}>
-        <div style={{ flex: 1, padding: "9px 6px", background: "#faf5ff", border: "1px solid #d8b4fe", borderRadius: 9, textAlign: "center" }}>
-          <div style={{ fontSize: 9.5, fontWeight: 700, color: "#7c3aed", fontFamily: '"SF Mono", monospace' }}>contacts.read</div>
-          <div style={{ fontSize: 8, color: "#a855f7", fontWeight: 600 }}>touches_pii</div>
-        </div>
-        <svg width="24" height="14" viewBox="0 0 24 14" fill="none" style={{ flexShrink: 0 }}>
-          <line x1="1" y1="7" x2="18" y2="7" stroke="#dc2626" strokeWidth="2" strokeDasharray="3 2" />
-          <path d="M15 2l6 5-6 5" stroke="#dc2626" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none" />
-        </svg>
-        <div style={{ flex: 1, padding: "9px 6px", background: "#eff6ff", border: "1px solid #93c5fd", borderRadius: 9, textAlign: "center" }}>
-          <div style={{ fontSize: 9.5, fontWeight: 700, color: "#2563eb", fontFamily: '"SF Mono", monospace' }}>email.send</div>
-          <div style={{ fontSize: 8, color: "#3b82f6", fontWeight: 600 }}>sends_external</div>
+        <div
+          style={{
+            padding: "18px 18px 16px",
+            borderLeft: "1px solid var(--rule)",
+            background: chainLive ? "var(--label-money-fill)" : "transparent",
+            transition: "background .45s ease",
+          }}
+        >
+          <div style={{ ...eyebrow, marginBottom: 9 }}>Blast radius</div>
+          <div
+            className="num"
+            style={{
+              display: "flex",
+              alignItems: "baseline",
+              gap: 4,
+              fontSize: 38,
+              fontWeight: 600,
+              color: chainLive ? "var(--label-money)" : "var(--ink)",
+              lineHeight: 1,
+              transition: "color .45s ease",
+            }}
+          >
+            <Odometer value={chainLive ? 67 : 55} />
+            <span style={{ fontSize: 18, color: "var(--muted-2)" }}>/ 100</span>
+          </div>
+          <div
+            className="mono"
+            style={{
+              fontSize: 10.5,
+              marginTop: 9,
+              color: chainLive ? "var(--label-money)" : "var(--muted-2)",
+              transition: "color .45s ease",
+            }}
+          >
+            {chainLive ? "+12 chain uplift" : "no chain yet"}
+          </div>
         </div>
       </div>
-      <div style={{ background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 9, padding: "9px 11px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-        <span style={{ fontSize: 10, fontWeight: 700, color: "#dc2626" }}>PII exfiltration</span>
-        <span style={{ fontSize: 8, fontWeight: 700, color: "#fff", background: "#dc2626", padding: "2px 7px", borderRadius: 4, letterSpacing: "0.04em" }}>CRITICAL</span>
-      </div>
-    </>
-  );
-}
 
-/* ── Panel 4: Capability inventory ─────────────────────────────── */
-function CapabilityScreen() {
-  const rows = [
-    { a: "payments.refund",   l: "moves_money",    c: RISK.red,    st: "BLOCK" },
-    { a: "db.delete_records", l: "deletes_data",   c: RISK.orange, st: "BLOCK" },
-    { a: "email.send",        l: "sends_external", c: RISK.blue,   st: "WARN" },
-  ];
-  return (
-    <>
-      <div style={labelStyle}>Capabilities</div>
-      {rows.map((r) => (
-        <div key={r.a} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: "7px 0", borderBottom: "1px solid #EBE4D8" }}>
-          <span style={{ fontSize: 10.5, fontWeight: 700, color: "#2C2215", fontFamily: '"SF Mono", monospace', minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.a}</span>
-          <span style={{ fontSize: 8, fontWeight: 700, color: r.c, background: "rgba(0,0,0,0.03)", padding: "2px 7px", borderRadius: 999, whiteSpace: "nowrap", flexShrink: 0 }}>{r.l}</span>
-          <span style={{ fontSize: 8, fontWeight: 800, color: r.c, width: 32, textAlign: "right", flexShrink: 0 }}>{r.st}</span>
+      {/* ── The tape ───────────────────────────────────────────── */}
+      <div
+        style={{
+          borderTop: "1px solid var(--rule)",
+          background: "var(--ground)",
+          padding: "12px 18px 6px",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <span style={eyebrow}>Live calls</span>
+          <span className="mono" style={{ fontSize: 9.5, color: "var(--muted-2)", letterSpacing: "0.04em" }}>
+            {chainLive ? "chain detected" : "watching"}
+          </span>
         </div>
-      ))}
-    </>
-  );
-}
+      </div>
 
-/* The four cyclic slots. Index 0 is the focused (front, large) slot; the rest
-   sit back and smaller. Each transform is relative to the centered anchor. */
-const SLOTS = [
-  { t: "translate3d(6px, 26px, 130px) scale(1.04)",    o: 1,    z: 40 }, // FRONT — focus
-  { t: "translate3d(176px, -84px, -10px) scale(0.74)", o: 0.9,  z: 20 }, // top-right
-  { t: "translate3d(-150px, -126px, -44px) scale(0.7)", o: 0.82, z: 10 }, // top-left
-  { t: "translate3d(-168px, 138px, 12px) scale(0.76)", o: 0.9,  z: 30 }, // bottom-left
-];
+      <div style={{ position: "relative", background: "var(--ground)" }}>
+        {/* A tape scrolls; it does not shuffle. Animating each row
+            independently let them overlap mid-flight, so the whole column
+            moves by exactly one line instead: the strip is bottom-anchored,
+            holds one row more than it shows, and slides up a row per call.
+            The overflowing top line is caught by the blur above. */}
+        <div
+          style={{
+            height: WINDOW * ROW,
+            overflow: "hidden",
+            padding: "0 18px 10px",
+            display: "flex",
+            flexDirection: "column",
+            justifyContent: "flex-end",
+          }}
+        >
+          <motion.div
+            key={rows.length > WINDOW ? cursor : "filling"}
+            initial={still ? false : { y: ROW }}
+            animate={{ y: 0 }}
+            transition={{ duration: 0.42, ease: [0.16, 1, 0.3, 1] }}
+            style={{ display: "flex", flexDirection: "column" }}
+          >
+            {rows.map((r, i) => {
+              const role = roleFor(i);
+              return (
+                <div
+                  key={r.key}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
+                    height: ROW,
+                    flexShrink: 0,
+                    opacity: role ? 1 : 0.92,
+                    transition: "opacity .3s",
+                  }}
+                >
+                  <Gutter role={role} live={chainLive} />
 
-const PANELS = [
-  <CostScreen key="cost" />,
-  <FleetScreen key="fleet" />,
-  <CapabilityScreen key="cap" />,
-  <ChainScreen key="chain" />,
-];
+                  <span
+                    className="mono"
+                    style={{
+                      fontSize: 11,
+                      fontWeight: 500,
+                      color: role ? "var(--ink)" : "var(--muted)",
+                      flex: 1,
+                      minWidth: 0,
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                      transition: "color .3s",
+                    }}
+                  >
+                    {r.action}
+                  </span>
 
-export default function HeroGraphic() {
-  const [active, setActive] = useState(0);
+                  {r.label && (
+                    <span
+                      style={{
+                        fontSize: 10,
+                        fontWeight: 500,
+                        color: r.color,
+                        background: r.fill,
+                        padding: "2px 6px",
+                        borderRadius: "var(--r-xs)",
+                        whiteSpace: "nowrap",
+                        flexShrink: 0,
+                      }}
+                    >
+                      {r.label}
+                    </span>
+                  )}
 
-  useEffect(() => {
-    if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
-    const id = setInterval(() => setActive((a) => (a + 1) % PANELS.length), 3200);
-    return () => clearInterval(id);
-  }, []);
+                  <span
+                    className="mono num"
+                    style={{
+                      fontSize: 10.5,
+                      color: "var(--muted-2)",
+                      width: 52,
+                      textAlign: "right",
+                      flexShrink: 0,
+                    }}
+                  >
+                    ${r.cost.toFixed(4)}
+                  </span>
+                </div>
+              );
+            })}
+          </motion.div>
+        </div>
 
-  return (
-    <div style={{
-      position: "absolute",
-      inset: 0,
-      display: "flex",
-      alignItems: "center",
-      justifyContent: "center",
-      perspective: "2000px",
-      perspectiveOrigin: "55% 42%",
-      overflow: "visible",
-    }}>
-      {/* soft warm glow behind the stack */}
-      <div style={{
-        position: "absolute",
-        width: "70%",
-        height: "70%",
-        borderRadius: "50%",
-        background: "radial-gradient(circle, rgba(75,156,211,0.20), transparent 70%)",
-        filter: "blur(20px)",
-      }} />
+        {/* Lines enter and leave the strip rather than being clipped by a hard
+            edge. Both ends are softened: the tape holds one row more than it
+            shows, so a row is always part-way in at the bottom and part-way
+            out at the top. Without these it reads as two cut-off rows. */}
+        <ProgressiveBlur
+          direction="top"
+          blurLayers={5}
+          blurIntensity={0.55}
+          style={{ position: "absolute", top: 0, left: 0, right: 0, height: 32, pointerEvents: "none" }}
+        />
+        <ProgressiveBlur
+          direction="bottom"
+          blurLayers={5}
+          blurIntensity={0.55}
+          style={{ position: "absolute", bottom: 0, left: 0, right: 0, height: 26, pointerEvents: "none" }}
+        />
+      </div>
 
-      {/* rotated stage — all panels share this one transform.
-         --deck-scale shrinks the whole deck on narrower screens so it never
-         overflows the viewport (see <style> below). */}
-      <div className="clay-deck" style={{
-        position: "absolute",
-        top: "50%",
-        left: "50%",
-        width: 560,
-        height: 500,
-        transformStyle: "preserve-3d",
-        transform: "translate(-50%, -50%) rotateX(8deg) rotateY(-26deg) rotateZ(2deg) scale(var(--deck-scale, 0.95))",
-      }}>
-        {PANELS.map((panel, i) => {
-          const slot = SLOTS[(i - active + PANELS.length) % PANELS.length];
-          return (
-            <Screen
-              key={i}
-              active={(i - active + PANELS.length) % PANELS.length === 0}
+      {/* ── The verdict ────────────────────────────────────────── */}
+      <div
+        style={{
+          borderTop: "1px solid var(--rule)",
+          padding: "11px 18px",
+          minHeight: 44,
+          display: "flex",
+          alignItems: "center",
+          gap: 10,
+          background: chainLive ? "var(--label-money-fill)" : "var(--paper)",
+          transition: "background .45s ease",
+        }}
+      >
+        {/* Plain conditional, cross-faded in CSS. An exit-then-enter
+            AnimatePresence here can strand the bar on the wrong state if its
+            exit never completes, which is exactly the state a reader must
+            never see: "nothing flagged" sitting under a $50K readout. */}
+        {chainLive ? (
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 10,
+              width: "100%",
+              animation: still ? "none" : "verdict-in .34s cubic-bezier(.16,1,.3,1)",
+            }}
+          >
+            <span
+              className="mono"
               style={{
-                transform: `translate(-50%, -50%) ${slot.t}`,
-                opacity: slot.o,
-                zIndex: slot.z,
+                fontSize: 9,
+                fontWeight: 600,
+                color: "#fff",
+                background: "var(--label-money)",
+                padding: "2px 6px",
+                borderRadius: "var(--r-xs)",
+                letterSpacing: "0.06em",
+                flexShrink: 0,
               }}
             >
-              {panel}
-            </Screen>
-          );
-        })}
+              CRITICAL
+            </span>
+            <span style={{ fontSize: 12, color: "var(--label-money)", fontWeight: 500 }}>
+              Customer data could be sent outside the company
+            </span>
+          </div>
+        ) : (
+          <span style={{ fontSize: 12, color: "var(--muted-2)" }}>
+            32 chain rules armed · nothing flagged yet
+          </span>
+        )}
+        <style>{`
+          @keyframes verdict-in {
+            from { opacity: 0; transform: translateY(5px); }
+            to   { opacity: 1; transform: none; }
+          }
+        `}</style>
       </div>
-
-      <style>{`
-        .clay-deck { --deck-scale: 0.95; }
-        @media (max-width: 1100px) { .clay-deck { --deck-scale: 0.82; } }
-        @media (max-width: 960px)  { .clay-deck { --deck-scale: 0.72; } }
-        @media (max-width: 640px)  { .clay-deck { --deck-scale: 0.56; } }
-        @media (max-width: 420px)  { .clay-deck { --deck-scale: 0.48; } }
-      `}</style>
     </div>
   );
 }

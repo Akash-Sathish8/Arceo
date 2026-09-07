@@ -1,278 +1,652 @@
 "use client";
 
-const FEATURES = [
-  {
-    tag: "Cost Forecasting",
-    headline: "Know what it costs before the first invoice",
-    body: "Arceo works out each agent's monthly bill from its tools, model, and how much it runs. As real traces come in, the number tightens to within about 15%. Set a budget cap, and if spend starts heading past it, you hear about it. The figure comes back in plain English, ready for the CFO.",
-    mockup: (
-      <div style={{
-        background: "#0d1117",
-        borderRadius: 16,
-        padding: "24px",
-        overflow: "hidden",
-        minHeight: 240,
-        fontFamily: '"SF Mono", "Fira Code", "Cascadia Code", monospace',
-      }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 20 }}>
-          {["#ff5f56", "#ffbd2e", "#27c93f"].map(c => (
-            <div key={c} style={{ width: 10, height: 10, borderRadius: "50%", background: c, flexShrink: 0 }} />
-          ))}
-          <span style={{
-            marginLeft: "auto", fontSize: 8, fontWeight: 700, letterSpacing: "0.06em",
-            color: "rgba(250,246,240,0.45)", border: "1px solid rgba(250,246,240,0.18)",
-            borderRadius: 999, padding: "1px 6px", textTransform: "uppercase",
-          }}>
-            Example
-          </span>
-        </div>
+import { useEffect, useState } from "react";
+import { useReveal } from "@/lib/useReveal";
+import { useArmed } from "@/lib/useArmed";
+import { RISK } from "@/lib/labels";
+import { BorderTrail } from "./motion/border-trail";
 
-        {[
-          { text: "forecasting Beacon Support...",          glow: false, dim: true  },
-          { text: "",                                        glow: false, dim: false },
-          { text: "  model: claude-sonnet",                 glow: false, dim: true  },
-          { text: "  monthly: $20  ±15%",                   glow: true,  dim: false },
-          { text: "  range: $17 to $23 / mo",               glow: false, dim: true  },
-          { text: "  worst case (pii to external): $50k",   glow: true,  dim: false },
-          { text: "",                                        glow: false, dim: true  },
-          { text: "  confidence: high (654 live calls)",    glow: true,  dim: false },
-        ].map((line, i) => (
-          <div key={i} style={{
-            fontSize: 11,
-            color: line.dim
-              ? "rgba(74,222,128,0.3)"
-              : line.glow
-                ? "#4ade80"
-                : "rgba(74,222,128,0.65)",
-            lineHeight: 1.7,
-            letterSpacing: "0.01em",
-            textShadow: line.glow ? "0 0 10px rgba(74,222,128,0.45)" : "none",
-            minHeight: "1.7em",
-          }}>
-            {line.text || " "}
-          </div>
-        ))}
-      </div>
-    ),
+/* Three features, three purpose-built surfaces.
+ *
+ * The first version of this section illustrated cost forecasting with a fake
+ * terminal — green monospace on near-black, window chrome, three traffic-light
+ * dots. That picture says "a developer tool made in 2024" and nothing about
+ * Arceo; it also breaks the one colour rule this site keeps, which is that
+ * saturated colour means risk.
+ *
+ * Every number on these surfaces is read out of the engine on dev, not
+ * invented: the band multipliers are cost_defaults_operational.yaml's
+ * confidence_bands, the sensitivity ranking is its sensitivity_ranking block,
+ * and the matrix is LABEL_TRANSITIONS from authority/chain_detector.py, all 32
+ * of them, with the same 19/13 critical/high split. */
+
+/* ═══════════════════════════════════════════════════════════════
+   1 · The confidence bands
+   ═══════════════════════════════════════════════════════════════
+   A cone widening into the future is the wrong picture — Arceo's uncertainty
+   is not about the horizon, it is about how much evidence it has. Three tiers,
+   three bands, each one narrower than the last, and every one of them
+   asymmetric: a capability-only estimate under-predicts far more often than it
+   over-predicts, so the band runs to 3× above and only half below. Drawing it
+   symmetric would be flattering and wrong. */
+
+const POINT = 20; // $/mo point estimate
+const X_MAX = 66;
+
+const TIERS = [
+  {
+    name: "LOW",
+    lo: 0.5,
+    hi: 3.0,
+    need: "Just the agent's tools",
   },
   {
-    tag: "Capability Mapping",
-    headline: "See every tool your agent can call",
-    body: "Arceo lists every tool, API, and action an agent has access to and tags each one with a plain risk label your security and finance people can read without a glossary. No code required, and it works whether the agent runs on the Anthropic SDK, OpenAI, an MCP server, or a GitHub repo.",
-    mockup: (
-      <div className="card" style={{ padding: "24px", overflow: "hidden", minHeight: 240 }}>
-        <div style={{ fontSize: 10, fontWeight: 700, color: "#87786A", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 16 }}>
-          Capability Inventory · Support Agent
-        </div>
-
-        <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1.2fr) minmax(0,0.7fr) minmax(0,1fr) minmax(0,0.7fr)", gap: 8, paddingBottom: 8, borderBottom: "1px solid #EBE4D8" }}>
-          {["Action", "Type", "Risk label", "Status"].map(h => (
-            <span key={h} style={{ fontSize: 9, fontWeight: 700, color: "#C9BBA8", textTransform: "uppercase", letterSpacing: "0.06em" }}>{h}</span>
-          ))}
-        </div>
-
-        {[
-          { action: "payments.refund",   type: "Payments", label: "moves_money",    color: "#dc2626", bg: "#fef2f2", status: "BLOCK"  },
-          { action: "db.delete_records", type: "Database", label: "deletes_data",   color: "#ea580c", bg: "#fff7ed", status: "BLOCK"  },
-          { action: "email.send",        type: "Email",    label: "sends_external", color: "#2563eb", bg: "#eff6ff", status: "WARN"   },
-          { action: "contacts.read",     type: "CRM",      label: "touches_pii",    color: "#7c3aed", bg: "#faf5ff", status: "ALLOW"  },
-        ].map((row, i) => (
-          <div key={i} style={{ display: "grid", gridTemplateColumns: "minmax(0,1.2fr) minmax(0,0.7fr) minmax(0,1fr) minmax(0,0.7fr)", gap: 8, padding: "9px 0", borderBottom: "1px solid #EBE4D8", alignItems: "center" }}>
-            <span className="mono" style={{ fontSize: 9.5, color: "#2C2215", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{row.action}</span>
-            <span style={{ fontSize: 9, color: "#87786A", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{row.type}</span>
-            <span className="mono" style={{ fontSize: 9, fontWeight: 700, color: row.color, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{row.label}</span>
-            <span style={{ fontSize: 8.5, fontWeight: 700, color: row.color, background: row.bg, padding: "2px 6px", borderRadius: 4, textAlign: "center" }}>{row.status}</span>
-          </div>
-        ))}
-      </div>
-    ),
+    name: "MEDIUM",
+    lo: 0.7,
+    hi: 2.0,
+    need: "+ a sandbox run",
   },
   {
-    tag: "Chain Detection",
-    headline: "Catch the multi-step risks a single-action scan misses",
-    body: "Most scanners look at one action at a time. Arceo watches for dangerous sequences instead, like an agent that reads customer records and then emails them out, or deletes data right after a query, and tells you what each one could cost. It runs 32 of these rules before the agent ever handles a real request.",
-    mockup: (
-      <div className="card" style={{ padding: "24px", overflow: "hidden", minHeight: 240 }}>
-        <div style={{ fontSize: 10, fontWeight: 700, color: "#87786A", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 18 }}>
-          Detected Chain · PII Exfiltration
-          <span style={{
-            marginLeft: 6, fontSize: 8, fontWeight: 700, letterSpacing: "0.06em", color: "#A99880",
-            background: "#F3EDE4", border: "1px solid #E0D7C9", borderRadius: 999, padding: "1px 6px",
-          }}>
-            Example
-          </span>
-        </div>
-
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 16 }}>
-          <div style={{
-            flex: 1,
-            padding: "12px 10px",
-            background: "#faf5ff",
-            border: "1px solid #d8b4fe",
-            borderRadius: 10,
-            textAlign: "center",
-          }}>
-            <div className="mono" style={{ fontSize: 10.5, fontWeight: 700, color: "#7c3aed", marginBottom: 4 }}>contacts.read</div>
-            <div style={{ fontSize: 9, color: "#a855f7", fontWeight: 600, letterSpacing: "0.04em" }}>touches_pii</div>
-          </div>
-
-          <svg width="32" height="20" viewBox="0 0 32 20" fill="none" style={{ flexShrink: 0 }}>
-            <line x1="2" y1="10" x2="26" y2="10" stroke="#dc2626" strokeWidth="2" strokeDasharray="3 2"/>
-            <path d="M22 4l8 6-8 6" stroke="#dc2626" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none"/>
-          </svg>
-
-          <div style={{
-            flex: 1,
-            padding: "12px 10px",
-            background: "#eff6ff",
-            border: "1px solid #93c5fd",
-            borderRadius: 10,
-            textAlign: "center",
-          }}>
-            <div className="mono" style={{ fontSize: 10.5, fontWeight: 700, color: "#2563eb", marginBottom: 4 }}>email.send</div>
-            <div style={{ fontSize: 9, color: "#3b82f6", fontWeight: 600, letterSpacing: "0.04em" }}>sends_external</div>
-          </div>
-        </div>
-
-        <div style={{
-          background: "#fef2f2",
-          border: "1px solid #fecaca",
-          borderRadius: 10,
-          padding: "12px 14px",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          gap: 12,
-        }}>
-          <div>
-            <div style={{ fontSize: 11, fontWeight: 700, color: "#dc2626", marginBottom: 2 }}>PII exfiltration chain detected</div>
-            <div style={{ fontSize: 10.5, color: "#991b1b" }}>Reads customer records, then sends external email. Recommend BLOCK or REQUIRE_APPROVAL on <span className="mono">email.send</span>.</div>
-          </div>
-          <span style={{ fontSize: 9, fontWeight: 700, color: "#fff", background: "#dc2626", padding: "3px 8px", borderRadius: 4, letterSpacing: "0.04em", flexShrink: 0 }}>CRITICAL</span>
-        </div>
-
-        <div style={{ marginTop: 14, paddingTop: 12, borderTop: "1px solid #EBE4D8", display: "flex", gap: 24 }}>
-          {[{ n: "32", l: "Chain rules" }, { n: "10", l: "Risk labels" }, { n: "$50k", l: "Worst case" }].map(s => (
-            <div key={s.l}>
-              <div style={{ fontSize: 18, fontWeight: 700, color: "#2C2215", lineHeight: 1, letterSpacing: "-0.02em" }}>{s.n}</div>
-              <div style={{ fontSize: 10, color: "#87786A", marginTop: 3 }}>{s.l}</div>
-            </div>
-          ))}
-        </div>
-      </div>
-    ),
+    name: "HIGH",
+    lo: 0.85,
+    hi: 1.15,
+    need: "+ a week of real traffic",
   },
 ];
 
-function FeatureRow({ f, index }: { f: typeof FEATURES[0]; index: number }) {
-  const even = index % 2 === 0;
+const pct = (v: number) => `${(v / X_MAX) * 100}%`;
+
+function ConfidenceBands() {
+  const [ref, armed] = useArmed<HTMLDivElement>(0.4);
+
+  /* Evidence does not arrive all at once in real life and it should not here.
+     Each tier wakes in turn, so you watch the band close rather than being
+     handed three finished bars. */
+  const [tier, setTier] = useState(-1);
+  useEffect(() => {
+    if (!armed) return;
+    const timers = [0, 1, 2].map((i) => setTimeout(() => setTier(i), 120 + i * 620));
+    return () => timers.forEach(clearTimeout);
+  }, [armed]);
 
   return (
-    <div className="feature-row" style={{
-      display: "grid",
-      gridTemplateColumns: "1fr 1fr",
-      gap: 80,
-      alignItems: "center",
-      padding: "56px 0",
-      borderBottom: "1px solid #E0D7C9",
-    }}>
-      <div style={{ order: even ? 0 : 1 }}>
-        <span className="eyebrow">{f.tag}</span>
-        <h3 style={{ fontSize: 36, fontWeight: 600, letterSpacing: "-0.02em", color: "#2C2215", marginBottom: 16, lineHeight: 1.2 }}>
-          {f.headline}
-        </h3>
-        <p style={{ fontSize: 20, color: "#6B5C4A", lineHeight: 1.75 }}>{f.body}</p>
+    <div ref={ref} className="surface" style={{ padding: "20px 22px 22px" }}>
+      <div className="surface-head">
+        <span className="surface-title">How the range tightens</span>
+        <span className="mono surface-meta">BEACON SUPPORT</span>
       </div>
-      <div style={{ order: even ? 1 : 0 }}>{f.mockup}</div>
+
+      <div className="cb-plot">
+        {/* The point estimate is marked once at the top and repeated inside
+            each track, rather than drawn as one full-height rule — a rule
+            spanning the whole plot struck through every tier's caption. */}
+        <div className="cb-head-scale">
+          <span className="mono cb-point-tag" style={{ left: pct(POINT) }}>
+            ${POINT}/mo estimate
+          </span>
+        </div>
+
+        {TIERS.map((t, i) => {
+          const lo = POINT * t.lo;
+          const hi = POINT * t.hi;
+          return (
+            <div key={t.name} className={`cb-row${i <= tier ? " lit" : ""}`}>
+              <div className="cb-meta">
+                <span className="mono cb-tier">{t.name}</span>
+                <span className="cb-need">{t.need}</span>
+                <span className="cb-got" aria-hidden="true">
+                  <svg width="11" height="11" viewBox="0 0 12 12" fill="none">
+                    <path
+                      d="M2.5 6.2l2.4 2.4L9.5 4"
+                      stroke="currentColor"
+                      strokeWidth="1.9"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                </span>
+              </div>
+
+              <div className="cb-track">
+                <span className="cb-point" style={{ left: pct(POINT) }} aria-hidden="true" />
+                <span
+                  className={`cb-band${i <= tier ? " in" : ""}`}
+                  style={{
+                    left: pct(lo),
+                    width: pct(hi - lo),
+                    /* Grows out of the point estimate, because that is what
+                       uncertainty does — it spreads from the number. */
+                    transformOrigin: `${((POINT - lo) / (hi - lo)) * 100}% 50%`,
+
+                  }}
+                />
+                <span className="mono cb-lo" style={{ left: pct(lo) }}>
+                  ${Math.round(lo)}
+                </span>
+                <span className="mono cb-hi" style={{ left: pct(hi) }}>
+                  ${Math.round(hi)}
+                </span>
+              </div>
+
+            </div>
+          );
+        })}
+
+        <div className="cb-axis">
+          {[0, 20, 40, 60].map((v) => (
+            <span key={v} className="mono cb-tickmark" style={{ left: pct(v) }}>
+              ${v}
+            </span>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   2 · What actually moves the bill
+   ═══════════════════════════════════════════════════════════════
+   Straight out of the engine's sensitivity_ranking. One hue, ordered by
+   magnitude — a sequential ramp, not five decorative colours. */
+
+const SENSITIVITY = [
+  { label: "Calls per day", pct: 76 },
+  { label: "Model choice", pct: 42 },
+  { label: "Cache hit rate", pct: 23 },
+  { label: "Runtime per call", pct: 18 },
+  { label: "Retry rate", pct: 10 },
+];
+
+function Sensitivity() {
+  const [ref, armed] = useArmed<HTMLDivElement>(0.4);
+
+  return (
+    <div ref={ref} className="surface" style={{ padding: "20px 22px 22px" }}>
+      <div className="surface-head">
+        <span className="surface-title">What moves the monthly number</span>
+        <span className="mono surface-meta">RANKED BY IMPACT</span>
+      </div>
+
+      <div className="sn-list">
+        {SENSITIVITY.map((s, i) => (
+          <div key={s.label} className={`sn-row${i === 0 ? " top" : ""}`}>
+            <span className="sn-label">
+              <span className="sn-label-text">{s.label}</span>
+              {i === 0 && <span className="sn-flag">biggest lever</span>}
+            </span>
+            <span className="sn-track">
+              <span
+                className="sn-bar"
+                style={{
+                  width: armed ? `${s.pct}%` : 0,
+                  /* One hue, stepped by rank: the ramp encodes the ordering
+                     instead of five unrelated colours pretending to. */
+                  opacity: 1 - i * 0.15,
+                  transitionDelay: `${i * 70}ms`,
+                }}
+              />
+            </span>
+            <span className="mono num sn-val">{s.pct}%</span>
+          </div>
+        ))}
+      </div>
+
+      <p className="sn-foot">
+        Call volume swamps everything else. Cap it and you have capped the
+        bill.
+      </p>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   3 · The transition matrix
+   ═══════════════════════════════════════════════════════════════
+   Every rule in the detector is a transition from one risk label to another,
+   so the honest picture of "32 rules" is the 10 × 10 grid of every label pair
+   with those 32 cells marked. You can count them. */
+
+/* The grid keys stay the engine's short names — the rule tables below are
+   written against them — but nothing on screen shows a key. Every axis label
+   is the plain-English name from lib/labels.ts, because a reader should not
+   need a glossary to count red squares. */
+const LABELS = [
+  "money", "pii", "delete", "external", "prod",
+  "access", "secrets", "evade", "export", "code",
+] as const;
+
+const SHORT: Record<(typeof LABELS)[number], string> = {
+  money: RISK.moves_money.short,
+  pii: RISK.touches_pii.short,
+  delete: RISK.deletes_data.short,
+  external: RISK.sends_external.short,
+  prod: RISK.changes_production.short,
+  access: RISK.changes_access.short,
+  secrets: RISK.reads_secrets.short,
+  evade: RISK.evades_detection.short,
+  export: RISK.bulk_export.short,
+  code: RISK.executes_code.short,
+};
+const CRITICAL: [string, string][] = [
+  ["pii", "external"], ["pii", "money"], ["pii", "delete"],
+  ["money", "money"], ["money", "delete"], ["money", "evade"],
+  ["prod", "delete"],
+  ["delete", "delete"], ["delete", "evade"],
+  ["access", "money"], ["access", "delete"],
+  ["secrets", "external"], ["secrets", "access"], ["secrets", "money"],
+  ["evade", "delete"], ["evade", "external"],
+  ["export", "external"], ["export", "delete"],
+  ["code", "external"],
+];
+
+const HIGH: [string, string][] = [
+  ["pii", "prod"], ["pii", "export"],
+  ["money", "external"],
+  ["prod", "prod"], ["prod", "external"], ["prod", "evade"],
+  ["delete", "external"],
+  ["external", "money"], ["external", "prod"],
+  ["access", "prod"], ["access", "external"], ["access", "evade"],
+  ["secrets", "prod"],
+];
+
+const RULES = new Map<string, "critical" | "high">();
+CRITICAL.forEach(([f, t]) => RULES.set(`${f}|${t}`, "critical"));
+HIGH.forEach(([f, t]) => RULES.set(`${f}|${t}`, "high"));
+
+
+function TransitionMatrix() {
+  const [ref, armed] = useArmed<HTMLDivElement>(0.25);
+
+  return (
+    <div ref={ref} className="surface tm-surface">
+      {/* The scan runs twice when the matrix is reached, then stops. A light
+          that circles forever is decoration; this one is the sweep. */}
+      {armed && (
+        <BorderTrail
+          size={120}
+          transition={{ repeat: 2, duration: 2.8, ease: "linear" }}
+          style={{
+            background:
+              "radial-gradient(circle at 50% 50%, rgba(220,38,38,0.42), rgba(220,38,38,0) 70%)",
+          }}
+        />
+      )}
+
+      <div className="tm-grid">
+        <div style={{ minWidth: 0 }}>
+          <div className="surface-head" style={{ marginBottom: 20 }}>
+            <span className="surface-title">Every pair of actions</span>
+            <span className="mono surface-meta">32 OF 100 PAIRS FLAGGED</span>
+          </div>
+
+          <div className="tm-plot">
+            <div className="tm-corner">first ↓ / then →</div>
+            {LABELS.map((l) => (
+              <div key={`c-${l}`} className="tm-colhead">
+                {SHORT[l]}
+              </div>
+            ))}
+
+            {LABELS.map((from, r) => (
+              <div key={from} style={{ display: "contents" }}>
+                <div className="tm-rowhead">{SHORT[from]}</div>
+                {LABELS.map((to, c) => {
+                  const kind = RULES.get(`${from}|${to}`);
+                  const id = `${from}|${to}`;
+                  return (
+                    <div
+                      key={id}
+                      className={`tm-cell${kind ? ` tm-${kind}` : ""}${armed ? " in" : ""}`}
+                      style={{ "--i": r + c } as React.CSSProperties}
+                      title={kind ? `${SHORT[from]} → ${SHORT[to]}` : undefined}
+                    />
+                  );
+                })}
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="tm-side">
+          <div className="tm-key">
+            <span className="tm-key-item">
+              <span className="tm-swatch tm-critical" />
+              <span>
+                Critical <span className="mono num">19</span>
+              </span>
+            </span>
+            <span className="tm-key-item">
+              <span className="tm-swatch tm-high" />
+              <span>
+                High <span className="mono num">13</span>
+              </span>
+            </span>
+            <span className="tm-key-item">
+              <span className="tm-swatch" />
+              <span>
+                Not flagged <span className="mono num">68</span>
+              </span>
+            </span>
+          </div>
+
+          <p className="tm-note">
+            Each red cell is a sequence that has already gone wrong at a real
+            company. Read a record then email it out, and you have the shape of
+            the Copilot data leak.
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════ */
+
+const FEATURES = [
+  {
+    headline: "The forecast tells you how much to trust it",
+    body: "Day one you get a number and a wide range. Watch a week of real traffic and the range closes to ±15%. Arceo never claims more confidence than it has earned.",
+    surface: <ConfidenceBands />,
+  },
+  {
+    headline: "Know which lever actually moves the bill",
+    body: "Arceo nudges each input and ranks what moves. It is almost always call volume, by a distance — so a cap on calls is the control that holds a budget, and switching model is the one that does not.",
+    surface: <Sensitivity />,
+  },
+  {
+    headline: "Catch the risks that only show up in sequence",
+    body: "Reading a customer record is fine. Sending an email is fine. Doing both in a row is a data leak. Arceo watches for 32 of these pairs across 10 kinds of risk.",
+    surface: <TransitionMatrix />,
+    wide: true,
+  },
+];
+
+function FeatureRow({ f, index }: { f: (typeof FEATURES)[0]; index: number }) {
+  const even = index % 2 === 0;
+
+  const copy = (
+    <>
+      <h3
+        style={{
+          fontSize: "clamp(24px, 2.6vw, 32px)",
+          fontWeight: 600,
+          letterSpacing: "-0.03em",
+          color: "var(--ink)",
+          marginBottom: 14,
+          lineHeight: 1.15,
+          textWrap: "balance",
+        }}
+      >
+        {f.headline}
+      </h3>
+      <p style={{ fontSize: 16.5, color: "var(--muted)", lineHeight: 1.65, maxWidth: "62ch" }}>
+        {f.body}
+      </p>
+    </>
+  );
+
+  /* Final beat: full-width stack, so the section does not read as three
+     identical rows. */
+  if (f.wide) {
+    return (
+      <div className="feature-row rise" style={{ "--i": index, padding: "56px 0 8px" } as React.CSSProperties}>
+        <div style={{ maxWidth: 720, marginBottom: 36 }}>{copy}</div>
+        <div>{f.surface}</div>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className="feature-row rise"
+      style={
+        {
+          "--i": index,
+          display: "grid",
+          gridTemplateColumns: "1fr 1fr",
+          gap: 72,
+          alignItems: "center",
+          padding: "56px 0",
+          borderBottom: "1px solid var(--rule)",
+        } as React.CSSProperties
+      }
+    >
+      <div style={{ order: even ? 0 : 1, minWidth: 0 }}>{copy}</div>
+      <div style={{ order: even ? 1 : 0, minWidth: 0 }}>{f.surface}</div>
     </div>
   );
 }
 
 export default function FeatureRows() {
+  const ref = useReveal<HTMLElement>(0.08);
+
   return (
-    <section id="features" style={{ padding: "112px 0", background: "#FAF6F0", borderTop: "1px solid #E0D7C9" }}>
-      <div className="container">
-        {/* Section header — always visible, no fade-in */}
-        <div style={{ marginBottom: 48 }}>
-          <span className="eyebrow">Features</span>
-          <h2 style={{ fontSize: 44, fontWeight: 600, letterSpacing: "-0.4px", color: "#2C2215" }}>
-            Cost and risk, in one report
+    <section
+      ref={ref}
+      id="features"
+      style={{ padding: "88px 0 96px", background: "var(--paper)", borderTop: "1px solid var(--rule)" }}
+    >
+      <div style={{ maxWidth: 1240, margin: "0 auto", padding: "0 32px" }}>
+        <div style={{ marginBottom: 12 }}>
+          <span className="eyebrow">What you get</span>
+          <h2
+            style={{
+              fontSize: "clamp(28px, 3.4vw, 42px)",
+              fontWeight: 600,
+              letterSpacing: "-0.033em",
+              color: "var(--ink)",
+              maxWidth: 640,
+              textWrap: "balance",
+            }}
+          >
+            Cost and risk, in one report your CFO will sign.
           </h2>
         </div>
 
-        {/* Trust signal row */}
-        <div style={{
-          display: "flex", alignItems: "center", gap: 0,
-          marginBottom: 64,
-          background: "#FAF6F0",
-          border: "1px solid #E0D7C9",
-          borderRadius: 24,
-          boxShadow: "var(--shadow-md)",
-          overflow: "hidden",
-        }} className="trust-row">
-          {[
-            {
-              icon: (
-                <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <path d="M10 13a5 5 0 0 0 7 0l2-2a5 5 0 0 0-7-7l-1 1" />
-                  <path d="M14 11a5 5 0 0 0-7 0l-2 2a5 5 0 0 0 7 7l1-1" />
-                </svg>
-              ),
-              label: "Connect any agent", sub: "Anthropic, OpenAI, MCP, GitHub",
-            },
-            {
-              icon: (
-                <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <path d="M3 3v18h18" />
-                  <path d="M7 14l3-4 3 3 4-6" />
-                </svg>
-              ),
-              label: "Forecast before you ship", sub: "Predeployment, not post-hoc",
-            },
-            {
-              icon: (
-                <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <path d="M6 2h8l4 4v16H6z" />
-                  <path d="M14 2v4h4" />
-                  <path d="M9 13h6M9 17h6" />
-                </svg>
-              ),
-              label: "Readable financial report", sub: "Cost + worst case in one view",
-            },
-          ].map((t, i) => (
-            <div key={t.label} style={{
-              flex: 1,
-              padding: "20px 24px",
-              borderRight: i < 2 ? "1px solid #E0D7C9" : "none",
-              display: "flex", alignItems: "center", gap: 14,
-            }}>
-              <span style={{
-                flexShrink: 0,
-                width: 38, height: 38,
-                borderRadius: 12,
-                background: "#EBE4D8",
-                border: "1px solid #E0D7C9",
-                color: "#2C6E9E",
-                display: "flex", alignItems: "center", justifyContent: "center",
-              }}>{t.icon}</span>
-              <div>
-                <div style={{ fontSize: 14, fontWeight: 700, color: "#2C2215", marginBottom: 2 }}>{t.label}</div>
-                <div style={{ fontSize: 12, color: "#87786A" }}>{t.sub}</div>
-              </div>
-            </div>
-          ))}
-        </div>
-
-        {FEATURES.map((f, i) => <FeatureRow key={i} f={f} index={i} />)}
+        {FEATURES.map((f, i) => (
+          <FeatureRow key={f.headline} f={f} index={i} />
+        ))}
       </div>
 
       <style>{`
-        @media (max-width: 860px) {
+        /* One surface treatment, used by all three. */
+        .surface {
+          position: relative;
+          background: var(--paper);
+          border: 1px solid var(--rule);
+          border-radius: var(--r-md);
+          box-shadow: var(--shadow-sm);
+          overflow: hidden;
+        }
+        .surface-head {
+          display: flex; align-items: baseline; justify-content: space-between;
+          gap: 12px; margin-bottom: 16px;
+          padding-bottom: 12px; border-bottom: 1px solid var(--rule);
+        }
+        .surface-title { font-size: 13px; font-weight: 600; color: var(--ink); }
+        .surface-meta {
+          font-size: 9.5px; color: var(--muted-2);
+          letter-spacing: 0.1em; white-space: nowrap;
+        }
+
+        /* ── Confidence bands ──────────────────────────────────── */
+        .cb-plot { position: relative; }
+        .cb-head-scale { position: relative; height: 18px; }
+        .cb-point-tag {
+          position: absolute; top: 0;
+          font-size: 9.5px; font-weight: 500; color: var(--ink);
+          white-space: nowrap; padding-left: 6px;
+          border-left: 1px solid var(--ink);
+        }
+        /* Inside each track only, so the estimate never crosses a caption. */
+        .cb-point {
+          position: absolute; top: 0; bottom: 0; width: 1px;
+          background: var(--ink); opacity: .35; z-index: 2;
+        }
+        .cb-row {
+          padding: 14px 0; border-bottom: 1px solid var(--rule-light);
+          opacity: .38; transition: opacity .45s ease;
+        }
+        .cb-row.lit { opacity: 1; }
+        .cb-got {
+          display: inline-flex; margin-left: auto;
+          color: var(--risk-clear);
+          opacity: 0; transform: scale(.6);
+          transition: opacity .35s ease .25s, transform .35s cubic-bezier(.16,1,.3,1) .25s;
+        }
+        .cb-row.lit .cb-got { opacity: 1; transform: none; }
+        .cb-row:last-of-type { border-bottom: none; }
+        .cb-meta {
+          display: flex; align-items: center; gap: 10px; margin-bottom: 9px;
+        }
+        .cb-tier {
+          font-size: 9.5px; font-weight: 600; letter-spacing: 0.12em;
+          color: var(--ink);
+          background: var(--ground-2); border: 1px solid var(--rule);
+          padding: 2px 7px; border-radius: var(--r-xs);
+        }
+        .cb-need { font-size: 12px; color: var(--muted); }
+        .cb-track { position: relative; height: 22px; }
+        .cb-band {
+          position: absolute; top: 5px; height: 10px;
+          background: var(--cost-wash);
+          border-left: 2px solid var(--cost);
+          border-right: 2px solid var(--cost);
+          border-radius: 2px;
+          transform: scaleX(0);
+          transition: transform .85s cubic-bezier(.16,1,.3,1);
+        }
+        .cb-band.in { transform: scaleX(1); }
+        .cb-lo, .cb-hi {
+          position: absolute; top: 19px;
+          font-size: 9.5px; color: var(--muted-2); white-space: nowrap;
+        }
+        .cb-lo { transform: translateX(-100%); padding-right: 5px; }
+        .cb-hi { padding-left: 5px; }
+        .cb-axis { position: relative; height: 16px; margin-top: 6px; }
+        .cb-tickmark {
+          position: absolute; top: 0; font-size: 9px; color: var(--disabled);
+          transform: translateX(-50%);
+        }
+
+        /* ── Sensitivity ───────────────────────────────────────── */
+        .sn-list { display: flex; flex-direction: column; gap: 12px; }
+        .sn-row {
+          display: grid; grid-template-columns: minmax(0, 132px) 1fr 34px;
+          gap: 12px; align-items: center;
+        }
+        /* The flag sits UNDER the label, not beside it — inline it squeezed
+           "Calls per day" into two lines and broke the phrase. */
+        .sn-label {
+          font-size: 13px; color: var(--muted);
+          display: flex; flex-direction: column; align-items: flex-start; gap: 5px;
+        }
+        .sn-label-text { white-space: nowrap; }
+        .sn-row.top .sn-label { color: var(--ink); font-weight: 500; }
+        .sn-flag {
+          font-family: var(--font-mono), monospace;
+          font-size: 8.5px; font-weight: 500; letter-spacing: 0.08em;
+          text-transform: uppercase; color: var(--muted-2);
+          border: 1px solid var(--rule); border-radius: var(--r-xs);
+          padding: 2px 6px; white-space: nowrap;
+        }
+        .sn-track {
+          height: 9px; background: var(--ground-2);
+          border-radius: 999px; overflow: hidden;
+        }
+        .sn-bar {
+          display: block; height: 100%; width: 0;
+          background: var(--cost); border-radius: 999px;
+          transition: width .9s cubic-bezier(.16,1,.3,1);
+        }
+        .sn-val { font-size: 11.5px; color: var(--ink); text-align: right; font-weight: 500; }
+        .sn-foot {
+          font-size: 12.5px; color: var(--muted); line-height: 1.6;
+          margin-top: 18px; padding-top: 15px; border-top: 1px solid var(--rule);
+        }
+
+        /* ── Transition matrix ─────────────────────────────────── */
+        .tm-surface { padding: 22px 26px 26px; }
+        /* Bounded, and centred as a pair. Left to fill a 1fr column the cells
+           blow out to nearly 60px each and the matrix eats a whole screen —
+           a 10 × 10 grid wants to be read at a glance, not scrolled. */
+        .tm-grid {
+          display: grid;
+          grid-template-columns: minmax(0, 510px) minmax(0, 330px);
+          gap: 64px;
+          justify-content: center;
+          align-items: start;
+        }
+        .tm-plot {
+          display: grid;
+          grid-template-columns: 86px repeat(10, minmax(0, 1fr));
+          gap: 3px;
+          align-items: center;
+        }
+        .tm-corner {
+          font-size: 9px; color: var(--muted-2); letter-spacing: 0.01em;
+          text-align: right; padding-right: 6px; white-space: nowrap;
+          align-self: end; padding-bottom: 4px;
+        }
+        .tm-colhead {
+          font-size: 9.5px; color: var(--muted-2);
+          writing-mode: vertical-rl; transform: rotate(180deg);
+          height: 78px; justify-self: center; letter-spacing: 0.01em;
+        }
+        .tm-rowhead {
+          font-size: 11px; color: var(--muted);
+          text-align: right; padding-right: 9px; white-space: nowrap;
+        }
+        .tm-cell {
+          aspect-ratio: 1; border-radius: 2px;
+          background: var(--ground-2);
+          opacity: 0; transform: scale(.7);
+          transition:
+            opacity .4s ease,
+            transform .4s cubic-bezier(.16,1,.3,1),
+            box-shadow .15s ease;
+          transition-delay: calc(var(--i, 0) * 32ms);
+        }
+        .tm-cell.in { opacity: 1; transform: scale(1); }
+        .tm-cell.tm-high { background: var(--cost); opacity: 0; }
+        .tm-cell.tm-high.in { opacity: .72; }
+        .tm-cell.tm-critical { background: var(--risk); opacity: 0; }
+        .tm-cell.tm-critical.in { opacity: 1; }
+        .tm-cell.tm-high, .tm-cell.tm-critical { cursor: pointer; }
+
+        .tm-side { padding-top: 2px; }
+        .tm-key { display: flex; flex-direction: column; gap: 10px; margin-bottom: 22px; }
+        .tm-key-item {
+          display: flex; align-items: center; gap: 10px;
+          font-size: 12.5px; color: var(--muted);
+        }
+        .tm-key-item .num { color: var(--ink); font-weight: 500; }
+        .tm-swatch {
+          width: 11px; height: 11px; border-radius: 2px;
+          background: var(--ground-2); flex-shrink: 0;
+        }
+        .tm-swatch.tm-critical { background: var(--risk); }
+        .tm-swatch.tm-high { background: var(--cost); opacity: .72; }
+        .tm-note {
+          font-size: 13px; color: var(--muted); line-height: 1.6;
+          padding-top: 20px; border-top: 1px solid var(--rule);
+        }
+
+        @media (max-width: 940px) {
           .feature-row { grid-template-columns: 1fr !important; gap: 32px !important; }
           .feature-row > div { order: unset !important; }
-          .trust-row { flex-direction: column !important; }
-          .trust-row > div { border-right: none !important; border-bottom: 1px solid #E0D7C9; }
-          .trust-row > div:last-child { border-bottom: none !important; }
+          .tm-grid { grid-template-columns: 1fr !important; gap: 32px !important; }
+          .tm-plot { grid-template-columns: 74px repeat(10, minmax(0, 1fr)); }
+          .tm-colhead { height: 70px; font-size: 8.5px; }
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .cb-band, .sn-bar, .tm-cell, .cb-row, .cb-got { transition: none !important; }
+          .cb-row { opacity: 1; }
+          .cb-band { transform: scaleX(1); }
+          .tm-cell { opacity: 1; transform: none; }
+          .tm-cell.tm-high { opacity: .72; }
+          .tm-cell.tm-critical { opacity: 1; }
         }
       `}</style>
     </section>
