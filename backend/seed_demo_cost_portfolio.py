@@ -47,7 +47,7 @@ TOOLS = [
 
 def register_agent() -> str:
     r = httpx.post(f"{BASE}/api/authority/agents/register", json={
-        "name": AGENT_NAME, "description": "Customer support agent — refunds, emails, tickets.",
+        "name": AGENT_NAME, "description": "Customer support agent for refunds, emails, and tickets.",
         "tools": TOOLS,
     }, timeout=60)
     r.raise_for_status()

@@ -54,7 +54,7 @@ const SEVERITY_STYLES: Record<string, { bg: string; color: string }> = {
   /* Filled, not tinted — critical must read differently from high at a glance. */
   critical: { bg: "var(--severity-critical)", color: "#fff" },
   high:     { bg: "var(--severity-high-bg)",     color: "var(--severity-high)" },
-  medium:   { bg: "var(--severity-medium-bg)",   color: "var(--severity-medium)" },
+  medium:   { bg: "var(--severity-medium-bg)",   color: "var(--on-caution)" },
   low:      { bg: "var(--severity-safe-bg)",     color: "var(--severity-safe)" },
 };
 
@@ -63,7 +63,7 @@ const FALLBACK_STYLE = { bg: "var(--bg-sunken)", color: "var(--text-secondary)" 
 function statusStyle(status: string): { background: string; color: string } {
   if (status === "completed") return { background: "var(--status-executed-bg)", color: "var(--status-executed)" };
   if (status === "failed" || status === "error") return { background: "var(--severity-critical-bg)", color: "var(--severity-critical)" };
-  return { background: "var(--status-pending-bg)", color: "var(--status-pending)" };
+  return { background: "var(--status-pending-bg)", color: "var(--on-caution)" };
 }
 
 function ScoreRing({ score }: { score: number }) {
@@ -152,7 +152,7 @@ export default function SweepDetail() {
         { method: "POST", body: JSON.stringify({ agent_id: sweep.agent_id, policies }) },
       );
       const skipped = res.skipped ? `, ${res.skipped} already in place` : "";
-      toast(`Applied ${res.created} polic${res.created === 1 ? "y" : "ies"}${skipped} — re-run the sweep to see the effect`);
+      toast(`Applied ${res.created} polic${res.created === 1 ? "y" : "ies"}${skipped}. Re-run the sweep to see the effect.`);
     } catch (err) {
       toast("Couldn't apply recommendations: " + (err as Error).message, "error");
     } finally {

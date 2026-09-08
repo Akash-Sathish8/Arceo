@@ -8,12 +8,12 @@
  * brain/Signals/Cost calculation methodology.md
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Link } from "react-router-dom"
 import {
   FileText, Banknote, X, Download,
   Headset, Terminal, BarChart2, Settings2, Bot,
-  Calendar, TrendingUp, ShieldCheck,
+  Calendar, TrendingUp, ShieldCheck, Search, ChevronRight, ListTree, Gauge,
 } from "lucide-react"
 import type { LucideIcon } from "lucide-react"
 import { lazy, Suspense } from "react"
@@ -113,6 +113,7 @@ export default function SpendDashboard() {
   const [loadedAt, setLoadedAt] = useState<string | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [showMethodology, setShowMethodology] = useState(false)
+  const [pickerOpen, setPickerOpen] = useState(false)
 
   const load = useCallback(() => {
     setLoading(true)
@@ -156,6 +157,12 @@ export default function SpendDashboard() {
   const totalSpend = withForecast.reduce((s, r) => s + (r.forecast?.point ?? 0), 0)
   // vs-last-month is only meaningful for agents that actually have a ~30-day-old
   // snapshot. Until any do, hide the comparison rather than show an ambiguous 0%.
+  // Agents whose forecast is still built from archetype defaults. A sandbox
+  // calibration is the only thing that moves this tier — live traffic moves
+  // LOW straight past it — so these are exactly the agents worth queueing.
+  const lowConfidence = fleet.filter((r) => r.forecast?.confidence === "low")
+  const lowConfidenceSpend = lowConfidence.reduce((s, r) => s + (r.forecast?.point ?? 0), 0)
+
   const comparable = withForecast.filter((r) => r.forecast?.vsLastMonthAvailable)
   const comparableSpend = comparable.reduce((s, r) => s + (r.forecast?.point ?? 0), 0)
   const hasComparison = comparable.length > 0
@@ -185,13 +192,17 @@ export default function SpendDashboard() {
   // and this figure also feeds the fleet CFO PDF. Agents with nothing captured
   // fall back to their declared model, and an agent reporting no model at all
   // lands in "Unspecified" so we never silently double-count.
+  // A model name is not a risk level. This map used to paint Opus with
+  // --severity-critical and gpt-4o-mini with --severity-high, so the spend
+  // chart read as if the expensive model were the dangerous one. Peers now take
+  // the categorical series ramp, which carries no severity meaning at all.
   const MODEL_COLORS: Record<string, string> = {
-    "claude-opus-4-8":   "var(--severity-critical)",
-    "claude-sonnet-4-6": "var(--chart-tokens)",
-    "claude-haiku-4-5":  "var(--chart-tools)",
-    "gpt-4o":            "var(--severity-safe)",
-    "gpt-4o-mini":       "var(--severity-high)",
-    "gpt-5":             "var(--severity-medium)",
+    "claude-opus-4-8":   "var(--series-1)",
+    "claude-sonnet-4-6": "var(--series-2)",
+    "claude-haiku-4-5":  "var(--series-3)",
+    "gpt-4o":            "var(--series-4)",
+    "gpt-4o-mini":       "var(--series-5)",
+    "gpt-5":             "var(--series-6)",
   }
   const byModelMap = new Map<string, number>()
   for (const r of withForecast) {
@@ -211,9 +222,13 @@ export default function SpendDashboard() {
       name,
       amount,
       pctOfLlm: llmTotal > 0 ? Math.round((amount / llmTotal) * 100) : 0,
-      color: MODEL_COLORS[name] ?? "var(--text-muted)",
+      color: MODEL_COLORS[name] ?? null,
     }))
     .sort((a, b) => b.amount - a.amount)
+    // Any model the map doesn't name takes the next series colour rather than
+    // dropping to grey. The map only covers the models we happened to list, so
+    // a real fleet on anything else rendered its whole breakdown in muted grey.
+    .map((row, i) => ({ ...row, color: row.color ?? SERIES[i % SERIES.length] }))
 
   const sortedFleet = [...withForecast].sort(
     (a, b) => (b.forecast?.point ?? 0) - (a.forecast?.point ?? 0),
@@ -322,10 +337,18 @@ export default function SpendDashboard() {
           </span>
           <button
             type="button"
-            onClick={handleExportCsv}
-            className="flex items-center gap-2 bg-primary text-on-primary px-4 py-2 rounded-lg font-body text-body font-medium hover:opacity-90 transition-opacity shadow-sm border-0 cursor-pointer"
+            onClick={() => setPickerOpen(true)}
+            className="btn btn--secondary"
           >
-            <Download size={18} />
+            <ListTree size={18} />
+            View agent forecasts
+          </button>
+          <button
+            type="button"
+            onClick={handleExportCsv}
+            className="btn btn--primary"
+          >
+            <Download size={16} />
             Export Report
           </button>
         </div>
@@ -358,7 +381,7 @@ export default function SpendDashboard() {
                   className="text-xs font-monospace-label px-2 py-0.5 rounded font-semibold"
                   style={
                     weightedDelta >= 0
-                      ? { background: "var(--caution-bg)", color: "var(--amber-ink)" }
+                      ? { background: "var(--caution-bg)", color: "var(--on-caution)" }
                       : { background: "var(--aqua-soft)", color: "var(--aqua-deep)" }
                   }
                 >
@@ -410,8 +433,45 @@ export default function SpendDashboard() {
         </KpiCard>
       </div>
 
+      {/* ── Calibration prompt ──
+          Only shown when there is something to fix. It states the money at
+          stake rather than the agent count alone: "2 agents" is a chore,
+          "$835/mo resting on defaults" is a reason. */}
+      {lowConfidence.length > 0 && (
+        <div
+          className="rounded-xl border p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+          style={{ background: "var(--caution-bg)", borderColor: "var(--caution-line)" }}
+        >
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <Gauge size={16} style={{ color: "var(--on-caution)" }} />
+              <span className="font-eyebrow text-eyebrow uppercase tracking-widest" style={{ color: "var(--on-caution)" }}>
+                Forecast built from defaults
+              </span>
+            </div>
+            <p className="font-body text-body m-0 mt-2" style={{ color: "var(--on-caution)" }}>
+              {lowConfidence.length} {pluralize(lowConfidence.length, "agent")}, worth{" "}
+              <strong className="font-monospace-data">{formatMoney(lowConfidenceSpend)}/mo</strong> of the
+              fleet total, {lowConfidence.length === 1 ? "is" : "are"} forecast from capabilities
+              alone, with no measurement behind the number.
+            </p>
+            <p className="font-meta text-meta m-0 mt-1" style={{ color: "var(--on-caution)", opacity: 0.8 }}>
+              A calibration run measures each agent&rsquo;s turns and tokens and lifts it to medium
+              confidence (about &plusmn;28%).
+            </p>
+          </div>
+          <Link
+            to={`/sandbox?purpose=calibrate&agents=${lowConfidence.map((r) => r.id).join(",")}`}
+            className="btn btn--primary shrink-0"
+          >
+            <Gauge size={16} strokeWidth={1.9} />
+            Queue {lowConfidence.length} calibration {pluralize(lowConfidence.length, "run")}
+          </Link>
+        </div>
+      )}
+
       {/* ── Fleet spend trend ── */}
-      <div className="bg-white p-6 rounded-xl border border-neutral-border shadow-sm flex flex-col gap-4">
+      <div className="bg-white p-6 rounded-xl flex flex-col gap-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
           <div>
             <span className="font-eyebrow text-eyebrow text-neutral-secondary uppercase">Historical trajectory</span>
@@ -460,7 +520,7 @@ export default function SpendDashboard() {
       </div>
 
       {/* ── Fleet-wide tool actions ── */}
-      <div className="bg-white rounded-xl border border-neutral-border shadow-sm overflow-hidden">
+      <div className="bg-white rounded-xl overflow-hidden">
         <div className="p-6 border-b border-neutral-border flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
             <span className="font-eyebrow text-eyebrow text-neutral-secondary uppercase">Granular telemetry</span>
@@ -479,7 +539,7 @@ export default function SpendDashboard() {
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse">
             <thead>
-              <tr className="bg-neutral-sunken font-eyebrow text-eyebrow text-neutral-secondary uppercase border-b border-neutral-border">
+              <tr className="bg-bar-dark font-eyebrow text-eyebrow text-on-bar-dark-muted uppercase">
                 <th className="py-3 px-6">Tool &amp; action</th>
                 <th className="py-3 px-6">Agent</th>
                 <th className="py-3 px-6 text-right">Calls / mo</th>
@@ -514,7 +574,7 @@ export default function SpendDashboard() {
             </tbody>
           </table>
         </div>
-        <div className="p-4 px-6 border-t border-neutral-border bg-neutral-sunken flex items-center justify-between font-meta text-meta text-neutral-secondary">
+        <div className="p-4 px-6 bg-bar-dark flex items-center justify-between font-meta text-meta text-on-bar-dark-muted">
           <span>
             Showing {shownToolActions.length} of {topToolActions.length} priced tool {pluralize(topToolActions.length, "integration")}
           </span>
@@ -525,13 +585,23 @@ export default function SpendDashboard() {
       </div>
       </>
       )}
+
+      {/* Rendered outside the loaded/empty branch so the picker is reachable
+          even while a forecast batch is still coming back. */}
+      <AgentForecastPicker open={pickerOpen} rows={fleet} onClose={() => setPickerOpen(false)} />
     </div>
   )
 }
 
 /** Bar colours for the per-agent split — the single-hue chart ramp, so an
  *  agent's bar never borrows the severity or risk-label scales. */
-const AGENT_BAR_COLORS = ["var(--chart-tokens)", "var(--chart-tools)", "var(--chart-infra)", "var(--aqua-ink)", "var(--ink-400)"]
+/** Categorical series ramp: deep blue and cyan alternating, then their
+ *  tints. Peers, not a severity scale. */
+const SERIES = [
+  "var(--series-1)", "var(--series-2)", "var(--series-3)",
+  "var(--series-4)", "var(--series-5)", "var(--series-6)",
+]
+const AGENT_BAR_COLORS = SERIES
 
 /** One hero metric card: eyebrow + icon, then the figure block. */
 function KpiCard({
@@ -543,7 +613,7 @@ function KpiCard({
   children: React.ReactNode
 }) {
   return (
-    <div className="bg-white p-6 rounded-xl border border-neutral-border shadow-sm flex flex-col justify-between">
+    <div className="bg-white p-6 rounded-xl flex flex-col justify-between">
       <div className="flex items-center justify-between">
         <span className="font-eyebrow text-eyebrow text-neutral-secondary uppercase">{label}</span>
         <Icon size={20} style={{ color: iconColor ?? "var(--accent)" }} />
@@ -566,7 +636,7 @@ function BreakdownCard({
   linkTo: string
 }) {
   return (
-    <div className="bg-white p-6 rounded-xl border border-neutral-border shadow-sm flex flex-col justify-between">
+    <div className="bg-white p-6 rounded-xl flex flex-col justify-between">
       <div>
         <div className="flex items-start justify-between gap-3 mb-4">
           <div>
@@ -602,6 +672,165 @@ function BreakdownCard({
         <Link to={linkTo} style={{ color: "var(--text-link)" }} className="no-underline">
           {linkLabel} →
         </Link>
+      </div>
+    </div>
+  )
+}
+
+// ── Agent forecast picker ─────────────────────────────────────────────────────
+
+interface FleetRow {
+  id: string
+  name: string
+  agentType: string
+  risk: number
+  riskTone: string
+  forecast: MockSpend | null
+}
+
+/**
+ * Centred picker for jumping from the fleet rollup to one agent's own forecast.
+ *
+ * Same shell as the Configure Simulation dialog — scrim, header band, footer
+ * band — so every modal in the product opens the same way. Rows are links, not
+ * click handlers, so a forecast can be opened in a new tab.
+ */
+function AgentForecastPicker({
+  open,
+  rows,
+  onClose,
+}: {
+  open: boolean
+  rows: FleetRow[]
+  onClose: () => void
+}) {
+  const [query, setQuery] = useState("")
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    setQuery("")
+    const t = window.setTimeout(() => inputRef.current?.focus(), 0)
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose() }
+    window.addEventListener("keydown", onKey)
+    return () => { window.clearTimeout(t); window.removeEventListener("keydown", onKey) }
+  }, [open, onClose])
+
+  if (!open) return null
+
+  const q = query.trim().toLowerCase()
+  const visible = q
+    ? rows.filter((r) => r.name.toLowerCase().includes(q) || r.agentType.toLowerCase().includes(q))
+    : rows
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 overflow-y-auto"
+      style={{ background: "rgba(30, 40, 54, 0.5)", backdropFilter: "blur(2px)" }}
+      onClick={onClose}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="agent-forecast-picker-title"
+        onClick={(e) => e.stopPropagation()}
+        className="w-full max-w-2xl bg-surface-container-lowest border border-neutral-border rounded-lg flex flex-col my-auto outline-none"
+        style={{ maxHeight: "calc(100vh - 2rem)", boxShadow: "0 4px 24px rgba(30, 40, 54, 0.08), 0 1px 2px rgba(15,15,15,0.03)" }}
+      >
+        {/* Header */}
+        <div className="px-8 pt-8 pb-6 border-b border-neutral-border shrink-0">
+          <h2
+            id="agent-forecast-picker-title"
+            className="text-page-title font-page-title text-on-surface mb-2 tracking-tight m-0"
+          >
+            Agent forecasts
+          </h2>
+          <p className="text-body font-body text-neutral-secondary leading-relaxed m-0">
+            Open one agent&rsquo;s forecast, with its drivers, confidence tier and sensitivity, instead of the fleet rollup.
+          </p>
+          <div className="relative mt-5">
+            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-secondary" />
+            <input
+              ref={inputRef}
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search agents…"
+              aria-label="Search agents"
+              className="w-full pl-9 pr-3 py-2.5 rounded-lg border border-neutral-border bg-surface-container-lowest text-body font-body text-on-surface outline-none focus:border-primary"
+            />
+          </div>
+        </div>
+
+        {/* Body */}
+        <div className="px-8 py-5 overflow-y-auto">
+          {visible.length === 0 ? (
+            <p className="text-body font-body text-neutral-secondary m-0 py-6 text-center">
+              No agents match “{query}”.
+            </p>
+          ) : (
+            <div className="flex flex-col">
+              {visible.map((r) => {
+                const f = r.forecast
+                const usable = f !== null && f.available !== false && f.point != null
+                return (
+                  <Link
+                    key={r.id}
+                    to={`/agent/${r.id}/spend`}
+                    onClick={onClose}
+                    className="flex items-center gap-4 py-3 px-3 -mx-3 rounded-lg no-underline hover:bg-neutral-sunken transition-colors"
+                  >
+                    <span
+                      aria-hidden
+                      className="shrink-0 rounded-full"
+                      style={{ width: 8, height: 8, background: r.riskTone }}
+                    />
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-body font-body font-medium text-on-surface truncate">
+                        {r.name}
+                      </span>
+                      <span className="block font-monospace-label text-monospace-label text-neutral-secondary truncate">
+                        {r.agentType || "agent"} · risk {Math.round(r.risk)}
+                      </span>
+                    </span>
+                    <span className="shrink-0 text-right">
+                      {usable ? (
+                        <>
+                          <span className="block font-monospace-data text-monospace-data text-on-surface">
+                            {formatMoney(f!.point!)}
+                          </span>
+                          <span className="block font-monospace-label text-monospace-label text-neutral-secondary">
+                            per month
+                          </span>
+                        </>
+                      ) : (
+                        // Never render an uncalibrated forecast as $0 — the
+                        // fleet rollup makes the same distinction.
+                        <span className="block font-monospace-label text-monospace-label text-neutral-secondary">
+                          Needs data
+                        </span>
+                      )}
+                    </span>
+                    <ChevronRight size={16} className="shrink-0 text-neutral-secondary" />
+                  </Link>
+                )
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="px-8 py-5 border-t border-neutral-border bg-neutral-sunken flex items-center justify-between gap-3 rounded-b-lg shrink-0">
+          <span className="font-monospace-label text-monospace-label text-neutral-secondary">
+            {visible.length} of {rows.length} {rows.length === 1 ? "agent" : "agents"}
+          </span>
+          <button
+            type="button"
+            onClick={onClose}
+            className="btn btn--secondary"
+          >
+            Close
+          </button>
+        </div>
       </div>
     </div>
   )

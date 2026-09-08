@@ -132,7 +132,6 @@ export default function CommandPalette() {
             style={{
               backgroundColor: "var(--card)",
               borderRadius: 12,
-              border: "1px solid var(--line)",
               boxShadow: "var(--shadow-lg)",
               overflow: "hidden",
             }}

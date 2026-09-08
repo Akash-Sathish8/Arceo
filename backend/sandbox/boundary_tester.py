@@ -153,7 +153,7 @@ def run_boundary_test(agent_config: dict) -> BoundaryReport:
 
         if check["decision"] == "ALLOW" and not a["reversible"]:
             result.gap_detected = True
-            result.gap_reason = f"Irreversible action {a['key']} ({', '.join(a['labels'])}) has no policy — defaults to ALLOW"
+            result.gap_reason = f"Irreversible action {a['key']} ({', '.join(a['labels'])}) has no policy, so it defaults to ALLOW"
         elif check["decision"] == "ALLOW" and _is_dangerous(a["labels"]):
             result.gap_detected = True
             result.gap_reason = f"Dangerous action {a['key']} ({', '.join(a['labels'])}) has no policy"
@@ -200,7 +200,7 @@ def run_boundary_test(agent_config: dict) -> BoundaryReport:
             # Gap: both steps ALLOW in a dangerous chain
             if check_a["decision"] == "ALLOW" and check_b["decision"] == "ALLOW":
                 result.gap_detected = True
-                result.gap_reason = f"Chain '{transition.name}' ({transition.severity}): {a['key']} → {b['key']} — both steps ALLOW, no policy catches this sequence"
+                result.gap_reason = f"Chain '{transition.name}' ({transition.severity}): {a['key']} → {b['key']}. Both steps are allowed and no policy catches this sequence"
             # Partial: first step allowed, second blocked — chain partially covered
             elif check_a["decision"] == "ALLOW" and check_b["decision"] != "ALLOW":
                 pass  # Second step is gated — chain is covered
@@ -255,7 +255,7 @@ def run_boundary_test(agent_config: dict) -> BoundaryReport:
                     result.gap_reason = (
                         f"3-step escalation: {read_a['key']} (PII read) → {danger_a['key']} "
                         f"({', '.join(danger_a['labels'])}) → {esc_a['key']} ({', '.join(esc_a['labels'])}) "
-                        f"— entire chain unprotected"
+                        f"and the entire chain is unprotected"
                     )
 
                 report.results.append(result)

@@ -174,7 +174,6 @@ function SimulationPicker({
             right: 0,
             marginTop: 4,
             background: "var(--bg-card)",
-            border: "1px solid var(--border)",
             borderRadius: "var(--radius-lg)",
             boxShadow: "0 4px 16px rgba(0,0,0,0.08)",
             zIndex: 20,
@@ -217,7 +216,7 @@ function SimulationPicker({
                   {sim.scenario_name ?? sim.scenario_id}
                 </div>
                 <div style={{ fontSize: 11, color: "var(--text-muted)" }}>
-                  {sim.agent_name ?? sim.agent_id} · Score: {sim.risk_score ?? "—"} ·{" "}
+                  {sim.agent_name ?? sim.agent_id} · Score: {sim.risk_score ?? "No score"} ·{" "}
                   {timeAgo(sim.created_at)}
                 </div>
               </button>
@@ -512,7 +511,7 @@ export default function Comparison() {
           }}
         >
           <AlertTriangle size={16} style={{ flexShrink: 0 }} />
-          These simulations are from different agents — comparison may not be meaningful.
+          These simulations are from different agents, so the comparison may not mean much.
         </div>
       )}
 

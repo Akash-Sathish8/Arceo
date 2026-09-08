@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { scoreToColor, timeAgo } from '@/lib/utils'
 import { chainShortLabel } from '@/lib/chainLabels'
-import NewSimulationModal, { CUSTOM_SCENARIO_ID } from '@/components/sandbox/NewSimulationModal'
+import NewSimulationModal, { CUSTOM_SCENARIO_ID, type RunPurpose } from '@/components/sandbox/NewSimulationModal'
 import ScenarioLibrary from '@/components/sandbox/ScenarioLibrary'
 import SimulationCanvas, { type CanvasRun } from '@/components/sandbox/SimulationCanvas'
 
@@ -103,18 +103,18 @@ const SIM_PAGE_SIZE = 50
 
 const CATEGORY_TOOLTIPS: Partial<Record<ScenarioCategory, string>> = {
   edge_case:
-    'Unusual or boundary situations the agent might encounter — tests whether it behaves safely in uncommon scenarios.',
+    'Unusual or edge situations the agent might hit, to test whether it still behaves safely.',
   adversarial:
     'Scenarios designed to trick or manipulate the agent into taking unauthorized or harmful actions.',
   chain_exploit:
-    'Tests multi-step sequences where combining two actions creates elevated risk — e.g. reading customer data then sending it outside your system.',
+    'Tests multi-step sequences where combining two actions raises the risk, such as reading customer data and then sending it outside your system.',
 }
 
 const SEVERITY_COLORS: Record<string, { bg: string; color: string; border: string }> = {
   /* Filled, not tinted — critical must read differently from high at a glance. */
   critical: { bg: 'var(--critical)', color: '#fff', border: 'var(--critical)' },
   high:     { bg: 'var(--high-bg)', color: 'var(--high)', border: 'var(--high-line)' },
-  medium:   { bg: 'var(--caution-bg)', color: 'var(--caution)', border: 'var(--caution-line)' },
+  medium:   { bg: 'var(--caution-bg)', color: 'var(--on-caution)', border: 'var(--caution-line)' },
   info:     { bg: 'var(--accent-soft)', color: 'var(--accent-ink)', border: 'var(--accent-line)' },
 }
 
@@ -205,7 +205,7 @@ function PreflightCheck({ ok, okLabel, failLabel }: { ok: boolean; okLabel: stri
 const DECISION_STYLE: Record<string, { bg: string; color: string }> = {
   ALLOW:            { bg: 'var(--status-executed-bg)', color: 'var(--status-executed)' },
   BLOCK:            { bg: 'var(--status-blocked-bg)',  color: 'var(--status-blocked)' },
-  REQUIRE_APPROVAL: { bg: 'var(--status-pending-bg)',  color: 'var(--status-pending)' },
+  REQUIRE_APPROVAL: { bg: 'var(--status-pending-bg)',  color: 'var(--on-caution)' },
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -261,6 +261,10 @@ function loadSavedSandboxState(): SavedSandboxState {
 export default function Sandbox() {
   const [searchParams] = useSearchParams()
   const preselectedAgent = searchParams.get('agent')
+  const calibrateParam = searchParams.get('purpose') === 'calibrate'
+  // ?agents=a,b,c — the bulk calibration queued from the fleet spend page.
+  const queuedAgentIds = (searchParams.get('agents') ?? '')
+    .split(',').map((x) => x.trim()).filter(Boolean)
   const worstCase = searchParams.get('worst_case') === '1'
   const navigate = useNavigate()
   const [saved] = useState(loadSavedSandboxState)
@@ -310,6 +314,10 @@ export default function Sandbox() {
   const [lastRun, setLastRun] = useState<CanvasRun | null>(null)
   const [newSimOpen, setNewSimOpen] = useState(false)
   const [modalScenarioId, setModalScenarioId] = useState('')
+  const [runPurpose, setRunPurpose] = useState<RunPurpose>('explore')
+  // The forecast tier the calibrate path is trying to move, so the dialog can
+  // say what this run will actually change. Null until the forecast lands.
+  const [forecastConfidence, setForecastConfidence] = useState<'low' | 'medium' | 'high' | null>(null)
   const [strictMode, setStrictMode] = useState(true)
   const [debugLogging, setDebugLogging] = useState(false)
 
@@ -332,6 +340,12 @@ export default function Sandbox() {
               ? saved.agent
               : agentData.agents[0]?.id || ''
         setSelectedAgent(defaultAgent)
+        // ?purpose=calibrate lands here from the agent's forecast page, so the
+        // dialog opens already set to the run that page was asking for.
+        if (calibrateParam && (defaultAgent || queuedAgentIds.length > 0)) {
+          setRunPurpose('calibrate')
+          setNewSimOpen(true)
+        }
         setLoading(false)
       })
       .catch((err: Error) => {
@@ -339,6 +353,36 @@ export default function Sandbox() {
         setLoading(false)
       })
   }, [])
+
+  // Normal-path scenarios only: the forecast wants the agent's TYPICAL turn
+  // count and token usage, and an adversarial run that gets blocked on turn two
+  // measures the policy, not the agent. Three runs, so turns_per_run averages
+  // over more than one sample. Falls back to whatever exists for an agent whose
+  // catalogue has no normal scenarios.
+  const queuedAgents = useMemo(
+    () => queuedAgentIds
+      .map((id) => agents.find((a) => a.id === id))
+      .filter((a): a is NonNullable<typeof a> => Boolean(a)),
+    [queuedAgentIds.join(','), agents],
+  )
+
+  const calibrationScenarios = useMemo(() => {
+    const normal = scenarios.filter((sc) => sc.category === 'normal')
+    return (normal.length > 0 ? normal : scenarios).slice(0, 3)
+  }, [scenarios])
+
+  // The tier the calibrate path is trying to move. Read from the same endpoint
+  // the Cost portfolio reads, so the dialog and that page never disagree.
+  useEffect(() => {
+    if (!selectedAgent) { setForecastConfidence(null); return }
+    let cancelled = false
+    apiFetch<{ confidence?: 'low' | 'medium' | 'high' }>(
+      `/api/agents/${selectedAgent}/spend-forecast`,
+    )
+      .then((d) => { if (!cancelled) setForecastConfidence(d?.confidence ?? null) })
+      .catch(() => { if (!cancelled) setForecastConfidence(null) })
+    return () => { cancelled = true }
+  }, [selectedAgent])
 
   const loadMoreSims = () => {
     setLoadingMoreSims(true)
@@ -493,20 +537,28 @@ export default function Sandbox() {
 
   const handleRun = async (
     dryRun = true,
-    override?: { agentId?: string; scenarios?: Scenario[] },
+    override?: { agentId?: string; agentIds?: string[]; scenarios?: Scenario[] },
   ) => {
-    const agentId = override?.agentId ?? selectedAgent
+    // `agentIds` is the bulk-calibration path: the same scenario list run once
+    // per agent, so one queue produces one progress bar instead of N.
+    const agentIds = override?.agentIds?.length
+      ? override.agentIds
+      : [override?.agentId ?? selectedAgent]
     const scenarioList = override?.scenarios ?? selectedScenarios
     const customList = override?.scenarios ? [] : queuedCustomPrompts
-    if ((scenarioList.length === 0 && customList.length === 0) || !agentId) return
+    if ((scenarioList.length === 0 && customList.length === 0) || !agentIds[0]) return
     setRunning(true)
     setRunError(null)
     setLastRunMode(dryRun ? 'dry-run' : 'llm')
 
-    const toRun: ({ type: 'scenario'; scenario: Scenario } | { type: 'custom'; prompt: string })[] = [
-      ...scenarioList.map((s) => ({ type: 'scenario' as const, scenario: s })),
-      ...customList.map((p) => ({ type: 'custom' as const, prompt: p })),
-    ]
+    type RunItem = { agentId: string } & (
+      | { type: 'scenario'; scenario: Scenario }
+      | { type: 'custom'; prompt: string }
+    )
+    const toRun: RunItem[] = agentIds.flatMap((aid) => [
+      ...scenarioList.map((s) => ({ agentId: aid, type: 'scenario' as const, scenario: s })),
+      ...customList.map((p) => ({ agentId: aid, type: 'custom' as const, prompt: p })),
+    ])
     if (toRun.length === 0) { setRunning(false); return }
 
     const completed: SimulationResult[] = []
@@ -516,11 +568,12 @@ export default function Sandbox() {
       // current = how many are done; the bar reads 0% at start and 100% at end.
       setRunProgress({ current: i, total: toRun.length })
       try {
-        const body: Record<string, unknown> = { agent_id: agentId, dry_run: dryRun }
-        if (toRun[i].type === 'scenario') {
-          body.scenario_id = (toRun[i] as { type: 'scenario'; scenario: Scenario }).scenario.id
+        const item = toRun[i]
+        const body: Record<string, unknown> = { agent_id: item.agentId, dry_run: dryRun }
+        if (item.type === 'scenario') {
+          body.scenario_id = item.scenario.id
         } else {
-          body.custom_prompt = (toRun[i] as { type: 'custom'; prompt: string }).prompt
+          body.custom_prompt = item.prompt
           body.scenario_id = ''
         }
         const data = await apiFetch<SimulationResult>('/api/sandbox/simulate', {
@@ -540,17 +593,23 @@ export default function Sandbox() {
       // Batch summary — the multi-scenario overview lives on the detail page now.
       if (toRun.length > 1) {
         toast(
-          `${completed.length} of ${toRun.length} scenarios completed${failedCount > 0 ? ` (${failedCount} failed)` : ''} — opening the latest`,
+          `${completed.length} of ${toRun.length} scenarios finished${failedCount > 0 ? ` (${failedCount} failed)` : ''}. Opening the latest.`,
           failedCount > 0 ? 'error' : 'success',
         )
       } else if (failedCount > 0) {
-        toast('Scenario failed — check the agent is configured correctly', 'error')
+        toast("That scenario didn't run. Check the agent is set up correctly.", 'error')
       }
       setRunning(false)
+      // A fleet-wide calibration ends where it was asked for: the spend page,
+      // where the confidence tiers it just moved are on screen.
+      if (agentIds.length > 1) {
+        navigate('/spend')
+        return
+      }
       navigate(`/sandbox/${lastData.simulation_id}`)
     } else {
       setRunError(
-        `All ${toRun.length} simulation${toRun.length > 1 ? 's' : ''} failed — check the agent is configured correctly`,
+        `All ${toRun.length} simulation${toRun.length > 1 ? 's' : ''} failed. Check the agent is set up correctly.`,
       )
       toast('All simulations failed', 'error')
       setRunning(false)
@@ -569,7 +628,7 @@ export default function Sandbox() {
           body: JSON.stringify({ agent_id: selectedAgent, dry_run: dryRun }),
         },
       )
-      toast(`Full sweep complete — ${data.total_scenarios} scenarios, risk score ${Math.round(data.overall_risk_score)}`)
+      toast(`Sweep finished. ${data.total_scenarios} scenarios, risk score ${Math.round(data.overall_risk_score)}.`)
       navigate(`/sweep/${data.sweep_id}`)
     } catch (err) {
       toast('Sweep failed: ' + (err as Error).message, 'error')
@@ -633,7 +692,7 @@ export default function Sandbox() {
               setModalScenarioId(selectedScenarios[0]?.id ?? scenarios[0]?.id ?? '')
               setNewSimOpen(true)
             }}
-            className="bg-primary text-on-primary font-monospace-label text-monospace-label px-4 py-2 rounded shadow-sm hover:opacity-90 transition-opacity flex items-center gap-2 border-0 cursor-pointer"
+            className="btn btn--primary"
           >
             <Plus size={16} strokeWidth={2.2} />
             New Simulation
@@ -687,14 +746,14 @@ export default function Sandbox() {
         {/* ── Left: configuration ──────────────────────────────────── */}
         <div
           id="run-section"
-          className="w-full lg:w-80 shrink-0 flex flex-col gap-stack-gap bg-surface-container-lowest border border-neutral-border shadow-sm rounded-lg p-container-padding"
+          className="w-full lg:w-80 shrink-0 flex flex-col gap-stack-gap bg-surface-container-lowest rounded-lg p-container-padding"
         >
           {/* Agent selection */}
           <div className="flex flex-col gap-2" ref={agentSelectorRef}>
             <span className="font-eyebrow text-eyebrow text-neutral-secondary uppercase">Agent selection</span>
             {agents.length === 0 ? (
               <div className="text-body text-neutral-secondary">
-                No agents yet — <a href="/" className="text-on-surface underline">create one</a> first.
+                No agents yet. <a href="/" className="text-on-surface underline">Create one</a> to get started.
               </div>
             ) : (
               <div className="relative">
@@ -713,7 +772,7 @@ export default function Sandbox() {
                   <ChevronDown size={18} className="text-neutral-muted shrink-0" />
                 </button>
                 {agentOpen && (
-                  <div className="absolute z-30 top-full left-0 right-0 mt-1 bg-surface-container-lowest border border-neutral-border rounded-lg shadow-lg overflow-hidden max-h-72 overflow-y-auto">
+                  <div className="absolute z-30 top-full left-0 right-0 mt-1 bg-surface-container-lowest rounded-lg overflow-hidden max-h-72 overflow-y-auto">
                     {agents.map((a) => (
                       <button
                         key={a.id}
@@ -893,11 +952,11 @@ export default function Sandbox() {
 
         {/* ── Right: canvas + pre-flight ───────────────────────────── */}
         <div className="flex flex-col flex-1 gap-stack-gap min-w-0 w-full">
-          <div className="relative bg-surface-container-lowest border border-neutral-border shadow-sm rounded-lg p-container-padding flex flex-col overflow-hidden" style={{ minHeight: 520 }}>
+          <div className="relative bg-surface-container-lowest rounded-lg p-container-padding flex flex-col overflow-hidden" style={{ minHeight: 520 }}>
             <div className="flex items-center justify-between mb-4 z-10 relative">
               <span className="font-card-title text-card-title text-on-surface">Simulation canvas</span>
               <span className="font-monospace-label text-monospace-label text-neutral-muted">
-                {sel ? `${sel.tools?.filter(Boolean).length ?? 0} tools` : '—'}
+                {sel ? `${sel.tools?.filter(Boolean).length ?? 0} tools` : 'None'}
               </span>
             </div>
 
@@ -945,7 +1004,7 @@ export default function Sandbox() {
           </div>
 
           {/* Pre-flight checks */}
-          <div className="bg-surface-container-lowest border border-neutral-border shadow-sm rounded-lg p-container-padding shrink-0 flex flex-col sm:flex-row sm:items-center gap-6">
+          <div className="bg-surface-container-lowest rounded-lg p-container-padding shrink-0 flex flex-col sm:flex-row sm:items-center gap-6">
             <span className="font-eyebrow text-eyebrow text-neutral-secondary uppercase sm:min-w-[120px]">Pre-flight checks</span>
             <div className="flex-1 flex flex-wrap items-center gap-x-8 gap-y-4">
               <PreflightCheck
@@ -1031,7 +1090,7 @@ export default function Sandbox() {
                 return (
                   <div
                     key={sim.id}
-                    className="bg-white border border-gray-200 rounded-xl shadow-sm p-3 flex items-center gap-3"
+                    className="bg-white rounded-xl p-3 flex items-center gap-3"
                     style={{ borderLeftWidth: 3, borderLeftColor: scoreColor }}
                   >
                     <div className="flex flex-col items-center flex-shrink-0 w-10">
@@ -1109,6 +1168,14 @@ export default function Sandbox() {
           category: sc.category,
           severity: sc.severity,
         }))}
+        purpose={runPurpose}
+        onPurposeChange={setRunPurpose}
+        calibrationScenarios={calibrationScenarios.map((sc) => ({
+          id: sc.id, name: sc.name, description: formatDesc(sc.description),
+          category: sc.category, severity: sc.severity,
+        }))}
+        currentConfidence={forecastConfidence}
+        queuedAgents={queuedAgents.map((a) => ({ id: a.id, name: a.name }))}
         scenarioId={modalScenarioId}
         onScenarioChange={setModalScenarioId}
         strictMode={strictMode}
@@ -1120,6 +1187,21 @@ export default function Sandbox() {
         creating={running}
         onCreate={() => {
           setNewSimOpen(false)
+          if (runPurpose === 'calibrate') {
+            if (calibrationScenarios.length === 0) return
+            setSelectedScenarios(calibrationScenarios)
+            setQueuedCustomPrompts([])
+            // dryRun=false is not a default the user can override here: a dry
+            // run writes no turn_usage, so it would leave the tier untouched.
+            setRunMode('llm')
+            void handleRun(false, {
+              scenarios: calibrationScenarios,
+              ...(queuedAgents.length > 1
+                ? { agentIds: queuedAgents.map((a) => a.id) }
+                : {}),
+            })
+            return
+          }
           if (modalScenarioId === CUSTOM_SCENARIO_ID) {
             // The full catalogue and the free-text prompt both live in the
             // library view.

@@ -23,7 +23,7 @@ export default function CFODownloadLink({ data, fileName, className, style, labe
     <PDFDownloadLink document={<CFOReport data={data} />} fileName={fileName} className={className} style={style}>
       {({ loading: building, error }) =>
         error
-          ? (<><FileDown size={13} /> Export failed — retry</>)
+          ? (<><FileDown size={13} /> Export failed, retry</>)
           : building
           ? (<><FileDown size={13} /> Building PDF…</>)
           : label

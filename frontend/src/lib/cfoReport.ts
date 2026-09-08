@@ -182,11 +182,11 @@ function buildWhatItDoes(tools: string[]): string {
 function buildConfidenceLine(tier: "low" | "medium" | "high"): string {
   switch (tier) {
     case "low":
-      return "Low — based only on the agent's setup. No test runs yet. Tightens once we run simulations."
+      return "Low. Based only on the agent's setup, with no test runs yet. It tightens once we run simulations."
     case "medium":
-      return "Moderate — based on simulated test conversations. Reaches high confidence once we capture 50+ production calls spanning 3+ distinct days in a week."
+      return "Moderate. Based on simulated test conversations. It reaches high confidence once we capture 50 or more production calls spanning 3 or more distinct days in a week."
     case "high":
-      return "High — based on 50+ captured production calls spanning 3+ distinct days in the last week."
+      return "High. Based on 50 or more captured production calls spanning 3 or more distinct days in the last week."
   }
 }
 
@@ -262,7 +262,7 @@ function buildComposition(forecast: MockSpend): { label: string; usd: number; pc
 
 function buildTopDriver(forecast: MockSpend): { label: string; monthly: number } {
   const top = forecast.topTools?.[0]
-  if (!top) return { label: "—", monthly: 0 }
+  if (!top) return { label: "None", monthly: 0 }
   // top.tool is shaped as "toolname.action_name"
   const toolKey = top.tool.split(".")[0]
   return { label: friendlyToolName(toolKey), monthly: top.monthly }
@@ -325,7 +325,7 @@ function generateRecommendations(
   //     silently when no webhook is configured (:3460-3461) — hence "Connect Slack",
   //     stated as a condition rather than a promise.
   recs.push(
-    `Cap monthly spend at $${budgetCap.toLocaleString()} (forecast plus a safety margin that covers the upper end of our confidence range). Once set, Arceo stops the agent's paid model calls when it reaches the cap. Connect Slack and it will warn you earlier — at 80% by default.`,
+    `Cap monthly spend at $${budgetCap.toLocaleString()} (forecast plus a safety margin that covers the upper end of our confidence range). Once set, Arceo stops the agent's paid model calls when it reaches the cap. Connect Slack and it will warn you earlier, at 80% by default.`,
   )
 
   // 3. Re-review with live data — only relevant while confidence is below high.

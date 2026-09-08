@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from 'react'
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
@@ -62,6 +62,11 @@ interface AgentListItem {
   policies_by_effect?: { BLOCK?: number; REQUIRE_APPROVAL?: number; ALLOW?: number }
   pending_count: number
   last_execution_at: string | null
+  /** Declared at registration — kept beside the observed state, never used as it. */
+  environment?: string | null
+  live_calls_7d?: number
+  deployment_state?: 'deployed' | 'pre_deployment'
+  deployment_mismatch?: 'stalled' | 'ungoverned' | null
   /** ISO timestamp — compares chronologically as a plain string. */
   created_at: string
 }
@@ -104,7 +109,7 @@ const SORT_OPTIONS = [
   { value: 'chains-desc',  label: 'Most Chains' },
   { value: 'created-desc', label: 'Recently Added' },
   { value: 'viewed-desc',  label: 'Recently Viewed' },
-  { value: 'name-asc',     label: 'Name A–Z' },
+  { value: 'name-asc',     label: 'Name A to Z' },
 ]
 
 const TEMPLATES = [
@@ -184,6 +189,16 @@ export default function Authority() {
 
   // Create agent form
   const [showCreate, setShowCreate] = useState(false)
+  // One close path for the Connect dialog: the X, the footer button, the scrim
+  // and Esc. Declared with the other hooks — this component returns early for
+  // its loading and error states, so a hook below those runs conditionally.
+  const closeConnect = useCallback(() => setShowCreate(false), [])
+  useEffect(() => {
+    if (!showCreate) return
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') closeConnect() }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [showCreate, closeConnect])
   // Default to 'agents' — Overview is the empty-state landing only.
   // On first load completion, this gets switched to 'overview' if there
   // are no agents connected (see initialTabRef effect below).
@@ -305,7 +320,7 @@ export default function Authority() {
     // The backend rejects >200K bodies outright (422); send what fits and say so.
     if (text.length > BUNDLE_MAX_CHARS) {
       setUploadFileContent(text.slice(0, BUNDLE_MAX_CHARS))
-      toast(`${file.name} exceeds the 200KB extractor limit — only the first 200KB will be analyzed`, 'error')
+      toast(`${file.name} is over the 200KB limit, so we'll only read the first 200KB`, 'error')
       return
     }
     setUploadFileContent(text)
@@ -359,7 +374,7 @@ export default function Authority() {
     )
     if (usable.length === 0) {
       toast(hasArchive
-        ? "Zip archives aren't supported — drag the unzipped folder in instead"
+        ? "We can't read zip archives yet. Unzip it and drag the folder in instead."
         : 'No code files found to bundle', 'error')
       return
     }
@@ -398,7 +413,7 @@ export default function Authority() {
         const bits: string[] = []
         if (skipped > 0) bits.push(`${skipped} didn't fit`)
         if (truncatedCount > 0) bits.push(`${truncatedCount} truncated`)
-        toast(`Bundled ${meta.length} files — ${bits.join(', ')} (200KB extractor limit)`, 'error')
+        toast(`Bundled ${meta.length} files: ${bits.join(', ')}. The extractor reads up to 200KB.`, 'error')
       }
     } finally {
       setBundling(false)
@@ -424,9 +439,9 @@ export default function Authority() {
       if (data && data.agents_registered > 0) {
         toast(`Registered ${data.agents_registered} agent${data.agents_registered !== 1 ? 's' : ''} from ${data.owner}/${data.repo}`)
       } else if (data && data.agents_detected > 0) {
-        toast(`Detected ${data.agents_detected} agent file${data.agents_detected !== 1 ? 's' : ''} but registration failed — see per-file results`, 'error')
+        toast(`Detected ${data.agents_detected} agent file${data.agents_detected !== 1 ? 's' : ''} but we couldn't register them. Check the per-file results below.`, 'error')
       } else {
-        toast('Scan complete — no agent files detected', 'error')
+        toast("Scan finished, but we didn't find any agent files", 'error')
       }
       loadData()
     } catch (err) {
@@ -470,7 +485,7 @@ export default function Authority() {
       setMcpUrl('')
       setMcpAgentName('')
       setShowMcpConnect(false)
-      toast(`Connected — ${data.tools_imported} tool${data.tools_imported !== 1 ? 's' : ''} imported`)
+      toast(`Connected. We imported ${data.tools_imported} tool${data.tools_imported !== 1 ? 's' : ''}.`)
       loadData()
     } catch (err) {
       setMcpResult({ error: (err as Error).message })
@@ -570,28 +585,22 @@ export default function Authority() {
   // The form is only *visible* on the Agents tab — the CTA label must track
   // that, not the raw showCreate flag (which can be true on Overview).
   const formVisible = showCreate && agentTab === 'agents'
+
   return (
     <div style={{ padding: '34px 40px 64px', fontFamily: 'var(--font-sans)' }}>
       <PageHeader
         title="Agents"
-        description="Every action your AI agents can take — scored, chained, and governed before production."
+        description="Every action your AI agents can take, scored and governed before they reach production."
         actions={
           <button
             type="button"
             onClick={() => {
-              const next = !formVisible
-              setShowCreate(next); setShowMcpConnect(false); setAgentTab('agents')
+              setShowCreate(true); setShowMcpConnect(false); setAgentTab('agents')
             }}
-            className="ag-btn"
-            style={{
-              display: 'inline-flex', alignItems: 'center', gap: 8, whiteSpace: 'nowrap',
-              background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: 'var(--radius-md)',
-              padding: '10px 16px', fontSize: 'var(--fs-body)', fontWeight: 600, fontFamily: 'var(--font-sans)',
-              cursor: 'pointer', boxShadow: 'var(--shadow-card-new)',
-            }}
+            className="btn btn--primary ag-btn"
           >
-            {formVisible ? <X size={16} strokeWidth={1.8} /> : <Plus size={16} strokeWidth={1.8} />}
-            {formVisible ? 'Cancel' : 'Connect agent'}
+            <Plus size={16} strokeWidth={1.8} />
+            Connect agent
           </button>
         }
       />
@@ -638,17 +647,58 @@ export default function Authority() {
         })}
       </div>
 
-      {/* Create agent panel */}
-      <AnimatePresence mode="wait" initial={false}>
+      {/* Connect agent — the same centred-dialog shell as Configure Simulation,
+          so every "start something new" flow in the product opens the same way.
+          Every tab and form below is unchanged; only the container moved. */}
+      {/* No enter animation, matching Configure Simulation exactly — the
+          framer-motion fade stalled mid-transition here and left the dialog
+          translucent over the page. */}
       {showCreate && agentTab === 'agents' && (
-        <motion.div
-          ref={connectFormRef}
-          className="bg-white border border-gray-200 rounded-xl shadow-sm p-6"
-          initial={{ opacity: 0, y: 6 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: -4 }}
-          transition={{ duration: 0.15, ease: 'easeOut' }}
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 overflow-y-auto"
+          style={{ background: 'rgba(30, 40, 54, 0.5)', backdropFilter: 'blur(2px)' }}
+          onClick={closeConnect}
         >
+        <div
+          ref={connectFormRef}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="connect-agent-title"
+          onClick={(e) => e.stopPropagation()}
+          className="w-full max-w-4xl bg-surface-container-lowest border border-neutral-border rounded-lg flex flex-col my-auto outline-none"
+          style={{
+            maxHeight: 'calc(100vh - 2rem)',
+            boxShadow: '0 4px 24px rgba(30, 40, 54, 0.08), 0 1px 2px rgba(15,15,15,0.03)',
+          }}
+        >
+          {/* Header band */}
+          <div className="px-8 pt-8 pb-6 border-b border-neutral-border shrink-0 flex items-start gap-4">
+            <div className="min-w-0 flex-1">
+              <h2
+                id="connect-agent-title"
+                className="text-page-title font-page-title text-on-surface mb-2 tracking-tight m-0"
+              >
+                Connect an agent
+              </h2>
+              <p className="text-body font-body text-neutral-secondary leading-relaxed m-0">
+                Point Arceo at an agent&rsquo;s tools, from a code file, a repo, a live MCP
+                server, or by routing its calls through the proxy. Every route ends the same way: a
+                scored map of every action it can take.
+              </p>
+            </div>
+            <button
+              type="button"
+              aria-label="Close"
+              onClick={closeConnect}
+              className="shrink-0 text-neutral-secondary hover:text-on-surface transition-colors"
+              style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4, lineHeight: 0 }}
+            >
+              <X size={20} strokeWidth={1.8} />
+            </button>
+          </div>
+
+          {/* Body */}
+          <div className="px-8 py-6 overflow-y-auto">
 
           {/* ── Empty-state template picker ── */}
           {agents.length === 0 && !showConnectTabs && (
@@ -672,7 +722,7 @@ export default function Authority() {
                 </div>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 3 }}>Create your agent</div>
-                  <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.5 }}>Name it, describe what it does, and list its tools — Arceo scores the risk in seconds.</div>
+                  <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.5 }}>Name it, describe what it does, and list its tools. Arceo scores the risk in seconds.</div>
                 </div>
                 <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', flexShrink: 0 }}>Get started</div>
               </button>
@@ -707,7 +757,7 @@ export default function Authority() {
                     onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.borderColor = 'var(--text-secondary)'; (e.currentTarget as HTMLButtonElement).style.boxShadow = '0 1px 6px rgba(0,0,0,0.06)' }}
                     onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.borderColor = 'var(--border)'; (e.currentTarget as HTMLButtonElement).style.boxShadow = 'none' }}
                   >
-                    <div style={{ width: 28, height: 28, borderRadius: 6, background: 'var(--bg)', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <div style={{ width: 28, height: 28, borderRadius: 6, background: 'var(--bg)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                       <Icon size={14} style={{ color: 'var(--text-muted)' }} />
                     </div>
                     <div>
@@ -751,7 +801,7 @@ export default function Authority() {
                 { id: 'gha',    label: 'GitHub Action', sub: 'Re-scan on every PR' },
               ]
               const postChildren: { id: ConnectTabId; label: string; sub: string }[] = [
-                { id: 'proxy', label: 'Route through Arceo', sub: 'Zero code change — set one env var' },
+                { id: 'proxy', label: 'Route through Arceo', sub: 'No code changes, just one env var' },
                 { id: 'mcp',   label: 'Connect via MCP',     sub: 'Auto-discover an MCP server' },
               ]
               const dropdownMenu = (
@@ -760,7 +810,7 @@ export default function Authority() {
               ) => (
                 <div style={{
                   position: 'absolute', top: 'calc(100% + 4px)', left: 0,
-                  background: '#fff', border: '1px solid var(--border)',
+                  background: '#fff',
                   borderRadius: 'var(--radius-lg)',
                   boxShadow: 'var(--shadow-md)',
                   minWidth: 240, zIndex: 50, padding: 4,
@@ -843,7 +893,7 @@ export default function Authority() {
           {connectTab === 'upload' && (
             <div className="space-y-4">
               <p style={{ fontSize: 13, color: 'var(--text-secondary)', background: 'var(--bg-sunken)', borderRadius: 8, padding: '10px 14px', margin: 0 }}>
-                Drop in a file or folder of agent code — Arceo extracts every action and scores the risk in ~30 seconds.
+                Drop in a file or folder of agent code. Arceo pulls out every action and scores the risk in about 30 seconds.
               </p>
               <form onSubmit={handleUploadSubmit} className="space-y-3">
                 <input
@@ -915,7 +965,7 @@ export default function Authority() {
                 {bundledFiles.length > 0 && (
                   <div className="bg-white border border-gray-200 rounded-lg p-3 space-y-1.5 max-h-60 overflow-auto">
                     <div className="text-[11px] font-semibold text-gray-700 mb-1.5">
-                      Bundled into one agent — {bundledFiles.length} files
+                      Bundled into one agent, {bundledFiles.length} files
                     </div>
                     {bundledFiles.map((b, i) => (
                       <div key={i} className="flex items-center gap-2 text-[11px]">
@@ -959,7 +1009,7 @@ export default function Authority() {
               <ol className="space-y-4 text-xs text-gray-700" style={{ marginTop: 16 }}>
                 <li className="flex gap-3">
                   <span className="flex-shrink-0 w-5 h-5 rounded-full bg-gray-900 text-white text-[11px] font-semibold flex items-center justify-center">1</span>
-                  <div><strong className="text-gray-900">Generate an API key.</strong>{' '}<a href="/settings" className="underline text-gray-900 hover:text-indigo-600">Settings → API &amp; Integration → API Keys</a>. Copy it once — you won't see it again.</div>
+                  <div><strong className="text-gray-900">Generate an API key.</strong>{' '}<a href="/settings" className="underline text-gray-900 hover:text-indigo-600">Settings → API &amp; Integration → API Keys</a>. Copy it once, because you won't see it again.</div>
                 </li>
                 <li className="flex gap-3">
                   <span className="flex-shrink-0 w-5 h-5 rounded-full bg-gray-900 text-white text-[11px] font-semibold flex items-center justify-center">2</span>
@@ -999,7 +1049,7 @@ export default function Authority() {
           {connectTab === 'github' && (
             <div className="space-y-4">
               <p style={{ fontSize: 13, color: 'var(--text-secondary)', background: 'var(--bg-sunken)', borderRadius: 8, padding: '10px 14px', margin: 0 }}>
-                Arceo scans the repo and registers every agent it finds — one scan, full fleet.
+                Arceo scans the repo and registers every agent it finds. One scan covers your whole fleet.
               </p>
               <form onSubmit={handleGithubScan} className="space-y-3">
                 <div>
@@ -1076,7 +1126,7 @@ export default function Authority() {
                   (main.py:523-532), so the old instructions produced a 401 on
                   every call in exactly the environment that matters. */}
               <p style={{ fontSize: 13, color: 'var(--text-secondary)', background: 'var(--bg-sunken)', borderRadius: 8, padding: '10px 14px', margin: 0 }}>
-                Point your SDK's base URL at Arceo and add two headers — no code changes beyond your client config, no SDK install. Every LLM call flows through us and appears in the dashboard. <span style={{ color: 'var(--text-primary)', fontWeight: 500 }}>~2 minutes to set up.</span>
+                Point your SDK's base URL at Arceo and add two headers. There are no code changes beyond your client config, and nothing to install. Every LLM call flows through us and appears in the dashboard. <span style={{ color: 'var(--text-primary)', fontWeight: 500 }}>~2 minutes to set up.</span>
               </p>
 
               <div>
@@ -1090,7 +1140,7 @@ export default function Authority() {
                     the first call." True only WITH a key: the auto-create branch
                     is gated on key_info and 404s without it (main.py:812-816),
                     in dev too. The key is the registration. */}
-                <p className="text-[11px] text-gray-500 mt-1">No need to create the agent first — your API key registers it automatically on its first call.</p>
+                <p className="text-[11px] text-gray-500 mt-1">No need to create the agent first. Your API key registers it automatically on its first call.</p>
               </div>
 
               <div className="bg-gray-900 text-gray-100 rounded-lg p-4 font-mono text-[12px] leading-relaxed overflow-x-auto">
@@ -1104,7 +1154,7 @@ export default function Authority() {
                     dev (main.py:523-532), and the auto-create branch needs it
                     too (:812-816) — without this header the whole flow 401s. */}
                 <div>X-API-Key: <span className="text-amber-300">"{'<your-arceo-api-key>'}"</span> <span className="text-gray-500">{'# Settings → API & Integration'}</span></div>
-                <div className="mt-3 text-gray-500"># That's it. No SDK install. Restart your service —</div>
+                <div className="mt-3 text-gray-500"># That's it. Nothing to install. Restart your service and</div>
                 <div className="text-gray-500"># every messages.create() and chat.completions.create() now flows</div>
                 <div className="text-gray-500"># through Arceo and appears in the dashboard.</div>
               </div>
@@ -1136,7 +1186,7 @@ export default function Authority() {
           {connectTab === 'mcp' && (
             <form onSubmit={handleMcpConnect} className="space-y-4">
               <p style={{ fontSize: 13, color: 'var(--text-secondary)', background: 'var(--bg-sunken)', borderRadius: 8, padding: '10px 14px', margin: 0 }}>
-                Point Arceo at your <Tooltip content={MCP_GLOSSARY}><span className="cursor-help underline decoration-dotted underline-offset-2">MCP</span></Tooltip> server — we call <code style={{ fontSize: 11, background: 'rgba(0,0,0,0.06)', padding: '1px 4px', borderRadius: 3 }}>tools/list</code> and import every tool your agent exposes automatically. <span style={{ color: 'var(--text-primary)', fontWeight: 500 }}>~1 minute to set up.</span>
+                Point Arceo at your <Tooltip content={MCP_GLOSSARY}><span className="cursor-help underline decoration-dotted underline-offset-2">MCP</span></Tooltip> server and we call <code style={{ fontSize: 11, background: 'rgba(0,0,0,0.06)', padding: '1px 4px', borderRadius: 3 }}>tools/list</code> and import every tool your agent exposes automatically. <span style={{ color: 'var(--text-primary)', fontWeight: 500 }}>~1 minute to set up.</span>
               </p>
               <div className="grid grid-cols-2 gap-3">
                 <div>
@@ -1175,9 +1225,21 @@ export default function Authority() {
             </form>
           )}
           </>)}
-        </motion.div>
+          </div>
+
+          {/* Footer band */}
+          <div className="px-8 py-5 border-t border-neutral-border bg-neutral-sunken flex items-center justify-end gap-3 rounded-b-lg shrink-0">
+            <button
+              type="button"
+              onClick={closeConnect}
+              className="btn btn--secondary"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+        </div>
       )}
-      </AnimatePresence>
 
       {agentTab === 'overview' && (() => {
         const sumSpend = Object.values(spendForecasts).reduce<number | null>((acc, f) => {
@@ -1260,7 +1322,6 @@ export default function Authority() {
             style={{
               textAlign: 'left', width: '100%', font: 'inherit',
               background: 'var(--card)',
-              border: '1px solid var(--line)',
               borderRadius: 'var(--radius-lg)',
               padding: '18px 20px',
               boxShadow: 'var(--shadow-card-new)',
@@ -1290,7 +1351,7 @@ export default function Authority() {
                 note: `${pluralize(totalAgents, 'agent')} governed`,
                 onClick: () => setAgentTab('agents'),
               })}
-              {tile('Forecast spend / mo', sumSpend !== null ? formatMoney(sumSpend) : '—', {
+              {tile('Forecast spend / mo', sumSpend !== null ? formatMoney(sumSpend) : 'No data', {
                 valueColor: 'var(--accent)',
                 note: sumSpend === null ? 'Awaiting forecasts' : `Across ${pluralize(forecastRows.length, 'agent')}`,
                 onClick: () => navigate('/spend'),
@@ -1313,7 +1374,6 @@ export default function Authority() {
               <div
                 style={{
                   background: 'var(--card)',
-                  border: '1px solid var(--line)',
                   borderRadius: 12,
                   padding: '18px 20px',
                   boxShadow: 'var(--shadow-card-new)',
@@ -1370,7 +1430,6 @@ export default function Authority() {
               <div
                 style={{
                   background: 'var(--card)',
-                  border: '1px solid var(--line)',
                   borderRadius: 12,
                   padding: '18px 20px',
                   boxShadow: 'var(--shadow-card-new)',
@@ -1438,7 +1497,6 @@ export default function Authority() {
               <div
                 style={{
                   background: 'var(--card)',
-                  border: '1px solid var(--line)',
                   borderRadius: 12,
                   padding: '4px 20px',
                   boxShadow: 'var(--shadow-card-new)',
@@ -1509,17 +1567,38 @@ export default function Authority() {
 
       {agentTab === 'agents' && (
       <section>
-        {agents.length > 0 && (
-          <FleetStrip
-            total={agents.length}
-            spend={Object.values(spendForecasts).reduce<number | null>((acc, f) => {
-              if (f === null) return acc
-              return (acc ?? 0) + f.point
-            }, null)}
-            criticalChains={chains.filter((c) => c.severity === 'critical').length}
-            unguarded={agents.filter((a) => a.policy_count === 0).length}
-          />
-        )}
+        {agents.length > 0 && (() => {
+          // Sum the forecast twice more, split on observed deployment state, so
+          // the tile can separate spend the CFO is already paying from spend
+          // that only lands once these agents ship. Deployment state comes from
+          // the server; when it is absent the split is dropped, not guessed.
+          const sumFor = (pred: (a: AgentListItem) => boolean) =>
+            agents.reduce<number | null>((acc, a) => {
+              if (!pred(a)) return acc
+              const f = spendForecasts[a.id]
+              return f == null ? acc : (acc ?? 0) + f.point
+            }, null)
+          const isDeployed = (a: AgentListItem) => a.deployment_state === 'deployed'
+          const graded = agents.some((a) => a.deployment_state)
+          const deployed = graded ? sumFor(isDeployed) ?? 0 : null
+          const pending = graded ? sumFor((a) => !isDeployed(a)) ?? 0 : null
+
+          return (
+            <FleetStrip
+              total={agents.length}
+              spend={Object.values(spendForecasts).reduce<number | null>((acc, f) => {
+                if (f === null) return acc
+                return (acc ?? 0) + f.point
+              }, null)}
+              criticalChains={chains.filter((c) => c.severity === 'critical').length}
+              unguarded={agents.filter((a) => a.policy_count === 0).length}
+              spendDeployed={deployed}
+              spendPreDeployment={pending}
+              deployedCount={graded ? agents.filter(isDeployed).length : undefined}
+              preDeploymentCount={graded ? agents.filter((a) => !isDeployed(a)).length : undefined}
+            />
+          )
+        })()}
         <div className="flex items-center justify-between mb-5">
           <h2 style={{ fontSize: 16, fontWeight: 600, color: 'var(--ink-900)', letterSpacing: -0.2, margin: 0, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             Agent risk scores
@@ -1550,9 +1629,9 @@ export default function Authority() {
             </div>
             <div className="view-toggle" role="group" aria-label="Agent catalog layout">
               {([
-                { v: 'rail' as const, icon: GalleryHorizontal, label: 'Rail — scroll sideways' },
-                { v: 'vscroll' as const, icon: GalleryVertical, label: 'Stack — scroll up/down inside the box' },
-                { v: 'grid' as const, icon: LayoutGrid, label: 'Grid — show all' },
+                { v: 'rail' as const, icon: GalleryHorizontal, label: 'Rail, scroll sideways' },
+                { v: 'vscroll' as const, icon: GalleryVertical, label: 'Stack, scroll up and down inside the box' },
+                { v: 'grid' as const, icon: LayoutGrid, label: 'Grid, show everything' },
               ]).map(({ v, icon: Icon, label }) => (
                 <button
                   key={v}
@@ -1589,9 +1668,10 @@ export default function Authority() {
             <span className="text-xs">Try a different name or tool</span>
           </div>
           )
-        ) : (
-          <div className={`agent-rail${agentView === 'vscroll' ? ' agent-rail--v' : agentView === 'grid' ? ' agent-rail--grid' : ''}`}>
-            {filteredAgents.map((a) => {
+        ) : (() => {
+          const railClass = `agent-rail${agentView === 'vscroll' ? ' agent-rail--v' : agentView === 'grid' ? ' agent-rail--grid' : ''}`
+
+          const renderCard = (a: AgentListItem) => {
               const br = a.blast_radius
               const data: AgentCardData = {
                 id: a.id,
@@ -1616,6 +1696,10 @@ export default function Authority() {
                 critical: a.critical_chains,
                 policies: a.policy_count,
                 policiesByEffect: a.policies_by_effect,
+                lastActive: a.last_execution_at ?? undefined,
+                deploymentState: a.deployment_state,
+                deploymentMismatch: a.deployment_mismatch ?? null,
+                liveCalls7d: a.live_calls_7d,
               }
               return (
                 <div key={a.id} className="agent-rail-item">
@@ -1629,9 +1713,66 @@ export default function Authority() {
                   />
                 </div>
               )
-            })}
-          </div>
-        )}
+          }
+
+          // Older backends don't send deployment_state; render one flat list
+          // rather than inventing a section every agent falls into.
+          const graded = filteredAgents.some((a) => a.deployment_state)
+          if (!graded) {
+            return <div className={railClass}>{filteredAgents.map(renderCard)}</div>
+          }
+
+          const sections = [
+            {
+              key: 'deployed',
+              title: 'In production',
+              note: 'Ran, or captured traffic in the last 7 days',
+              items: filteredAgents.filter((a) => a.deployment_state === 'deployed'),
+            },
+            {
+              key: 'pre_deployment',
+              title: 'Pre-deployment',
+              note: 'Nothing has run and no calls captured, so this is forecast only',
+              items: filteredAgents.filter((a) => a.deployment_state !== 'deployed'),
+            },
+          ].filter((sec) => sec.items.length > 0)
+
+          return (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 28 }}>
+              {sections.map((sec) => (
+                <div key={sec.key}>
+                  {/* The section header carries the state, so the card's own
+                      slot carries the evidence for it rather than repeating
+                      the word. */}
+                  <div
+                    style={{
+                      display: 'flex', alignItems: 'baseline', gap: 10,
+                      paddingBottom: 8, marginBottom: 14,
+                      borderBottom: '1px solid var(--line)',
+                    }}
+                  >
+                    <span style={{
+                      fontSize: 'var(--fs-micro)', fontWeight: 700, letterSpacing: 0.6,
+                      textTransform: 'uppercase', color: 'var(--ink-600)',
+                    }}>
+                      {sec.title}
+                    </span>
+                    <span className="mono" style={{ fontSize: 'var(--fs-micro)', color: 'var(--ink-400)' }}>
+                      {sec.items.length}
+                    </span>
+                    <span style={{
+                      fontSize: 'var(--fs-small)', color: 'var(--ink-400)',
+                      marginLeft: 'auto', textAlign: 'right',
+                    }}>
+                      {sec.note}
+                    </span>
+                  </div>
+                  <div className={railClass}>{sec.items.map(renderCard)}</div>
+                </div>
+              ))}
+            </div>
+          )
+        })()}
       </section>
 
       )}
@@ -1715,17 +1856,17 @@ export default function Authority() {
           </div>
 
           {visible.length === 0 ? (
-            <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: '40px 24px', textAlign: 'center', boxShadow: 'var(--shadow-card-new)' }}>
+            <div style={{ background: 'var(--card)', borderRadius: 14, padding: '40px 24px', textAlign: 'center', boxShadow: 'var(--shadow-card-new)' }}>
               <div style={{ fontSize: 15, fontWeight: 500, color: 'var(--ink-600)' }}>No risk chains match this filter.</div>
               <div style={{ fontSize: 13.5, color: 'var(--ink-400)', marginTop: 6 }}>
                 {allChains.length === 0 ? 'Run a simulation to surface dangerous capability sequences.' : 'Switch to All to see every chain across the fleet.'}
               </div>
             </div>
           ) : (
-            <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, boxShadow: 'var(--shadow-card-new)', overflow: 'hidden' }}>
+            <div style={{ background: 'var(--card)', borderRadius: 14, boxShadow: 'var(--shadow-card-new)', overflow: 'hidden' }}>
               {visible.map((c, i) => {
                 const sev = sevKey(c.severity)
-                const sevColor = sev === 'critical' ? 'var(--critical)' : 'var(--caution)'
+                const sevColor = sev === 'critical' ? 'var(--critical)' : 'var(--on-caution)'
                 const sevBg    = sev === 'critical' ? 'var(--critical-bg)' : 'var(--caution-bg)'
                 return (
                   <div

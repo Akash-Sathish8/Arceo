@@ -34,7 +34,7 @@ export default class ErrorBoundary extends Component<Props, State> {
         <div style={{ minHeight: '70vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
           <div
             style={{
-              background: 'var(--card)', border: '1px solid var(--line)',
+              background: 'var(--card)',
               borderRadius: 'var(--radius-lg)', boxShadow: 'var(--shadow-sm)',
               padding: 32, maxWidth: 440, width: '100%', textAlign: 'center',
             }}
@@ -43,7 +43,7 @@ export default class ErrorBoundary extends Component<Props, State> {
               Something went wrong on this page
             </h2>
             <p style={{ fontSize: 'var(--fs-small)', color: 'var(--ink-500)', marginBottom: 20, lineHeight: 1.5 }}>
-              The rest of Arceo is fine — you can retry or head back to your agents.
+              The rest of Arceo is fine. You can retry, or head back to your agents.
             </p>
             <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
               <button

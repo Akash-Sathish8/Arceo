@@ -437,7 +437,7 @@ def run_simulation(
             # log behind a reference.
             ref = log_and_ref(logger, f"simulation LLM call ({model})", e)
             trace.status = "error"
-            trace.error = f"LLM API error ({model}) — ref: {ref}"
+            trace.error = f"LLM API error ({model}), ref: {ref}"
             trace.completed_at = datetime.utcnow().isoformat()
             return trace
 
@@ -484,7 +484,7 @@ def run_simulation(
                 tool_results.append({
                     "type": "tool_result",
                     "tool_use_id": tc["id"],
-                    "content": '{"error": "Duplicate call skipped — this exact action was already called this turn"}',
+                    "content": '{"error": "Duplicate call skipped. This exact action was already called this turn."}',
                 })
                 continue
             seen_calls.add(call_sig)

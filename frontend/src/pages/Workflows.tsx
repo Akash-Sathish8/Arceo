@@ -258,7 +258,7 @@ function OptimizeResult({ result, onApply, applying, appliedCount }: OptimizeRes
         }}
       >
         <span style={{ fontSize: 13, fontWeight: 600, color: "var(--text-primary)" }}>
-          Permission check — what these agents need vs. what they have
+          Permission check: what these agents need versus what they have
         </span>
         <span style={{ fontSize: 13, fontWeight: 600, color: verdictColor }}>{verdict}</span>
       </div>
@@ -370,7 +370,7 @@ function OptimizeResult({ result, onApply, applying, appliedCount }: OptimizeRes
                   marginBottom: 4,
                 }}
               >
-                Not needed for this workflow — block them
+                Not needed for this workflow, so block them
               </div>
               {agent.overprivileged.map((item, i) => (
                 <div
@@ -427,7 +427,7 @@ function OptimizeResult({ result, onApply, applying, appliedCount }: OptimizeRes
                   marginBottom: 4,
                 }}
               >
-                Missing — the workflow needs these to run
+                Missing. The workflow needs these to run.
               </div>
               {agent.permission_gaps.map((item, i) => (
                 <div
@@ -471,7 +471,7 @@ function OptimizeResult({ result, onApply, applying, appliedCount }: OptimizeRes
                   marginBottom: 4,
                 }}
               >
-                Risky handoffs — add a human sign-off step
+                Risky handoffs, so add a human sign-off step
               </div>
               {agent.approval_gates_needed.map((chain, i) => (
                 <div
@@ -495,7 +495,7 @@ function OptimizeResult({ result, onApply, applying, appliedCount }: OptimizeRes
                       {chainShortLabel(chain.chain_id ?? chain.chain_name)}
                     </span>
                     <span style={{ fontSize: 12, color: "var(--ink-500)", marginLeft: 8 }}>
-                      {agent.agent_name} → {chain.to_agent} — a person approves before this handoff runs
+                      {agent.agent_name} → {chain.to_agent}, with a person approving before this handoff runs
                     </span>
                   </div>
                   <span
@@ -530,7 +530,7 @@ function OptimizeResult({ result, onApply, applying, appliedCount }: OptimizeRes
                 }}
               >
                 <CheckCircle size={13} />
-                Well-scoped for this workflow — no changes needed
+                Well scoped for this workflow, no changes needed
               </div>
             )}
         </div>
@@ -554,21 +554,7 @@ function OptimizeResult({ result, onApply, applying, appliedCount }: OptimizeRes
               {appliedCount} polic{appliedCount !== 1 ? "ies" : "y"} applied
             </div>
           ) : (
-            <button
-              onClick={onApply}
-              disabled={applying}
-              style={{
-                background: "var(--color-cta)",
-                color: "var(--text-inverse)",
-                padding: "8px 20px",
-                borderRadius: "var(--radius-full)",
-                fontSize: 13,
-                fontWeight: 600,
-                border: "none",
-                cursor: applying ? "not-allowed" : "pointer",
-                opacity: applying ? 0.5 : 1,
-              }}
-            >
+            <button className="btn btn--primary" onClick={onApply} disabled={applying} >
               {applying
                 ? "Applying..."
                 : `Apply All Recommendations (${total_overprivileged + totalApprovalGates} policies)`}
@@ -620,7 +606,7 @@ function WorkflowResult({ result, agentNames, agentColors, mode }: WorkflowResul
               : { background: "var(--bg-sunken)", color: "var(--ink-500)" }),
           }}
         >
-          {mode === "llm" ? "Driven by Claude" : "Capability sweep — no LLM"}
+          {mode === "llm" ? "Driven by Claude" : "Capability sweep, no LLM"}
         </span>
       </div>
 
@@ -1095,7 +1081,7 @@ export default function Workflows() {
         // Scope the gate to the specific actions that begin the chain — a bare
         // "*" pattern is never matched by the enforcer, so the old gate was inert.
         for (const pattern of gate.action_patterns || []) {
-          await createPolicy(agentId, pattern, "REQUIRE_APPROVAL", `Auto-generated: Cross-agent chain gate — ${gate.chain_name}`);
+          await createPolicy(agentId, pattern, "REQUIRE_APPROVAL", `Auto-generated: cross-agent chain gate for ${gate.chain_name}`);
         }
       }
     }
@@ -1140,7 +1126,7 @@ export default function Workflows() {
           const data = await simulate(true);
           setRunMode("dry");
           setResult(data);
-          toast("LLM run unavailable — ran the capability sweep instead.", "error");
+          toast("The LLM run wasn't available, so we ran the capability sweep instead.", "error");
         } catch (err2: unknown) {
           toast("Simulation failed: " + (err2 instanceof Error ? err2.message : "Unknown error"), "error");
         }
@@ -1228,7 +1214,7 @@ export default function Workflows() {
           </h2>
           <p style={{ fontSize: 13, color: "var(--ink-500)", maxWidth: 380, marginBottom: 24, lineHeight: 1.55 }}>
             This page needs at least 2 agents. Once you have a team, Arceo shows you where one
-            agent's work lets another cause harm — before anything runs for real.
+            agent's work lets another cause harm, before anything runs for real.
           </p>
           <Link
             to="/?connect=true"
@@ -1261,7 +1247,7 @@ export default function Workflows() {
         <button
           type="button"
           onClick={() => { setStaticChains(null); setOptimizeResult(null); setResult(null); clearTeam(); }}
-          className="bg-primary text-on-primary font-monospace-label text-monospace-label px-4 py-2.5 rounded hover:opacity-90 transition-opacity flex items-center gap-2 self-start sm:self-auto border-0 cursor-pointer"
+          className="btn btn--primary self-start sm:self-auto"
         >
           <Plus size={18} strokeWidth={2.2} />
           Create workflow
@@ -1318,7 +1304,7 @@ export default function Workflows() {
                       </td>
                       <td className="py-3 px-3">
                         <span className="font-monospace-data text-monospace-data text-neutral-secondary whitespace-nowrap">
-                          {(a.tools ?? []).filter(Boolean).join(", ") || "—"}
+                          {(a.tools ?? []).filter(Boolean).join(", ") || "None"}
                         </span>
                       </td>
                       {/* These flows run when someone asks for them — there is no
@@ -1387,7 +1373,7 @@ export default function Workflows() {
                 {lead ? lead.name : "No workflow selected"}
               </h2>
               <p className="font-monospace-data text-monospace-data text-neutral-secondary m-0">
-                Target: {lead ? lead.name : "—"}
+                Target: {lead ? lead.name : "Not set"}
                 {allAgentIds.length > 1 ? ` +${allAgentIds.length - 1}` : ""}
               </p>
             </div>
@@ -1398,7 +1384,7 @@ export default function Workflows() {
                   <Clock size={16} /> Trigger
                 </h3>
                 <div className="bg-surface-container-low border border-neutral-border rounded p-3 text-body font-body text-on-surface">
-                  On demand — run from this page
+                  On demand, run from this page
                 </div>
               </div>
 
@@ -1467,7 +1453,7 @@ export default function Workflows() {
                     return (
                       <div
                         key={id}
-                        title={`${a?.name ?? id} — ${score}`}
+                        title={`${a?.name ?? id}: ${score}`}
                         className="w-full rounded-t transition-colors"
                         style={{ height: `${Math.max(score, 4)}%`, background: scoreToColor(score), opacity: 0.55 }}
                       />
@@ -1547,10 +1533,10 @@ export default function Workflows() {
                     <div>
                       <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text-primary)" }}>
                         {blastLabel(combined)} when these agents act together
-                        {combined > max ? " — each is safer on its own" : ""}
+                        {combined > max ? ", and each is safer on its own" : ""}
                       </div>
                       <div style={{ fontSize: 12, color: "var(--ink-400)" }}>
-                        Based on what they can do — before anything runs
+                        Based on what they can do, before anything runs
                       </div>
                     </div>
                   </div>
@@ -1607,7 +1593,7 @@ export default function Workflows() {
                         </span>
                         <span style={{ fontSize: 12.5, color: "var(--text-primary)", lineHeight: 1.5 }}>
                           <strong>{c.from_agent}</strong> {LABEL_PHRASE[c.from_label] || c.from_label}{" "}
-                          → <strong>{c.to_agent}</strong> {LABEL_PHRASE[c.to_label] || c.to_label} —
+                          → <strong>{c.to_agent}</strong> {LABEL_PHRASE[c.to_label] || c.to_label}
                           with no approval in between.
                         </span>
                       </div>
@@ -1642,8 +1628,8 @@ export default function Workflows() {
                       </div>
                       <div style={{ fontSize: 12, color: "var(--ink-500)" }}>
                         {llmAvailable
-                          ? "Claude runs it against simulated tools — nothing real happens, and your policies are enforced on every step."
-                          : "Runs against simulated tools — nothing real happens, and you see every step."}
+                          ? "Claude runs it against simulated tools. Nothing real happens, and your policies are enforced on every step."
+                          : "Runs against simulated tools. Nothing real happens, and you see every step."}
                       </div>
                     </div>
                     <textarea
@@ -1659,25 +1645,7 @@ export default function Workflows() {
                         (e.target as HTMLTextAreaElement).style.borderColor = "transparent";
                       }}
                     />
-                    <button
-                      onClick={handleSimulate}
-                      disabled={running || !customPrompt.trim()}
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 8,
-                        background: "var(--color-cta)",
-                        color: "var(--text-inverse)",
-                        padding: "8px 20px",
-                        borderRadius: "var(--radius-full)",
-                        fontSize: 13,
-                        fontWeight: 600,
-                        border: "none",
-                        cursor: running || !customPrompt.trim() ? "not-allowed" : "pointer",
-                        opacity: running || !customPrompt.trim() ? 0.5 : 1,
-                        width: "fit-content",
-                      }}
-                    >
+                    <button className="btn btn--primary" onClick={handleSimulate} disabled={running || !customPrompt.trim()} >
                       <span>
                         {running
                           ? llmAvailable
@@ -1725,7 +1693,7 @@ export default function Workflows() {
                   Trim extra permissions
                 </div>
                 <div style={{ fontSize: 12, color: "var(--ink-500)" }}>
-                  Describe what the workflow should do — Arceo flags permissions your agents
+                  Describe what the workflow should do and Arceo flags permissions your agents
                   don't need, plus any missing.
                 </div>
               </div>
@@ -1733,7 +1701,7 @@ export default function Workflows() {
                 style={textareaStyle}
                 value={workflowDesc}
                 onChange={(e) => setWorkflowDesc(e.target.value)}
-                placeholder={`Example: "Handle customer refund requests — look up order, check eligibility, issue refund if under $500, escalate otherwise."`}
+                placeholder={`Example: "Handle customer refund requests. Look up the order, check eligibility, issue a refund if it is under $500, and escalate otherwise."`}
                 rows={2}
                 onFocus={(e) => {
                   (e.target as HTMLTextAreaElement).style.borderColor = "var(--border-focus)";
@@ -1742,25 +1710,7 @@ export default function Workflows() {
                   (e.target as HTMLTextAreaElement).style.borderColor = "transparent";
                 }}
               />
-              <button
-                onClick={handleOptimize}
-                disabled={optimizing || !workflowDesc.trim()}
-                style={{
-                  width: "fit-content",
-                  display: "flex",
-                  alignItems: "center",
-                  background: "var(--color-cta)",
-                  color: "var(--text-inverse)",
-                  padding: "9px 22px",
-                  borderRadius: "var(--radius-full)",
-                  fontSize: 13,
-                  fontWeight: 600,
-                  border: "none",
-                  whiteSpace: "nowrap",
-                  cursor: optimizing || !workflowDesc.trim() ? "not-allowed" : "pointer",
-                  opacity: optimizing || !workflowDesc.trim() ? 0.5 : 1,
-                }}
-              >
+              <button className="btn btn--primary" onClick={handleOptimize} disabled={optimizing || !workflowDesc.trim()} >
                 {optimizing ? "Checking permissions…" : "Check the permissions"}
               </button>
             </div>
@@ -1892,7 +1842,7 @@ export default function Workflows() {
                   margin: "0 auto 24px",
                 }}
               >
-                Pick agents on the left to map the handoffs between them — for example:
+                Pick agents on the left to map the handoffs between them. For example:
               </p>
               <div
                 style={{

@@ -24,7 +24,9 @@ describe("confidence copy states the real gate (50 calls / 3+ days), never a 7-d
   test("high tier names the real criterion", () => {
     const line = build(fixture("high")).confidenceLine
     expect(line).toMatch(/50/)
-    expect(line).toMatch(/3\+? (distinct )?days/)
+    // "3+ distinct days" or "3 or more distinct days" both state the gate;
+    // the assertion is that a day-count gate is named at all, not its phrasing.
+    expect(line).toMatch(/3(\+| or more)? (distinct )?days/)
     expect(line).not.toMatch(/seven|7 days/i)
   })
 

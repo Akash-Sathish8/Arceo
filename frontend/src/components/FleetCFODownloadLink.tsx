@@ -12,11 +12,11 @@ export default function FleetCFODownloadLink({ data, fileName }: { data: FleetRe
     <PDFDownloadLink
       document={<FleetCFOReport data={data} />}
       fileName={fileName}
-      className="text-sm px-4 py-2 rounded-lg bg-gray-900 text-white font-medium inline-flex items-center gap-2 no-underline"
+      className="btn btn--secondary"
     >
       {({ loading: building, error }) =>
         error
-          ? (<><FileText size={14} /> Export failed — retry</>)
+          ? (<><FileText size={14} /> Export failed, retry</>)
           : building
           ? (<><FileText size={14} /> Building PDF…</>)
           : (<><FileText size={14} /> CFO report (PDF)</>)

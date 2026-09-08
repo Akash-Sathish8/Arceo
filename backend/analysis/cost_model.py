@@ -339,7 +339,7 @@ def generate_cost_report(
             mitigation.get("reversible_rationale",
                            "Reversible actions are priced at 30% of an irreversible incident.").strip()
             + f" (×{reversible_mult:g}, adjustable). Data exposures and external "
-            "sends are never discounted — they can't be un-leaked."
+            "sends are never discounted, because they can't be un-leaked."
         )
     if any(i.has_policy for i in report.items):
         report.assumptions.append(
@@ -349,7 +349,7 @@ def generate_cost_report(
         )
     if report.items:
         report.assumptions.append(
-            "Annual exposure assumes one worst-case incident per year — it does not "
+            "Annual exposure assumes one worst-case incident per year. It does not "
             "multiply by run volume, which would overstate risk."
         )
 

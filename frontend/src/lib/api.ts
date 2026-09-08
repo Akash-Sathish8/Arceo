@@ -101,14 +101,14 @@ export async function apiFetch<T>(
     if (err instanceof DOMException && err.name === "TimeoutError") {
       throw new Error("The server took too long to respond. Please try again.");
     }
-    throw new Error(err instanceof Error ? err.message : "Network error — check your connection.");
+    throw new Error(err instanceof Error ? err.message : "We couldn't reach Arceo. Check your connection and try again.");
   }
 
   if (res.status === 401) {
     if (!skipLogoutOn401) {
       logout();
     }
-    throw new Error("Session expired — please log in again");
+    throw new Error("Your session expired. Please log in again.");
   }
 
   if (!res.ok) {

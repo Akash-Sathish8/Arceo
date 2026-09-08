@@ -68,7 +68,7 @@ SAMPLE_CONFIGS = [
             {
                 "name": "salesforce",
                 "service": "Salesforce",
-                "description": "CRM — customer records and case management",
+                "description": "CRM for customer records and case management",
                 "actions": [
                     "get_contact", "get_case", "update_case",
                 ],
@@ -546,7 +546,7 @@ SAMPLE_CONFIGS = [
             {
                 "name": "stripe",
                 "service": "Stripe",
-                "description": "Revenue data — charges, subscriptions, and reports",
+                "description": "Revenue data: charges, subscriptions, and reports",
                 "actions": [
                     "get_balance", "list_charges", "list_subscriptions", "get_revenue_report",
                 ],

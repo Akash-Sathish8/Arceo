@@ -79,11 +79,12 @@ export function ExportCFOReportButton({
 
   const fileName = `${slugForFile(displayName)}-cfo-report-${todayIso()}.pdf`
 
-  const defaultClass = "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium border-0 cursor-pointer transition-colors text-white hover:opacity-90 no-underline"
-  const defaultStyle: React.CSSProperties = { background: "var(--text-primary, #0f172a)", textDecoration: "none" }
+  // Same shape and voice as every other action in the product (.btn in
+  // index.css); callers may still pass their own className to override.
+  const defaultClass = "btn btn--secondary"
   const resolvedClass = className ?? defaultClass
-  const resolvedStyle: React.CSSProperties = className ? (style ?? {}) : { ...defaultStyle, ...(style ?? {}) }
-  const resolvedLabel = label ?? (<><FileDown size={13} /> Export CFO report</>)
+  const resolvedStyle: React.CSSProperties = style ?? {}
+  const resolvedLabel = label ?? (<><FileDown size={15} /> Export CFO report</>)
 
   const preparing = (
     <button type="button" disabled className={resolvedClass} style={{ ...resolvedStyle, opacity: 0.6, cursor: "wait" }}>

@@ -108,8 +108,8 @@ export default function Sidebar(): React.ReactElement {
       "flex items-center rounded-lg text-body transition-colors no-underline",
       collapsed ? "justify-center px-0 py-2.5" : "px-4 py-2.5",
       isActive
-        ? "bg-primary-container text-on-primary-container font-semibold"
-        : "text-on-surface-variant font-normal hover:bg-surface-container-high hover:text-on-surface",
+        ? "bg-rail-active text-on-rail-active font-semibold"
+        : "text-rail-secondary font-normal hover:bg-rail-hover hover:text-rail-primary",
     ].join(" ");
 
   const toggleBtn = (
@@ -118,7 +118,7 @@ export default function Sidebar(): React.ReactElement {
       onClick={toggle}
       aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
       title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-      className="flex items-center justify-center p-1.5 rounded-lg bg-transparent border-0 cursor-pointer text-neutral-muted hover:text-on-surface hover:bg-surface-container-high transition-colors"
+      className="flex items-center justify-center p-1.5 rounded-lg bg-transparent border-0 cursor-pointer text-rail-muted hover:text-rail-primary hover:bg-rail-hover transition-colors"
     >
       {collapsed ? <PanelLeftOpen size={17} strokeWidth={1.8} /> : <PanelLeftClose size={17} strokeWidth={1.8} />}
     </button>
@@ -126,7 +126,7 @@ export default function Sidebar(): React.ReactElement {
 
   return (
     <aside
-      className="shrink-0 h-screen flex flex-col bg-neutral-sunken border-r border-neutral-border font-body transition-[width] duration-200"
+      className="shrink-0 h-screen flex flex-col bg-neutral-sunken font-body transition-[width] duration-200"
       style={{ width: collapsed ? 72 : 240 }}
     >
       {/* Brand */}
@@ -149,7 +149,7 @@ export default function Sidebar(): React.ReactElement {
         {groups.map((g, gi) => (
           <div key={gi}>
             {g.name && !collapsed && (
-              <div className="pt-4 pb-2 px-4 font-eyebrow text-eyebrow text-neutral-secondary uppercase">
+              <div className="pt-4 pb-2 px-4 font-eyebrow text-eyebrow text-rail-secondary uppercase">
                 {g.name}
               </div>
             )}
@@ -204,8 +204,8 @@ export default function Sidebar(): React.ReactElement {
           </div>
           {!collapsed && (
             <div className="flex flex-col min-w-0 flex-1">
-              <span className="text-body font-semibold truncate text-on-surface">{user?.email ?? ""}</span>
-              <span className="text-meta text-neutral-secondary truncate">{orgName}</span>
+              <span className="text-body font-semibold truncate text-rail-primary">{user?.email ?? ""}</span>
+              <span className="text-meta text-rail-secondary truncate">{orgName}</span>
             </div>
           )}
           <button
@@ -213,7 +213,7 @@ export default function Sidebar(): React.ReactElement {
             onClick={logout}
             aria-label="Sign out"
             title="Sign out"
-            className="flex items-center p-1 bg-transparent border-0 cursor-pointer text-neutral-muted hover:text-on-surface transition-colors"
+            className="flex items-center p-1 bg-transparent border-0 cursor-pointer text-rail-muted hover:text-rail-primary transition-colors"
           >
             <LogOut size={14} />
           </button>
