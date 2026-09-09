@@ -18,7 +18,7 @@ const PLANS = [
       "Full action inventory",
       "Blast radius score",
       "Up to 5 chain rules checked",
-      "Read-only — never touches your data",
+      "Read-only: never touches your data",
     ],
     highlight: false,
   },
@@ -187,7 +187,7 @@ export default function PricingPage() {
 
             {/* Footer note */}
             <p style={{ textAlign: "center", fontSize: 13, color: "#9ca3af", marginTop: 40 }}>
-              All plans are read-only — Arceo sees what your agents can do, never your customer data. Questions?{" "}
+              All plans are read-only. Arceo sees what your agents can do, never your customer data. Questions?{" "}
               <Link href="/book-demo" style={{ color: "#374151", fontWeight: 600 }}>Talk to us →</Link>
             </p>
           </div>

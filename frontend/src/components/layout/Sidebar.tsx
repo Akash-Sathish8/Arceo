@@ -30,7 +30,7 @@ import {
   PanelLeftOpen,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import LogoMark from "@/components/shared/LogoMark";
+import LogoMark, { ArceoWordmark } from "@/components/shared/LogoMark";
 import { apiFetch, isLoggedIn, getUser, logout } from "@/lib/api";
 import { deriveOrgName } from "@/lib/orgName";
 import { useSidebarStore } from "@/store/sidebar";
@@ -134,9 +134,7 @@ export default function Sidebar(): React.ReactElement {
         <LogoMark size={30} />
         {!collapsed && (
           <>
-            <span className="font-display text-[18px] tracking-tight text-primary leading-none">
-              ARCEO
-            </span>
+            <ArceoWordmark height={13} />
             <div className="flex-1" />
             {toggleBtn}
           </>

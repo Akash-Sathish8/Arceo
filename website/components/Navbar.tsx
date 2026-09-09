@@ -5,7 +5,12 @@ import Link from "next/link";
 import { motion, useScroll } from "motion/react";
 import Logo from "./Logo";
 
-const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:5173";
+/* Where "Sign In" points. In dev it falls back to the local Vite app; on a
+   production build with no NEXT_PUBLIC_APP_URL configured the link is hidden
+   entirely — a public site must never ship a localhost link. */
+const APP_URL =
+  process.env.NEXT_PUBLIC_APP_URL ??
+  (process.env.NODE_ENV === "development" ? "http://localhost:5173" : null);
 const BOOK_DEMO_HREF = "/book-demo";
 
 export default function Navbar() {
@@ -78,7 +83,9 @@ export default function Navbar() {
 
         {/* Right actions */}
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }} className="desktop-actions">
-          <a href={`${APP_URL}/login`} className="nav-link">Sign In</a>
+          {APP_URL && (
+            <a href={`${APP_URL}/login`} className="nav-link">Sign In</a>
+          )}
           <Link href={BOOK_DEMO_HREF} className="nav-cta">
             Book a demo
           </Link>
@@ -111,10 +118,12 @@ export default function Navbar() {
             style={{ fontSize: 15, fontWeight: 500, color: "var(--ink)", padding: "10px 4px" }}>
             Security
           </Link>
-          <a href={`${APP_URL}/login`}
-            style={{ fontSize: 15, fontWeight: 500, color: "var(--ink)", padding: "10px 4px" }}>
-            Sign In
-          </a>
+          {APP_URL && (
+            <a href={`${APP_URL}/login`}
+              style={{ fontSize: 15, fontWeight: 500, color: "var(--ink)", padding: "10px 4px" }}>
+              Sign In
+            </a>
+          )}
           <div style={{ height: 1, background: "var(--rule)", margin: "8px 0" }} />
           <Link href={BOOK_DEMO_HREF} className="nav-cta" style={{ justifyContent: "center", marginTop: 4 }}>
             Book a demo

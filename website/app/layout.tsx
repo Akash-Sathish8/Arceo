@@ -1,13 +1,13 @@
 import type { Metadata } from "next";
-import { Poppins, Schibsted_Grotesk, JetBrains_Mono } from "next/font/google";
+import { Poppins, Schibsted_Grotesk } from "next/font/google";
 import "./globals.css";
 import { SITE_URL, SITE_NAME, SITE_TAGLINE, SITE_DESCRIPTION } from "@/lib/site";
 
-/* Poppins stays: /security and /book-demo are still set in it, and the footer
-   wordmark asks for it by name. The landing page uses the product app's two
-   faces instead — sans carries the words, mono carries every figure and tool
-   identifier, so the site and the thing you sign in to are set in the same
-   type. */
+/* Poppins stays: /security and /book-demo are still set in it.
+   One face carries the landing page: Schibsted Grotesk for words AND figures
+   (with tabular numerals where columns align). The old JetBrains Mono layer
+   was retired 2026-09-08; an IDE font on display numbers read as a dev tool,
+   not a finance product. --font-mono is shimmed to the sans in globals.css. */
 const poppins = Poppins({
   subsets: ["latin"],
   variable: "--font-poppins",
@@ -20,13 +20,6 @@ const sans = Schibsted_Grotesk({
   variable: "--font-sans",
   display: "swap",
   weight: ["400", "500", "600", "700"],
-});
-
-const mono = JetBrains_Mono({
-  subsets: ["latin"],
-  variable: "--font-mono",
-  display: "swap",
-  weight: ["400", "500", "600"],
 });
 
 const TITLE = `${SITE_NAME} · ${SITE_TAGLINE}`;
@@ -85,7 +78,7 @@ const JSON_LD = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={`${poppins.variable} ${sans.variable} ${mono.variable}`}>
+    <html lang="en" className={`${poppins.variable} ${sans.variable}`}>
       <body className="grain">
         {children}
         <script

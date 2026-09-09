@@ -109,7 +109,15 @@ export function SlidingNumber({
     <div style={{ display: "flex", alignItems: "center" }}>
       {value < 0 && "-"}
       {integerDigits.map((_, index) => (
-        <Digit key={`pos-${integerPlaces[index]}`} value={integerValue} place={integerPlaces[index]} />
+        <span key={`pos-${integerPlaces[index]}`} style={{ display: "inline-flex" }}>
+          {/* Thousands separator: a dollar figure without one reads unfinished.
+              Numeric features off so the comma keeps its narrow text width
+              instead of inheriting a tabular figure's full advance. */}
+          {index > 0 && (integerDigits.length - index) % 3 === 0 && (
+            <span style={{ fontFeatureSettings: "normal", fontVariantNumeric: "normal" }}>,</span>
+          )}
+          <Digit value={integerValue} place={integerPlaces[index]} />
+        </span>
       ))}
       {decimalPart && (
         <>

@@ -30,8 +30,12 @@ import { BorderTrail } from "./motion/border-trail";
    over-predicts, so the band runs to 3× above and only half below. Drawing it
    symmetric would be flattering and wrong. */
 
-const POINT = 20; // $/mo point estimate
-const X_MAX = 66;
+const POINT = 2840; // $/mo point estimate — matches the hero card's figure
+const X_MAX = 9000;
+
+/* Band ends compress to k-notation so the captions stay short. */
+const fmt = (v: number) =>
+  v >= 1000 ? `$${(v / 1000).toFixed(1).replace(/\.0$/, "")}k` : `$${Math.round(v)}`;
 
 const TIERS = [
   {
@@ -82,7 +86,7 @@ function ConfidenceBands() {
             spanning the whole plot struck through every tier's caption. */}
         <div className="cb-head-scale">
           <span className="mono cb-point-tag" style={{ left: pct(POINT) }}>
-            ${POINT}/mo estimate
+            ${POINT.toLocaleString("en-US")}/mo estimate
           </span>
         </div>
 
@@ -121,10 +125,10 @@ function ConfidenceBands() {
                   }}
                 />
                 <span className="mono cb-lo" style={{ left: pct(lo) }}>
-                  ${Math.round(lo)}
+                  {fmt(lo)}
                 </span>
                 <span className="mono cb-hi" style={{ left: pct(hi) }}>
-                  ${Math.round(hi)}
+                  {fmt(hi)}
                 </span>
               </div>
 
@@ -133,9 +137,9 @@ function ConfidenceBands() {
         })}
 
         <div className="cb-axis">
-          {[0, 20, 40, 60].map((v) => (
+          {[0, 3000, 6000, 9000].map((v) => (
             <span key={v} className="mono cb-tickmark" style={{ left: pct(v) }}>
-              ${v}
+              {v === 0 ? "$0" : `$${v / 1000}k`}
             </span>
           ))}
         </div>
@@ -346,12 +350,12 @@ function TransitionMatrix() {
 const FEATURES = [
   {
     headline: "The forecast tells you how much to trust it",
-    body: "Day one you get a number and a wide range. Watch a week of real traffic and the range closes to ±15%. Arceo never claims more confidence than it has earned.",
+    body: "Day one you get a number and a wide range. Watch a week of real traffic and the range closes to ±15%.",
     surface: <ConfidenceBands />,
   },
   {
     headline: "Know which lever actually moves the bill",
-    body: "Arceo nudges each input and ranks what moves. It is almost always call volume, by a distance — so a cap on calls is the control that holds a budget, and switching model is the one that does not.",
+    body: "Arceo nudges each input and ranks what moves. Call volume wins by a distance; a daily call cap is the control that holds a budget.",
     surface: <Sensitivity />,
   },
   {

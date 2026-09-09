@@ -2,6 +2,7 @@ import { ImageResponse } from "next/og";
 
 // iOS home-screen icon. The SVG favicon covers desktop browsers; Safari on iOS
 // needs a raster touch icon or it screenshots the page instead.
+// The mark is the wordmark's closing gesture: the broken O with the teal dash.
 export const size = { width: 180, height: 180 };
 export const contentType = "image/png";
 
@@ -15,20 +16,16 @@ export default function AppleIcon() {
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
-          background: "#FAF6F0",
+          background: "#FFFFFF",
         }}
       >
-        <svg width="124" height="124" viewBox="0 0 32 32" fill="none">
-          <line x1="16" y1="5" x2="10" y2="18" stroke="#2C2215" strokeWidth="2.4" strokeLinecap="round" />
-          <line x1="16" y1="5" x2="22" y2="18" stroke="#2C2215" strokeWidth="2.4" strokeLinecap="round" />
-          <line x1="10" y1="18" x2="22" y2="18" stroke="#2C2215" strokeWidth="2.4" strokeLinecap="round" />
-          <line x1="10" y1="18" x2="5" y2="27" stroke="#2C2215" strokeWidth="2.4" strokeLinecap="round" />
-          <line x1="22" y1="18" x2="27" y2="27" stroke="#2C2215" strokeWidth="2.4" strokeLinecap="round" />
-          <circle cx="16" cy="5" r="2.8" fill="#2C2215" />
-          <circle cx="10" cy="18" r="2.8" fill="#2C2215" />
-          <circle cx="22" cy="18" r="2.8" fill="#2C2215" />
-          <circle cx="5" cy="27" r="2.8" fill="#2C2215" />
-          <circle cx="27" cy="27" r="2.8" fill="#2C2215" />
+        <svg width="128" height="128" viewBox="0 0 32 32" fill="none">
+          <path
+            d="M7.39 12.81 A10.6 10.6 0 1 1 7.39 19.19"
+            stroke="#63D2E0"
+            strokeWidth="4.4"
+          />
+          <rect x="2.2" y="13.8" width="6.3" height="4.4" fill="#13B7A3" />
         </svg>
       </div>
     ),

@@ -203,21 +203,16 @@ function NodeChip({ label, r }: { label: string; r: number }) {
   )
 }
 
-// ── Arceo logo (5-node "A") ────────────────────────────────────────────────
+// ── Arceo logo — the broken O with the teal dash (brand mark) ──────────────
 
-function ShieldLogo({ size = 52, color = "#111827" }: { size?: number; color?: string } = {}) {
+function ShieldLogo({ size = 52, color }: { size?: number; color?: string } = {}) {
+  // Explicit color (e.g. "#fff" on a dark tile) recolours the ring; the
+  // dash stays teal — it reads on both light and dark chrome.
+  const ring = color ?? "#63D2E0"
   return (
     <svg width={size} height={size} viewBox="0 0 32 32" fill="none" aria-hidden="true">
-      <line x1="16" y1="5"  x2="10" y2="18" stroke={color} strokeWidth="2" strokeLinecap="round" />
-      <line x1="16" y1="5"  x2="22" y2="18" stroke={color} strokeWidth="2" strokeLinecap="round" />
-      <line x1="10" y1="18" x2="22" y2="18" stroke={color} strokeWidth="2" strokeLinecap="round" />
-      <line x1="10" y1="18" x2="5"  y2="27" stroke={color} strokeWidth="2" strokeLinecap="round" />
-      <line x1="22" y1="18" x2="27" y2="27" stroke={color} strokeWidth="2" strokeLinecap="round" />
-      <circle cx="16" cy="5"  r="2.5" fill={color} />
-      <circle cx="10" cy="18" r="2.5" fill={color} />
-      <circle cx="22" cy="18" r="2.5" fill={color} />
-      <circle cx="5"  cy="27" r="2.5" fill={color} />
-      <circle cx="27" cy="27" r="2.5" fill={color} />
+      <path d="M7.39 12.81 A10.6 10.6 0 1 1 7.39 19.19" stroke={ring} strokeWidth="4.4" />
+      <rect x="2.2" y="13.8" width="6.3" height="4.4" fill="#13B7A3" />
     </svg>
   )
 }

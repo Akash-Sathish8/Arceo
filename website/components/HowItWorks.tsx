@@ -31,7 +31,7 @@ const STEPS = [
   {
     n: "03",
     title: "Hand the CFO one number",
-    body: "A monthly cost with a confidence range, a blast-radius score out of 100, and every dangerous chain the agent can run — including the ones that cross between agents.",
+    body: "A monthly cost with a confidence range, a blast-radius score out of 100, and every dangerous chain the agent can run, including the ones that cross between agents.",
   },
 ];
 
