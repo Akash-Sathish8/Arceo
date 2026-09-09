@@ -28,7 +28,7 @@ const ACCESS = [
 const CONTROLS = [
   {
     control: "Tenant isolation",
-    detail: "PostgreSQL row-level security, ENABLEd and FORCEd on every organisation-scoped table — enforced by the database, not only by application code.",
+    detail: "PostgreSQL row-level security, ENABLEd and FORCEd on every organisation-scoped table. Enforced by the database itself, beneath the application code.",
   },
   {
     control: "Encryption at rest",
@@ -40,7 +40,7 @@ const CONTROLS = [
   },
   {
     control: "Session revocation",
-    detail: "Tokens carry a version, so disabling a user or rotating an organisation's secret invalidates issued sessions rather than waiting for expiry.",
+    detail: "Tokens carry a version, so disabling a user or rotating an organisation's secret invalidates issued sessions immediately.",
   },
   {
     control: "Transport hardening",
@@ -48,7 +48,7 @@ const CONTROLS = [
   },
   {
     control: "Scoped API keys",
-    detail: "Machine access uses hashed, scoped, individually revocable keys rather than a shared account password.",
+    detail: "Machine access uses hashed, scoped, individually revocable keys.",
   },
 ];
 
@@ -72,8 +72,8 @@ export default function SecurityPage() {
               You are pointing us at the agents that run your business.
             </h1>
             <p style={{ fontSize: 20, color: "var(--clay-body)", lineHeight: 1.6 }}>
-              So here is exactly what Arceo can see, where it runs, what is built into the
-              product, and — at the bottom — a plain account of what we have not done yet.
+              Here is what Arceo can see, where it runs, what is built in, and, at the
+              bottom, what we have not done yet.
             </p>
           </div>
         </section>
@@ -116,7 +116,7 @@ export default function SecurityPage() {
             </p>
             <p style={{ fontSize: 17, color: "var(--clay-body)", lineHeight: 1.7 }}>
               In that configuration your agent definitions, traces, and cost data stay within your
-              network boundary. The only outbound calls are the ones you configure — to your model
+              network boundary. The only outbound calls are the ones you configure: to your model
               provider for risk classification, and to your own alerting webhook if you set one.
             </p>
           </div>
@@ -160,7 +160,7 @@ export default function SecurityPage() {
             <p style={{ fontSize: 17, color: "var(--clay-body)", lineHeight: 1.7, marginBottom: 20 }}>
               The backend has been through a full independent security audit covering
               authentication, tenant isolation, injection, cryptography, dependencies, logging,
-              and cost abuse — endpoint by endpoint, across the whole service.
+              and cost abuse, endpoint by endpoint, across the whole service.
             </p>
 
             <div className="card" style={{ padding: 28, marginBottom: 20 }}>
@@ -179,7 +179,7 @@ export default function SecurityPage() {
 
             <p style={{ fontSize: 16, color: "var(--clay-body)", lineHeight: 1.7 }}>
               We share the full report, the finding-by-finding detail, and current remediation
-              status under NDA with pilot customers. Ask for it — we would rather you read it than
+              status under NDA with pilot customers. Ask for it. We would rather you read it than
               take the summary on trust.
             </p>
           </div>
@@ -206,7 +206,7 @@ export default function SecurityPage() {
               {[
                 {
                   t: "We are not SOC 2 certified.",
-                  d: "The code-side control work is underway — audit logging, transport hardening, encryption, backups — but no auditor has attested to it. If SOC 2 is a hard gate for you, we are not there yet and will say so rather than point at a roadmap.",
+                  d: "The code-side control work (audit logging, transport hardening, encryption, backups) is underway, but no auditor has attested to it yet.",
                 },
                 {
                   t: "There is no multi-tenant hosted offering.",
@@ -214,7 +214,7 @@ export default function SecurityPage() {
                 },
                 {
                   t: "We are early.",
-                  d: "Arceo is pre-general-availability and working with its first design partners. You would be evaluating a product that is genuinely working, not a finished platform, and we would rather you know that going in.",
+                  d: "Arceo is pre-general-availability and working with its first design partners. You would be evaluating a working product alongside its first design partners.",
                 },
               ].map((x) => (
                 <div key={x.t} style={{

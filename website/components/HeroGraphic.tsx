@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useReducer, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { motion } from "motion/react";
 import { Odometer } from "./motion/odometer";
 import { BorderTrail } from "./motion/border-trail";
@@ -33,53 +33,146 @@ type Call = {
   closes?: boolean;
 };
 
-/* A support agent's working loop. Real action names, real risk labels, real
-   per-call token costs — the figures are fractions of a cent, which is the
-   point: nothing here looks expensive or dangerous in isolation. */
-const CALLS: Call[] = [
-  { action: "zendesk.get_ticket", label: null, cost: 0.0008 },
+type Agent = {
+  name: string;
+  chip: string;
+  monthly: number;
+  projected: string;
+  radius: number; // declared-capability score
+  radiusChain: number; // with the +12 chain uplift
+  opens: number; // index of the call the chain starts from
+  closes: number; // index of the call that completes it
+  verdict: string;
+  calls: Call[];
+};
+
+/* Three agents from three archetypes, each with its own working loop, its own
+   forecast and its own flagged chain. The card cycles through them: the cost
+   and blast-radius odometers roll to the next agent's figures, the tape
+   reseeds, and that agent's chain fires a few calls in.
+
+   Per-call costs are at the scale an LLM turn actually costs: a few cents.
+   Each loop's sum times a realistic daily volume is the monthly figure above
+   the tape. Every agent's last two calls are quiet ones; they seed the next
+   tape so the panel is never an empty box. */
+const AGENTS: Agent[] = [
   {
-    action: "salesforce.get_contact",
-    label: RISK.touches_pii.plain,
-    color: "var(--label-pii)",
-    fill: "var(--label-pii-fill)",
-    cost: 0.0012,
+    name: "Beacon Support",
+    chip: "±15% · HIGH",
+    monthly: 2840,
+    projected: "$2,410–$3,270 projected",
+    radius: 81,
+    radiusChain: 93,
+    opens: 1,
+    closes: 4,
+    verdict: "Customer data could be sent outside the company",
+    calls: [
+      { action: "zendesk.get_ticket", label: null, cost: 0.014 },
+      {
+        action: "salesforce.get_contact",
+        label: RISK.touches_pii.plain,
+        color: "var(--label-pii)",
+        fill: "var(--label-pii-fill)",
+        cost: 0.021,
+      },
+      { action: "zendesk.add_note", label: null, cost: 0.011 },
+      { action: "stripe.get_charge", label: null, cost: 0.016 },
+      {
+        action: "sendgrid.send_email",
+        label: RISK.sends_external.plain,
+        color: "var(--label-external)",
+        fill: "var(--label-external-fill)",
+        cost: 0.024,
+        closes: true,
+      },
+      { action: "zendesk.close_ticket", label: null, cost: 0.012 },
+      { action: "salesforce.log_task", label: null, cost: 0.009 },
+      { action: "zendesk.list_queue", label: null, cost: 0.008 },
+    ],
   },
-  { action: "zendesk.add_note", label: null, cost: 0.0006 },
-  { action: "stripe.get_charge", label: null, cost: 0.0009 },
   {
-    action: "sendgrid.send_email",
-    label: RISK.sends_external.plain,
-    color: "var(--label-external)",
-    fill: "var(--label-external-fill)",
-    cost: 0.0021,
-    closes: true,
+    name: "Atlas DevOps",
+    chip: "±15% · HIGH",
+    monthly: 1260,
+    projected: "$1,070–$1,450 projected",
+    radius: 74,
+    radiusChain: 86,
+    opens: 1,
+    closes: 4,
+    verdict: "Production could change with no backup left to restore",
+    calls: [
+      { action: "github.get_pr", label: null, cost: 0.012 },
+      {
+        action: "aws_ec2.scale_group",
+        label: RISK.changes_production.plain,
+        color: "var(--label-prod)",
+        fill: "var(--label-prod-fill)",
+        cost: 0.019,
+      },
+      { action: "pagerduty.get_incident", label: null, cost: 0.011 },
+      { action: "slack.post_message", label: null, cost: 0.008 },
+      {
+        action: "db.delete_backup",
+        label: RISK.deletes_data.plain,
+        color: "var(--label-delete)",
+        fill: "var(--label-delete-fill)",
+        cost: 0.017,
+        closes: true,
+      },
+      { action: "github.close_issue", label: null, cost: 0.009 },
+      { action: "aws_ec2.describe_instances", label: null, cost: 0.01 },
+      { action: "slack.read_channel", label: null, cost: 0.007 },
+    ],
   },
-  { action: "zendesk.close_ticket", label: null, cost: 0.0007 },
-  { action: "salesforce.log_task", label: null, cost: 0.0005 },
-  { action: "zendesk.list_queue", label: null, cost: 0.0004 },
+  {
+    name: "Quota Sales",
+    chip: "±15% · HIGH",
+    monthly: 4150,
+    projected: "$3,530–$4,770 projected",
+    radius: 66,
+    radiusChain: 78,
+    opens: 1,
+    closes: 4,
+    verdict: "The same customer could be charged twice in one run",
+    calls: [
+      { action: "hubspot.get_deal", label: null, cost: 0.013 },
+      {
+        action: "stripe.create_invoice",
+        label: RISK.moves_money.plain,
+        color: "var(--label-money)",
+        fill: "var(--label-money-fill)",
+        cost: 0.022,
+      },
+      { action: "salesforce.update_opportunity", label: null, cost: 0.015 },
+      { action: "calendly.get_event", label: null, cost: 0.009 },
+      {
+        action: "stripe.charge_customer",
+        label: RISK.moves_money.plain,
+        color: "var(--label-money)",
+        fill: "var(--label-money-fill)",
+        cost: 0.024,
+        closes: true,
+      },
+      { action: "hubspot.log_activity", label: null, cost: 0.01 },
+      { action: "gmail.get_thread", label: null, cost: 0.011 },
+      { action: "salesforce.get_account", label: null, cost: 0.012 },
+    ],
+  },
 ];
 
-const OPENS = 1; // index of the call the chain starts from
-const CLOSES = 4; // index of the call that completes it
 const WINDOW = 5; // rows visible on the tape
 const ROW = 30; // px per row
 const TICK = 1050; // ms between calls
-
-/* The tape opens part-filled with two quiet calls, so the panel is never an
-   empty box on load and the chain still fires several seconds in — late
-   enough that a reader has finished the headline before it does. */
-const SEED = [CALLS[6], CALLS[7]];
+const HOLD = 4; // extra ticks after a loop completes before the next agent
 
 type Row = Call & { key: number; index: number };
 
 const eyebrow: React.CSSProperties = {
-  fontFamily: "var(--font-mono), monospace",
-  fontSize: 9.5,
-  fontWeight: 500,
+  fontSize: 10,
+  fontWeight: 600,
   color: "var(--muted-2)",
   textTransform: "uppercase",
-  letterSpacing: "0.13em",
+  letterSpacing: "0.07em",
 };
 
 /* The chain bracket, drawn in the tape's left gutter.
@@ -133,51 +226,70 @@ export default function HeroGraphic({
 }: {
   onChain?: (live: boolean) => void;
 } = {}) {
-  const [cursor, bump] = useReducer((n: number) => n + 1, 0);
+  const [agentIdx, setAgentIdx] = useState(0);
+  const agent = AGENTS[agentIdx];
   const [started, setStarted] = useState(false);
   const [still, setStill] = useState(false);
   const keyRef = useRef(0);
   const [rows, setRows] = useState<Row[]>([]);
 
-  /* Spin the forecast up on mount so the meter reads as a meter. */
+  /* Spins up per agent so the meter reads as a meter. */
   const [monthly, setMonthly] = useState(0);
 
   useEffect(() => {
     if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) {
-      /* Reduced motion still gets the finished picture: the tape at the
-         moment the chain closes, held still. */
+      /* Reduced motion still gets the finished picture: the first agent's
+         tape at the moment the chain closes, held still. */
+      const a = AGENTS[0];
       setStill(true);
-      setMonthly(20);
+      setMonthly(a.monthly);
       setRows(
-        CALLS.slice(0, CLOSES + 1)
+        a.calls
+          .slice(0, a.closes + 1)
           .slice(-WINDOW)
-          .map((c, i) => ({ ...c, key: i, index: CALLS.indexOf(c) })),
+          .map((c, i) => ({ ...c, key: i, index: a.calls.indexOf(c) })),
       );
       return;
     }
-
-    setRows(SEED.map((c, i) => ({ ...c, key: keyRef.current++, index: CALLS.indexOf(c) })));
     setStarted(true);
-    const spin = setTimeout(() => setMonthly(20), 420);
-    const id = setInterval(bump, TICK);
+  }, []);
+
+  /* One interval per agent: seed the tape with the agent's two quiet closing
+     calls, post the loop one call at a time, hold a few beats after it
+     completes, then hand the card to the next agent. Resetting rows on the
+     hand-off also clears the chain, so the blast radius rolls to the next
+     agent's base score on its own. */
+  useEffect(() => {
+    if (!started) return;
+    const a = AGENTS[agentIdx];
+    setRows(
+      a.calls
+        .slice(-2)
+        .map((c) => ({ ...c, key: keyRef.current++, index: a.calls.indexOf(c) })),
+    );
+    const spin = setTimeout(() => setMonthly(a.monthly), 420);
+    let t = 0;
+    const id = setInterval(() => {
+      if (t >= a.calls.length + HOLD) {
+        setAgentIdx((i) => (i + 1) % AGENTS.length);
+        return;
+      }
+      const idx = t % a.calls.length;
+      setRows((prev) =>
+        [...prev, { ...a.calls[idx], key: keyRef.current++, index: idx }].slice(-(WINDOW + 1)),
+      );
+      t++;
+    }, TICK);
     return () => {
       clearTimeout(spin);
       clearInterval(id);
     };
-  }, []);
-
-  useEffect(() => {
-    if (!started) return;
-    const call = CALLS[cursor % CALLS.length];
-    setRows((prev) =>
-      [...prev, { ...call, key: keyRef.current++, index: cursor % CALLS.length }].slice(-(WINDOW + 1)),
-    );
-  }, [cursor, started]);
+  }, [agentIdx, started]);
 
   /* The chain is live while both of its ends are still on the tape. */
   const visible = rows.map((r) => r.index);
-  const openAt = visible.lastIndexOf(OPENS);
-  const closeAt = visible.lastIndexOf(CLOSES);
+  const openAt = visible.lastIndexOf(agent.opens);
+  const closeAt = visible.lastIndexOf(agent.closes);
   const chainLive = still || (openAt !== -1 && closeAt !== -1 && closeAt > openAt);
 
   useEffect(() => {
@@ -245,7 +357,7 @@ export default function HeroGraphic({
               boxShadow: "0 0 0 3px rgba(22,163,74,0.14)",
             }}
           />
-          <span style={{ fontSize: 13, fontWeight: 600, color: "var(--ink)" }}>Beacon Support</span>
+          <span style={{ fontSize: 13, fontWeight: 600, color: "var(--ink)" }}>{agent.name}</span>
         </span>
         <span
           className="mono"
@@ -261,7 +373,7 @@ export default function HeroGraphic({
             letterSpacing: "0.04em",
           }}
         >
-          ±15% · HIGH
+          {agent.chip}
         </span>
       </div>
 
@@ -272,9 +384,10 @@ export default function HeroGraphic({
 
           The right-hand figure used to be a dollar "worst case". Arceo does
           not produce that number today, so it is the blast-radius score
-          instead — and it moves for a real reason: a detected chain adds up
-          to 12 points (the engine's chain uplift), which is exactly what
-          takes this agent from 55 to 67. */}
+          instead — and it moves for a real reason: a detected chain adds
+          12 points (the engine's chain uplift) to whichever agent is on the
+          card. The figure is red at every state: every agent shown here is
+          already in policy territory. */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr" }}>
         <div style={{ padding: "18px 18px 16px" }}>
           <div style={{ ...eyebrow, marginBottom: 9 }}>Monthly cost</div>
@@ -294,7 +407,7 @@ export default function HeroGraphic({
             <Odometer value={monthly} />
           </div>
           <div className="mono" style={{ fontSize: 10.5, color: "var(--muted-2)", marginTop: 9 }}>
-            $17–$23 projected
+            {agent.projected}
           </div>
         </div>
 
@@ -315,12 +428,11 @@ export default function HeroGraphic({
               gap: 4,
               fontSize: 38,
               fontWeight: 600,
-              color: chainLive ? "var(--label-money)" : "var(--ink)",
+              color: "var(--label-money)",
               lineHeight: 1,
-              transition: "color .45s ease",
             }}
           >
-            <Odometer value={chainLive ? 67 : 55} />
+            <Odometer value={chainLive ? agent.radiusChain : agent.radius} />
             <span style={{ fontSize: 18, color: "var(--muted-2)" }}>/ 100</span>
           </div>
           <div
@@ -370,7 +482,7 @@ export default function HeroGraphic({
           }}
         >
           <motion.div
-            key={rows.length > WINDOW ? cursor : "filling"}
+            key={rows.length > WINDOW ? rows[rows.length - 1].key : "filling"}
             initial={still ? false : { y: ROW }}
             animate={{ y: 0 }}
             transition={{ duration: 0.42, ease: [0.16, 1, 0.3, 1] }}
@@ -437,7 +549,7 @@ export default function HeroGraphic({
                       flexShrink: 0,
                     }}
                   >
-                    ${r.cost.toFixed(4)}
+                    ${r.cost.toFixed(3)}
                   </span>
                 </div>
               );
@@ -506,7 +618,7 @@ export default function HeroGraphic({
               CRITICAL
             </span>
             <span style={{ fontSize: 12, color: "var(--label-money)", fontWeight: 500 }}>
-              Customer data could be sent outside the company
+              {agent.verdict}
             </span>
           </div>
         ) : (

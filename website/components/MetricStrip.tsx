@@ -30,7 +30,7 @@ const METRICS = [
     suffix: "",
     channel: "var(--risk)",
     title: "Dangerous chain rules",
-    note: "Sequences Arceo flags as dangerous, not just single actions in isolation.",
+    note: "Sequences of safe-looking actions that turn dangerous in order.",
   },
   {
     prefix: "",
@@ -38,7 +38,7 @@ const METRICS = [
     suffix: "",
     channel: "var(--cost)",
     title: "Actions in the catalog",
-    note: "Already classified across 11 services. Anything new gets classified automatically.",
+    note: "Already classified across 11 services. New actions are classified automatically.",
   },
 ];
 

@@ -29,7 +29,7 @@ const CAPABILITIES = [
     label: RISK.moves_money.plain,
     color: "var(--label-money)",
     fill: "var(--label-money-fill)",
-    perCall: "$0.0034",
+    perCall: "$0.034",
     weight: 24,
     note: "irreversible",
   },
@@ -38,7 +38,7 @@ const CAPABILITIES = [
     label: RISK.deletes_data.plain,
     color: "var(--label-delete)",
     fill: "var(--label-delete-fill)",
-    perCall: "$0.0018",
+    perCall: "$0.018",
     weight: 30,
     note: "irreversible",
   },
@@ -47,7 +47,7 @@ const CAPABILITIES = [
     label: RISK.touches_pii.plain,
     color: "var(--label-pii)",
     fill: "var(--label-pii-fill)",
-    perCall: "$0.0012",
+    perCall: "$0.012",
     weight: 1,
     note: "read-only",
   },
@@ -56,7 +56,7 @@ const CAPABILITIES = [
     label: RISK.sends_external.plain,
     color: "var(--label-external)",
     fill: "var(--label-external-fill)",
-    perCall: "$0.0021",
+    perCall: "$0.021",
     weight: 14,
     note: "irreversible",
   },
@@ -100,8 +100,8 @@ export default function ProblemStatement() {
             Pennies a call. Some of them you can't take back.
           </h2>
           <p style={{ fontSize: 17, color: "var(--muted)", lineHeight: 1.6, maxWidth: 420 }}>
-            Every tool your agent can reach costs a fraction of a cent and
-            carries a weight. Reading barely counts. Anything you cannot undo
+            Every call your agent makes costs a few cents and carries a
+            weight. Reading barely counts. Anything you cannot undo
             counts double.
           </p>
         </div>

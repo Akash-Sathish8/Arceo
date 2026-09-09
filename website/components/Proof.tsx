@@ -14,14 +14,14 @@ const LEGS = [
   {
     stat: "829",
     statLabel: "real API calls repriced",
-    title: "The cost model is backtested, not asserted",
-    body: "We took 829 real Anthropic usage records — captured independently of the forecaster — and re-priced them through the engine. The high-confidence tier reproduces the actual spend exactly. That test runs in CI, so a change that breaks pricing accuracy fails the build.",
+    title: "The cost model is backtested",
+    body: "We re-priced 829 real Anthropic usage records, captured independently of the forecaster, through the engine; the high-confidence tier reproduces the actual spend. The test runs in CI, so a change that breaks pricing fails the build.",
   },
   {
     stat: "32",
     statLabel: "risk-chain rules",
     title: "The risk model is mapped to published frameworks",
-    body: "Chain detection works on risk-label transitions rather than hardcoded tool names, so it generalises across every tool and vendor. The rule set is mapped to OWASP Agentic Security categories and MITRE ATT&CK tactics — privilege escalation, credential access, defense evasion, and collection.",
+    body: "Chain detection runs on risk-label transitions, so it generalises across every tool and vendor. The rule set maps to OWASP Agentic Security categories and MITRE ATT&CK tactics: privilege escalation, credential access, defense evasion, and collection.",
   },
   {
     stat: "0",
@@ -104,8 +104,7 @@ export default function Proof() {
             Three things you can check before you trust the number
           </h2>
           <p style={{ fontSize: 19, color: "var(--muted)", maxWidth: 620, lineHeight: 1.6 }}>
-            We are early and we are not going to pretend otherwise with a wall of customer logos.
-            Here is what we can actually show you instead.
+            We are early. Every claim below is checkable against the product.
           </p>
         </div>
 

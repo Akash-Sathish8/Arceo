@@ -26,6 +26,10 @@ export const C = {
   rule:       "#E5E7EB",
   ruleLight:  "#F0F2F4",
 
+  /* Brand — the wordmark's two inks (see components/Logo.tsx) */
+  brand:      "#63D2E0",
+  brandTeal:  "#13B7A3",
+
   /* Severity — the only saturated colour in the system */
   critical:       "#dc2626",
   criticalFill:   "#FEF2F2",

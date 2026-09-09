@@ -103,9 +103,10 @@ h2, h3, h4 { font-weight: 600; }
 a { color: inherit; text-decoration: none; }
 button { cursor: pointer; font-family: inherit; font-stretch: normal; }
 
+/* No monospace anywhere: figures and identifiers are set in the sans with
+   tabular numerals. An IDE font on display numbers reads as a dev tool. */
 code, .mono {
-  font-family: "SF Mono", "Fira Code", "Cascadia Code", monospace;
-  font-size: 0.875em;
+  font-family: var(--font-sans), system-ui, sans-serif;
 }
 
 /* ── Layout ───────────────────────────────────────────────── */
@@ -339,6 +340,12 @@ code, .mono {
   --rule-light:   #F0F2F4;   /* faintest divider */
   --rule-strong:  #111827;   /* deliberate dark edge */
 
+  /* ── Brand — the wordmark's two inks, and nothing else's ─────
+     Lifted from the logo asset. These are reserved for the logo and
+     app-icon surfaces; they are NOT a third data channel.          */
+  --brand:        #63D2E0;   /* letterforms */
+  --brand-teal:   #13B7A3;   /* the E's middle bar and the dash */
+
   /* ── Risk labels — the only saturated colour in the system ───
      These four hues are the product's own, lifted verbatim from
      frontend/src/pages/AgentDetail.tsx. A capability is coloured by
@@ -352,6 +359,8 @@ code, .mono {
   --label-external-fill:#EFF6FF;
   --label-pii:        #7c3aed;   /* touches_pii    */
   --label-pii-fill:   #FAF5FF;
+  --label-prod:       #0d9488;   /* changes_production */
+  --label-prod-fill:  #F0FDFA;
 
   /* ── The two channels ────────────────────────────────────────
      Every data graphic on this site is drawn in exactly two inks, and
@@ -432,13 +441,22 @@ a { color: inherit; text-decoration: none; }
 button { cursor: pointer; font-family: inherit; }
 
 /* ── Numerals ─────────────────────────────────────────────────
-   The type rule of this site: a number is never set in the sans.
-   Costs, scores, percentages and tool identifiers all render mono,
-   so the page reads like an instrument rather than a brochure.     */
+   One face carries everything. Figures, scores and tool identifiers
+   are set in the sans; what makes a column read like an instrument is
+   tabular spacing, not a code font. (JetBrains Mono retired 2026-09-08
+   as a vibe-coded tell.) --font-mono is shimmed so any leftover inline
+   var() resolves to the sans rather than falling back to monospace.  */
+:root {
+  --font-mono: var(--font-sans);
+}
 code, .mono, .num {
-  font-family: var(--font-mono), "SF Mono", "Fira Code", monospace;
+  font-family: var(--font-sans), system-ui, sans-serif;
   font-variant-ligatures: none;
 }
+/* tnum on .num ONLY: tabular spacing also widens commas and periods in
+   Schibsted, which puts air around every dot in a tool identifier. Labels
+   and identifiers (.mono) keep proportional spacing; columns of figures
+   (.num) get tabular. */
 .num {
   font-feature-settings: "tnum" 1;   /* tabular figures — columns align */
   letter-spacing: -0.02em;

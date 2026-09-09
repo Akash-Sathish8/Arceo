@@ -144,7 +144,7 @@ export default function PullRequest() {
               </div>
               <div>
                 <span className="mono pr-fact-k">writes</span>
-                <span className="mono pr-fact-v">nothing — read-only scan</span>
+                <span className="mono pr-fact-v">nothing (read-only scan)</span>
               </div>
             </div>
           </div>
@@ -190,7 +190,7 @@ export default function PullRequest() {
 
               <div className="mono pr-summary">
                 Files scanned <b>12</b> · Agents found <b>3</b> · Max blast radius{" "}
-                <b>{done ? 82 : "—"}</b> · Critical chains <b>{done ? 1 : "—"}</b> · Threshold{" "}
+                <b>{done ? 82 : "–"}</b> · Critical chains <b>{done ? 1 : "–"}</b> · Threshold{" "}
                 <b>{THRESHOLD}</b>
               </div>
 

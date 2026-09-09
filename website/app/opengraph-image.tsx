@@ -2,7 +2,7 @@ import { ImageResponse } from "next/og";
 
 // Social preview card. Without this, sharing arceo.io on LinkedIn or Slack
 // renders a bare text link with no image.
-export const alt = "Arceo — cost and risk forecasting for AI agents";
+export const alt = "Arceo: cost and risk forecasting for AI agents";
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
 
@@ -21,23 +21,24 @@ export default function OpengraphImage() {
           fontFamily: "sans-serif",
         }}
       >
-        {/* Wordmark */}
-        <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-          <svg width="44" height="44" viewBox="0 0 32 32" fill="none">
-            <line x1="16" y1="5" x2="10" y2="18" stroke="#2C2215" strokeWidth="2.4" strokeLinecap="round" />
-            <line x1="16" y1="5" x2="22" y2="18" stroke="#2C2215" strokeWidth="2.4" strokeLinecap="round" />
-            <line x1="10" y1="18" x2="22" y2="18" stroke="#2C2215" strokeWidth="2.4" strokeLinecap="round" />
-            <line x1="10" y1="18" x2="5" y2="27" stroke="#2C2215" strokeWidth="2.4" strokeLinecap="round" />
-            <line x1="22" y1="18" x2="27" y2="27" stroke="#2C2215" strokeWidth="2.4" strokeLinecap="round" />
-            <circle cx="16" cy="5" r="2.8" fill="#2C2215" />
-            <circle cx="10" cy="18" r="2.8" fill="#2C2215" />
-            <circle cx="22" cy="18" r="2.8" fill="#2C2215" />
-            <circle cx="5" cy="27" r="2.8" fill="#2C2215" />
-            <circle cx="27" cy="27" r="2.8" fill="#2C2215" />
+        {/* Wordmark — same vectors as components/Logo.tsx */}
+        <div style={{ display: "flex", alignItems: "center" }}>
+          <svg width="204" height="42" viewBox="0 0 504 104" fill="none">
+            <path
+              fill="#63D2E0"
+              fillRule="evenodd"
+              d="M0 102 L42.75 2 H54.95 L97.65 102 Z M48.85 23.1 L66.6 64.7 H31.05 Z M25.5 77.6 H72.15 L82.6 102 H15.05 Z"
+            />
+            <path stroke="#63D2E0" strokeWidth="13.4" d="M121.85 2 V102" />
+            <path stroke="#63D2E0" strokeWidth="13.4" d="M121.85 8.7 H156.6 A21.5 21.5 0 0 1 156.6 51.7 H121.85" />
+            <path stroke="#63D2E0" strokeWidth="13.4" d="M148 51.7 L182.2 102" />
+            <path stroke="#63D2E0" strokeWidth="13.4" d="M284.9 21.9 A43.35 43.35 0 1 0 284.9 82.1" />
+            <rect x="308.7" y="2" width="75.3" height="13.4" fill="#63D2E0" />
+            <rect x="308.7" y="45.3" width="75.3" height="13.4" fill="#13B7A3" />
+            <rect x="308.7" y="88.6" width="75.3" height="13.4" fill="#63D2E0" />
+            <rect x="398.3" y="45.3" width="19.3" height="13.4" fill="#13B7A3" />
+            <path stroke="#63D2E0" strokeWidth="13.4" d="M412.3 38.97 A43.35 43.35 0 1 1 412.3 65.03" />
           </svg>
-          <div style={{ fontSize: 40, fontWeight: 800, color: "#2C2215", letterSpacing: "-1px" }}>
-            Arceo
-          </div>
         </div>
 
         {/* Headline */}
@@ -62,7 +63,7 @@ export default function OpengraphImage() {
         {/* Proof strip */}
         <div style={{ display: "flex", alignItems: "center", gap: 40 }}>
           <div style={{ display: "flex", flexDirection: "column" }}>
-            <div style={{ fontSize: 34, fontWeight: 800, color: "#2C6E9E" }}>$20/mo</div>
+            <div style={{ fontSize: 34, fontWeight: 800, color: "#2C6E9E" }}>$2,840/mo</div>
             <div style={{ fontSize: 20, color: "#87786A" }}>forecast, ±15%</div>
           </div>
           <div style={{ width: 1, height: 52, background: "#E0D7C9" }} />
