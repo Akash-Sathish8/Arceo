@@ -429,8 +429,8 @@ The three gaps formerly listed here (mocked unit-economics $, fixed sensitivity 
 - No coverage report. `test_hpe_features.py` and `test_new_features.py` are vaguely named.
 
 ### DevOps
-- **No hosted deployment exists** (see Deployment below). The root `Dockerfile` is real and pilot-ready (single container, customer-VPC friendly) but blocks horizontal scale — SQLite + one process.
-- No staging env.
+- **Hosted on Vercel since 2026-09** (see Deployment below). The root `Dockerfile` remains the customer-VPC/self-host path.
+- No staging env (Vercel preview deployments partially substitute — platform previews fail at import by design, env is Production-scoped).
 
 ### Branding / housekeeping
 - DB file still `actiongate.db`. Seed user still `admin@actiongate.io`. Don't rename casually.
@@ -478,7 +478,15 @@ The brain owns the canonical Now/Next/Later. This is a Claude-facing summary; if
 
 ## Deployment
 
-**There is currently NO hosted instance of Arceo anywhere** — no Railway, no staging, nothing (verified 2026-07-07; earlier versions of this file described a Railway setup that never existed on current branches). The only running Arceo is the local dev/campaign server.
+**Hosted on Vercel as of 2026-09** (decision 2026-09-11: Vercel now, GCP later — see `docs/DEPLOYMENT_CONTRACT.md` §9 and `brain/Decisions/`). Two Vercel projects from this repo, **production branch `dev`**:
+
+- **Website** — Root Directory `website/`, Next.js auto-detected. Env: `NEXT_PUBLIC_SITE_URL`, `NEXT_PUBLIC_APP_URL`, `BACKEND_URL`, `ARCEO_CONTACT_EMAIL`, optional `ARCEO_DEMO_WEBHOOK`.
+- **Platform** — Root Directory = repo root; `vercel.json` defines **Vercel Services**: `frontend` (Vite SPA, service-scoped `/index.html` catch-all) + `backend` (FastAPI, `entrypoint: main:app`, Python on Fluid Compute). Top-level rewrites send `/api`, `/ws`, `/proxy`, `/mock` to the backend, everything else to the SPA — same origin, so `VITE_API_URL` stays unset.
+- **Data:** Neon Postgres (app runs as restricted `arceo_app` on the pooled URL; migrations run as owner on the unpooled URL — a deploy step, never on boot) + Upstash Redis (`REDIS_URL`, eviction OFF).
+- **Jobs:** `DISABLE_SNAPSHOT_SCHEDULER=true`; Vercel Crons hit the three `CRON_SECRET`-gated `/api/internal/cron/*` endpoints (503 when the secret is unset — the `python -m jobs.X` entrypoints remain canonical for GCP).
+- **The full env matrix, proxy-hops setting, and Vercel-specific hazards** (promote-on-build, rollback-across-migration) live in `docs/DEPLOYMENT_CONTRACT.md` §9. §1–§8 remain the canonical contract for the eventual GCP cutover and customer-VPC deploys.
+
+Self-host / customer-VPC path (unchanged):
 
 - **Container build:** root `Dockerfile` (PR #27, 2026-07-07) — multi-stage: node builds the SPA into `backend/static/` (main.py serves it, traversal-safe), `python:3.11-slim` runs uvicorn on :8000 as a non-root user. `.dockerignore` keeps `.env` and `*.db` out of the image.
 - **Run:** `docker run -p 8000:8000 -v arceo-data:/data -e ANTHROPIC_API_KEY=... -e JWT_SECRET=... arceo` — SQLite lives at `ARCEO_DB_PATH=/data/actiongate.db`; skip the volume and all data dies with the container. Suited to running in a customer's VPC (the pilot pitch).

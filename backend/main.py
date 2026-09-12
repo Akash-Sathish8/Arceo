@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import functools
+import hmac
 import json
 import re
 import secrets
@@ -787,6 +788,47 @@ def _snapshot_scheduler_loop():
         except Exception as e:  # noqa: BLE001 — scheduler must never die
             logger.warning(f"capture retention run failed: {e}")
         time.sleep(_SNAPSHOT_POLL_SECONDS)
+
+
+# ── Cron endpoints (ADDITIVE — the GCP path stays `python -m jobs.X`) ─────────
+# docs/DEPLOYMENT_CONTRACT.md §4 forbids authenticated internal job endpoints
+# for the Cloud Run topology, where Cloud Scheduler + Cloud Run Jobs exist.
+# Vercel has neither: its scheduler GETs a path on the production deployment
+# with `Authorization: Bearer $CRON_SECRET`. These wrap the same entrypoints
+# the standalone modules and the in-process scheduler use, and refuse outright
+# when CRON_SECRET is unset — inert on every deploy that hasn't opted in.
+# See the Vercel addendum (§9) of the deployment contract.
+
+def _require_cron_auth(request: Request) -> None:
+    secret = os.environ.get("CRON_SECRET", "")
+    if not secret:
+        raise HTTPException(status_code=503,
+                            detail="Cron endpoints disabled (CRON_SECRET unset).")
+    if not hmac.compare_digest(request.headers.get("Authorization", ""),
+                               f"Bearer {secret}"):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+
+@app.get("/api/internal/cron/snapshot-forecasts")
+def cron_snapshot_forecasts(request: Request):
+    _require_cron_auth(request)
+    from jobs.snapshot_forecasts import snapshot_all_agents
+    return snapshot_all_agents()
+
+
+@app.get("/api/internal/cron/weekly-digest")
+def cron_weekly_digest(request: Request):
+    _require_cron_auth(request)
+    from jobs.weekly_digest import run_weekly
+    return run_weekly()
+
+
+@app.get("/api/internal/cron/purge-llm-captures")
+def cron_purge_llm_captures(request: Request):
+    _require_cron_auth(request)
+    from jobs.purge_llm_captures import purge_expired_captures
+    with get_db() as conn:
+        return purge_expired_captures(conn)
 
 
 @app.get("/api/demo-mode")
