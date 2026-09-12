@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useReveal } from "@/lib/useReveal";
+import AuthorityGraph from "./AuthorityGraph";
 
 /* The close.
  *
@@ -23,6 +24,11 @@ export default function CTABanner() {
         className="wash-dark"
         style={{ position: "absolute", inset: 0, pointerEvents: "none", opacity: 0.7 }}
       />
+
+      {/* Masked around the centre column so the headline keeps its contrast. */}
+      <div style={{ position: "absolute", inset: 0, pointerEvents: "none" }}>
+        <AuthorityGraph tone="dark" variant="ambient" packets={2} maskAt="50% 50%" />
+      </div>
 
       <div
         style={{

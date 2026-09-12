@@ -2,8 +2,9 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { motion, useScroll } from "motion/react";
-import Logo from "./Logo";
+import { useScroll } from "motion/react";
+import { LogoWordmark } from "./Logo";
+import ScrollRail from "./ScrollRail";
 
 /* Where "Sign In" points. In dev it falls back to the local Vite app; on a
    production build with no NEXT_PUBLIC_APP_URL configured the link is hidden
@@ -37,16 +38,9 @@ export default function Navbar() {
       boxShadow: scrolled ? "0 4px 18px rgba(17,24,39,0.08)" : "none",
       transition: "box-shadow 0.3s",
     }}>
-      {/* How far down a long page you are. It sits on the bar's own hairline,
-          so it reads as that rule filling rather than as a second element. */}
-      <motion.span
-        aria-hidden="true"
-        style={{
-          position: "absolute", left: 0, right: 0, bottom: -1, height: 2,
-          background: "var(--ink)", transformOrigin: "left",
-          scaleX: scrollYProgress,
-        }}
-      />
+      {/* How far down a long page you are, drawn as one edge of the
+          authority graph rather than as a graphite bar. */}
+      <ScrollRail progress={scrollYProgress} />
       <div style={{
         width: "100%",
         padding: "0 24px",
@@ -68,7 +62,7 @@ export default function Navbar() {
           style={{ flexShrink: 0, textDecoration: "none", cursor: "pointer" }}
           aria-label="arceo home"
         >
-          <Logo size={28} wordSize={22} />
+          <LogoWordmark height={26} />
         </a>
 
         {/* Center nav links — absolutely centered in the bar */}
@@ -146,7 +140,7 @@ export default function Navbar() {
         .nav-cta {
           display: inline-flex; align-items: center; gap: 6px;
           font-size: 13px; font-weight: 500;
-          color: #fff; background: var(--ink);
+          color: #fff; background: var(--brand);
           padding: 9px 20px; border-radius: 999px;
           border: 1px solid transparent;
           /* Was reaching for --color-1-400 / --color-1-700, which this design
@@ -157,7 +151,7 @@ export default function Navbar() {
           transition: background 0.15s, transform 0.1s, box-shadow 0.15s;
         }
         .nav-cta:hover {
-          background: #1f2937;
+          background: var(--brand-hover);
           transform: translateY(-1px);
           box-shadow: var(--shadow-md);
         }

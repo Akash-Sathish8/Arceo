@@ -2,6 +2,7 @@ import AnnouncementBar from "@/components/AnnouncementBar";
 import Navbar from "@/components/Navbar";
 import Hero from "@/components/Hero";
 import MetricStrip from "@/components/MetricStrip";
+import IntegrationBelt from "@/components/IntegrationBelt";
 import ProblemStatement from "@/components/ProblemStatement";
 import BlastRadius from "@/components/BlastRadius";
 import HowItWorks from "@/components/HowItWorks";
@@ -52,6 +53,7 @@ export default function Home() {
       <main id="main" style={{ overflowX: "clip", width: "100%" }}>
         <Hero />
         <MetricStrip />
+        <IntegrationBelt />
         <ProblemStatement />
         <BlastRadius />
         <HowItWorks />

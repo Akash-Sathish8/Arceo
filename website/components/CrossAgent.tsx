@@ -2,42 +2,61 @@
 
 import { useEffect, useState } from "react";
 import { useArmed } from "@/lib/useArmed";
-import { RISK } from "@/lib/labels";
-import { BorderTrail } from "./motion/border-trail";
+import AuthorityGraph from "./AuthorityGraph";
 
 /* Cross-agent chain detection.
  *
- * This slot used to hold a cost-against-exposure scatter. The exposure axis
- * was a dollar figure Arceo does not produce, so the whole chart was arguing
- * from a number that does not exist. What replaces it is a feature that does:
- * sandbox/multi_runner.py follows `dispatch_agent` handoffs and runs the chain
- * detector ACROSS agents, not just within one.
- *
  * The idea is easy to say and hard to draw: each agent is clean on its own,
- * and the dangerous sequence only exists once you follow the handoff. So the
- * picture shows exactly that and nothing else — two agents, one action lit in
- * each, both still reporting clear, and a bracket underneath that spans both
- * of them. The reader watches the chain assemble in the order it happens:
- * read a record, hand off, send mail. Five beats, then it resets.
+ * and the dangerous sequence only exists once you follow the handoff.
  *
- * Every verdict on screen is simultaneously true, which is the whole point:
- * "no chain on its own" and "PII exfiltration" are not in conflict. */
+ * An earlier version of this panel tried to prove that with evidence — tool
+ * names, risk chips, blast-radius scores, a verdict per card. All of it was
+ * true and all of it was noise: a reader spent their attention parsing
+ * `salesforce.get_contact` instead of watching the one thing that matters,
+ * which is a record crossing a gap and two agents changing because of it.
+ *
+ * So the panel is now two faces and a wire. The agents are the subject, at
+ * the size of a subject. Nothing is named in tool syntax. The record crosses,
+ * and both agents turn amber and lose their expression — the same "attention"
+ * amber the rest of the site uses for something that needs review. Two
+ * pictures, one before and one after, is the entire argument. */
 
-/* ── The two agents, as faces ─────────────────────────────────────────────
- *
- * One construction language, two jobs. Both robots are the same head — same
- * rounded square, same eyes, same 1.6 stroke — so they read as a matched pair
- * rather than two pieces of clipart. What differs is the thing bolted to it:
- * Support wears a headset, Ops carries a bell. That is the whole gag, and it
- * is enough, because a reader has to tell these two apart in about a second.
- *
- * They come alive when the run reaches them: eyes brighten, and the part that
- * names the job animates — Support's mic capsule pulses like an open line,
- * Ops's bell actually rings. Nothing moves until that agent is working. */
+type BotProps = { worried: boolean };
 
-function SupportBot() {
+/* One construction language, two jobs. Both robots are the same head — same
+   rounded square, same eyes, same 1.7 stroke — so they read as a matched pair
+   rather than two pieces of clipart. What differs is the thing bolted to it:
+   Support wears a headset, Ops carries a bell.
+
+   Each carries BOTH mouths and cross-fades between them. SVG path `d` does not
+   animate reliably across browsers, so swapping opacity on two stacked paths
+   is what makes the expression change rather than snap. */
+function Mouths({ calm, worried }: { calm: string; worried: boolean }) {
   return (
-    <svg viewBox="0 0 48 48" width="66" height="66" fill="none" aria-hidden="true">
+    <>
+      <path
+        className="bot-mouth bot-mouth-calm"
+        d={calm}
+        stroke="currentColor"
+        strokeWidth="1.7"
+        strokeLinecap="round"
+        opacity={worried ? 0 : 1}
+      />
+      <path
+        className="bot-mouth bot-mouth-worried"
+        d="M20.4 34.4Q24 31.5 27.6 34.4"
+        stroke="currentColor"
+        strokeWidth="1.7"
+        strokeLinecap="round"
+        opacity={worried ? 1 : 0}
+      />
+    </>
+  );
+}
+
+function SupportBot({ worried }: BotProps) {
+  return (
+    <svg viewBox="0 0 48 48" width="100%" height="100%" fill="none" aria-hidden="true">
       {/* headband */}
       <path d="M8 29A16 16 0 0 1 40 29" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
       {/* ear cups */}
@@ -50,8 +69,8 @@ function SupportBot() {
       />
       <circle className="bot-eye" cx="19.5" cy="27" r="2.6" />
       <circle className="bot-eye" cx="28.5" cy="27" r="2.6" />
-      {/* a smile — this one talks to customers */}
-      <path d="M20.4 32.4Q24 35 27.6 32.4" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+      {/* a smile — this one talks to customers — until it does not */}
+      <Mouths calm="M20.4 32.4Q24 35 27.6 32.4" worried={worried} />
       {/* boom mic */}
       <g className="bot-mic">
         <path d="M40.3 37C40.3 42 36 44.4 32.2 43.9" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
@@ -62,9 +81,9 @@ function SupportBot() {
   );
 }
 
-function OpsBot() {
+function OpsBot({ worried }: BotProps) {
   return (
-    <svg viewBox="0 0 48 48" width="66" height="66" fill="none" aria-hidden="true">
+    <svg viewBox="0 0 48 48" width="100%" height="100%" fill="none" aria-hidden="true">
       {/* the bell it wears, sitting straight on its head like an alarm clock */}
       <g className="bot-bell">
         <path
@@ -85,63 +104,33 @@ function OpsBot() {
       <circle className="bot-eye" cx="19.5" cy="27" r="2.6" />
       <circle className="bot-eye" cx="28.5" cy="27" r="2.6" />
       {/* a flat mouth — this one does not chat, it dispatches */}
-      <path d="M21 33.2h6" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+      <Mouths calm="M21 33.2h6" worried={worried} />
     </svg>
   );
 }
 
-type Action = { name: string; label?: string; color?: string; fill?: string };
-
-const SUPPORT: Action[] = [
-  { name: "zendesk.get_ticket" },
-  {
-    name: "salesforce.get_contact",
-    label: RISK.touches_pii.plain,
-    color: "var(--label-pii)",
-    fill: "var(--label-pii-fill)",
-  },
-  { name: "zendesk.add_note" },
-];
-
-const OPS: Action[] = [
-  { name: "pagerduty.get_oncall" },
-  {
-    name: "sendgrid.send_email",
-    label: RISK.sends_external.plain,
-    color: "var(--label-external)",
-    fill: "var(--label-external-fill)",
-  },
-  { name: "slack.post_message" },
-];
-
-/* Which row lights in each card. */
-const LIT = 1;
-
-/* One sentence per beat. The animation is legible on its own, but a caption
-   removes the last bit of guesswork — and it means the section still explains
-   itself in a screenshot, where nothing is moving at all. */
+/* One sentence per beat, in plain words. The animation is legible on its own,
+   but a caption removes the last of the guesswork — and it means the section
+   still explains itself in a screenshot, where nothing is moving at all. */
 const NARRATION = [
   "Two agents, each doing their own job",
-  "Support reads a customer record",
-  "It hands the job over to Ops",
-  "Ops emails the customer",
-  "Arceo flags the pair as one chain",
+  "Support looks up a customer",
+  "It hands that customer's details to Ops",
+  "Ops emails them outside the company",
 ];
 
-/* Beat lengths, in ms. The chain holds for three seconds so it can be read,
+/* Beat lengths, in ms. The last beat holds so the flagged state can be read,
    then the whole thing resets and runs again. */
-const BEATS = [900, 1100, 1200, 800, 3200];
+const BEATS = [1500, 1600, 1500, 4400];
 const FINAL = BEATS.length - 1;
 
 export default function CrossAgent() {
   const [ref, armed] = useArmed<HTMLElement>(0.25);
-  const [still, setStill] = useState(false);
   const [step, setStep] = useState(0);
 
   useEffect(() => {
     if (!armed) return;
     if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) {
-      setStill(true);
       setStep(FINAL);
       return;
     }
@@ -149,88 +138,45 @@ export default function CrossAgent() {
     return () => clearTimeout(id);
   }, [armed, step]);
 
-  const litA = step >= 1;
   const dispatching = step === 2;
-  const delivered = step >= 3;
-  const litB = step >= 3;
-  const chained = step >= 4;
+  /* Both agents change at the same moment, because that is the finding: the
+     problem is not either one of them, it is the pair. */
+  const flagged = step >= FINAL;
 
-  const card = (
-    title: string,
-    role: string,
-    score: number,
-    actions: Action[],
-    lit: boolean,
+  const agent = (
+    name: string,
+    does: string,
     avatar: React.ReactNode,
-    scanning: boolean,
   ) => (
-    <div className={`xa-card${lit ? " lit" : ""}`}>
-      {/* The scan runs only while this agent is the one acting. Graphite,
-          not red — this is Arceo looking, not Arceo finding. */}
-      {scanning && (
-        <BorderTrail
-          size={80}
-          transition={{ repeat: Infinity, duration: 2.8, ease: "linear" }}
-          style={{
-            background:
-              "radial-gradient(circle at 50% 50%, rgba(17,24,39,0.35), rgba(17,24,39,0) 70%)",
-          }}
-        />
-      )}
-      <span className="mono xa-score">{score} / 100</span>
-
+    <div className={`xa-agent${flagged ? " flagged" : ""}`}>
       <span className="xa-avatar">{avatar}</span>
-      <span className="xa-name">{title}</span>
-      <span className="mono xa-role">{role}</span>
-
-      <div className="xa-actions">
-        {actions.map((a, i) => (
-          <div key={a.name} className={`xa-action${lit && i === LIT ? " on" : ""}`}>
-            <span className="mono xa-action-name">{a.name}</span>
-            {a.label && (
-              <span
-                className="xa-chip"
-                style={
-                  lit && i === LIT
-                    ? { color: a.color, background: a.fill, borderColor: a.color }
-                    : undefined
-                }
-              >
-                {a.label}
-              </span>
-            )}
-          </div>
-        ))}
-      </div>
-
-      {/* Stays clear the whole way through. That is the finding. */}
-      <div className="xa-verdict-own">
-        <span className="xa-tick" aria-hidden="true">
-          <svg width="11" height="11" viewBox="0 0 12 12" fill="none">
-            <path
-              d="M2.5 6.2l2.4 2.4L9.5 4"
-              stroke="currentColor"
-              strokeWidth="1.8"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </svg>
-        </span>
-        No chain on its own
-      </div>
+      <span className="xa-name">{name}</span>
+      <span className="xa-does">{does}</span>
+      <span className="xa-state">
+        {flagged ? "Now part of a chain" : "Safe on its own"}
+      </span>
     </div>
   );
 
   return (
     <section
+      id="cross-agent"
       ref={ref}
       style={{
         padding: "104px 0 112px",
-        background: "var(--ground)",
+        background: "var(--band-aqua)",
         borderTop: "1px solid var(--rule)",
+        position: "relative",
+        overflow: "hidden",
       }}
     >
-      <div style={{ maxWidth: 1240, margin: "0 auto", padding: "0 32px" }}>
+      {/* A handoff between two agents is a path through the authority graph,
+          so the network runs behind the section that explains it. */}
+      <div style={{ position: "absolute", inset: 0, pointerEvents: "none", opacity: 0.5 }}>
+        <AuthorityGraph variant="ambient" packets={2} maskAt="50% 42%" />
+      </div>
+
+      <div style={{ position: "relative", zIndex: 2, maxWidth: 1240, margin: "0 auto", padding: "0 32px" }}>
         <div className="xa-intro">
           <span className="eyebrow">Cross-agent chains</span>
           <h2
@@ -266,49 +212,48 @@ export default function CrossAgent() {
           </div>
 
           <div className="xa-grid">
-            {card("Support agent", "answers tickets", 34, SUPPORT, litA, <SupportBot />, step === 1 || step === 2)}
+            {agent("Support agent", "Answers customer tickets", <SupportBot worried={flagged} />)}
 
-            {/* The handoff. */}
+            {/* The handoff, drawn as one edge of the authority graph: two
+                endpoint nodes and a hop between them, in the same aquamarine
+                the network uses everywhere else on the page. */}
             <div className="xa-link">
-              <span className="mono xa-link-label">dispatch_agent</span>
-              <span className={`xa-rail${dispatching ? " flow" : ""}`}>
-                {/* The record itself crosses the wire. A bare dot travelling a
-                    line says "something happened"; a labelled payload says
-                    what was handed over, which is the entire point. */}
-                <span className={`xa-payload${step >= 2 ? " go" : ""}${delivered ? " gone" : ""}`}>
-                  <span className="xa-payload-dot" />
-                  customer record
-                </span>
-                <span className="xa-head-arrow" aria-hidden="true">
-                  <svg width="9" height="9" viewBox="0 0 9 9" fill="none">
-                    <path
-                      d="M1.5 1.2 5.6 4.5 1.5 7.8"
-                      stroke="currentColor"
-                      strokeWidth="1.5"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
-                  </svg>
+              <span
+                className={`xa-rail${dispatching ? " flow" : ""}${flagged ? " flagged" : ""}`}
+              >
+                <span className="xa-node xa-node-a" aria-hidden="true" />
+                <span className="xa-node xa-node-mid" aria-hidden="true" />
+                <span className="xa-node xa-node-b" aria-hidden="true" />
+
+                {/* The record itself crosses. The outer element carries the
+                    horizontal travel and the inner one the lift, so together
+                    they arc OVER the gap — a thing handed across, rather than
+                    a label dragged along a line. */}
+                <span className={`xa-fly${dispatching ? " go" : ""}`}>
+                  <span className="xa-payload">
+                    <span className="xa-payload-dot" />
+                    customer details
+                  </span>
                 </span>
               </span>
             </div>
 
-            {card("Ops agent", "pages on-call", 41, OPS, litB, <OpsBot />, step === 3)}
+            {agent("Ops agent", "Emails and pages on-call", <OpsBot worried={flagged} />)}
           </div>
 
-          {/* The bracket spanning both agents. It is the only red on the
-              panel, and it only exists once both ends have lit. */}
-          <div className={`xa-bracket${chained ? " on" : ""}`} aria-hidden="true">
+          {/* The tie. It only exists once the handoff has happened, and it is
+              what turns two agents into one thing worth reviewing. */}
+          <div className={`xa-bracket${flagged ? " on" : ""}`} aria-hidden="true">
             <span className="xa-stub xa-stub-l" />
             <span className="xa-stub xa-stub-r" />
             <span className="xa-railing" />
           </div>
 
-          <div className={`xa-verdict${chained ? " on" : ""}`}>
-            <span className="mono xa-sev">CRITICAL</span>
+          <div className={`xa-verdict${flagged ? " on" : ""}`}>
+            <span className="mono xa-sev">CHAIN DETECTED</span>
             <span className="xa-verdict-text">
-              One agent reads customer data, the other sends it outside the
-              company
+              Neither agent is dangerous alone. Together they move customer
+              details outside the company.
             </span>
           </div>
         </div>
@@ -319,18 +264,19 @@ export default function CrossAgent() {
 
         .xa-caption {
           display: flex; align-items: center; gap: 14px;
-          padding-bottom: 18px; margin-bottom: 26px;
+          padding-bottom: 20px; margin-bottom: 8px;
           border-bottom: 1px solid var(--rule);
         }
         .xa-beats { display: inline-flex; gap: 5px; flex-shrink: 0; }
         .xa-beat {
-          width: 16px; height: 3px; border-radius: 2px;
+          width: 18px; height: 3px; border-radius: 2px;
           background: var(--ground-3);
           transition: background .35s ease;
         }
-        .xa-beat.on { background: var(--ink); }
+        .xa-beat.on { background: var(--brand); }
         .xa-caption-text {
-          font-size: 14px; color: var(--ink); font-weight: 500;
+          font-size: 16px; color: var(--ink); font-weight: 500;
+          letter-spacing: -0.01em;
           animation: xa-cap .4s cubic-bezier(.16,1,.3,1);
         }
         @keyframes xa-cap {
@@ -338,293 +284,218 @@ export default function CrossAgent() {
           to   { opacity: 1; transform: none; }
         }
 
+        /* The handoff gutter. Referenced by the grid AND by the bracket
+           geometry below, so it lives in one place. */
         .xa-stage {
+          --xa-gutter: 260px;
           background: var(--paper);
-          border: 1px solid var(--rule);
+          border: none;
           border-radius: var(--r-lg);
-          box-shadow: var(--shadow-md);
-          padding: 34px 34px 30px;
+          padding: 30px 34px 30px;
         }
 
         .xa-grid {
           display: grid;
-          grid-template-columns: minmax(0, 1fr) 196px minmax(0, 1fr);
+          grid-template-columns: minmax(0, 1fr) var(--xa-gutter) minmax(0, 1fr);
           align-items: stretch;
           gap: 0;
         }
 
-        /* ── Agent card ───────────────────────────────────────── */
-        .xa-card {
-          position: relative;
+        /* ── The agents ───────────────────────────────────────────
+           The subject of the panel, so they get the space of one. No border
+           and no shadow: a tinted well on the white stage, the way the
+           product separates planes. The well is the state — aquamarine while
+           each agent is fine on its own, amber once the pair is a chain. */
+        .xa-agent {
           display: flex; flex-direction: column; align-items: center;
-          border: 1px solid var(--rule);
+          text-align: center;
+          padding: 40px 24px 34px;
           border-radius: var(--r-md);
-          padding: 26px 20px 18px;
-          background: var(--paper);
-          transition: border-color .4s ease, box-shadow .4s ease;
+          background: var(--aqua-soft);
+          color: var(--aqua-deep);
+          transition: background .55s ease, color .55s ease;
         }
-        .xa-card.lit {
-          border-color: var(--muted-2);
-          box-shadow: var(--shadow-sm);
+        .xa-agent.flagged {
+          background: rgba(245, 158, 11, 0.15);
+          color: var(--amber-ink);
         }
-        .xa-score {
-          position: absolute; top: 14px; right: 16px;
-          font-size: 11px; color: var(--muted-2);
-        }
-        .xa-name {
-          font-size: 18px; font-weight: 600; color: var(--ink);
-          letter-spacing: -0.015em; margin-top: 16px;
-        }
-        .xa-role { font-size: 11px; color: var(--muted-2); margin-top: 3px; }
 
-        /* ── The robots ───────────────────────────────────────────
-           Big, centred, and the first thing in the card, because the
-           two characters ARE the story — the handoff between them is
-           what the section is about. Everything else is evidence. */
         .xa-avatar {
-          flex-shrink: 0;
-          width: 92px; height: 92px;
-          display: inline-flex; align-items: center; justify-content: center;
-          border-radius: 24px;
-          border: 1px solid var(--rule);
-          background: var(--ground);
-          color: var(--muted-2);
-          transition:
-            color .4s ease, background .4s ease,
-            border-color .4s ease, box-shadow .45s ease, transform .45s cubic-bezier(.16,1,.3,1);
+          width: 116px; height: 116px;
+          display: flex; align-items: center; justify-content: center;
+          margin-bottom: 20px;
         }
-        .xa-card.lit .xa-avatar {
-          color: var(--ink);
-          background: var(--paper);
-          border-color: var(--muted-2);
-          /* A quiet halo, so the working agent lifts off the card. */
-          box-shadow: 0 0 0 7px var(--ground-2);
-          transform: translateY(-2px);
+        /* The face plate reads as the head, so it takes the well's tint back
+           out of the fill rather than sitting on a second surface. */
+        .bot-face { fill: var(--paper); }
+        .bot-eye  { fill: currentColor; transition: fill .55s ease; }
+        .bot-mouth { transition: opacity .45s ease; }
+
+        .xa-name {
+          font-size: 21px; font-weight: 600; letter-spacing: -0.02em;
+          color: var(--ink); margin-bottom: 5px;
         }
-        .bot-face { fill: var(--paper); transition: fill .4s ease; }
-        .xa-card.lit .bot-face { fill: var(--ground); }
-        .bot-eye {
-          fill: currentColor; transition: fill .4s ease;
-          transform-box: fill-box; transform-origin: center;
-          animation: bot-blink 5.4s infinite;
+        .xa-does {
+          font-size: 14.5px; color: var(--muted); line-height: 1.45;
+          margin-bottom: 18px;
         }
-        /* Offset so the two never blink in unison — that reads as a glitch
-           rather than as two separate machines. */
-        .xa-grid > :last-child .bot-eye { animation-delay: 2.3s; }
-        @keyframes bot-blink {
-          0%, 93%, 100% { transform: scaleY(1); }
-          96%           { transform: scaleY(.1); }
+        .xa-state {
+          font-size: 12px; font-weight: 600; letter-spacing: 0.01em;
+          color: currentColor;
+          transition: color .55s ease;
         }
 
-        /* Idle, the ring marks and the mic pulse are simply absent. */
-        .bot-ring { stroke: currentColor; opacity: 0; transition: opacity .3s ease; }
-        .bot-mic-ring { stroke: currentColor; fill: none; opacity: 0; }
-
-        /* The line opens: a single ring off the mic capsule. */
-        .xa-card.lit .bot-mic-ring { animation: bot-ping 1.9s ease-out infinite; }
-        @keyframes bot-ping {
-          0%   { opacity: .55; transform: scale(1); }
-          70%  { opacity: 0;   transform: scale(2.6); }
-          100% { opacity: 0;   transform: scale(2.6); }
-        }
-        .bot-mic-ring { transform-origin: 30.8px 43.6px; }
-
-        /* The bell actually rings when Ops is paged. */
-        .bot-bell { transform-origin: 24px 16px; }
-        .xa-card.lit .bot-bell { animation: bot-shake 1.6s ease-in-out infinite; }
-        .xa-card.lit .bot-ring { opacity: .75; }
-        @keyframes bot-shake {
-          0%, 62%, 100% { transform: rotate(0deg); }
-          68%  { transform: rotate(9deg); }
-          74%  { transform: rotate(-7deg); }
-          80%  { transform: rotate(5deg); }
-          86%  { transform: rotate(-3deg); }
-          92%  { transform: rotate(1deg); }
-        }
-
-        .xa-actions {
-          width: 100%;
-          display: flex; flex-direction: column; gap: 2px;
-          margin-top: 22px;
-          padding-bottom: 14px; margin-bottom: 12px;
-          border-bottom: 1px solid var(--rule-light);
-        }
-        .xa-action {
-          display: flex; align-items: center; justify-content: space-between;
-          gap: 10px; height: 30px; padding: 0 9px;
-          border-radius: var(--r-xs);
-          transition: background .35s ease;
-        }
-        .xa-action.on { background: var(--ground); }
-        .xa-action-name {
-          font-size: 11.5px; color: var(--muted);
-          overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-          transition: color .35s ease;
-        }
-        .xa-action.on .xa-action-name { color: var(--ink); font-weight: 500; }
-        .xa-chip {
-          font-size: 10.5px; font-weight: 500; flex-shrink: 0;
-          padding: 2px 7px; border-radius: var(--r-xs);
-          color: var(--muted-2); background: var(--ground-2);
-          border: 1px solid transparent;
-          transition: color .35s ease, background .35s ease, border-color .35s ease;
-        }
-
-        .xa-verdict-own {
-          width: 100%;
-          display: flex; align-items: center; gap: 7px;
-          font-size: 11.5px; color: var(--muted);
-        }
-        .xa-tick {
-          display: inline-flex; color: var(--risk-clear); flex-shrink: 0;
-        }
-
-        /* ── The handoff ──────────────────────────────────────── */
+        /* ── The handoff ──────────────────────────────────────────── */
         .xa-link {
           display: flex; flex-direction: column;
-          align-items: center; justify-content: flex-start;
-          gap: 10px; padding: 52px 12px 0; position: relative; z-index: 3;
-        }
-        .xa-link-label {
-          font-size: 9.5px; color: var(--muted-2); letter-spacing: 0.04em;
-          white-space: nowrap;
+          align-items: center; justify-content: center;
+          padding: 0 14px; position: relative; z-index: 3;
         }
         .xa-rail {
-          position: relative; width: 100%; height: 1px;
+          position: relative; width: 100%; height: 2px;
           overflow: visible;
           background: repeating-linear-gradient(
-            to right, var(--rule) 0 4px, transparent 4px 8px
+            to right, var(--aqua-line) 0 4px, transparent 4px 8px
           );
-          background-size: 8px 1px;
-          transition: background-color .3s ease;
+          background-size: 8px 2px;
+          transition: background-image .45s ease;
         }
         /* Dashes march while something is actually crossing. */
         .xa-rail.flow {
           background-image: repeating-linear-gradient(
-            to right, var(--muted-2) 0 4px, transparent 4px 8px
+            to right, var(--amber) 0 4px, transparent 4px 8px
           );
           animation: xa-flow .5s linear infinite;
         }
+        .xa-rail.flagged {
+          background-image: repeating-linear-gradient(
+            to right, var(--amber) 0 4px, transparent 4px 8px
+          );
+          animation: none;
+        }
         @keyframes xa-flow { to { background-position: 8px 0; } }
 
-        .xa-payload {
-          position: absolute; top: 50%; left: 0;
-          transform: translate(-50%, -50%) scale(.9);
-          display: inline-flex; align-items: center; gap: 6px;
-          white-space: nowrap;
-          font-size: 9.5px; font-weight: 500; color: var(--label-pii);
+        /* The three nodes of the hop — same construction as the authority
+           graph's own nodes, so this reads as one edge lifted out of the
+           network rather than a decorative arrow. */
+        .xa-node {
+          position: absolute; top: 50%;
+          border-radius: 50%;
+          background: var(--aqua);
+          border: 1.5px solid var(--aqua-ink);
+          transform: translate(-50%, -50%);
+          transition: background .45s ease, border-color .45s ease;
+        }
+        .xa-node-a, .xa-node-b { width: 10px; height: 10px; }
+        .xa-node-a { left: 0; }
+        .xa-node-b { left: 100%; }
+        .xa-node-mid {
+          left: 50%; width: 7px; height: 7px;
           background: var(--paper);
-          border: 1px solid var(--label-pii);
-          padding: 4px 9px; border-radius: 999px;
-          box-shadow: var(--shadow-sm);
-          opacity: 0; pointer-events: none;
-          transition:
-            left 1.05s cubic-bezier(.45,0,.35,1),
-            opacity .28s ease,
-            transform .28s cubic-bezier(.16,1,.3,1);
         }
-        /* It leaves one card and is absorbed by the other, so it is allowed
-           to overhang the gutter at both ends. */
-        .xa-payload.go {
-          opacity: 1; left: 100%;
-          transform: translate(-50%, -50%) scale(1);
+        .xa-rail.flow .xa-node-mid,
+        .xa-rail.flagged .xa-node,
+        .xa-rail.flagged .xa-node-mid {
+          background: var(--amber); border-color: var(--amber);
         }
-        /* Absorbed by Ops rather than left hanging on the wire. */
-        .xa-payload.gone {
-          opacity: 0;
-          transform: translate(-50%, -50%) scale(.86);
+
+        /* ── The record in flight ─────────────────────────────────── */
+        .xa-fly {
+          position: absolute; top: 50%; left: 0;
+          opacity: 0; pointer-events: none; z-index: 6;
+        }
+        .xa-fly.go { animation: xa-cross 1.35s cubic-bezier(.42,0,.3,1) both; }
+        @keyframes xa-cross {
+          0%   { left: 0%;   opacity: 0; }
+          14%  { opacity: 1; }
+          82%  { opacity: 1; }
+          100% { left: 100%; opacity: 0; }
+        }
+        .xa-payload {
+          display: inline-flex; align-items: center; gap: 9px;
+          white-space: nowrap;
+          font-size: 13px; font-weight: 600; color: var(--ink);
+          /* Cyan: the brand's one colour with no severity meaning. Nothing
+             has gone wrong at the moment the record is handed over. */
+          background: var(--cyan-soft);
+          border: 1.5px solid var(--cyan-ring);
+          padding: 9px 16px; border-radius: 999px;
+          transform: translate(-50%, -50%);
+        }
+        .xa-fly.go .xa-payload {
+          animation: xa-arc 1.35s cubic-bezier(.42,0,.3,1) both;
+        }
+        @keyframes xa-arc {
+          0%   { transform: translate(-50%, -50%) scale(.9); }
+          50%  { transform: translate(-50%, calc(-50% - 42px)) scale(1.06); }
+          100% { transform: translate(-50%, -50%) scale(.9); }
         }
         .xa-payload-dot {
-          width: 5px; height: 5px; border-radius: 50%;
-          background: var(--label-pii); flex-shrink: 0;
-        }
-        .xa-head-arrow {
-          position: absolute; right: -2px; top: 50%;
-          transform: translateY(-50%);
-          display: inline-flex; color: var(--muted-2);
+          width: 9px; height: 9px; border-radius: 50%;
+          background: var(--cyan-ink); flex-shrink: 0;
         }
 
-        /* ── The bracket ──────────────────────────────────────── */
-        .xa-bracket {
-          position: relative; height: 34px; margin-top: 4px;
-        }
+        /* ── The tie ──────────────────────────────────────────────── */
+        .xa-bracket { position: relative; height: 30px; margin-top: 2px; }
         .xa-stub {
-          position: absolute; top: 0; width: 1.5px; height: 22px;
-          background: var(--risk);
+          position: absolute; top: 0; width: 2px; height: 20px;
+          background: var(--amber);
           transform: scaleY(0); transform-origin: top;
-          transition: transform .3s cubic-bezier(.16,1,.3,1);
+          transition: transform .32s cubic-bezier(.16,1,.3,1);
         }
-        /* Centres of the two cards: each card is (100% - 148px) / 2 wide, so
-           its centre sits a quarter of that in from each edge. */
-        .xa-stub-l { left: calc((100% - 196px) / 4); }
-        .xa-stub-r { right: calc((100% - 196px) / 4); }
+        /* Centres of the two agent wells: each is (100% - gutter) / 2 wide,
+           so its centre sits a quarter of that in from each edge. */
+        .xa-stub-l { left: calc((100% - var(--xa-gutter)) / 4); }
+        .xa-stub-r { right: calc((100% - var(--xa-gutter)) / 4); }
         .xa-railing {
-          position: absolute; top: 21.5px;
-          left: calc((100% - 196px) / 4);
-          right: calc((100% - 196px) / 4);
-          height: 1.5px; background: var(--risk);
-          box-shadow: 0 0 10px rgba(220,38,38,0.35);
+          position: absolute; top: 18px; height: 2px;
+          left: calc((100% - var(--xa-gutter)) / 4);
+          right: calc((100% - var(--xa-gutter)) / 4);
+          background: var(--amber);
           transform: scaleX(0);
-          transition: transform .5s cubic-bezier(.16,1,.3,1) .22s;
+          transition: transform .45s cubic-bezier(.16,1,.3,1) .22s;
         }
         .xa-bracket.on .xa-stub { transform: scaleY(1); }
-        .xa-bracket.on .xa-stub-r { transition-delay: .1s; }
         .xa-bracket.on .xa-railing { transform: scaleX(1); }
 
+        /* ── The verdict ──────────────────────────────────────────── */
         .xa-verdict {
           display: flex; align-items: center; justify-content: center;
-          gap: 11px; flex-wrap: wrap;
-          opacity: 0; transform: translateY(6px);
-          transition: opacity .4s ease .55s, transform .4s cubic-bezier(.16,1,.3,1) .55s;
+          gap: 12px; flex-wrap: wrap;
+          margin-top: 14px; text-align: center;
+          opacity: 0; transform: translateY(4px);
+          transition: opacity .4s ease .3s, transform .4s cubic-bezier(.16,1,.3,1) .3s;
         }
         .xa-verdict.on { opacity: 1; transform: none; }
         .xa-sev {
-          font-size: 9px; font-weight: 600; letter-spacing: 0.08em;
-          color: #fff; background: var(--risk);
-          padding: 3px 8px; border-radius: var(--r-xs); flex-shrink: 0;
+          font-size: 10px; font-weight: 600; letter-spacing: 0.12em;
+          /* The amber surface takes graphite, not the amber text tone —
+             --amber-ink on brand amber is 2.3:1 and unreadable. */
+          color: var(--on-amber); background: var(--amber);
+          padding: 5px 10px; border-radius: var(--r-xs);
+          flex-shrink: 0;
         }
-        .xa-verdict-text { font-size: 13.5px; color: var(--risk); }
-        .xa-verdict-text .mono { font-size: 12.5px; }
-        .xa-to { color: var(--risk-soft); }
+        .xa-verdict-text {
+          font-size: 15px; color: var(--ink); font-weight: 500;
+          line-height: 1.45; text-wrap: balance;
+        }
 
-        @media (max-width: 860px) {
-          .xa-grid { grid-template-columns: 1fr; gap: 0; }
+        /* ── Stacked ──────────────────────────────────────────────── */
+        @media (max-width: 900px) {
+          .xa-grid { grid-template-columns: 1fr; }
           /* Stacked, the handoff runs downward instead of across. */
-          .xa-link { flex-direction: row; justify-content: center; padding: 16px 0 0; gap: 10px; }
-          .xa-rail { width: 60px; }
-          .xa-caption {
-          display: flex; align-items: center; gap: 14px;
-          padding-bottom: 18px; margin-bottom: 26px;
-          border-bottom: 1px solid var(--rule);
-        }
-        .xa-beats { display: inline-flex; gap: 5px; flex-shrink: 0; }
-        .xa-beat {
-          width: 16px; height: 3px; border-radius: 2px;
-          background: var(--ground-3);
-          transition: background .35s ease;
-        }
-        .xa-beat.on { background: var(--ink); }
-        .xa-caption-text {
-          font-size: 14px; color: var(--ink); font-weight: 500;
-          animation: xa-cap .4s cubic-bezier(.16,1,.3,1);
-        }
-        @keyframes xa-cap {
-          from { opacity: 0; transform: translateY(4px); }
-          to   { opacity: 1; transform: none; }
+          .xa-link { padding: 22px 0; }
+          .xa-rail { width: 70px; }
+          .xa-bracket { display: none; }
+          .xa-agent { padding: 32px 20px 28px; }
+          .xa-avatar { width: 96px; height: 96px; }
         }
 
-        .xa-stage { padding: 22px 20px 24px; }
-          .xa-bracket { display: none; }
-          .xa-verdict {
-            margin-top: 18px; padding-top: 18px;
-            border-top: 1px solid var(--rule);
-            justify-content: flex-start;
-          }
-        }
         @media (prefers-reduced-motion: reduce) {
-          .xa-token, .xa-stub, .xa-railing, .xa-verdict { transition: none; }
-          .bot-bell, .bot-mic-ring, .bot-eye, .xa-rail.flow { animation: none !important; }
+          .xa-fly.go, .xa-fly.go .xa-payload, .xa-rail.flow { animation: none; }
           .xa-caption-text { animation: none; }
+          .xa-agent, .xa-node, .xa-bot-mouth, .xa-verdict,
+          .xa-stub, .xa-railing { transition: none !important; }
         }
       `}</style>
     </section>

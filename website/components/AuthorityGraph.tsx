@@ -31,6 +31,10 @@ type Node = {
   r: number;
   kind: Kind;
   label?: string;
+  /* Only on risk nodes. Amber is "review this"; red is "you cannot undo
+     this". Splitting them is what keeps red meaning something — a fleet
+     where everything is red reads as noise, not as a warning. */
+  sev?: "elevated" | "critical";
 };
 
 /* Positions are a composition, not a simulation. Systems anchor the four
@@ -45,8 +49,8 @@ const NODES: Node[] = [
 
   /* Held off the bottom centre. A lone red dot under the middle of the
      headline reads as a stray mark, not a capability. */
-  { x: 78, y: 45, r: 10, kind: "risk", label: RISK.moves_money.plain },
-  { x: 64, y: 89, r: 10, kind: "risk", label: RISK.deletes_data.plain },
+  { x: 78, y: 45, r: 10, kind: "risk", sev: "elevated", label: RISK.moves_money.plain },
+  { x: 64, y: 89, r: 10, kind: "risk", sev: "critical", label: RISK.deletes_data.plain },
 
   { x: 26, y: 12, r: 5, kind: "hop" },
   { x: 57, y: 27, r: 5, kind: "hop" },
@@ -96,6 +100,7 @@ type Packet = { route: number[]; leg: number; t: number; speed: number };
 export default function AuthorityGraph({
   tone = "light",
   mask = true,
+  maskAt = "31% 50%",
   packets = 2,
   variant = "subject",
   alert = false,
@@ -105,6 +110,9 @@ export default function AuthorityGraph({
      same thing on both surfaces. */
   tone?: "light" | "dark";
   mask?: boolean;
+  /* Where the dimming hole sits. The hero's headline is left-aligned, so the
+     default is off-centre; a centred block of type wants "50% 50%". */
+  maskAt?: string;
   /* How many calls are in flight. Two on the hero, where the graph is
      wallpaper; three in the dark act, where it is the subject. */
   packets?: number;
@@ -128,14 +136,22 @@ export default function AuthorityGraph({
   /* Smaller as wallpaper. At full size the four unlabelled system nodes read
      as stray blobs in the corners rather than as a network — the lines are
      what should register behind the type, not the dots. */
-  const rs = ambient ? 0.52 : 1; // radius scale
+  const rs = ambient ? 0.7 : 1; // radius scale
 
-  const systemFill = dark ? "#DDE4EE" : C.ink;
-  const hopFill = dark ? "#1C2331" : C.paper;
-  const hopStroke = dark ? "rgba(255,255,255,0.24)" : C.rule;
-  const edgeStroke = dark ? "rgba(255,255,255,0.14)" : "#E1E5EA";
-  const labelFill = dark ? "#6B7688" : C.muted2;
-  const packetFill = dark ? "#F4F6F8" : C.ink;
+  /* The fleet is teal. Nearly every node on this graph is an agent doing
+     bounded, approved work, and it should look that way at a glance — the
+     eye should have to hunt for the two that are not. */
+  const systemFill = dark ? C.aqua : C.brand;
+  const hopFill = dark ? C.brandDark : C.aquaSoft;
+  const hopStroke = dark ? "rgba(127,255,212,0.60)" : C.aquaInk;
+  const edgeStroke = dark ? "rgba(127,255,212,0.26)" : "#A6DCC9";
+  const labelFill = dark ? "#9DB4D6" : C.muted2;
+  const packetFill = dark ? C.aqua : C.aquaInk;
+  /* A risk node's colour is its severity, not its category. Both take the
+     RING variants — the punchier siblings of the text tones, which is what
+     a filled dot needs. --risk-elevated is a brown text tone and would look
+     muddy as a fill; the brand amber is the surface. */
+  const riskFill = (n: Node) => (n.sev === "critical" ? C.criticalRing : C.elevatedRing);
 
   useEffect(() => {
     const svg = svgRef.current;
@@ -237,7 +253,14 @@ export default function AuthorityGraph({
           if (el) {
             el.setAttribute("cx", String(px(from) + (px(to) - px(from)) * t));
             el.setAttribute("cy", String(py(from) + (py(to) - py(from)) * t));
-            el.setAttribute("fill", e !== undefined && EDGES[e][2] ? C.critical : packetFill);
+            el.setAttribute(
+              "fill",
+              e !== undefined && EDGES[e][2]
+                ? alertRef.current
+                  ? C.criticalRing
+                  : C.elevatedRing
+                : packetFill,
+            );
           }
         });
 
@@ -245,7 +268,11 @@ export default function AuthorityGraph({
           const el = edgeEls[i];
           if (!el || !isRisk) return;
           const f = flare[i];
-          el.setAttribute("stroke", f > 0.02 ? C.critical : edgeStroke);
+          /* Amber while a call is merely crossing a flagged transition; red
+             only once the chain detector has actually raised one. Two levels,
+             so the red still lands when it arrives. */
+          const lit = alertRef.current ? C.criticalRing : C.elevatedRing;
+          el.setAttribute("stroke", f > 0.02 ? lit : edgeStroke);
           el.setAttribute("opacity", String(0.34 + f * 0.5));
           el.setAttribute("stroke-width", String(1 + f * 0.5));
         });
@@ -282,14 +309,14 @@ export default function AuthorityGraph({
         /* Wallpaper is held well back. The graph should register as a
            substrate you notice on second look, never as competition for
            the headline sitting on top of it. */
-        opacity: ambient ? 0.62 : 1,
+        opacity: ambient ? 0.92 : 1,
         /* Dim — not erase — over the headline column. Masking to fully
            transparent swallows the red nodes, which are the point. */
         WebkitMaskImage: mask
-          ? "radial-gradient(46% 42% at 31% 50%, rgba(0,0,0,0.1) 20%, #000 88%)"
+          ? `radial-gradient(44% 40% at ${maskAt}, rgba(0,0,0,0.34) 22%, #000 86%)`
           : undefined,
         maskImage: mask
-          ? "radial-gradient(46% 42% at 31% 50%, rgba(0,0,0,0.1) 20%, #000 88%)"
+          ? `radial-gradient(44% 40% at ${maskAt}, rgba(0,0,0,0.34) 22%, #000 86%)`
           : undefined,
       }}
     >
@@ -310,12 +337,12 @@ export default function AuthorityGraph({
           <circle
             data-halo={i}
             r={n.r * rs + 7}
-            fill={n.kind === "risk" ? C.critical : dark ? "#FFFFFF" : C.ink}
+            fill={n.kind === "risk" ? riskFill(n) : dark ? C.aqua : C.aquaInk}
             opacity={n.kind === "risk" ? 0.09 : 0.05}
           />
           <circle
             r={n.r * rs}
-            fill={n.kind === "system" ? systemFill : n.kind === "risk" ? C.critical : hopFill}
+            fill={n.kind === "system" ? systemFill : n.kind === "risk" ? riskFill(n) : hopFill}
             stroke={n.kind === "hop" ? hopStroke : "none"}
             strokeWidth={n.kind === "hop" ? 1.5 : 0}
             opacity={n.kind === "system" ? 0.92 : n.kind === "risk" ? 0.88 : 1}
@@ -325,7 +352,7 @@ export default function AuthorityGraph({
               y={n.r + 15}
               textAnchor="middle"
               fontSize={9.5}
-              fill={n.kind === "risk" ? C.critical : labelFill}
+              fill={n.kind === "risk" ? riskFill(n) : labelFill}
               style={{ fontFamily: "var(--font-sans), system-ui, sans-serif", letterSpacing: "0.01em" }}
             >
               {n.label}

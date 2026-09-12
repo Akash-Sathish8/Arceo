@@ -28,7 +28,7 @@ const METRICS = [
     prefix: "",
     value: 32,
     suffix: "",
-    channel: "var(--risk)",
+    channel: "var(--amber)",
     title: "Dangerous chain rules",
     note: "Sequences of safe-looking actions that turn dangerous in order.",
   },
@@ -49,7 +49,7 @@ export default function MetricStrip() {
     <section
       ref={ref}
       style={{
-        background: "var(--ground)",
+        background: "var(--band-blue)",
         borderBottom: "1px solid var(--rule)",
       }}
     >

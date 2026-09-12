@@ -1,18 +1,26 @@
 import Link from "next/link";
-import { Wordmark } from "./Logo";
+import { LogoWordmark } from "./Logo";
+
+/* Big, but it has to survive a 360px phone: the wordmark is 4.5x as wide
+   as it is tall, so 104px of height is already ~470px of width. */
+const FOOTER_MARK_HEIGHT = 96;
 
 export default function Footer() {
   return (
     <footer style={{ background: "var(--paper)", borderTop: "1px solid var(--rule)", position: "relative" }}>
-      {/* The brand moment: the full wordmark, in its own inks, as the close. */}
-      <div style={{
-        overflow: "hidden",
-        display: "flex",
-        justifyContent: "center",
-        padding: "48px 24px 0",
-        userSelect: "none",
-      }}>
-        <Wordmark width="min(480px, 72vw)" />
+      {/* The official wordmark, full size, closing the page. It is the real
+          artwork rather than a font approximation, so the aqua bridge in the
+          E survives at display scale — that bridge is the mark's whole idea. */}
+      <div
+        style={{
+          overflow: "hidden",
+          display: "flex",
+          justifyContent: "center",
+          padding: "56px 24px 0",
+          userSelect: "none",
+        }}
+      >
+        <LogoWordmark height={FOOTER_MARK_HEIGHT} title="Arceo" />
       </div>
 
       <div className="container" style={{
