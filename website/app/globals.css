@@ -476,6 +476,33 @@ html { scroll-behavior: smooth; overflow-x: clip; }
    parks its heading underneath the bar. */
 section[id] { scroll-margin-top: 72px; }
 
+/* ── Scroll snapping ──────────────────────────────────────────
+   Proximity, not mandatory: the page scrolls at its natural speed and only
+   settles onto a chapter's top edge when the reader stops near one. A
+   mandatory snap would trap them mid-section in the taller chapters (the
+   features, the dark act), which the snap-deck playbook itself rules out
+   for content pages. The root scroller is the snap container because the
+   sticky nav and the scroll rail both read window scroll. The 72px margin is
+   the same offset as the anchor rule above, so a snap and a #hash jump land
+   on the same pixel, and it is set on every chapter so the ones without an
+   id (hero, metrics, the close) rest under the bar too. */
+html { scroll-snap-type: y proximity; }
+main > section { scroll-snap-align: start; scroll-margin-top: 72px; }
+/* The belt is a short band that reads as part of the metrics chapter, and
+   the footer is not a chapter. Neither is a resting place. */
+main > .belt { scroll-snap-align: none; }
+
+/* ── Heavy scroll (Lenis) ─────────────────────────────────────
+   components/SmoothScroll.tsx gives the wheel weight and snaps onto chapters
+   itself. While it runs it owns the scroll position frame by frame, so the
+   browser's own snap and smooth-scroll stand down or the two fight over
+   every pixel. It marks <html> with `lenis`; without it (reduced motion, a
+   touch screen, no JS) the native rules above are what the reader gets. */
+html.lenis, html.lenis body { height: auto; }
+html.lenis { scroll-behavior: auto !important; scroll-snap-type: none; }
+html.lenis.lenis-stopped { overflow: clip; }
+html.lenis [data-lenis-prevent] { overscroll-behavior: contain; }
+
 body {
   font-family: var(--font-sans), system-ui, -apple-system, sans-serif;
   background: var(--ground);
@@ -826,7 +853,7 @@ code, .mono {
   width: max-content;
   /* Two runs, so -50% lands exactly on the start of the second copy and the
      loop has no seam. */
-  animation: belt-run 56s linear infinite;
+  animation: belt-run 36s linear infinite;
 }
 .belt-viewport:hover .belt-track { animation-play-state: paused; }
 @keyframes belt-run {
@@ -835,25 +862,20 @@ code, .mono {
 }
 
 .belt-run { display: flex; align-items: center; }
-/* A shared BOX, not a shared height. These marks run from 1:1 to nearly 9:1,
-   so sizing them all to one height would leave the wordmarks vast and the
-   square glyphs lost. A fixed box with object-fit lets each sit at its own
-   natural weight and keeps the rhythm of the belt even. */
+/* Every mark is an icon now, not a wordmark, so one shared box does the
+   whole job: object-fit lets the wider marks (AWS, Zendesk) fill the width
+   and the taller one (PagerDuty) fill the height, and the square ones fill
+   both. The gap is set with margin rather than padding so the spacing across
+   the seam between the two runs is exactly the spacing inside them. */
 .belt-item {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  /* Wide and shallow on purpose. Height is then the binding constraint only
-     for the square glyphs, which is what keeps a 9:1 wordmark and a 1:1 icon
-     looking like they belong on the same shelf. */
-  width: 186px;
-  height: 30px;
-  padding: 0 18px;
+  width: 52px;
+  height: 44px;
+  margin: 0 28px;
   flex-shrink: 0;
 }
-/* Square marks need more height than a wordmark to carry the same weight —
-   a 30px glyph is 900px of ink, a 30px wordmark nearer 3,500. */
-.belt-item-glyph { height: 42px; }
 .belt-logo {
   /* 100%, not max-*: several of these files declare a 24x24 intrinsic size,
      and max-width/max-height only ever shrink — they never scale up, so the
@@ -872,8 +894,7 @@ code, .mono {
 
 @media (max-width: 640px) {
   .belt { padding: 22px 0 24px; }
-  .belt-item { width: 128px; height: 24px; padding: 0 14px; }
-  .belt-item-glyph { height: 34px; }
+  .belt-item { width: 40px; height: 34px; margin: 0 18px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -882,7 +903,7 @@ code, .mono {
   .belt-viewport { -webkit-mask-image: none; mask-image: none; }
   .belt-track { animation: none; width: 100%; }
   .belt-track .belt-run[aria-hidden] { display: none; }
-  .belt-run { flex-wrap: wrap; justify-content: center; }
+  .belt-run { flex-wrap: wrap; justify-content: center; row-gap: 20px; }
 }
 
 /* ── The scroll rail ───────────────────────────────────────────────

@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Poppins, Schibsted_Grotesk, Manrope, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import { SITE_URL, SITE_NAME, SITE_TAGLINE, SITE_DESCRIPTION } from "@/lib/site";
+import SmoothScroll from "@/components/SmoothScroll";
 
 /* Poppins stays only for /security and /book-demo, which have not been
    rebuilt yet. Everything else is set in the product app's own three faces,
@@ -99,6 +100,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en" className={`${poppins.variable} ${sans.variable} ${num.variable} ${mono.variable}`}>
       <body className="grain">
+        <SmoothScroll />
         {children}
         <script
           type="application/ld+json"
