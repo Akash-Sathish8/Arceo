@@ -48,7 +48,7 @@ export default function Home() {
     <>
       <a href="#main" className="skip-link">Skip to content</a>
       <Navbar />
-      <main id="main" style={{ overflowX: "clip", width: "100%" }}>
+      <main id="main" data-chapters style={{ overflowX: "clip", width: "100%" }}>
         <Hero />
         <MetricStrip />
         <IntegrationBelt />

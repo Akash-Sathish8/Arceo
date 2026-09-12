@@ -476,6 +476,33 @@ html { scroll-behavior: smooth; overflow-x: clip; }
    parks its heading underneath the bar. */
 section[id] { scroll-margin-top: 72px; }
 
+/* ── Scroll snapping ──────────────────────────────────────────
+   Proximity, not mandatory: the page scrolls at its natural speed and only
+   settles onto a chapter's top edge when the reader stops near one. A
+   mandatory snap would trap them mid-section in the taller chapters (the
+   features, the dark act), which the snap-deck playbook itself rules out
+   for content pages. The root scroller is the snap container because the
+   sticky nav and the scroll rail both read window scroll. The 72px margin is
+   the same offset as the anchor rule above, so a snap and a #hash jump land
+   on the same pixel, and it is set on every chapter so the ones without an
+   id (hero, metrics, the close) rest under the bar too. */
+html { scroll-snap-type: y proximity; }
+main > section { scroll-snap-align: start; scroll-margin-top: 72px; }
+/* The belt is a short band that reads as part of the metrics chapter, and
+   the footer is not a chapter. Neither is a resting place. */
+main > .belt { scroll-snap-align: none; }
+
+/* ── Heavy scroll (Lenis) ─────────────────────────────────────
+   components/SmoothScroll.tsx gives the wheel weight and snaps onto chapters
+   itself. While it runs it owns the scroll position frame by frame, so the
+   browser's own snap and smooth-scroll stand down or the two fight over
+   every pixel. It marks <html> with `lenis`; without it (reduced motion, a
+   touch screen, no JS) the native rules above are what the reader gets. */
+html.lenis, html.lenis body { height: auto; }
+html.lenis { scroll-behavior: auto !important; scroll-snap-type: none; }
+html.lenis.lenis-stopped { overflow: clip; }
+html.lenis [data-lenis-prevent] { overscroll-behavior: contain; }
+
 body {
   font-family: var(--font-sans), system-ui, -apple-system, sans-serif;
   background: var(--ground);
