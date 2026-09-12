@@ -34,3 +34,7 @@ brain/Untitled.canvas
 # Claude Code local config + internal Obsidian vault (not part of the product repo)
 .claude/
 brain/
+
+# Vercel Marketplace agent-skill payloads (vendor docs pulled by `vercel integration add`)
+.agents/
+skills-lock.json
