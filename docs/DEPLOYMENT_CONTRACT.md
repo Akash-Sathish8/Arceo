@@ -175,6 +175,61 @@ sandbox runs must complete against one instance.**
 
 ---
 
+## 9. Vercel addendum (2026-09)
+
+Arceo's own hosted instance runs on Vercel for now (decision 2026-09-11; the
+Google Cloud standardisation above is deferred, not reversed — this addendum
+is additive and §1–§8 stay canonical for the GCP cutover and customer-VPC
+deploys). Topology: two Vercel projects from the one repo — the marketing
+site (root `website/`), and the platform as a Vercel Services deployment
+(Vite SPA + this backend, same origin, `vercel.json` at the repo root).
+Production branch: `dev`.
+
+**Where Vercel diverges from the contract above:**
+
+- **§4 (background jobs).** "Do not build authenticated internal endpoints"
+  presumes Cloud Scheduler + Cloud Run Jobs. Vercel has neither: its cron
+  scheduler can only GET a path on the production deployment, sending
+  `Authorization: Bearer $CRON_SECRET`. The three `/api/internal/cron/*`
+  endpoints in `main.py` are the sanctioned Vercel path. They wrap the same
+  entrypoints as `python -m jobs.X` (which remains canonical for GCP) and
+  return 503 whenever `CRON_SECRET` is unset — inert on every deploy that
+  hasn't opted in. Still set `DISABLE_SNAPSHOT_SCHEDULER=true`: Fluid Compute
+  idles CPU between requests, so the in-process loop never ticks (same
+  failure mode as Cloud Run).
+- **§5 (proxy headers).** Row for the table: Vercel = `TRUSTED_PROXY=true`,
+  `ARCEO_TRUSTED_PROXY_HOPS=0` — Vercel writes the client IP as the
+  right-most `X-Forwarded-For` entry. Verify empirically at cutover (the
+  three-part test: distinct IPs get distinct rate-limit buckets; forged XFF
+  does not mint a fresh one). `FORWARDED_ALLOW_IPS` is irrelevant here:
+  Vercel runs the ASGI app directly, uvicorn and its ProxyHeadersMiddleware
+  are not in the stack.
+- **§7 (storage).** `ARCEO_LLM_CACHE_PATH=/tmp/llm_cache.db` — the only
+  writable path. Ephemeral per instance: the repeat-Haiku-spend and
+  cross-instance nondeterminism caveat in §7 is accepted, not fixed. The
+  default repo-relative path would fail on Vercel's read-only filesystem.
+- **§8 (session affinity).** Vercel offers none. The mock-sandbox caveat is
+  accepted as-is; runs survive only on warm-instance reuse.
+
+**Two Vercel-specific hazards with no §1–§8 equivalent:**
+
+- **Promotion is on build success, not boot success.** Cloud Run holds a
+  release until the container serves; Vercel promotes when the build passes.
+  A deploy carrying an unapplied migration goes live and then refuses at boot
+  (schema-at-head check) — loud, but user-visible. So migrations run
+  *before merging* the migration PR to `dev`, not merely before deploy.
+- **Instant rollback across a migration boundary refuses to boot** — the
+  schema check is an exact match, so older code sees a too-new schema. Run
+  `alembic downgrade` first, then roll back the deployment.
+
+**Exit to GCP (config-only by design):** unset `CRON_SECRET` (cron endpoints
+go inert), stand up Cloud Scheduler + Cloud Run Jobs on `python -m jobs.X`,
+set proxy hops per the §5 table, repoint DNS. Neon/Upstash are ordinary
+external Postgres/Redis and can come along or be replaced by Cloud SQL +
+Memorystore per §1.
+
+---
+
 ## Pre-flight checklist
 
 ```

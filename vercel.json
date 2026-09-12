@@ -1,0 +1,27 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "services": {
+    "frontend": {
+      "root": "frontend",
+      "rewrites": [
+        { "source": "/(.*)", "destination": "/index.html" }
+      ]
+    },
+    "backend": {
+      "root": "backend",
+      "entrypoint": "main:app"
+    }
+  },
+  "rewrites": [
+    { "source": "/api/(.*)", "destination": { "service": "backend" } },
+    { "source": "/ws/(.*)", "destination": { "service": "backend" } },
+    { "source": "/proxy/(.*)", "destination": { "service": "backend" } },
+    { "source": "/mock/(.*)", "destination": { "service": "backend" } },
+    { "source": "/(.*)", "destination": { "service": "frontend" } }
+  ],
+  "crons": [
+    { "path": "/api/internal/cron/snapshot-forecasts", "schedule": "0 2 * * *" },
+    { "path": "/api/internal/cron/purge-llm-captures", "schedule": "30 2 * * *" },
+    { "path": "/api/internal/cron/weekly-digest", "schedule": "0 14 * * 1" }
+  ]
+}
