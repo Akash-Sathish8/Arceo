@@ -15,14 +15,24 @@
  * in MetricStrip moves with it.
  *
  * ── On the logos ──────────────────────────────────────────────────────────
- * These are the vendors' real marks, served from public/brand/integrations/
- * as static files. They are NOT hotlinked — nothing here makes a request to
- * a third party at render time — and they are NOT redrawn.
+ * These are the vendors' real marks — the icon, not the wordmark — served
+ * from public/brand/integrations/ as static files. They are NOT hotlinked —
+ * nothing here makes a request to a third party at render time — and they
+ * are NOT redrawn.
  *
  * They come from three places because no single set has all seventeen:
- *   gilbarbara/logos  13 of them, via jsDelivr
- *   @lobehub/icons    LangSmith, Langfuse, Ollama
- *   simple-icons      Calendly
+ *   gilbarbara/logos  Anthropic, OpenAI, MCP, GitHub, Slack, PagerDuty,
+ *                     SendGrid, Zendesk, Salesforce, Gmail and AWS — the
+ *                     `*-icon.svg` variants where the set has one, via
+ *                     jsDelivr. AWS has no separate icon; the smile lockup IS
+ *                     its mark.
+ *   @lobehub/icons    LangSmith, Langfuse
+ *   simple-icons      Calendly, HubSpot, Stripe, Ollama. simple-icons ships
+ *                     single-colour paths with no fill, so each of those
+ *                     files carries the vendor's own brand hex as published
+ *                     in simple-icons' data (HubSpot #FF7A59, Stripe #635BFF,
+ *                     Ollama #000000, Calendly #006BFF). That is the vendor's
+ *                     colour, not a recolour.
  *
  * Worth knowing before this ships: OpenAI, Slack, Salesforce, AWS and
  * SendGrid have all been REMOVED from simple-icons at their owners' request,
@@ -34,18 +44,13 @@
  * rather than being forced to one ink: recolouring is the rule most often
  * broken, and the one most easily avoided.
  *
- * Sizes are normalised by BOX, not by height. The marks run from 1:1
- * (Calendly) to nearly 9:1 (Anthropic), so a shared height would make the
- * wordmarks enormous; a shared box with object-fit lets each one sit at its
- * own natural weight.
+ * Sizing: every file is now a roughly square mark. The widest (AWS) is 5:3
+ * and the tallest (PagerDuty) is 2:3, so one shared box with object-fit is
+ * enough to keep the belt's rhythm even. The old wordmark/glyph split, and
+ * the per-kind box heights it needed, are gone with the wordmarks.
  */
 
-/* A square glyph and a long wordmark set to the same HEIGHT do not read as
-   the same size — the wordmark covers three or four times the area. So each
-   mark declares which it is, and the glyphs get a taller box to even out the
-   optical weight. This is the whole reason the belt does not look like a
-   ransom note. */
-type Integration = { name: string; file: string; glyph?: true };
+type Integration = { name: string; file: string };
 
 /* Ordered so the four a reader is looking for come first, then the rest of
    the surface. GitHub is both an agent source and a governed tool; it
@@ -55,26 +60,26 @@ const INTEGRATIONS: Integration[] = [
   { name: "OpenAI", file: "openai" },
   { name: "Model Context Protocol", file: "mcp" },
   { name: "GitHub", file: "github" },
-  { name: "LangSmith", file: "langsmith", glyph: true },
-  { name: "Langfuse", file: "langfuse", glyph: true },
+  { name: "LangSmith", file: "langsmith" },
+  { name: "Langfuse", file: "langfuse" },
   { name: "Ollama", file: "ollama" },
   { name: "Stripe", file: "stripe" },
-  { name: "Salesforce", file: "salesforce", glyph: true },
+  { name: "Salesforce", file: "salesforce" },
   { name: "Zendesk", file: "zendesk" },
   { name: "Slack", file: "slack" },
-  { name: "Amazon Web Services", file: "aws", glyph: true },
+  { name: "Amazon Web Services", file: "aws" },
   { name: "PagerDuty", file: "pagerduty" },
   { name: "HubSpot", file: "hubspot" },
   { name: "SendGrid", file: "sendgrid" },
-  { name: "Gmail", file: "gmail", glyph: true },
-  { name: "Calendly", file: "calendly", glyph: true },
+  { name: "Gmail", file: "gmail" },
+  { name: "Calendly", file: "calendly" },
 ];
 
 function Run({ hidden }: { hidden?: boolean }) {
   return (
     <div className="belt-run" aria-hidden={hidden || undefined}>
       {INTEGRATIONS.map((i) => (
-        <span key={i.name} className={`belt-item${i.glyph ? " belt-item-glyph" : ""}`}>
+        <span key={i.name} className="belt-item">
           {/* The names are gone from the surface, so the alt text is the only
               thing carrying them — it is doing real work here, not filling in
               a required attribute. Decorative on the duplicate run. */}

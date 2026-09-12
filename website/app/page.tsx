@@ -1,4 +1,3 @@
-import AnnouncementBar from "@/components/AnnouncementBar";
 import Navbar from "@/components/Navbar";
 import Hero from "@/components/Hero";
 import MetricStrip from "@/components/MetricStrip";
@@ -48,7 +47,6 @@ export default function Home() {
   return (
     <>
       <a href="#main" className="skip-link">Skip to content</a>
-      <AnnouncementBar />
       <Navbar />
       <main id="main" style={{ overflowX: "clip", width: "100%" }}>
         <Hero />
