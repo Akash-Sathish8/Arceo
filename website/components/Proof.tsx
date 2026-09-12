@@ -89,7 +89,10 @@ export default function Proof() {
   const { ref: headRef, className: headClass } = useFadeInOnScroll();
 
   return (
-    <section id="proof" style={{ padding: "104px 0", background: "var(--ground)", borderTop: "1px solid var(--rule)" }}>
+    <section
+      id="proof"
+      style={{ padding: "104px 0", background: "var(--band-blue)", borderTop: "1px solid var(--rule)" }}
+    >
       <div className="container" style={{ maxWidth: 920 }}>
         <div ref={headRef} className={headClass} style={{ marginBottom: 24 }}>
           <span className="eyebrow">Proof</span>

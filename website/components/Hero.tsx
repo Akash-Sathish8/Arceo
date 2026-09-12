@@ -49,7 +49,12 @@ export default function Hero() {
       ref={sectionRef}
       className="ruled"
       style={{
-        background: "var(--paper)",
+        /* The hero ground does the work the card's border used to. With no
+           hairline and no shadow on the panel, TONE is the only thing left
+           to separate it — so the ground is a real blue-neutral rather than
+           a near-white, and the white card reads as a plane sitting on it.
+           Straight out of the product: tinted page, white surfaces. */
+        background: "linear-gradient(180deg, #E5EBF7 0%, #E9EFF9 58%, #EFF3FB 100%)",
         position: "relative",
         overflow: "hidden",
         padding: "80px 0 100px",
@@ -120,11 +125,26 @@ export default function Hero() {
               maxWidth: 700,
             }}
           >
+            {/* The two halves of the product are the two halves of the
+                sentence, so the sentence is coded the same way the rest of
+                the page is: deep blue is what it costs, red is what it can
+                break. A node runs the underline the way a call runs an edge
+                of the authority graph, then parks at the end of the word. */}
             <span className="hero-el hero-line" style={{ "--d": "120ms" } as React.CSSProperties}>
-              Know what your agent costs,
+              Know what your{" "}
+              <span className="hl hl-cost" style={{ "--hl-d": "1.05s" } as React.CSSProperties}>
+                agent costs
+                <span className="hl-node" aria-hidden="true" />
+              </span>
+              ,
             </span>
             <span className="hero-el hero-line" style={{ "--d": "260ms" } as React.CSSProperties}>
-              and what it can break.
+              and what it can{" "}
+              <span className="hl hl-risk" style={{ "--hl-d": "1.6s" } as React.CSSProperties}>
+                break
+                <span className="hl-node" aria-hidden="true" />
+              </span>
+              .
             </span>
           </h1>
 
@@ -212,6 +232,74 @@ export default function Hero() {
         }
         .hero-left:not(.pre) .hero-line { filter: blur(0); }
 
+        /* ── The coded keywords ───────────────────────────────────────
+           "agent costs" and "break" are the two things Arceo answers, and
+           they take the two channel inks the whole page uses: deep blue for
+           cost, red for consequence. Each is underlined by a node that runs
+           the width of the word and then parks at its end, the same way a
+           call walks an edge of the authority graph behind the headline —
+           the ornament is the product's own motif, not a highlighter.
+
+           The word stays ink-coloured until the node has almost finished its
+           run, so the colour arrives as a result of the sweep rather than
+           being there from the start. */
+        .hl {
+          position: relative;
+          display: inline-block;
+          color: inherit;
+          animation: hl-ink .45s ease forwards;
+          /* --hl paints the line and the node; --hl-text paints the word. */
+          animation-delay: calc(var(--hl-d) + .34s);
+          white-space: nowrap;
+        }
+        .hl-cost { --hl: var(--cost);  --hl-text: var(--cost); }
+        /* Amber, not red. Red is held back on this page for the agents that
+           genuinely fail a build — an 82/100 in the PR check, an irreversible
+           delete. The headline is naming a category, not raising an alarm. */
+        .hl-risk { --hl: var(--amber); --hl-text: var(--amber-ink); }
+        @keyframes hl-ink { to { color: var(--hl-text); } }
+
+        /* The line the node leaves behind it. */
+        .hl::after {
+          content: "";
+          position: absolute;
+          left: 0; right: 0; bottom: -0.04em;
+          height: 0.055em; min-height: 3px;
+          border-radius: 2px;
+          background: var(--hl);
+          transform: scaleX(0); transform-origin: left center;
+          animation: hl-draw .78s cubic-bezier(.45,0,.2,1) forwards;
+          animation-delay: var(--hl-d);
+        }
+        @keyframes hl-draw { to { transform: scaleX(1); } }
+
+        /* The node itself. Rides the leading edge of the underline, then
+           holds — a terminal on the graph, breathing the way the live dot
+           on the tape does. */
+        .hl-node {
+          position: absolute;
+          left: 0; bottom: -0.04em;
+          width: 0.17em; height: 0.17em;
+          min-width: 9px; min-height: 9px;
+          border-radius: 50%;
+          background: var(--hl);
+          transform: translate(-50%, 32%);
+          opacity: 0;
+          animation:
+            hl-run .78s cubic-bezier(.45,0,.2,1) forwards,
+            hl-breathe 2.6s ease-in-out infinite;
+          animation-delay: var(--hl-d), calc(var(--hl-d) + .78s);
+        }
+        @keyframes hl-run {
+          0%   { left: 0;    opacity: 0; }
+          10%  { opacity: 1; }
+          100% { left: 100%; opacity: 1; }
+        }
+        @keyframes hl-breathe {
+          0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--hl) 38%, transparent); }
+          50%      { box-shadow: 0 0 0 5px color-mix(in srgb, var(--hl) 0%, transparent); }
+        }
+
         /* Two lines is the composition, so above the breakpoint each line is
            held on one line. Below it they wrap like ordinary text rather than
            overflowing — a nowrap headline on a phone is a horizontal scrollbar. */
@@ -230,15 +318,15 @@ export default function Hero() {
            is running right now. */
         .pulse-dot {
           width: 5px; height: 5px; border-radius: 50%;
-          background: var(--risk);
-          box-shadow: 0 0 0 0 rgba(220,38,38,0.5);
+          background: var(--amber);
+          box-shadow: 0 0 0 0 rgba(245,158,11,0.5);
           animation: pulse-ring 2.6s cubic-bezier(.16,1,.3,1) infinite;
           flex-shrink: 0;
         }
         @keyframes pulse-ring {
-          0%   { box-shadow: 0 0 0 0 rgba(220,38,38,0.42); }
-          70%  { box-shadow: 0 0 0 7px rgba(220,38,38,0); }
-          100% { box-shadow: 0 0 0 0 rgba(220,38,38,0); }
+          0%   { box-shadow: 0 0 0 0 rgba(245,158,11,0.45); }
+          70%  { box-shadow: 0 0 0 7px rgba(245,158,11,0); }
+          100% { box-shadow: 0 0 0 0 rgba(245,158,11,0); }
         }
 
         .hero-proof {
@@ -268,6 +356,9 @@ export default function Hero() {
 
         @media (prefers-reduced-motion: reduce) {
           .hero-el, .hero-right { opacity: 1 !important; transform: none !important; transition: none !important; }
+          .hl { animation: none; color: var(--hl-text); }
+          .hl::after { animation: none; transform: scaleX(1); }
+          .hl-node { animation: none; opacity: 1; left: 100%; }
           .hero-line { filter: none !important; }
           .pulse-dot { animation: none; }
         }

@@ -1,10 +1,10 @@
 export default function AnnouncementBar() {
   return (
     <div style={{
-      background: "var(--ink)",
+      background: "var(--brand)",
       padding: "9px 24px",
       textAlign: "center",
-      borderBottom: "1px solid rgba(255,255,255,0.06)",
+      borderBottom: "1px solid rgba(113,217,226,0.22)",
     }}>
       <span style={{
         fontSize: 13.5,

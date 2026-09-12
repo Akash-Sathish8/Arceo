@@ -1,13 +1,18 @@
 import type { Metadata } from "next";
-import { Poppins, Schibsted_Grotesk } from "next/font/google";
+import { Poppins, Schibsted_Grotesk, Manrope, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import { SITE_URL, SITE_NAME, SITE_TAGLINE, SITE_DESCRIPTION } from "@/lib/site";
 
-/* Poppins stays: /security and /book-demo are still set in it.
-   One face carries the landing page: Schibsted Grotesk for words AND figures
-   (with tabular numerals where columns align). The old JetBrains Mono layer
-   was retired 2026-09-08; an IDE font on display numbers read as a dev tool,
-   not a finance product. --font-mono is shimmed to the sans in globals.css. */
+/* Poppins stays only for /security and /book-demo, which have not been
+   rebuilt yet. Everything else is set in the product app's own three faces,
+   so the site and the thing you sign in to are typographically the same
+   product (frontend/src/index.css is the source of truth):
+
+     Schibsted Grotesk  the words
+     Manrope            every FIGURE — proportional, so tabular-nums is not
+                        optional; it is the only thing keeping a column of
+                        dollar amounts aligned
+     JetBrains Mono     literal code and tool identifiers only            */
 const poppins = Poppins({
   subsets: ["latin"],
   variable: "--font-poppins",
@@ -20,6 +25,20 @@ const sans = Schibsted_Grotesk({
   variable: "--font-sans",
   display: "swap",
   weight: ["400", "500", "600", "700"],
+});
+
+const num = Manrope({
+  subsets: ["latin"],
+  variable: "--font-num",
+  display: "swap",
+  weight: ["400", "500", "600", "700"],
+});
+
+const mono = JetBrains_Mono({
+  subsets: ["latin"],
+  variable: "--font-mono",
+  display: "swap",
+  weight: ["400", "500", "600"],
 });
 
 const TITLE = `${SITE_NAME} · ${SITE_TAGLINE}`;
@@ -78,7 +97,7 @@ const JSON_LD = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={`${poppins.variable} ${sans.variable}`}>
+    <html lang="en" className={`${poppins.variable} ${sans.variable} ${num.variable} ${mono.variable}`}>
       <body className="grain">
         {children}
         <script

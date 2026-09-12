@@ -83,10 +83,10 @@ export default function PricingPage() {
   return (
     <>
       <Navbar />
-      <main style={{ background: "#f9fafb", minHeight: "calc(100vh - 64px)" }}>
+      <main style={{ background: "var(--ground)", minHeight: "calc(100vh - 64px)" }}>
 
         {/* Header */}
-        <section style={{ background: "#fff", borderBottom: "1px solid #e5e7eb", padding: "80px 0 64px" }}>
+        <section style={{ background: "var(--paper)", borderBottom: "1px solid var(--rule)", padding: "80px 0 64px" }}>
           <div className="container" style={{ textAlign: "center" }}>
             <span style={{
               display: "inline-block",
@@ -94,10 +94,10 @@ export default function PricingPage() {
               textTransform: "uppercase", letterSpacing: "0.12em",
               marginBottom: 16,
             }}>Pricing</span>
-            <h1 style={{ fontSize: 52, fontWeight: 700, letterSpacing: "-0.02em", color: "#111827", marginBottom: 16 }}>
+            <h1 style={{ fontSize: 52, fontWeight: 700, letterSpacing: "-0.02em", color: "var(--ink)", marginBottom: 16 }}>
               Simple, transparent pricing
             </h1>
-            <p style={{ fontSize: 16, color: "#6b7280", lineHeight: 1.7, maxWidth: 480, margin: "0 auto" }}>
+            <p style={{ fontSize: 16, color: "var(--muted)", lineHeight: 1.7, maxWidth: 480, margin: "0 auto" }}>
               Start with a free scan. Upgrade when you need more agents, chain rules, or alerts. No credit card required to start.
             </p>
           </div>
@@ -114,8 +114,8 @@ export default function PricingPage() {
             }} className="pricing-grid">
               {PLANS.map((plan) => (
                 <div key={plan.name} style={{
-                  background: plan.highlight ? "#111827" : "#fff",
-                  border: plan.highlight ? "1px solid #111827" : "1px solid #e5e7eb",
+                  background: plan.highlight ? "var(--brand)" : "var(--paper)",
+                  border: "none",
                   borderRadius: 20,
                   padding: "32px 28px",
                   display: "flex",
@@ -127,7 +127,7 @@ export default function PricingPage() {
                   {plan.badge && (
                     <div style={{
                       position: "absolute", top: -12, left: "50%", transform: "translateX(-50%)",
-                      background: "var(--ink)", color: "#fff",
+                      background: "var(--amber)", color: "var(--on-amber)",
                       fontSize: 10, fontWeight: 700, padding: "3px 12px", borderRadius: 999,
                       letterSpacing: "0.06em", whiteSpace: "nowrap",
                     }}>
@@ -136,18 +136,18 @@ export default function PricingPage() {
                   )}
 
                   <div style={{ marginBottom: 20 }}>
-                    <div style={{ fontSize: 13, fontWeight: 700, color: plan.highlight ? "#9ca3af" : "#9ca3af", marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.08em" }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: plan.highlight ? "var(--cyan)" : "var(--muted-2)", marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.08em" }}>
                       {plan.name}
                     </div>
                     <div style={{ display: "flex", alignItems: "baseline", gap: 4, marginBottom: 8 }}>
-                      <span style={{ fontSize: 44, fontWeight: 800, color: plan.highlight ? "#fff" : "#111827", letterSpacing: "-0.03em", lineHeight: 1 }}>
+                      <span style={{ fontSize: 44, fontWeight: 800, color: plan.highlight ? "#fff" : "var(--ink)", letterSpacing: "-0.03em", lineHeight: 1 }}>
                         {plan.price}
                       </span>
                       {plan.period && (
-                        <span style={{ fontSize: 14, color: plan.highlight ? "#9ca3af" : "#9ca3af" }}>{plan.period}</span>
+                        <span style={{ fontSize: 14, color: plan.highlight ? "rgba(255,255,255,0.72)" : "var(--muted-2)" }}>{plan.period}</span>
                       )}
                     </div>
-                    <p style={{ fontSize: 13, color: plan.highlight ? "#9ca3af" : "#6b7280", lineHeight: 1.6 }}>
+                    <p style={{ fontSize: 13, color: plan.highlight ? "rgba(255,255,255,0.78)" : "var(--muted)", lineHeight: 1.6 }}>
                       {plan.description}
                     </p>
                   </div>
@@ -162,22 +162,22 @@ export default function PricingPage() {
                     fontWeight: 700,
                     textDecoration: "none",
                     marginBottom: 28,
-                    background: plan.highlight ? "#fff" : "transparent",
-                    color: plan.highlight ? "#111827" : "#374151",
-                    border: plan.highlight ? "none" : "1.5px solid #d1d5db",
+                    background: plan.highlight ? "#fff" : "var(--paper)",
+                    color: plan.highlight ? "var(--brand)" : "var(--ink)",
+                    border: plan.highlight ? "none" : "1.5px solid var(--brand-border)",
                     transition: "opacity 0.15s",
                   }}>
                     {plan.cta}
                   </Link>
 
-                  <div style={{ borderTop: plan.highlight ? "1px solid #374151" : "1px solid #f3f4f6", paddingTop: 24, display: "flex", flexDirection: "column", gap: 12 }}>
+                  <div style={{ borderTop: plan.highlight ? "1px solid rgba(255,255,255,0.22)" : "1px solid var(--rule)", paddingTop: 24, display: "flex", flexDirection: "column", gap: 12 }}>
                     {plan.features.map((f) => (
                       <div key={f} style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
                         <svg width="14" height="14" viewBox="0 0 14 14" fill="none" style={{ flexShrink: 0, marginTop: 2 }}>
-                          <circle cx="7" cy="7" r="7" fill={plan.highlight ? "#374151" : "#f0fdf4"}/>
-                          <path d="M4 7l2 2 4-4" stroke={plan.highlight ? "#4ade80" : "#16a34a"} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                          <circle cx="7" cy="7" r="7" fill={plan.highlight ? "rgba(255,255,255,0.18)" : "var(--aqua-soft)"}/>
+                          <path d="M4 7l2 2 4-4" stroke={plan.highlight ? "var(--aqua)" : "var(--aqua-ink)"} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
                         </svg>
-                        <span style={{ fontSize: 13, color: plan.highlight ? "#d1d5db" : "#374151", lineHeight: 1.5 }}>{f}</span>
+                        <span style={{ fontSize: 13, color: plan.highlight ? "rgba(255,255,255,0.88)" : "var(--ink)", lineHeight: 1.5 }}>{f}</span>
                       </div>
                     ))}
                   </div>
@@ -186,9 +186,9 @@ export default function PricingPage() {
             </div>
 
             {/* Footer note */}
-            <p style={{ textAlign: "center", fontSize: 13, color: "#9ca3af", marginTop: 40 }}>
+            <p style={{ textAlign: "center", fontSize: 13, color: "var(--muted-2)", marginTop: 40 }}>
               All plans are read-only. Arceo sees what your agents can do, never your customer data. Questions?{" "}
-              <Link href="/book-demo" style={{ color: "#374151", fontWeight: 600 }}>Talk to us →</Link>
+              <Link href="/book-demo" style={{ color: "var(--brand)", fontWeight: 600 }}>Talk to us →</Link>
             </p>
           </div>
         </section>

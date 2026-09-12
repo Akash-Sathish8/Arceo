@@ -53,6 +53,7 @@ export default function HowItWorks() {
 
   return (
     <section
+      id="how-it-works"
       ref={ref}
       className="act-dark ruled-dark"
       style={{ position: "relative", overflow: "hidden", padding: "108px 0 116px" }}
@@ -129,16 +130,16 @@ export default function HowItWorks() {
           transition: transform 1.25s cubic-bezier(.22,1,.36,1) .1s;
           background: linear-gradient(
             to right,
-            rgba(255,255,255,0.24) 0%,
-            rgba(255,255,255,0.24) 62%,
-            rgba(220,38,38,0.75) 100%
+            rgba(113,217,226,0.30) 0%,
+            rgba(113,217,226,0.30) 58%,
+            rgba(245,158,11,0.85) 100%
           );
         }
 
         .tl-marker { display: flex; align-items: center; gap: 10px; margin-bottom: 22px; }
         .tl-dot {
           width: 11px; height: 11px; border-radius: 50%;
-          background: #0E131C;
+          background: #07245A;
           box-shadow: inset 0 0 0 2px rgba(255,255,255,0.28);
           flex-shrink: 0;
           transition: box-shadow .45s ease, transform .45s cubic-bezier(.16,1,.3,1);
@@ -150,10 +151,10 @@ export default function HowItWorks() {
           transform: scale(1.1);
         }
         /* The last beat is the one that produces the risk number, so its
-           marker carries the money red. */
-        .tl-step:last-child .tl-dot { box-shadow: inset 0 0 0 2px rgba(220,38,38,0.4); }
+           marker carries the brand amber — the "review this" tone. */
+        .tl-step:last-child .tl-dot { box-shadow: inset 0 0 0 2px rgba(245,158,11,0.45); }
         .tl-step:last-child.lit .tl-dot {
-          box-shadow: inset 0 0 0 3px #dc2626, 0 0 0 4px rgba(220,38,38,0.15);
+          box-shadow: inset 0 0 0 3px #F59E0B, 0 0 0 4px rgba(245,158,11,0.18);
         }
 
         .tl-n, .tl-title { transition: color .45s ease; }

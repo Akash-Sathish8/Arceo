@@ -57,10 +57,12 @@ export default function BlastRadius() {
 
   return (
     <section
+      id="blast-radius"
       ref={ref}
       style={{
         padding: "104px 0 112px",
-        background: "var(--ground)",
+        background: "var(--band-teal)",
+        position: "relative",
         borderTop: "1px solid var(--rule)",
         borderBottom: "1px solid var(--rule)",
       }}
@@ -222,7 +224,7 @@ export default function BlastRadius() {
         .sc-figure { display: flex; align-items: baseline; gap: 9px; margin-bottom: 14px; }
         .sc-num {
           display: flex; font-size: 86px; font-weight: 600;
-          color: var(--ink); line-height: 1; letter-spacing: -0.04em;
+          color: var(--amber-ink); line-height: 1; letter-spacing: -0.04em;
         }
         .sc-of { font-size: 16px; color: var(--muted-2); }
 
@@ -231,8 +233,8 @@ export default function BlastRadius() {
           opacity: 0; transform: translateY(4px);
           transition: opacity .45s ease .25s, transform .45s cubic-bezier(.16,1,.3,1) .25s;
           font-size: 10px; font-weight: 600; letter-spacing: 0.12em;
-          color: var(--risk); background: var(--label-money-fill);
-          border: 1px solid var(--risk-critical-border);
+          color: var(--amber-ink); background: var(--amber-soft);
+          border: 1px solid var(--amber);
           padding: 4px 10px; border-radius: var(--r-xs);
           margin-bottom: 32px;
         }
@@ -244,11 +246,11 @@ export default function BlastRadius() {
           height: 9px; margin-bottom: 9px;
         }
         .sc-zone { background: var(--ground-3); border-radius: 2px; }
-        .sc-zone-crit { background: var(--risk-soft); }
+        .sc-zone-crit { background: var(--risk-critical-border); }
         .sc-marker {
           position: absolute; top: -4px;
           width: 3px; height: 17px; border-radius: 2px;
-          background: var(--ink);
+          background: var(--amber-ink);
           box-shadow: 0 0 0 3px var(--ground);
           transform: translateX(-50%);
           transition: left 1.1s cubic-bezier(.16,1,.3,1) .2s;

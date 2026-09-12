@@ -66,6 +66,26 @@ const CAPABILITIES = [
    read-only row's single point stays visibly, almost comically, short. */
 const W_MAX = 30;
 
+/* Weight IS severity, so the bar should say so. Every row used to be red,
+   which flattened the one number the section exists to contrast: a
+   read-only call worth a single point looked exactly as alarming as an
+   irreversible delete worth thirty. Teal for bounded, amber for review,
+   red for the genuinely irreversible — the ramp does the arguing. */
+function severity(weight: number) {
+  if (weight <= 5) return "var(--risk-safe)";
+  if (weight <= 25) return "var(--risk-elevated)";
+  return "var(--risk-critical)";
+}
+
+/* The same ramp as a FILL. Amber is the one band whose text tone and surface
+   differ: --risk-elevated is the brown that stays readable on white, and as
+   a solid bar it just looks muddy. The brand amber is the surface. */
+function severityFill(weight: number) {
+  if (weight <= 5) return "var(--risk-safe-ring)";
+  if (weight <= 25) return "var(--amber)";
+  return "var(--risk-critical)";
+}
+
 export default function ProblemStatement() {
   const ref = useReveal<HTMLElement>(0.12);
   const [barsRef, armed] = useArmed<HTMLDivElement>(0.3);
@@ -117,7 +137,14 @@ export default function ProblemStatement() {
             <div
               key={c.action}
               className="cap-row rise"
-              style={{ "--i": i + 2, "--edge": c.color } as React.CSSProperties}
+              style={
+                {
+                  "--i": i + 2,
+                  "--edge": c.color,
+                  "--sev": severity(c.weight),
+                  "--sev-fill": severityFill(c.weight),
+                } as React.CSSProperties
+              }
             >
               <span className="cap-name">
                 <span className="mono cap-action">{c.action}</span>
@@ -194,14 +221,14 @@ export default function ProblemStatement() {
         .cap-weight {
           display: flex; flex-direction: column; align-items: flex-end; gap: 2px;
         }
-        .cap-weight-n { font-size: 22px; font-weight: 600; color: var(--risk); }
+        .cap-weight-n { font-size: 22px; font-weight: 600; color: var(--sev); }
         .cap-weight-track {
           width: 100%; height: 4px; margin: 5px 0 4px;
           background: var(--ground-2); border-radius: 999px; overflow: hidden;
         }
         .cap-weight-bar {
           display: block; height: 100%; width: 0;
-          background: var(--risk); border-radius: 999px;
+          background: var(--sev-fill); border-radius: 999px;
           transition: width .8s cubic-bezier(.16,1,.3,1);
         }
         .cap-weight-note {

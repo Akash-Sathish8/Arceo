@@ -103,6 +103,7 @@ export default function PullRequest() {
 
   return (
     <section
+      id="pull-request"
       ref={ref}
       style={{
         padding: "104px 0 112px",
@@ -313,7 +314,7 @@ export default function PullRequest() {
           color: var(--muted-2); background: rgba(255,255,255,0.06);
           transition: color .35s ease, background .35s ease;
         }
-        .pr-verdict.on { color: #fff; background: #dc2626; }
+        .pr-verdict.on { color: #fff; background: var(--risk-critical); }
 
         .pr-summary {
           font-size: 10.5px; color: var(--muted-2); line-height: 1.7;
@@ -350,7 +351,7 @@ export default function PullRequest() {
           min-width: 44px; text-align: center;
         }
         .pr-pill.pass { color: #4ade80; background: rgba(74,222,128,0.12); }
-        .pr-pill.fail { color: #fff; background: #dc2626; }
+        .pr-pill.fail { color: #fff; background: var(--risk-critical); }
         .pr-pill.wait {
           background: rgba(255,255,255,0.07); height: 19px; display: block;
         }
@@ -358,8 +359,8 @@ export default function PullRequest() {
         .pr-reason {
           margin-top: 14px; padding: 12px 14px;
           border-radius: var(--r-sm);
-          background: rgba(220,38,38,0.10);
-          border: 1px solid rgba(220,38,38,0.28);
+          background: rgba(179,38,30,0.14);
+          border: 1px solid rgba(179,38,30,0.34);
           display: flex; flex-direction: column; gap: 4px;
           opacity: 0; transform: translateY(6px);
           transition: opacity .4s ease, transform .4s cubic-bezier(.16,1,.3,1);

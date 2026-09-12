@@ -181,7 +181,7 @@ const eyebrow: React.CSSProperties = {
  * closes. Three glyph states, one per role, so the pair reads as linked
  * rather than as two separately-highlighted rows. */
 function Gutter({ role, live }: { role: "open" | "mid" | "close" | null; live: boolean }) {
-  const stroke = live ? "var(--label-money)" : "transparent";
+  const stroke = live ? "var(--amber)" : "transparent";
   return (
     <span style={{ width: 13, flexShrink: 0, alignSelf: "stretch", position: "relative" }}>
       <svg
@@ -210,7 +210,7 @@ function Gutter({ role, live }: { role: "open" | "mid" | "close" | null; live: b
             height: 5,
             marginTop: -2.5,
             borderRadius: "50%",
-            background: live ? "var(--label-money)" : "transparent",
+            background: live ? "var(--amber)" : "transparent",
             transition: "background .25s",
           }}
         />
@@ -308,12 +308,20 @@ export default function HeroGraphic({
     <div
       style={{
         position: "relative",
-        background: "var(--paper)",
-        border: "1px solid var(--rule)",
+        border: "none",
         borderRadius: "var(--r-lg)",
-        boxShadow: chainLive
-          ? "0 8px 40px rgba(17,24,39,0.10), 0 0 0 3px rgba(220,38,38,0.07)"
-          : "var(--shadow-lg)",
+        /* No border, no shadow: the product separates planes by TONE, and the
+           hero ground is tinted so this white plane reads as raised without
+           anything drawn around it. When the chain fires the ENTIRE card
+           warms to amber rather than one panel inside it changing colour —
+           the finding is about the agent, not about one number on it. */
+        ...({
+          "--card-bg": chainLive ? "#FDF4E3" : "var(--paper)",
+          "--card-well": chainLive ? "rgba(245,158,11,0.13)" : "var(--ground)",
+          "--card-rule": chainLive ? "rgba(245,158,11,0.30)" : "var(--rule)",
+        } as React.CSSProperties),
+        background: "var(--card-bg)",
+        boxShadow: "none",
         transition: "box-shadow .5s ease",
         width: "100%",
         maxWidth: 468,
@@ -330,7 +338,7 @@ export default function HeroGraphic({
           transition={{ repeat: Infinity, duration: 3.4, ease: "linear" }}
           style={{
             background:
-              "radial-gradient(circle at 50% 50%, rgba(220,38,38,0.55), rgba(220,38,38,0) 68%)",
+              "radial-gradient(circle at 50% 50%, rgba(245,158,11,0.60), rgba(245,158,11,0) 68%)",
           }}
         />
       )}
@@ -343,8 +351,8 @@ export default function HeroGraphic({
           justifyContent: "space-between",
           gap: 12,
           padding: "13px 18px",
-          borderBottom: "1px solid var(--rule)",
-          background: "var(--ground)",
+          borderBottom: "1px solid var(--card-rule)",
+          background: "var(--card-well)",
         }}
       >
         <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
@@ -366,7 +374,7 @@ export default function HeroGraphic({
             fontWeight: 500,
             color: "var(--muted)",
             background: "var(--paper)",
-            border: "1px solid var(--rule)",
+            border: "1px solid var(--card-rule)",
             padding: "3px 8px",
             borderRadius: "var(--r-xs)",
             whiteSpace: "nowrap",
@@ -414,8 +422,8 @@ export default function HeroGraphic({
         <div
           style={{
             padding: "18px 18px 16px",
-            borderLeft: "1px solid var(--rule)",
-            background: chainLive ? "var(--label-money-fill)" : "transparent",
+            borderLeft: "1px solid var(--card-rule)",
+            background: chainLive ? "rgba(245,158,11,0.13)" : "transparent",
             transition: "background .45s ease",
           }}
         >
@@ -428,7 +436,7 @@ export default function HeroGraphic({
               gap: 4,
               fontSize: 38,
               fontWeight: 600,
-              color: "var(--label-money)",
+              color: "var(--amber-ink)",
               lineHeight: 1,
             }}
           >
@@ -440,7 +448,7 @@ export default function HeroGraphic({
             style={{
               fontSize: 10.5,
               marginTop: 9,
-              color: chainLive ? "var(--label-money)" : "var(--muted-2)",
+              color: chainLive ? "var(--amber-ink)" : "var(--muted-2)",
               transition: "color .45s ease",
             }}
           >
@@ -452,8 +460,8 @@ export default function HeroGraphic({
       {/* ── The tape ───────────────────────────────────────────── */}
       <div
         style={{
-          borderTop: "1px solid var(--rule)",
-          background: "var(--ground)",
+          borderTop: "1px solid var(--card-rule)",
+          background: "var(--card-well)",
           padding: "12px 18px 6px",
         }}
       >
@@ -465,7 +473,7 @@ export default function HeroGraphic({
         </div>
       </div>
 
-      <div style={{ position: "relative", background: "var(--ground)" }}>
+      <div style={{ position: "relative", background: "var(--card-well)", transition: "background .55s ease" }}>
         {/* A tape scrolls; it does not shuffle. Animating each row
             independently let them overlap mid-flight, so the whole column
             moves by exactly one line instead: the strip is bottom-anchored,
@@ -578,13 +586,13 @@ export default function HeroGraphic({
       {/* ── The verdict ────────────────────────────────────────── */}
       <div
         style={{
-          borderTop: "1px solid var(--rule)",
+          borderTop: "1px solid var(--card-rule)",
           padding: "11px 18px",
           minHeight: 44,
           display: "flex",
           alignItems: "center",
           gap: 10,
-          background: chainLive ? "var(--label-money-fill)" : "var(--paper)",
+          background: chainLive ? "rgba(245,158,11,0.18)" : "var(--card-bg)",
           transition: "background .45s ease",
         }}
       >
@@ -607,17 +615,19 @@ export default function HeroGraphic({
               style={{
                 fontSize: 9,
                 fontWeight: 600,
-                color: "#fff",
-                background: "var(--label-money)",
+                /* Graphite on amber: white is 1.9:1 there, --amber-ink 2.3:1;
+                   the brand pairs its amber fill with graphite for this reason. */
+                color: "var(--on-amber)",
+                background: "var(--amber)",
                 padding: "2px 6px",
                 borderRadius: "var(--r-xs)",
                 letterSpacing: "0.06em",
                 flexShrink: 0,
               }}
             >
-              CRITICAL
+              CHAIN
             </span>
-            <span style={{ fontSize: 12, color: "var(--label-money)", fontWeight: 500 }}>
+            <span style={{ fontSize: 12, color: "var(--amber-ink)", fontWeight: 500 }}>
               {agent.verdict}
             </span>
           </div>

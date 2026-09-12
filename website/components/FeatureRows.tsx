@@ -37,108 +37,148 @@ const X_MAX = 9000;
 const fmt = (v: number) =>
   v >= 1000 ? `$${(v / 1000).toFixed(1).replace(/\.0$/, "")}k` : `$${Math.round(v)}`;
 
-const TIERS = [
+/* Three stages of ONE agent's forecast, not three agents. The multipliers are
+   cost_defaults_operational.yaml's confidence_bands and they are NOT adjusted
+   for the website: LOW is x0.50-x3.00, MEDIUM x0.70-x2.00, HIGH x0.85-x1.15.
+   They are asymmetric on purpose, because a capability-only estimate
+   under-predicts far more often than it over-predicts. A symmetric MEDIUM was
+   tried and retired in July 2026 — it held on 3 of 8 hand-checked agents.
+
+   What this panel leads with is the CEILING, not the spread, and that is the
+   difference between the graphic reading as an admission and reading as the
+   product. A CFO approving a launch does not need a tight point estimate; they
+   need a worst case they can put in a budget and defend afterwards. Arceo has
+   one on day one, before a single call has run, and it drops from $60 to $23
+   as evidence arrives. That fall is the story — the band closing underneath it
+   is the evidence for it.
+
+   The colour carries the same arc: amber is the brand's "attention —
+   uncertainty" tone, aquamarine its "controlled — bounded outcome" tone. */
+const STAGES = [
   {
     name: "LOW",
     lo: 0.5,
     hi: 3.0,
-    need: "Just the agent's tools",
+    evidence: "Day one",
+    headline: "A ceiling you can budget against, before it runs",
+    detail:
+      "Nothing has executed yet, so the range is wide — but the worst case is already a real number, not a guess.",
+    tone: "amber",
   },
   {
     name: "MEDIUM",
     lo: 0.7,
     hi: 2.0,
-    need: "+ a sandbox run",
+    evidence: "After a sandbox run",
+    headline: "A sandbox run cuts the worst case by a third",
+    detail:
+      "Real calls and real token counts, still before you deploy. This is the number most launch decisions get made on.",
+    tone: "blue",
   },
   {
     name: "HIGH",
     lo: 0.85,
     hi: 1.15,
-    need: "+ a week of real traffic",
+    evidence: "After a week of live traffic",
+    headline: "A week of live traffic closes it to \u00b115%",
+    detail:
+      "Now the ceiling and the estimate are almost the same number. This is the figure your finance team signs.",
+    tone: "aqua",
   },
 ];
 
 const pct = (v: number) => `${(v / X_MAX) * 100}%`;
 
+/* How long each stage holds before the band tightens again. The last one
+   holds longest so the finished range can actually be read. */
+const HOLD = [2600, 2600, 4200];
+
 function ConfidenceBands() {
   const [ref, armed] = useArmed<HTMLDivElement>(0.4);
 
-  /* Evidence does not arrive all at once in real life and it should not here.
-     Each tier wakes in turn, so you watch the band close rather than being
-     handed three finished bars. */
-  const [tier, setTier] = useState(-1);
+  /* One band, three stages, on a loop. The previous version handed the reader
+     three finished bars stacked up and asked them to compare widths; watching
+     a single band close is the same information without the comparison. */
+  const [stage, setStage] = useState(0);
   useEffect(() => {
     if (!armed) return;
-    const timers = [0, 1, 2].map((i) => setTimeout(() => setTier(i), 120 + i * 620));
-    return () => timers.forEach(clearTimeout);
-  }, [armed]);
+    if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) {
+      setStage(STAGES.length - 1);
+      return;
+    }
+    const id = setTimeout(
+      () => setStage((v) => (v + 1) % STAGES.length),
+      HOLD[stage],
+    );
+    return () => clearTimeout(id);
+  }, [armed, stage]);
+
+  const st = STAGES[stage];
+  const lo = POINT * st.lo;
+  const hi = POINT * st.hi;
 
   return (
-    <div ref={ref} className="surface" style={{ padding: "20px 22px 22px" }}>
+    <div ref={ref} className="surface" style={{ padding: "20px 22px 24px" }}>
       <div className="surface-head">
         <span className="surface-title">How the range tightens</span>
         <span className="mono surface-meta">BEACON SUPPORT</span>
       </div>
 
-      <div className="cb-plot">
-        {/* The point estimate is marked once at the top and repeated inside
-            each track, rather than drawn as one full-height rule — a rule
-            spanning the whole plot struck through every tier's caption. */}
-        <div className="cb-head-scale">
-          <span className="mono cb-point-tag" style={{ left: pct(POINT) }}>
+      {/* Where we are, in words, at the size of a sentence someone reads
+          rather than a caption they skip. */}
+      <div className="fb-steps" role="list">
+        {STAGES.map((t, i) => (
+          <span
+            key={t.name}
+            role="listitem"
+            className={`fb-step${i === stage ? " on" : ""}${i < stage ? " done" : ""}`}
+          >
+            <span className="fb-step-dot" aria-hidden="true" />
+            {t.evidence}
+          </span>
+        ))}
+      </div>
+
+      <p className="fb-headline" key={`h-${stage}`}>
+        {st.headline}
+      </p>
+      <p className="fb-detail" key={`d-${stage}`}>
+        {st.detail}
+      </p>
+
+      {/* The ceiling is the figure a CFO actually acts on, so it is the one
+          set at display size. $60 -> $40 -> $23 as the evidence lands. */}
+      <div className={`fb-readout fb-${st.tone}`}>
+        <span className="fb-ceiling">
+          <span className="fb-ceiling-lead">Budget for</span>
+          <span className="num fb-ceiling-n">{fmt(hi)}</span>
+          <span className="fb-ceiling-unit">/mo</span>
+        </span>
+        <span className="fb-readout-meta">
+          <span className="mono fb-conf">{st.name} CONFIDENCE</span>
+          <span className="num fb-range">
+            range {fmt(lo)}&ndash;{fmt(hi)}
+          </span>
+        </span>
+      </div>
+
+      <div className={`fb-plot fb-${st.tone}`}>
+        <div className="fb-track">
+          <span className="fb-point" style={{ left: pct(POINT) }} aria-hidden="true" />
+          {/* One element. `left` and `width` are transitioned, so the band
+              physically closes in on the estimate instead of being redrawn. */}
+          <span
+            className="fb-band"
+            style={{ left: pct(lo), width: pct(hi - lo) }}
+          />
+          <span className="mono fb-point-tag" style={{ left: pct(POINT) }}>
             ${POINT.toLocaleString("en-US")}/mo estimate
           </span>
         </div>
 
-        {TIERS.map((t, i) => {
-          const lo = POINT * t.lo;
-          const hi = POINT * t.hi;
-          return (
-            <div key={t.name} className={`cb-row${i <= tier ? " lit" : ""}`}>
-              <div className="cb-meta">
-                <span className="mono cb-tier">{t.name}</span>
-                <span className="cb-need">{t.need}</span>
-                <span className="cb-got" aria-hidden="true">
-                  <svg width="11" height="11" viewBox="0 0 12 12" fill="none">
-                    <path
-                      d="M2.5 6.2l2.4 2.4L9.5 4"
-                      stroke="currentColor"
-                      strokeWidth="1.9"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
-                  </svg>
-                </span>
-              </div>
-
-              <div className="cb-track">
-                <span className="cb-point" style={{ left: pct(POINT) }} aria-hidden="true" />
-                <span
-                  className={`cb-band${i <= tier ? " in" : ""}`}
-                  style={{
-                    left: pct(lo),
-                    width: pct(hi - lo),
-                    /* Grows out of the point estimate, because that is what
-                       uncertainty does — it spreads from the number. */
-                    transformOrigin: `${((POINT - lo) / (hi - lo)) * 100}% 50%`,
-
-                  }}
-                />
-                <span className="mono cb-lo" style={{ left: pct(lo) }}>
-                  {fmt(lo)}
-                </span>
-                <span className="mono cb-hi" style={{ left: pct(hi) }}>
-                  {fmt(hi)}
-                </span>
-              </div>
-
-            </div>
-          );
-        })}
-
-        <div className="cb-axis">
+        <div className="fb-axis">
           {[0, 3000, 6000, 9000].map((v) => (
-            <span key={v} className="mono cb-tickmark" style={{ left: pct(v) }}>
+            <span key={v} className="mono fb-tickmark" style={{ left: pct(v) }}>
               {v === 0 ? "$0" : `$${v / 1000}k`}
             </span>
           ))}
@@ -272,7 +312,7 @@ function TransitionMatrix() {
           transition={{ repeat: 2, duration: 2.8, ease: "linear" }}
           style={{
             background:
-              "radial-gradient(circle at 50% 50%, rgba(220,38,38,0.42), rgba(220,38,38,0) 70%)",
+              "radial-gradient(circle at 50% 50%, rgba(245,158,11,0.48), rgba(245,158,11,0) 70%)",
           }}
         />
       )}
@@ -429,7 +469,7 @@ export default function FeatureRows() {
     <section
       ref={ref}
       id="features"
-      style={{ padding: "88px 0 96px", background: "var(--paper)", borderTop: "1px solid var(--rule)" }}
+      style={{ padding: "88px 0 96px", background: "var(--ground)", borderTop: "1px solid var(--rule)" }}
     >
       <div style={{ maxWidth: 1240, margin: "0 auto", padding: "0 32px" }}>
         <div style={{ marginBottom: 12 }}>
@@ -455,12 +495,13 @@ export default function FeatureRows() {
 
       <style>{`
         /* One surface treatment, used by all three. */
+        /* No border, no shadow. On the paper section a surface is a tinted
+           well; the product separates planes by tone, never by a hairline. */
         .surface {
           position: relative;
           background: var(--paper);
-          border: 1px solid var(--rule);
+          border: none;
           border-radius: var(--r-md);
-          box-shadow: var(--shadow-sm);
           overflow: hidden;
         }
         .surface-head {
@@ -474,63 +515,119 @@ export default function FeatureRows() {
           letter-spacing: 0.1em; white-space: nowrap;
         }
 
-        /* ── Confidence bands ──────────────────────────────────── */
-        .cb-plot { position: relative; }
-        .cb-head-scale { position: relative; height: 18px; }
-        .cb-point-tag {
-          position: absolute; top: 0;
-          font-size: 9.5px; font-weight: 500; color: var(--ink);
-          white-space: nowrap; padding-left: 6px;
-          border-left: 1px solid var(--ink);
+        /* ── The forecast band ─────────────────────────────────────
+           One agent, one band, three stages. Amber (uncertainty) closes to
+           aquamarine (a bounded outcome) as the evidence arrives — the hue
+           and the width tell the same story, so neither has to be read
+           alone. Type is deliberately at reading size, not caption size:
+           this panel has to be understood by someone who has never seen
+           the product. */
+        .fb-steps {
+          display: flex; flex-wrap: wrap; gap: 6px;
+          margin: 4px 0 16px;
         }
-        /* Inside each track only, so the estimate never crosses a caption. */
-        .cb-point {
-          position: absolute; top: 0; bottom: 0; width: 1px;
-          background: var(--ink); opacity: .35; z-index: 2;
+        .fb-step {
+          display: inline-flex; align-items: center; gap: 6px;
+          font-size: 11.5px; font-weight: 500;
+          color: var(--muted-2);
+          background: var(--ground-2);
+          padding: 5px 10px; border-radius: var(--r-xs);
+          transition: color .35s ease, background .35s ease;
         }
-        .cb-row {
-          padding: 14px 0; border-bottom: 1px solid var(--rule-light);
-          opacity: .38; transition: opacity .45s ease;
+        .fb-step-dot {
+          width: 6px; height: 6px; border-radius: 50%;
+          background: var(--disabled); flex-shrink: 0;
+          transition: background .35s ease;
         }
-        .cb-row.lit { opacity: 1; }
-        .cb-got {
-          display: inline-flex; margin-left: auto;
-          color: var(--risk-clear);
-          opacity: 0; transform: scale(.6);
-          transition: opacity .35s ease .25s, transform .35s cubic-bezier(.16,1,.3,1) .25s;
+        .fb-step.done { color: var(--aqua-deep); background: var(--aqua-soft); }
+        .fb-step.done .fb-step-dot { background: var(--aqua-ink); }
+        .fb-step.on {
+          color: var(--brand); background: var(--brand-soft); font-weight: 600;
         }
-        .cb-row.lit .cb-got { opacity: 1; transform: none; }
-        .cb-row:last-of-type { border-bottom: none; }
-        .cb-meta {
-          display: flex; align-items: center; gap: 10px; margin-bottom: 9px;
+        .fb-step.on .fb-step-dot { background: var(--brand); }
+
+        .fb-headline {
+          font-size: 19px; font-weight: 600; line-height: 1.3;
+          color: var(--ink); letter-spacing: -0.015em;
+          margin-bottom: 6px; text-wrap: balance;
+          animation: fb-in .4s cubic-bezier(.16,1,.3,1);
         }
-        .cb-tier {
-          font-size: 9.5px; font-weight: 600; letter-spacing: 0.12em;
-          color: var(--ink);
-          background: var(--ground-2); border: 1px solid var(--rule);
-          padding: 2px 7px; border-radius: var(--r-xs);
+        .fb-detail {
+          font-size: 14.5px; line-height: 1.5; color: var(--muted);
+          margin-bottom: 20px; max-width: 46ch;
+          animation: fb-in .4s cubic-bezier(.16,1,.3,1) 40ms backwards;
         }
-        .cb-need { font-size: 12px; color: var(--muted); }
-        .cb-track { position: relative; height: 22px; }
-        .cb-band {
-          position: absolute; top: 5px; height: 10px;
-          background: var(--cost-wash);
-          border-left: 2px solid var(--cost);
-          border-right: 2px solid var(--cost);
-          border-radius: 2px;
-          transform: scaleX(0);
-          transition: transform .85s cubic-bezier(.16,1,.3,1);
+        @keyframes fb-in {
+          from { opacity: 0; transform: translateY(5px); }
+          to   { opacity: 1; transform: none; }
         }
-        .cb-band.in { transform: scaleX(1); }
-        .cb-lo, .cb-hi {
-          position: absolute; top: 19px;
-          font-size: 9.5px; color: var(--muted-2); white-space: nowrap;
+
+        .fb-readout {
+          display: flex; align-items: flex-end; gap: 16px;
+          flex-wrap: wrap; margin-bottom: 20px;
         }
-        .cb-lo { transform: translateX(-100%); padding-right: 5px; }
-        .cb-hi { padding-left: 5px; }
-        .cb-axis { position: relative; height: 16px; margin-top: 6px; }
-        .cb-tickmark {
-          position: absolute; top: 0; font-size: 9px; color: var(--disabled);
+        .fb-ceiling { display: flex; align-items: baseline; gap: 7px; }
+        .fb-ceiling-lead {
+          font-size: 14px; font-weight: 500; color: var(--muted);
+        }
+        .fb-ceiling-n {
+          font-size: 40px; font-weight: 600; letter-spacing: -0.035em;
+          line-height: 1; color: var(--fb-ink);
+          transition: color .5s ease;
+        }
+        .fb-ceiling-unit {
+          font-size: 15px; font-weight: 500; color: var(--muted-2);
+        }
+        .fb-readout-meta {
+          display: flex; flex-direction: column; gap: 5px; padding-bottom: 3px;
+        }
+        .fb-conf {
+          font-size: 10px; font-weight: 600; letter-spacing: 0.12em;
+          color: var(--fb-ink); background: var(--fb-soft);
+          padding: 4px 9px; border-radius: var(--r-xs);
+          align-self: flex-start;
+          transition: color .5s ease, background .5s ease;
+        }
+        .fb-range {
+          font-size: 12.5px; color: var(--muted-2);
+          font-variant-numeric: tabular-nums;
+        }
+
+        /* The three tones. Set on the wrapper so the readout and the band
+           always move together. */
+        .fb-amber { --fb-ink: var(--amber-ink); --fb-fill: var(--amber);    --fb-soft: var(--amber-soft); }
+        .fb-blue  { --fb-ink: var(--brand);     --fb-fill: var(--brand);    --fb-soft: var(--brand-soft); }
+        .fb-aqua  { --fb-ink: var(--aqua-deep); --fb-fill: var(--aqua-ink); --fb-soft: var(--aqua-soft); }
+
+        .fb-plot { position: relative; margin-top: 24px; }
+        .fb-track {
+          position: relative; height: 46px;
+          background: var(--ground-2); border-radius: var(--r-xs);
+        }
+        .fb-track::after { content: none; }
+        .fb-band {
+          position: absolute; top: 13px; height: 20px;
+          background: var(--fb-fill);
+          border-radius: 3px;
+          /* left + width are what tighten. Transitioning them (rather than
+             re-rendering three bars) is the whole point of the graphic. */
+          transition:
+            left .9s cubic-bezier(.5,0,.2,1),
+            width .9s cubic-bezier(.5,0,.2,1),
+            background .5s ease;
+        }
+        .fb-point {
+          position: absolute; top: 6px; bottom: 6px; width: 2px;
+          background: var(--ink); opacity: .55; z-index: 2; border-radius: 1px;
+        }
+        .fb-point-tag {
+          position: absolute; top: -19px;
+          font-size: 10px; font-weight: 500; color: var(--ink);
+          white-space: nowrap; transform: translateX(-50%);
+        }
+        .fb-axis { position: relative; height: 18px; margin-top: 7px; }
+        .fb-tickmark {
+          position: absolute; top: 0; font-size: 10px; color: var(--muted-2);
           transform: translateX(-50%);
         }
 
@@ -613,7 +710,7 @@ export default function FeatureRows() {
           transition-delay: calc(var(--i, 0) * 32ms);
         }
         .tm-cell.in { opacity: 1; transform: scale(1); }
-        .tm-cell.tm-high { background: var(--cost); opacity: 0; }
+        .tm-cell.tm-high { background: var(--amber); opacity: 0; }
         .tm-cell.tm-high.in { opacity: .72; }
         .tm-cell.tm-critical { background: var(--risk); opacity: 0; }
         .tm-cell.tm-critical.in { opacity: 1; }
@@ -631,7 +728,7 @@ export default function FeatureRows() {
           background: var(--ground-2); flex-shrink: 0;
         }
         .tm-swatch.tm-critical { background: var(--risk); }
-        .tm-swatch.tm-high { background: var(--cost); opacity: .72; }
+        .tm-swatch.tm-high { background: var(--amber); }
         .tm-note {
           font-size: 13px; color: var(--muted); line-height: 1.6;
           padding-top: 20px; border-top: 1px solid var(--rule);
@@ -645,9 +742,9 @@ export default function FeatureRows() {
           .tm-colhead { height: 70px; font-size: 8.5px; }
         }
         @media (prefers-reduced-motion: reduce) {
-          .cb-band, .sn-bar, .tm-cell, .cb-row, .cb-got { transition: none !important; }
+          .fb-band, .sn-bar, .tm-cell, .fb-step { transition: none !important; }
           .cb-row { opacity: 1; }
-          .cb-band { transform: scaleX(1); }
+          .fb-headline, .fb-detail { animation: none; }
           .tm-cell { opacity: 1; transform: none; }
           .tm-cell.tm-high { opacity: .72; }
           .tm-cell.tm-critical { opacity: 1; }
