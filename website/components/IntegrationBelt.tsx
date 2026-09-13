@@ -4,15 +4,15 @@
  * marketing copy:
  *
  *   the eleven governed tools   authority/action_mapper.py — ACTION_CATALOG,
- *                               the same 11 services and 95 actions the strip
- *                               above this one counts
+ *                               each with a sandbox mock and runtime
+ *                               enforcement, which is what "full support"
+ *                               in the lead line means
  *   the agent sources           main.py LLM_BASE_URLS, the /import and
  *                               /connect endpoints, and sandbox/runner.py's
  *                               model router
  *   the trace ingesters         ingestion/langsmith.py, ingestion/langfuse.py
  *
- * If a service is added to ACTION_CATALOG it belongs here too, and the count
- * in MetricStrip moves with it.
+ * If a service is added to ACTION_CATALOG it belongs here too.
  *
  * ── On the logos ──────────────────────────────────────────────────────────
  * These are the vendors' real marks — the icon, not the wordmark — served
@@ -82,12 +82,15 @@ function Run({ hidden }: { hidden?: boolean }) {
         <span key={i.name} className="belt-item">
           {/* The names are gone from the surface, so the alt text is the only
               thing carrying them — it is doing real work here, not filling in
-              a required attribute. Decorative on the duplicate run. */}
+              a required attribute. The title shows the name on hover, when the
+              belt is paused and someone is actually reading it. Decorative on
+              the duplicate run. */}
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             className="belt-logo"
             src={`/brand/integrations/${i.file}.svg`}
             alt={hidden ? "" : i.name}
+            title={hidden ? undefined : i.name}
             loading="lazy"
             decoding="async"
           />
@@ -101,8 +104,7 @@ export default function IntegrationBelt() {
   return (
     <section className="belt" aria-label="Supported integrations">
       <p className="belt-lead">
-        <span className="belt-count">{INTEGRATIONS.length}</span> integrations —
-        point Arceo at an agent and it maps every tool the agent can reach
+        Arceo fully supports these agents and tools
       </p>
 
       <div className="belt-viewport">

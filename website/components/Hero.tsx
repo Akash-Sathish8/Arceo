@@ -6,11 +6,6 @@ import { motion, useReducedMotion, useScroll, useTransform } from "motion/react"
 import HeroGraphic from "./HeroGraphic";
 import AuthorityGraph from "./AuthorityGraph";
 
-/* The hero states the thesis in words on the left and demonstrates it on the
-   right. The graph behind both is the same picture the product draws on its
-   own sign-in screen, running the same calls the tape is posting. */
-
-const SOURCES = ["Anthropic SDK", "OpenAI", "MCP", "GitHub"];
 
 export default function Hero() {
   const [visible, setVisible] = useState(false);
@@ -47,7 +42,7 @@ export default function Hero() {
   return (
     <section
       ref={sectionRef}
-      className="ruled"
+      className="ruled hero-fill"
       style={{
         /* The hero ground does the work the card's border used to. With no
            hairline and no shadow on the panel, TONE is the only thing left
@@ -100,7 +95,7 @@ export default function Hero() {
             }
           >
             <span className="pulse-dot" />
-            Cost and risk, before production
+            The pre-production report for AI agents
           </div>
 
           {/* Per line, not per character. A sentence this long revealed one
@@ -116,7 +111,10 @@ export default function Hero() {
               having moved. */}
           <h1
             style={{
-              fontSize: "clamp(32px, 3.7vw, 49px)",
+              /* 45px, not 49: the question is three characters longer than
+                 the statement it replaced, and at 49px "How much will your
+                 agent cost?" ran 40px past the column into the gutter. */
+              fontSize: "clamp(32px, 3.5vw, 45px)",
               fontWeight: 600,
               lineHeight: 1.06,
               letterSpacing: "-0.04em",
@@ -131,20 +129,20 @@ export default function Hero() {
                 break. A node runs the underline the way a call runs an edge
                 of the authority graph, then parks at the end of the word. */}
             <span className="hero-el hero-line" style={{ "--d": "120ms" } as React.CSSProperties}>
-              Know what your{" "}
+              How much will your agent{" "}
               <span className="hl hl-cost" style={{ "--hl-d": "1.05s" } as React.CSSProperties}>
-                agent costs
+                cost
                 <span className="hl-node" aria-hidden="true" />
               </span>
-              ,
+              ?
             </span>
             <span className="hero-el hero-line" style={{ "--d": "260ms" } as React.CSSProperties}>
-              and what it can{" "}
+              What&rsquo;s the{" "}
               <span className="hl hl-risk" style={{ "--hl-d": "1.6s" } as React.CSSProperties}>
-                break
+                worst it can do
                 <span className="hl-node" aria-hidden="true" />
               </span>
-              .
+              ?
             </span>
           </h1>
 
@@ -161,8 +159,8 @@ export default function Hero() {
               } as React.CSSProperties
             }
           >
-            Point Arceo at your agent and get one report your finance team can
-            read, before you deploy.
+            Point Arceo at an agent and get back what it will cost, what it
+            could break, and how sure we are.
           </p>
 
           <div
@@ -178,26 +176,21 @@ export default function Hero() {
             }
           >
             <Link href="/book-demo" className="btn-black">
-              Book a demo
+              Run it on your agent
             </Link>
             <Link href="/pricing" className="btn-outline">
               See pricing
             </Link>
           </div>
 
-          {/* The objection a CIO raises in the first thirty seconds, answered
-              in the fold rather than three sections down. */}
+          {/* The first objection anyone raises, answered in the fold rather
+              than three sections down. The list of agent sources that used to
+              follow it is gone: the belt directly under the hero names them. */}
           <div
             className="hero-el hero-proof"
             style={{ "--d": "580ms" } as React.CSSProperties}
           >
             <span className="mono hero-proof-lead">Read-only</span>
-            <span className="hero-proof-rule" aria-hidden="true" />
-            {SOURCES.map((s) => (
-              <span key={s} className="mono hero-proof-item">
-                {s}
-              </span>
-            ))}
           </div>
         </div>
 
@@ -210,6 +203,21 @@ export default function Hero() {
       </div>
 
       <style>{`
+        /* The hero and the belt under it share the first screen: the hero
+           grows to fill whatever the belt leaves, so the belt sits on the
+           bottom edge of the viewport on any desktop. On a phone the copy is
+           taller than the screen and the min-height simply never binds. */
+        .hero-fill {
+          min-height: calc(100vh - 64px - var(--belt-h));
+          min-height: calc(100svh - 64px - var(--belt-h));
+          display: flex;
+          flex-direction: column;
+          justify-content: center;
+        }
+        @media (min-width: 1001px) and (max-height: 780px) {
+          .hero-fill { padding: 48px 0 56px !important; }
+        }
+
         .hero-el {
           opacity: 0;
           transform: translate3d(0, 16px, 0);
@@ -338,15 +346,6 @@ export default function Hero() {
           text-transform: uppercase; color: var(--ink);
           border: 1px solid var(--rule); background: var(--ground);
           padding: 3px 8px; border-radius: var(--r-xs);
-        }
-        .hero-proof-rule {
-          width: 18px; height: 1px; background: var(--rule); flex-shrink: 0;
-        }
-        .hero-proof-item {
-          font-size: 11px; color: var(--muted-2); letter-spacing: 0.02em;
-        }
-        .hero-proof-item + .hero-proof-item::before {
-          content: "·"; margin-right: 10px; color: var(--disabled);
         }
 
         @media (max-width: 1000px) {

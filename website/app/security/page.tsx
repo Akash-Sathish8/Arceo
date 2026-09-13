@@ -62,7 +62,7 @@ export default function SecurityPage() {
           <div className="container" style={{ maxWidth: 820 }}>
             <span className="eyebrow">Security</span>
             <h1 style={{
-              fontSize: 46,
+              fontSize: "clamp(32px, 9vw, 46px)",
               fontWeight: 700,
               letterSpacing: "-1px",
               lineHeight: 1.12,
