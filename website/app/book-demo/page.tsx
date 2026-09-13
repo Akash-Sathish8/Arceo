@@ -79,7 +79,7 @@ export default function BookDemoPage() {
             <>
               <span className="eyebrow">Design partner pilot</span>
               <h1 style={{
-                fontSize: 44,
+                fontSize: "clamp(32px, 9vw, 44px)",
                 fontWeight: 700,
                 lineHeight: 1.15,
                 letterSpacing: "-0.02em",

@@ -94,7 +94,7 @@ export default function PricingPage() {
               textTransform: "uppercase", letterSpacing: "0.12em",
               marginBottom: 16,
             }}>Pricing</span>
-            <h1 style={{ fontSize: 52, fontWeight: 700, letterSpacing: "-0.02em", color: "var(--ink)", marginBottom: 16 }}>
+            <h1 style={{ fontSize: "clamp(34px, 10vw, 52px)", fontWeight: 700, letterSpacing: "-0.02em", color: "var(--ink)", marginBottom: 16 }}>
               Simple, transparent pricing
             </h1>
             <p style={{ fontSize: 16, color: "var(--muted)", lineHeight: 1.7, maxWidth: 480, margin: "0 auto" }}>

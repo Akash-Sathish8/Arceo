@@ -1,8 +1,9 @@
 import Link from "next/link";
 import { LogoWordmark } from "./Logo";
 
-/* Big, but it has to survive a 360px phone: the wordmark is 4.5x as wide
-   as it is tall, so 104px of height is already ~470px of width. */
+/* Big on a desktop. The wordmark is 4.5x as wide as it is tall, so 96px of
+   height is ~430px of width, wider than a phone; .footer-mark (globals.css)
+   caps it at the container width and lets the height follow. */
 const FOOTER_MARK_HEIGHT = 96;
 
 export default function Footer() {
@@ -12,6 +13,7 @@ export default function Footer() {
           artwork rather than a font approximation, so the aqua bridge in the
           E survives at display scale — that bridge is the mark's whole idea. */}
       <div
+        className="footer-mark"
         style={{
           overflow: "hidden",
           display: "flex",

@@ -819,13 +819,25 @@ code, .mono {
 }
 
 /* ── The integrations belt ─────────────────────────────────────────
-   A conveyor of the vendors' real marks. Sits directly under the metric
-   strip and shares its band, so the two read as one "here is the surface
-   area" chapter before the page moves on to the problem. */
+   A conveyor of the vendors' real marks. Sits directly under the hero on
+   the same blue band: the lead line says what is fully supported, the marks
+   say which. */
+/* The belt's height is a token because the hero reads it: the hero fills
+   100svh minus the nav minus this, which puts the belt on the bottom edge of
+   the first screen. Keep it in step with the padding and lead below. */
+:root { --belt-h: 144px; }
+@media (max-width: 640px) { :root { --belt-h: 120px; } }
+@media (min-width: 1001px) and (max-height: 780px) { :root { --belt-h: 120px; } }
+
 .belt {
   background: var(--band-blue);
-  border-top: 1px solid var(--rule);
+  /* The hero above already closes with a rule; a second one here doubled it. */
   border-bottom: 1px solid var(--rule);
+  box-sizing: border-box;
+  min-height: var(--belt-h);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
   padding: 28px 0 30px;
   overflow: hidden;
 }
@@ -892,8 +904,16 @@ code, .mono {
 }
 .belt-item:hover .belt-logo { opacity: 1; }
 
+/* A short laptop screen (1280x720, 1366x768): the belt has to actually be
+   120px, not just promise it in the token, or it hangs 24px under the fold.
+   This sits after the base rule on purpose; same specificity, later wins. */
+@media (min-width: 1001px) and (max-height: 780px) {
+  .belt { padding: 16px 0 18px; }
+}
+
 @media (max-width: 640px) {
   .belt { padding: 22px 0 24px; }
+  /* Same lead, one row of marks, fewer pixels: the 120px token above. */
   .belt-item { width: 40px; height: 34px; margin: 0 18px; }
 }
 
@@ -905,6 +925,12 @@ code, .mono {
   .belt-track .belt-run[aria-hidden] { display: none; }
   .belt-run { flex-wrap: wrap; justify-content: center; row-gap: 20px; }
 }
+
+/* ── Footer wordmark ─────────────────────────────────────────────
+   The SVG carries a fixed pixel width from its height prop. Cap it at the
+   container and let the height follow the artwork's aspect, so a 360px
+   phone gets the whole mark instead of the middle three letters. */
+.footer-mark svg { max-width: 100%; height: auto; }
 
 /* ── The scroll rail ───────────────────────────────────────────────
    Sits on the header's own hairline, so the rule appears to fill rather

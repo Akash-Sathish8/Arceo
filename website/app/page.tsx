@@ -1,6 +1,5 @@
 import Navbar from "@/components/Navbar";
 import Hero from "@/components/Hero";
-import MetricStrip from "@/components/MetricStrip";
 import IntegrationBelt from "@/components/IntegrationBelt";
 import ProblemStatement from "@/components/ProblemStatement";
 import BlastRadius from "@/components/BlastRadius";
@@ -17,7 +16,7 @@ import Footer from "@/components/Footer";
    the whole way down:
 
      hero        light, ruled      the tape — a call stream, live
-     metrics     light band        three figures, divided
+     belt        light band        the supported agents and tools, named
      problem     light paper       the ledger — cost beside blast weight
      blast       light ground      the bench — how a score is built
      how         DARK act          the graph as subject, timeline
@@ -50,7 +49,6 @@ export default function Home() {
       <Navbar />
       <main id="main" data-chapters style={{ overflowX: "clip", width: "100%" }}>
         <Hero />
-        <MetricStrip />
         <IntegrationBelt />
         <ProblemStatement />
         <BlastRadius />

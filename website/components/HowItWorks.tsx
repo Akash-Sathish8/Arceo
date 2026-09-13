@@ -61,7 +61,7 @@ export default function HowItWorks() {
       <div className="wash-dark" style={{ position: "absolute", inset: 0, pointerEvents: "none" }} />
 
       {/* The graph as subject: unmasked, labelled, filling the act. */}
-      <div style={{ position: "absolute", inset: 0, opacity: 0.5, pointerEvents: "none" }}>
+      <div className="hiw-graph" style={{ position: "absolute", inset: 0, opacity: 0.5, pointerEvents: "none" }}>
         <AuthorityGraph tone="dark" mask={false} packets={3} variant="subject" />
       </div>
 
@@ -176,6 +176,10 @@ export default function HowItWorks() {
         }
 
         @media (max-width: 900px) {
+          /* One column of copy has no gaps for the graph to live in, so it
+             drops back to wallpaper: fainter, and the node labels go. */
+          .hiw-graph { opacity: .28 !important; }
+          .hiw-graph text { display: none; }
           .tl { grid-template-columns: 1fr; gap: 40px; }
           .tl-rail { display: none; }
           .tl-step { border-top: 1px solid var(--rule); padding-top: 26px; }

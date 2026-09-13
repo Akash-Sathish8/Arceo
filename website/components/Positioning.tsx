@@ -79,7 +79,7 @@ export default function Positioning() {
         <div ref={headRef} className={headClass} style={{ textAlign: "center", marginBottom: 56 }}>
           <span className="eyebrow">Where we fit</span>
           <h2 style={{
-            fontSize: 44,
+            fontSize: "clamp(30px, 8vw, 44px)",
             fontWeight: 600,
             letterSpacing: "-0.4px",
             color: "var(--ink)",
