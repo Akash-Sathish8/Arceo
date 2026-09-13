@@ -206,6 +206,30 @@ export default function Authority() {
   const initialTabRef = useRef(false)
   const [connectTab, setConnectTab] = useState<'upload' | 'github' | 'gha' | 'proxy' | 'mcp'>('upload')
   const [connectMenuOpen, setConnectMenuOpen] = useState<'github' | 'post' | null>(null)
+  // The GitHub / Post-deployment menus are click-to-open and stay open until
+  // the user picks an item, clicks anywhere outside the tab bar, or hits Esc.
+  // (They used to open and close on hover, which made the 4px gap between the
+  // tab and its menu close the menu before you could reach it.)
+  const connectTabsRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!connectMenuOpen) return
+    const onMouseDown = (e: MouseEvent) => {
+      if (!connectTabsRef.current?.contains(e.target as Node)) setConnectMenuOpen(null)
+    }
+    // Capture phase so this runs before the Connect dialog's own Esc handler
+    // and can stop it: Esc with a menu open closes just the menu.
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return
+      e.stopPropagation()
+      setConnectMenuOpen(null)
+    }
+    document.addEventListener('mousedown', onMouseDown)
+    window.addEventListener('keydown', onKey, true)
+    return () => {
+      document.removeEventListener('mousedown', onMouseDown)
+      window.removeEventListener('keydown', onKey, true)
+    }
+  }, [connectMenuOpen])
   const [showConnectTabs, setShowConnectTabs] = useState(false)
   const [uploadFileContent, setUploadFileContent] = useState('')
   const [uploadFilename, setUploadFilename] = useState('')
@@ -775,7 +799,7 @@ export default function Authority() {
 
           {/* ── Manual setup tabs ── */}
           {(agents.length > 0 || showConnectTabs) && (<>
-          <div style={{ display: 'flex', gap: 2, background: 'var(--bg-sunken)', borderRadius: 10, padding: 4, flexWrap: 'wrap', marginBottom: 20 }}>
+          <div ref={connectTabsRef} style={{ display: 'flex', gap: 2, background: 'var(--bg-sunken)', borderRadius: 10, padding: 4, flexWrap: 'wrap', marginBottom: 20 }}>
             {(() => {
               type ConnectTabId = 'upload' | 'github' | 'gha' | 'proxy' | 'mcp'
               const tabStyle = (active: boolean): React.CSSProperties => ({
@@ -808,7 +832,7 @@ export default function Authority() {
                 items: { id: ConnectTabId; label: string; sub: string }[],
                 onPick: (id: ConnectTabId) => void,
               ) => (
-                <div style={{
+                <div role="menu" style={{
                   position: 'absolute', top: 'calc(100% + 4px)', left: 0,
                   background: '#fff',
                   borderRadius: 'var(--radius-lg)',
@@ -819,6 +843,7 @@ export default function Authority() {
                     <button
                       key={item.id}
                       type="button"
+                      role="menuitem"
                       onClick={() => onPick(item.id)}
                       style={{
                         display: 'flex', flexDirection: 'column', alignItems: 'flex-start',
@@ -849,18 +874,16 @@ export default function Authority() {
 
               return (
                 <>
-                  <button type="button" onClick={() => setConnectTab('upload')} style={tabStyle(connectTab === 'upload')}>
+                  <button type="button" onClick={() => { setConnectTab('upload'); setConnectMenuOpen(null) }} style={tabStyle(connectTab === 'upload')}>
                     Upload file
                     {recommendedChip}
                   </button>
 
-                  <div
-                    style={{ position: 'relative' }}
-                    onMouseEnter={() => setConnectMenuOpen('github')}
-                    onMouseLeave={() => setConnectMenuOpen(null)}
-                  >
+                  <div style={{ position: 'relative' }}>
                     <button
                       type="button"
+                      aria-haspopup="menu"
+                      aria-expanded={connectMenuOpen === 'github'}
                       onClick={() => setConnectMenuOpen(connectMenuOpen === 'github' ? null : 'github')}
                       style={tabStyle(isGithubActive)}
                     >
@@ -870,13 +893,11 @@ export default function Authority() {
                     {connectMenuOpen === 'github' && dropdownMenu(githubChildren, (id) => { setConnectTab(id); setConnectMenuOpen(null) })}
                   </div>
 
-                  <div
-                    style={{ position: 'relative' }}
-                    onMouseEnter={() => setConnectMenuOpen('post')}
-                    onMouseLeave={() => setConnectMenuOpen(null)}
-                  >
+                  <div style={{ position: 'relative' }}>
                     <button
                       type="button"
+                      aria-haspopup="menu"
+                      aria-expanded={connectMenuOpen === 'post'}
                       onClick={() => setConnectMenuOpen(connectMenuOpen === 'post' ? null : 'post')}
                       style={tabStyle(isPostActive)}
                     >
