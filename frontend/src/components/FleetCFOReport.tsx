@@ -9,6 +9,7 @@
  */
 
 import { Document, Page, View, Text, StyleSheet } from "@react-pdf/renderer"
+import { HIGH_GATE_CALLS, HIGH_GATE_MONTHLY_EQUIV, HIGH_GATE_WINDOW_DAYS } from "@/lib/confidence"
 
 export interface FleetReportData {
   org: string
@@ -177,7 +178,10 @@ export function FleetCFOReport({ data }: { data: FleetReportData }) {
           <Text style={styles.confidenceLine}>
             The {data.confidenceBand} band reflects how much data backs each agent's forecast
             ({data.tierMix.high} high-, {data.tierMix.medium} medium-, {data.tierMix.low} low-confidence),
-            not measured run-to-run variance. It tightens as agents accumulate live production data.
+            not measured run-to-run variance. It tightens as individual agents reach a higher tier,
+            which takes sustained traffic rather than elapsed time — {HIGH_GATE_CALLS}+ captured calls
+            in any rolling {HIGH_GATE_WINDOW_DAYS} days, about {HIGH_GATE_MONTHLY_EQUIV} a month.
+            Agents quieter than that hold their band indefinitely.
           </Text>
         </View>
 

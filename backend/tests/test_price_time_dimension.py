@@ -116,12 +116,38 @@ def test_backward_looking_callers_reprice_at_the_billed_rate():
 
     assert compute_month_to_date_spend(rows, now=datetime(2026, 8, 20)) == 2.00
 
-    series = compute_spend_timeseries(rows, days=30)
+    # `now` is pinned for the same reason the row's timestamp is: this test is
+    # about a call billed at a promotional rate on a specific date, so the window
+    # it is counted in has to be pinned too. Reading the real clock here made the
+    # test pass only while today was within `days` of 2026-08-15.
+    series = compute_spend_timeseries(rows, days=30, now=datetime(2026, 8, 20))
     day = next((d for d in series if d["date"] == "2026-08-15"), None)
     assert day is not None and day["usd"] == 2.00
 
     detail = json.loads(rows[0]["detail"])
     assert call_cost_from_detail(detail, at=ts) == 2.00
+
+
+def test_the_timeseries_window_can_be_pinned():
+    """The seam the test above needs, asserted directly.
+
+    `compute_spend_timeseries` used to end its window at the real `utcnow()` with
+    no override, so a test that seeded a fixed date passed only until the clock
+    walked past it — this file's promo-rate test started failing on 2026-09-14,
+    exactly 30 days after the call it seeds. `compute_month_to_date_spend` always
+    had the seam; this asserts its sibling does too, in both directions.
+    """
+    ts = datetime(2026, 8, 15, 12, 0, 0)
+    rows = [_row(ts)]
+
+    inside = compute_spend_timeseries(rows, days=30, now=datetime(2026, 8, 20))
+    assert inside[-1]["date"] == "2026-08-20", "the window does not end where `now` says"
+    assert sum(d["calls"] for d in inside) == 1
+
+    # Same rows, a window that has moved past them: counted nowhere, not silently
+    # folded into the nearest day.
+    outside = compute_spend_timeseries(rows, days=30, now=datetime(2026, 12, 1))
+    assert sum(d["calls"] for d in outside) == 0
 
 
 def test_the_forecast_input_stays_at_sticker_even_for_in_promo_calls():
