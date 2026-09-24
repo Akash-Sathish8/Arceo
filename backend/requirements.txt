@@ -3,11 +3,11 @@
 # (LOW-014). Patch-level bump — no API changes.
 fastapi>=0.115.6,<0.116
 starlette>=0.40.0,<0.42.0
-uvicorn[standard]==0.52.1
-pydantic==2.9.2
+uvicorn[standard]==0.53.0
+pydantic==2.13.5
 networkx>=3.6.1
 pyjwt>=2.13.0
-python-dotenv>=1.0.0
+python-dotenv>=1.2.3
 bcrypt>=5.0.0
 # 1.x removes the `temperature` parameter; risk_classifier.py:780/:840 document
 # the majority-vote determinism as resting on temperature=0, and the eval
@@ -20,7 +20,7 @@ PyYAML>=6.0
 psycopg[binary]>=3.1
 psycopg-pool>=3.2
 alembic>=1.18.5
-sqlalchemy>=2.0
+sqlalchemy>=2.0.54
 # SQLAlchemy pulls greenlet only on Linux/x86_64 (a platform_machine marker), so a
 # lock generated on macOS omits it and CI's --require-hashes install fails. Pin it
 # explicitly so both locks carry it (with hashes) on every platform.
