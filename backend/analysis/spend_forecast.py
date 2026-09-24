@@ -63,10 +63,10 @@ def load_defaults(org_id: Optional[str] = None) -> dict:
             # scripts/gen_cost_defaults_fallback.py). The old hand-maintained
             # fallback dict had drifted to a fraction of the catalog with
             # stale rates — generation + a sync test make that impossible.
-            with open(_FALLBACK_JSON_PATH) as f:
+            with open(_FALLBACK_JSON_PATH, encoding="utf-8") as f:
                 _DEFAULTS_CACHE = json.load(f)
         else:
-            with open(_DEFAULTS_PATH) as f:
+            with open(_DEFAULTS_PATH, encoding="utf-8") as f:
                 _DEFAULTS_CACHE = yaml.safe_load(f)
     if not org_id:
         return _DEFAULTS_CACHE
@@ -749,6 +749,7 @@ def compute_spend_timeseries(
     audit_rows: list,
     *,
     days: int = 30,
+    now=None,
     defaults: Optional[dict] = None,
 ) -> list[dict]:
     """Observed daily LLM spend from captured calls, one row per calendar day.
@@ -757,6 +758,11 @@ def compute_spend_timeseries(
     no traffic are included with zeros so the chart x-axis stays continuous.
     Cost is the measured LLM token cost only (tools/infra aren't in LLM_CALL
     capture); the caller labels it as such.
+
+    `now` overrides the end of the window, the same seam
+    `compute_month_to_date_spend` already has. Without it a test can pin the
+    rows it seeds but not the window they are counted in, so any test using a
+    fixed date passes until the real clock walks past it.
     """
     from datetime import datetime, timedelta
 
@@ -785,7 +791,7 @@ def compute_spend_timeseries(
         b[0] += usd
         b[1] += 1
 
-    today = datetime.utcnow().date()
+    today = (now or datetime.utcnow()).date()
     series: list[dict] = []
     for i in range(days - 1, -1, -1):
         d = (today - timedelta(days=i)).isoformat()
