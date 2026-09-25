@@ -11,6 +11,7 @@ import Positioning from "@/components/Positioning";
 import Proof from "@/components/Proof";
 import CTABanner from "@/components/CTABanner";
 import Footer from "@/components/Footer";
+import ChapterFit from "@/components/ChapterFit";
 
 /* Section rhythm is deliberate, and it alternates rather than running one tone
    the whole way down:
@@ -47,6 +48,7 @@ export default function Home() {
     <>
       <a href="#main" className="skip-link">Skip to content</a>
       <Navbar />
+      <ChapterFit />
       <main id="main" data-chapters style={{ overflowX: "clip", width: "100%" }}>
         <Hero />
         <IntegrationBelt />

@@ -406,73 +406,23 @@ const FEATURES = [
   },
 ];
 
-function FeatureRow({ f, index }: { f: (typeof FEATURES)[0]; index: number }) {
-  const even = index % 2 === 0;
-
-  const copy = (
-    <>
-      <h3
-        style={{
-          fontSize: "clamp(24px, 2.6vw, 32px)",
-          fontWeight: 600,
-          letterSpacing: "-0.03em",
-          color: "var(--ink)",
-          marginBottom: 14,
-          lineHeight: 1.15,
-          textWrap: "balance",
-        }}
-      >
-        {f.headline}
-      </h3>
-      <p style={{ fontSize: 16.5, color: "var(--muted)", lineHeight: 1.65, maxWidth: "62ch" }}>
-        {f.body}
-      </p>
-    </>
-  );
-
-  /* Final beat: full-width stack, so the section does not read as three
-     identical rows. */
-  if (f.wide) {
-    return (
-      <div className="feature-row rise" style={{ "--i": index, padding: "56px 0 8px" } as React.CSSProperties}>
-        <div style={{ maxWidth: 720, marginBottom: 36 }}>{copy}</div>
-        <div>{f.surface}</div>
-      </div>
-    );
-  }
-
-  return (
-    <div
-      className="feature-row rise"
-      style={
-        {
-          "--i": index,
-          display: "grid",
-          gridTemplateColumns: "1fr 1fr",
-          gap: 72,
-          alignItems: "center",
-          padding: "56px 0",
-          borderBottom: "1px solid var(--rule)",
-        } as React.CSSProperties
-      }
-    >
-      <div style={{ order: even ? 0 : 1, minWidth: 0 }}>{copy}</div>
-      <div style={{ order: even ? 1 : 0, minWidth: 0 }}>{f.surface}</div>
-    </div>
-  );
-}
+const TAB_LABELS = ["Forecast confidence", "Cost sensitivity", "Dangerous chains"];
 
 export default function FeatureRows() {
   const ref = useReveal<HTMLElement>(0.08);
+  /* One feature at a time. The reader picks; the surfaces keep their own
+     motion, so switching tabs lands on something already moving. */
+  const [active, setActive] = useState(0);
+  const f = FEATURES[active];
 
   return (
     <section
       ref={ref}
       id="features"
-      style={{ padding: "88px 0 96px", background: "var(--ground)", borderTop: "1px solid var(--rule)" }}
+      style={{ padding: "72px 0 80px", background: "var(--ground)", borderTop: "1px solid var(--rule)" }}
     >
-      <div style={{ maxWidth: 1240, margin: "0 auto", padding: "0 32px" }}>
-        <div style={{ marginBottom: 12 }}>
+      <div style={{ maxWidth: 1240, margin: "0 auto", padding: "0 32px", width: "100%" }}>
+        <div className="rise" style={{ marginBottom: 28 }}>
           <span className="eyebrow">What you get</span>
           <h2
             style={{
@@ -488,12 +438,63 @@ export default function FeatureRows() {
           </h2>
         </div>
 
-        {FEATURES.map((f, i) => (
-          <FeatureRow key={f.headline} f={f} index={i} />
-        ))}
+        <div className="ft-grid rise" style={{ "--i": 1 } as React.CSSProperties}>
+          <div className="ft-tabs" role="tablist" aria-label="What you get">
+            {FEATURES.map((t, i) => (
+              <button
+                key={t.headline}
+                type="button"
+                role="tab"
+                aria-selected={i === active}
+                className={`ft-tab${i === active ? " on" : ""}`}
+                onClick={() => setActive(i)}
+              >
+                <span className="ft-tab-label mono">{`0${i + 1}`} · {TAB_LABELS[i]}</span>
+                <span className="ft-tab-head">{t.headline}</span>
+                <span className="ft-tab-body">{t.body}</span>
+              </button>
+            ))}
+          </div>
+          <div className="ft-stage" role="tabpanel" key={active}>
+            {f.surface}
+          </div>
+        </div>
       </div>
 
       <style>{`
+        .ft-grid {
+          display: grid;
+          grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
+          gap: 40px;
+          align-items: start;
+        }
+        .ft-tabs { display: flex; flex-direction: column; gap: 6px; }
+        .ft-tab {
+          appearance: none; background: transparent; border: 0;
+          border-left: 2px solid var(--rule);
+          text-align: left; cursor: pointer;
+          padding: 16px 18px 16px 20px; border-radius: 0 var(--r-sm) var(--r-sm) 0;
+          display: flex; flex-direction: column; gap: 6px;
+          color: var(--muted);
+          transition: background 0.18s ease, border-color 0.18s ease;
+        }
+        .ft-tab:hover { background: var(--paper); }
+        .ft-tab.on { background: var(--paper); border-left-color: var(--ink); }
+        .ft-tab:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+        .ft-tab-label { font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted-2); }
+        .ft-tab.on .ft-tab-label { color: var(--ink); }
+        .ft-tab-head {
+          font-size: 19px; font-weight: 600; letter-spacing: -0.02em;
+          color: var(--ink); line-height: 1.2; text-wrap: balance;
+        }
+        .ft-tab-body { font-size: 14.5px; line-height: 1.55; color: var(--muted); max-width: 46ch; }
+        .ft-tab:not(.on) .ft-tab-body { display: none; }
+        .ft-stage { min-width: 0; animation: ft-in 0.35s cubic-bezier(0.16, 1, 0.3, 1); }
+        @keyframes ft-in { from { opacity: 0; transform: translate3d(0, 10px, 0); } to { opacity: 1; transform: none; } }
+        @media (max-width: 900px) {
+          .ft-grid { grid-template-columns: 1fr; gap: 24px; }
+          .ft-tab:not(.on) .ft-tab-body { display: block; }
+        }
         /* One surface treatment, used by all three. */
         /* No border, no shadow. On the paper section a surface is a tinted
            well; the product separates planes by tone, never by a hairline. */

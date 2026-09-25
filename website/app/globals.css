@@ -486,8 +486,33 @@ section[id] { scroll-margin-top: 72px; }
    the same offset as the anchor rule above, so a snap and a #hash jump land
    on the same pixel, and it is set on every chapter so the ones without an
    id (hero, metrics, the close) rest under the bar too. */
-html { scroll-snap-type: y proximity; }
-main > section { scroll-snap-align: start; scroll-margin-top: 72px; }
+html { scroll-snap-type: y mandatory; }
+main > section { scroll-snap-align: start; scroll-margin-top: 64px; }
+
+/* ── One chapter, one screen ──────────────────────────────────
+   components/ChapterFit.tsx writes --avail (viewport minus nav, in px) and
+   --fit (a zoom factor, 1 or less) on every chapter. The chapter fills the
+   screen and centres its content; a chapter that would run past the fold is
+   zoomed down until it fits. Zoom scales px lengths, so the min-height is
+   divided back out to land on exactly one screen. Under 900px the page
+   stacks and neither applies. */
+@media (min-width: 900px) {
+  main[data-chapters] > section:not(.belt) {
+    --fit: 1;
+    --avail: calc(100svh - 64px);
+    zoom: var(--fit);
+    box-sizing: border-box;
+    min-height: calc(var(--avail) / var(--fit));
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    scroll-margin-top: 64px;
+  }
+  main[data-chapters] > section.hero-fill {
+    --avail: calc(100svh - 64px - var(--belt-h));
+    min-height: calc(var(--avail) / var(--fit)) !important;
+  }
+}
 /* The belt is a short band that reads as part of the metrics chapter, and
    the footer is not a chapter. Neither is a resting place. */
 main > .belt { scroll-snap-align: none; }

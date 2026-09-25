@@ -13,10 +13,12 @@
  * navy throws the meaning away.
  */
 
-/** Deep blue, sampled from the logo artwork itself. */
-export const LOGO_NAVY = "#023892";
-/** Aquamarine bridge, sampled from the logo artwork itself. */
-export const LOGO_AQUA = "#71D9E2";
+/** Brand black. The demo lockup is a single ink: every path takes this. */
+export const LOGO_BLACK = "#0A0A0A";
+/** Legacy two-ink values. Kept so old call sites still compile; the
+ *  defaults below no longer use them. */
+export const LOGO_NAVY = LOGO_BLACK;
+export const LOGO_AQUA = LOGO_BLACK;
 
 const WORD_VIEWBOX = "18.1 157.6 864.4 191.6";
 const WORD_ASPECT = 4.5109;
@@ -28,7 +30,7 @@ type LogoProps = {
   height?: number;
   /** Letterform ink. Pass "#fff" (or "currentColor") for reversed lockups. */
   navy?: string;
-  /** The E bridge. Stays aquamarine on every background. */
+  /** The E bridge. Same ink as the letterforms in the mono lockup. */
   aqua?: string;
   /** Accessible name. Omit on decorative repeats to keep them out of the tree. */
   title?: string;
@@ -37,8 +39,8 @@ type LogoProps = {
 /** Full ARCEO wordmark — the primary lockup. */
 export function LogoWordmark({
   height = 28,
-  navy = LOGO_NAVY,
-  aqua = LOGO_AQUA,
+  navy = LOGO_BLACK,
+  aqua = LOGO_BLACK,
   title,
 }: LogoProps) {
   return (
@@ -67,8 +69,8 @@ export function LogoWordmark({
 /** The E+O monogram, for square slots — favicon, avatar, app icon. */
 export function LogoMark({
   height = 28,
-  navy = LOGO_NAVY,
-  aqua = LOGO_AQUA,
+  navy = LOGO_BLACK,
+  aqua = LOGO_BLACK,
   title,
 }: LogoProps) {
   return (
