@@ -9,7 +9,7 @@
     "lint": "next lint"
   },
   "dependencies": {
-    "cal-sans": "^1.0.1",
+    "cal-sans": "^2.0.6",
     "next": "^16.3.1",
     "react": "^19.2.8",
     "react-dom": "^19.0.0"
