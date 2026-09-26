@@ -129,7 +129,7 @@ export default function Sidebar(): React.ReactElement {
   return (
     <aside
       className="shrink-0 h-screen flex flex-col bg-neutral-sunken font-body transition-[width] duration-200"
-      style={{ width: collapsed ? 72 : 240 }}
+      style={{ width: collapsed ? 72 : 256 }}
     >
       {/* Brand */}
       <div className={`flex items-center gap-2 ${collapsed ? "px-3 justify-center" : "px-5"} pt-6 pb-5`}>

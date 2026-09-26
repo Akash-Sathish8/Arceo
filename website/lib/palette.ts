@@ -27,80 +27,76 @@
  */
 
 export const C = {
-  /* ── Brand ─────────────────────────────────────────────────── */
-  brand:       "#0E3C90",  /* accent — deep blue, authority */
-  brandDeep:   "#023892",  /* the logo artwork's own navy */
-  brandHover:  "#092C6E",
-  brandSoft:   "#EEF2FA",
-  brandBorder: "#CBD8EE",
-  brandDark:   "#0B2E73",  /* navy act, raised plane */
-  brandDarker: "#07245A",  /* navy act, ground */
+  /* ── Brand — near-black (shadcn design system, 2026-09-25) ──── */
+  brand:       "#2E2E2E",
+  brandDeep:   "#0A0A0A",
+  brandHover:  "#1A1A1A",
+  brandSoft:   "#F5F5F5",
+  brandBorder: "#D4D4D4",
+  brandDark:   "#18181B",
+  brandDarker: "#09090B",
 
-  /* Aquamarine — "Controlled": safe, approved, bounded. */
-  aqua:        "#7FFFD4",  /* fills, bars, meters */
-  aquaInk:     "#0E9B7D",  /* rings, arcs, thin marks */
-  aquaDeep:    "#0B7F66",  /* text — 4.95:1 on white */
-  aquaSoft:    "#ECF7F2",
-  aquaLine:    "#C3E3D5",
-  /* Legacy aliases from before the 2026-09-02 aquamarine pass. */
-  teal:        "#0B7F66",
-  tealSoft:    "#ECF7F2",
-  tealBorder:  "#C3E3D5",
+  /* Success scale in the aquamarine slots. */
+  aqua:        "#DCFCE7",
+  aquaInk:     "#16A34A",
+  aquaDeep:    "#15803D",
+  aquaSoft:    "#F0FDF4",
+  aquaLine:    "#BBF7D0",
+  teal:        "#15803D",
+  tealSoft:    "#F0FDF4",
+  tealBorder:  "#BBF7D0",
 
-  /* Cyan — carries no meaning. Warmth and brand chrome only, never state.
-     Also the exact aquamarine in the logo's E-bridge. */
-  cyanTint:    "#E1F7F9",
-  cyanSoft:    "#C4EFF3",
-  cyan:        "#71D9E2",
-  cyanRing:    "#34C9D5",
-  cyanInk:     "#1A777F",
+  /* Former cyan family, now zinc. */
+  cyanTint:    "#F4F4F5",
+  cyanSoft:    "#E4E4E7",
+  cyan:        "#A1A1AA",
+  cyanRing:    "#52525B",
+  cyanInk:     "#3F3F46",
 
-  /* Amber — "Attention". The surface is the brand amber itself, so
-     anything sitting on it takes graphite, not the amber text tone. */
   amber:       "#F59E0B",
-  amberInk:    "#9C6206",
-  onAmber:     "#1E2836",
+  amberInk:    "#92400E",
+  onAmber:     "#92400E",
 
-  graphite:    "#1E2836",
+  graphite:    "#18181B",
 
   /* ── Surfaces ──────────────────────────────────────────────── */
   paper:      "#FFFFFF",
-  ground:     "#EEEDF5",
-  ground2:    "#F7F7F5",
-  ground3:    "#E3E2DF",
-  bandBlue:   "#E4EBF8",
-  bandTeal:   "#E2F2EC",
-  bandAqua:   "#DFF3F7",
+  ground:     "#FAFAFA",
+  ground2:    "#F4F4F5",
+  ground3:    "#E4E4E7",
+  bandBlue:   "#F4F4F5",
+  bandTeal:   "#FAFAFA",
+  bandAqua:   "#F4F4F5",
 
-  /* ── Ink — the app's warm Notion ramp, not cool blue-grays ─── */
-  ink:        "#37352F",
-  inkStrong:  "#1E2836",
-  muted:      "#6B6966",
-  muted2:     "#9B9A97",
-  disabled:   "#C9C7C4",
+  /* ── Ink (zinc) ─────────────────────────────────────────────── */
+  ink:        "#09090B",
+  inkStrong:  "#09090B",
+  muted:      "#71717A",
+  muted2:     "#A1A1AA",
+  disabled:   "#D4D4D8",
 
   /* ── Rules ─────────────────────────────────────────────────── */
-  rule:       "#E9E9E7",
-  ruleLight:  "#F1F1EF",
+  rule:       "#E4E4E7",
+  ruleLight:  "#F4F4F5",
 
-  /* ── Severity — the app's four real tiers ──────────────────── */
-  safe:           "#0B7F66",
-  safeFill:       "#ECF7F2",
-  safeBorder:     "#C3E3D5",
-  safeRing:       "#0E9B7D",
-  elevated:       "#9C6206",  /* text tone on white */
-  elevatedFill:   "#F59E0B",  /* the brand amber IS the surface */
-  elevatedBorder: "#F59E0B",
+  /* ── Severity ──────────────────────────────────────────────── */
+  safe:           "#15803D",
+  safeFill:       "#F0FDF4",
+  safeBorder:     "#BBF7D0",
+  safeRing:       "#16A34A",
+  elevated:       "#92400E",
+  elevatedFill:   "#FFFBEB",
+  elevatedBorder: "#FDE68A",
   elevatedRing:   "#F59E0B",
   high:           "#C2410C",
-  highFill:       "#FDF0E7",
-  highBorder:     "#F5D5BC",
-  critical:       "#B3261E",
-  criticalFill:   "#FBECE8",
-  criticalBorder: "#F3D6CF",
-  criticalRing:   "#AD2418",
-  clear:          "#0B7F66",
-  clearFill:      "#ECF7F2",
+  highFill:       "#FFF7ED",
+  highBorder:     "#FED7AA",
+  critical:       "#B91C1C",
+  criticalFill:   "#FEF2F2",
+  criticalBorder: "#FECACA",
+  criticalRing:   "#DC2626",
+  clear:          "#15803D",
+  clearFill:      "#F0FDF4",
 } as const;
 
 export default C;

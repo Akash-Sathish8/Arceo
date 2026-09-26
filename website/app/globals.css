@@ -14,6 +14,10 @@
    two pages are rebuilt on the brand tokens directly.
    ════════════════════════════════════════════════════════════════ */
 :root {
+  /* Legacy font variables resolve to Inter (next/font sets --font-sans). */
+  --font-poppins: var(--font-sans);
+  --font-num:     var(--font-sans);
+
   /* ── Surfaces (were warm creams) ───────────────────────────── */
   --clay-cream:        var(--paper);
   --clay-cream-2:      var(--ground);
@@ -39,17 +43,16 @@
 
   /* ── Dark surfaces ─────────────────────────────────────────── */
   --clay-dark:         var(--brand-darker);
-  --clay-dark-strong:  #061B44;
+  --clay-dark-strong:  #09090B;
 
   /* ── Status ────────────────────────────────────────────────── */
   --clay-success:      var(--aqua-deep);
   --clay-danger:       var(--risk-critical);
   --clay-warning:      var(--amber);
 
-  /* ── Button glint — flattened. The product has no shadows, so the
-     clay pages' inner highlight and outer glow resolve to nothing. */
-  --color-1-400: transparent;
-  --color-1-700: transparent;
+  /* ── Button glint (buttons.md) ─────────────────────────────── */
+  --color-1-400: rgba(255,255,255,0.06);
+  --color-1-700: rgba(0,0,0,0.04);
 }
 
 /* ── Reset ────────────────────────────────────────────────── */
@@ -67,38 +70,38 @@ html { scroll-behavior: smooth; overflow-x: clip; }
 section[id] { scroll-margin-top: 72px; }
 
 body {
-  font-family: var(--font-poppins), system-ui, -apple-system, sans-serif;
+  font-family: var(--font-sans), 'Inter', system-ui, -apple-system, sans-serif;
   background: var(--clay-cream);
   color: var(--clay-body);
   overflow-x: clip; /* contain decorative 3D overflow (hero deck) without breaking sticky nav */
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   font-size: 16px;
-  line-height: 1.7;
+  line-height: 1.625;
   font-stretch: normal;
 }
 
 /* ── Headings — Poppins, warm near-black ──────────────────── */
 h1, h2, h3, h4, .display {
-  font-family: var(--font-poppins), system-ui, sans-serif;
+  font-family: var(--font-sans), 'Inter', system-ui, sans-serif;
   color: var(--clay-heading);
   line-height: 1.1;
   font-stretch: normal;
 }
-h1 { font-weight: 800; letter-spacing: -0.8px; }   /* h1 is extra-bold per spec */
+h1 { font-weight: 600; letter-spacing: -0.5px; }
 h2, h3, h4 { font-weight: 600; }
 
 a { color: inherit; text-decoration: none; }
 button { cursor: pointer; font-family: inherit; font-stretch: normal; }
 
 code, .mono {
-  font-family: "SF Mono", "Fira Code", "Cascadia Code", monospace;
+  font-family: var(--font-mono), "JetBrains Mono", "Fira Code", monospace;
   font-size: 0.875em;
 }
 
 /* ── Layout ───────────────────────────────────────────────── */
 .container {
-  max-width: 1152px;
+  max-width: 1280px;
   margin: 0 auto;
   padding: 0 24px;
 }
@@ -120,8 +123,8 @@ code, .mono {
   font-size: 15px;
   font-weight: 500;
   letter-spacing: -0.1px;
-  padding: 13px 28px;
-  border-radius: var(--r-pill);
+  padding: 10px 24px;
+  border-radius: var(--r-lg);
   border: 1px solid transparent;
   box-shadow: var(--shadow-sm), inset var(--color-1-400) 0 10px 6px -6px, var(--color-1-700) 4px 8px 18px -6px;
   transition: background 0.15s, transform 0.1s, box-shadow 0.15s;
@@ -144,8 +147,8 @@ code, .mono {
   font-size: 15px;
   font-weight: 500;
   letter-spacing: -0.1px;
-  padding: 13px 28px;
-  border-radius: var(--r-pill);
+  padding: 10px 24px;
+  border-radius: var(--r-lg);
   border: 1px solid var(--clay-border);
   box-shadow: var(--shadow-sm), inset var(--color-1-400) 0 10px 6px -6px;
   transition: background 0.15s, border-color 0.15s, transform 0.1s, box-shadow 0.15s;
@@ -169,8 +172,8 @@ code, .mono {
   font-size: 15px;
   font-weight: 500;
   letter-spacing: -0.1px;
-  padding: 13px 28px;
-  border-radius: var(--r-pill);
+  padding: 10px 24px;
+  border-radius: var(--r-lg);
   border: 1px solid transparent;
   box-shadow: var(--shadow-sm), inset var(--color-1-400) 0 10px 6px -6px, var(--color-1-700) 4px 8px 18px -6px;
   transition: background 0.15s, transform 0.1s, box-shadow 0.15s;
@@ -189,8 +192,8 @@ code, .mono {
   font-size: 15px;
   font-weight: 500;
   letter-spacing: -0.1px;
-  padding: 13px 28px;
-  border-radius: var(--r-pill);
+  padding: 10px 24px;
+  border-radius: var(--r-lg);
   border: 1px solid rgba(250,246,240,0.35);
   transition: border-color 0.15s, background 0.15s, transform 0.1s;
   cursor: pointer;
@@ -320,47 +323,386 @@ code, .mono {
     /* ── Brand ───────────────────────────────────────────────────
      Values are lifted VERBATIM from frontend/src/index.css so the site and
      the app are one system. If a colour changes there, change it here. */
-  --brand:         #0E3C90;   /* accent — deep blue, authority. 10.16:1 on white */
-  --brand-deep:    #023892;   /* the logo artwork's own navy */
-  --brand-hover:   #092C6E;   /* accent-ink — hover / pressed */
-  --brand-soft:    #EEF2FA;   /* accent-soft */
-  --brand-border:  #CBD8EE;   /* accent-line */
-  --brand-dark:    #0B2E73;   /* navy act, raised plane */
-  --brand-darker:  #07245A;   /* navy act, ground */
+  --brand:         #2E2E2E;   /* brand — near-black */
+  --brand-deep:    #0A0A0A;   /* the logo ink */
+  --brand-hover:   #1A1A1A;   /* brand-strong — hover / pressed */
+  --brand-soft:    #F5F5F5;   /* brand-softer */
+  --brand-border:  #D4D4D4;   /* border-brand-subtle */
+  --brand-dark:    #18181B;   /* dark act, raised plane */
+  --brand-darker:  #09090B;   /* dark act, ground */
 
-  /* Aquamarine — "Controlled": an approved or bounded outcome. This is the
-     safe signal, and it is deliberately a FILL: #7FFFD4 is 1.21:1 on white,
-     so the darker members carry any text. */
-  --aqua:          #7FFFD4;   /* fills, bars, meters, chips */
-  --aqua-ink:      #0E9B7D;   /* rings, arcs, thin marks */
-  --aqua-deep:     #0B7F66;   /* text — 4.95:1 on white */
-  --aqua-soft:     #ECF7F2;
-  --aqua-line:     #C3E3D5;
-  /* Legacy alias: the site used --teal before the 2026-09-02 brand pass
-     renamed the tone to aquamarine. Points at the readable member. */
-  --teal:          #0B7F66;
-  --teal-soft:     #ECF7F2;
-  --teal-border:   #C3E3D5;
+  /* Success — the shadcn success scale, in the aquamarine slots. */
+  --aqua:          #DCFCE7;
+  --aqua-ink:      #16A34A;
+  --aqua-deep:     #15803D;
+  --aqua-soft:     #F0FDF4;
+  --aqua-line:     #BBF7D0;
+  --teal:          #15803D;
+  --teal-soft:     #F0FDF4;
+  --teal-border:   #BBF7D0;
 
-  /* Cyan — the brand's third colour, and the only one carrying NO meaning.
-     Never used for state; it is here for warmth and brand chrome. It is also
-     the exact aquamarine in the logo's E-bridge. */
-  --cyan-tint:     #E1F7F9;
-  --cyan-soft:     #C4EFF3;
-  --cyan:          #71D9E2;
-  --cyan-ring:     #34C9D5;
-  --cyan-ink:      #1A777F;
+  /* The former cyan family resolves to zinc: warmth and chrome only. */
+  --cyan-tint:     #F4F4F5;
+  --cyan-soft:     #E4E4E7;
+  --cyan:          #A1A1AA;
+  --cyan-ring:     #52525B;
+  --cyan-ink:      #3F3F46;
 
-  /* Amber — "Attention": review, uncertainty, a decision moment. The amber
-     SURFACE is the brand amber itself, not a pale tint, so anything sitting
-     on it takes graphite rather than the amber text tone. */
+  /* Warning. */
   --amber:         #F59E0B;
-  --amber-ink:     #9C6206;   /* 5.04:1 on white */
-  --on-amber:      #1E2836;   /* graphite, 6.85:1 on brand amber */
-  --amber-soft:    #FDF6E7;
-  --amber-border:  #F59E0B;
+  --amber-ink:     #92400E;
+  --on-amber:      #92400E;
+  --amber-soft:    #FFFBEB;
+  --amber-border:  #FDE68A;
 
-  --graphite:      #1E2836;   /* the one dark surface tone */
+  --graphite:      #18181B;
+
+  /* ── Section bands ──────────────────────────────────────────
+     A landing page can carry more colour than a dense app screen, so the
+     chapters run a touch deeper than the app's tints — same hues, more
+     saturation. Nothing on this site should be a field of plain white. */
+  --band-blue:    #F4F4F5;
+  --band-teal:    #FAFAFA;
+  --band-aqua:    #F4F4F5;
+
+  /* ── Surfaces (were warm creams) ───────────────────────────── */
+  --clay-cream:        var(--paper);
+  --clay-cream-2:      var(--ground);
+  --clay-cream-3:      var(--ground-2);
+  --clay-cream-4:      var(--ground-3);
+
+  /* ── Text ──────────────────────────────────────────────────── */
+  --clay-heading:      var(--ink);
+  --clay-body:         var(--muted);
+  --clay-body-subtle:  var(--muted-2);
+  --clay-disabled:     var(--disabled);
+
+  /* ── Brand (was Carolina blue) ─────────────────────────────── */
+  --clay-brand:        var(--brand);
+  --clay-brand-strong: var(--brand-hover);
+  --clay-brand-soft:   var(--brand-border);
+  --clay-brand-softer: var(--brand-soft);
+
+  /* ── Borders ───────────────────────────────────────────────── */
+  --clay-border:        var(--rule);
+  --clay-border-light:  var(--rule-light);
+  --clay-border-strong: var(--brand);
+
+  /* ── Dark surfaces ─────────────────────────────────────────── */
+  --clay-dark:         var(--brand-darker);
+  --clay-dark-strong:  #09090B;
+
+  /* ── Status ────────────────────────────────────────────────── */
+  --clay-success:      var(--aqua-deep);
+  --clay-danger:       var(--risk-critical);
+  --clay-warning:      var(--amber);
+
+  /* ── Button glint (buttons.md) ─────────────────────────────── */
+  --color-1-400: rgba(255,255,255,0.06);
+  --color-1-700: rgba(0,0,0,0.04);
+}
+
+/* ── Reset ────────────────────────────────────────────────── */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  font-stretch: normal;
+}
+
+html { scroll-behavior: smooth; overflow-x: clip; }
+
+/* The header is sticky and 64px tall. Without this, jumping to a section
+   parks its heading underneath the bar. */
+section[id] { scroll-margin-top: 72px; }
+
+body {
+  font-family: var(--font-sans), 'Inter', system-ui, -apple-system, sans-serif;
+  background: var(--clay-cream);
+  color: var(--clay-body);
+  overflow-x: clip; /* contain decorative 3D overflow (hero deck) without breaking sticky nav */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-size: 16px;
+  line-height: 1.625;
+  font-stretch: normal;
+}
+
+/* ── Headings — Poppins, warm near-black ──────────────────── */
+h1, h2, h3, h4, .display {
+  font-family: var(--font-sans), 'Inter', system-ui, sans-serif;
+  color: var(--clay-heading);
+  line-height: 1.1;
+  font-stretch: normal;
+}
+h1 { font-weight: 600; letter-spacing: -0.5px; }
+h2, h3, h4 { font-weight: 600; }
+
+a { color: inherit; text-decoration: none; }
+button { cursor: pointer; font-family: inherit; font-stretch: normal; }
+
+code, .mono {
+  font-family: var(--font-mono), "JetBrains Mono", "Fira Code", monospace;
+  font-size: 0.875em;
+}
+
+/* ── Layout ───────────────────────────────────────────────── */
+.container {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 0 24px;
+}
+
+/* ── Section defaults ─────────────────────────────────────── */
+.section {
+  padding: 112px 0;
+}
+
+/* ── Buttons ──────────────────────────────────────────────────
+   Pill shaped, clay shadow + glint. .btn-black is the primary
+   brand CTA; .btn-outline is the soft clay secondary.            */
+.btn-black {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--clay-brand);
+  color: #fff;
+  font-size: 15px;
+  font-weight: 500;
+  letter-spacing: -0.1px;
+  padding: 10px 24px;
+  border-radius: var(--r-lg);
+  border: 1px solid transparent;
+  box-shadow: var(--shadow-sm), inset var(--color-1-400) 0 10px 6px -6px, var(--color-1-700) 4px 8px 18px -6px;
+  transition: background 0.15s, transform 0.1s, box-shadow 0.15s;
+  cursor: pointer;
+  white-space: nowrap;
+  text-decoration: none;
+}
+.btn-black:hover {
+  background: var(--clay-brand-strong);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md), inset var(--color-1-400) 0 10px 6px -6px, var(--color-1-700) 4px 10px 22px -6px;
+}
+
+.btn-outline {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--clay-cream);
+  color: var(--clay-heading);
+  font-size: 15px;
+  font-weight: 500;
+  letter-spacing: -0.1px;
+  padding: 10px 24px;
+  border-radius: var(--r-lg);
+  border: 1px solid var(--clay-border);
+  box-shadow: var(--shadow-sm), inset var(--color-1-400) 0 10px 6px -6px;
+  transition: background 0.15s, border-color 0.15s, transform 0.1s, box-shadow 0.15s;
+  cursor: pointer;
+  white-space: nowrap;
+  text-decoration: none;
+}
+.btn-outline:hover {
+  background: var(--clay-cream-3);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md), inset var(--color-1-400) 0 10px 6px -6px;
+}
+
+/* Light pill on dark surfaces (CTA banner) */
+.btn-white {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--clay-cream);
+  color: var(--clay-heading);
+  font-size: 15px;
+  font-weight: 500;
+  letter-spacing: -0.1px;
+  padding: 10px 24px;
+  border-radius: var(--r-lg);
+  border: 1px solid transparent;
+  box-shadow: var(--shadow-sm), inset var(--color-1-400) 0 10px 6px -6px, var(--color-1-700) 4px 8px 18px -6px;
+  transition: background 0.15s, transform 0.1s, box-shadow 0.15s;
+  cursor: pointer;
+  white-space: nowrap;
+  text-decoration: none;
+}
+.btn-white:hover { background: #fff; transform: translateY(-1px); }
+
+.btn-white-outline {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(250,246,240,0.06);
+  color: var(--clay-cream);
+  font-size: 15px;
+  font-weight: 500;
+  letter-spacing: -0.1px;
+  padding: 10px 24px;
+  border-radius: var(--r-lg);
+  border: 1px solid rgba(250,246,240,0.35);
+  transition: border-color 0.15s, background 0.15s, transform 0.1s;
+  cursor: pointer;
+  white-space: nowrap;
+  text-decoration: none;
+}
+.btn-white-outline:hover { border-color: rgba(250,246,240,0.7); background: rgba(250,246,240,0.12); transform: translateY(-1px); }
+
+/* ── Cards ────────────────────────────────────────────────── */
+.card {
+  background: var(--clay-cream);
+  border: 1px solid var(--clay-border);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-md);
+  overflow: hidden;
+}
+
+/* ── Chip / badge ─────────────────────────────────────────── */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  padding: 4px 12px;
+  border-radius: var(--r-pill);
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+
+/* ── Section label ────────────────────────────────────────── */
+.eyebrow {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--clay-brand-strong);
+  margin-bottom: 12px;
+}
+
+/* ── Halftone (warm clay dot field) ───────────────────────── */
+.halftone {
+  background-image: radial-gradient(circle, rgba(44,34,21,0.06) 1px, transparent 1px);
+  background-size: 12px 12px;
+}
+
+/* ── Fade-in on scroll ────────────────────────────────────── */
+.fade-up {
+  opacity: 0;
+  transform: translateY(28px);
+  transition: opacity 0.65s cubic-bezier(0.22, 1, 0.36, 1),
+              transform 0.65s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.fade-up.visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* ── Hover helpers ────────────────────────────────────────── */
+.nav-link {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--clay-body);
+  padding: 8px 14px;
+  border-radius: var(--r-pill);
+  transition: color 0.12s, background 0.12s;
+}
+.nav-link:hover { color: var(--clay-heading); background: var(--clay-cream-3); }
+
+.footer-link {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--clay-body-subtle);
+  transition: color 0.12s;
+}
+.footer-link:hover { color: var(--clay-heading); }
+
+.social-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--r-pill);
+  color: var(--clay-body-subtle);
+  transition: color 0.12s, background 0.12s;
+}
+.social-btn:hover { color: var(--clay-heading); background: var(--clay-cream-3); }
+
+/* ── Divider ──────────────────────────────────────────────── */
+.divider { height: 1px; background: var(--clay-border); }
+
+/* ══════════════════════════════════════════════════════════════════
+   Landing-page design system (appended 2026-09-01)
+
+   The clay tokens above still dress /security and /book-demo. Everything
+   below dresses the landing page: graphite for what an agent costs, red
+   for what it can break, and nothing else saturated. Kept additive on
+   purpose — replacing the file outright would have stripped the tokens
+   Positioning.tsx and Proof.tsx are still written against.
+   ══════════════════════════════════════════════════════════════════ */
+
+
+/* ════════════════════════════════════════════════════════════════
+   Arceo brand design tokens
+   Sourced from the Arceo brand deck ("The research recommends the
+   palette; we give each color a job") and the official logo artwork.
+
+   Five colours, five jobs. Nothing here is decorative:
+
+     DEEP BLUE  #0F3D91  authority   structure, headings, the CFO's number
+     TEAL       #14B8A6  controlled  an approved, bounded, safe outcome
+     AQUA       #71D9E2  controlled  the logo's bridge; safe, secondary
+     AMBER      #F59E0B  attention   review it — uncertainty, a decision
+     GRAPHITE   #1F2937  gravity     body text
+     NEUTRAL    #F7F9FB  clarity     backgrounds, breathing room
+
+   Red is deliberately NOT in the brand palette. It is reserved for a
+   single job — a genuinely critical consequence — so that it still
+   lands when it appears. The deck's direction is "calm + consequence",
+   not fear: a fleet reads mostly teal, a few agents amber, and red is
+   rare. Dark surfaces are deep navy, never black.
+   ════════════════════════════════════════════════════════════════ */
+:root {
+    /* ── Brand ───────────────────────────────────────────────────
+     Values are lifted VERBATIM from frontend/src/index.css so the site and
+     the app are one system. If a colour changes there, change it here. */
+  --brand:         #2E2E2E;   /* brand — near-black */
+  --brand-deep:    #0A0A0A;   /* the logo ink */
+  --brand-hover:   #1A1A1A;   /* brand-strong — hover / pressed */
+  --brand-soft:    #F5F5F5;   /* brand-softer */
+  --brand-border:  #D4D4D4;   /* border-brand-subtle */
+  --brand-dark:    #18181B;   /* dark act, raised plane */
+  --brand-darker:  #09090B;   /* dark act, ground */
+
+  /* Success — the shadcn success scale, in the aquamarine slots. */
+  --aqua:          #DCFCE7;
+  --aqua-ink:      #16A34A;
+  --aqua-deep:     #15803D;
+  --aqua-soft:     #F0FDF4;
+  --aqua-line:     #BBF7D0;
+  --teal:          #15803D;
+  --teal-soft:     #F0FDF4;
+  --teal-border:   #BBF7D0;
+
+  /* The former cyan family resolves to zinc: warmth and chrome only. */
+  --cyan-tint:     #F4F4F5;
+  --cyan-soft:     #E4E4E7;
+  --cyan:          #A1A1AA;
+  --cyan-ring:     #52525B;
+  --cyan-ink:      #3F3F46;
+
+  /* Warning. */
+  --amber:         #F59E0B;
+  --amber-ink:     #92400E;
+  --on-amber:      #92400E;
+  --amber-soft:    #FFFBEB;
+  --amber-border:  #FDE68A;
+
+  --graphite:      #18181B;
 
   /* ── Section bands ──────────────────────────────────────────
      A landing page can carry more colour than a dense app screen, so the
@@ -374,24 +716,22 @@ code, .mono {
      The page is tinted and cards are pure white. That contrast is what
      makes a card read as a floating plane rather than as a region fenced
      off by a hairline — which matters, because cards have no border. */
-  --paper:        #FFFFFF;   /* cards, panels, raised surfaces */
-  --ground:       #EEEDF5;   /* bg-page */
-  --ground-2:     #F7F7F5;   /* paper-2 — sunken wells */
-  --ground-3:     #E3E2DF;   /* ink-200 — track fills */
+  --paper:        #FFFFFF;   /* neutral-primary-soft: cards, panels */
+  --ground:       #FAFAFA;   /* neutral-secondary-soft: the page */
+  --ground-2:     #F4F4F5;   /* neutral-tertiary: sunken wells */
+  --ground-3:     #E4E4E7;   /* neutral-quaternary: track fills */
 
-  /* ── Ink / text ──────────────────────────────────────────────
-     The app's warm Notion ramp, not cool blue-grays. Warm neutrals make a
-     saturated blue and an aquamarine read better than cool grays do. */
-  --ink:          #37352F;   /* ink-900 */
-  --ink-strong:   #1E2836;   /* graphite — darkest surface */
-  --muted:        #6B6966;   /* ink-600 — body copy */
-  --muted-2:      #9B9A97;   /* ink-400 — meta, captions, eyebrows */
-  --disabled:     #C9C7C4;   /* ink-300 */
+  /* ── Ink / text (zinc) ───────────────────────────────────────── */
+  --ink:          #09090B;   /* heading */
+  --ink-strong:   #09090B;
+  --muted:        #71717A;   /* body */
+  --muted-2:      #A1A1AA;   /* body-subtle */
+  --disabled:     #D4D4D8;
 
   /* ── Rules ─────────────────────────────────────────────────── */
-  --rule:         #E9E9E7;   /* line */
-  --rule-light:   #F1F1EF;   /* line-soft */
-  --rule-strong:  #0E3C90;   /* deliberate brand edge */
+  --rule:         #E4E4E7;   /* border-default */
+  --rule-light:   #F4F4F5;   /* border-light */
+  --rule-strong:  #18181B;   /* border-dark */
 
   /* ── Risk labels ─────────────────────────────────────────────
      A capability is coloured by WHAT KIND of risk it carries; how bad it
@@ -400,10 +740,10 @@ code, .mono {
   --label-money-fill: #FBECE8;
   --label-delete:     #C2410C;   /* deletes_data   */
   --label-delete-fill:#FDF0E7;
-  --label-external:   #0E3C90;   /* sends_external */
-  --label-external-fill:#EEF2FA;
-  --label-pii:        #1A777F;   /* touches_pii    */
-  --label-pii-fill:   #E1F7F9;
+  --label-external:   #4F46E5;   /* sends_external — indigo */
+  --label-external-fill:#EEF2FF;
+  --label-pii:        #7C3AED;   /* touches_pii — purple */
+  --label-pii-fill:   #F5F3FF;
   /* The fifth label, added on dev 2026-09-08 with the multi-agent hero.
      HeroGraphic reads it, so losing it would blank a chip. */
   --label-prod:       #0D9488;   /* changes_production */
@@ -411,34 +751,779 @@ code, .mono {
 
   /* ── The two channels ────────────────────────────────────────
      DEEP BLUE is what it costs; the severity ramp is what it can break. */
-  --cost:        #0E3C90;
-  --cost-soft:   #5578B8;
-  --cost-wash:   rgba(14,60,144,0.07);
-  --risk:        #B3261E;
-  --risk-soft:   #F3D6CF;
-  --risk-wash:   rgba(179,38,30,0.07);
+  --cost:        #18181B;
+  --cost-soft:   #71717A;
+  --cost-wash:   rgba(24,24,27,0.06);
+  --risk:        #DC2626;
+  --risk-soft:   #FECACA;
+  --risk-wash:   rgba(220,38,38,0.07);
 
   /* Severity — the app's four real tiers, matching the backend band scale.
      Bands separate by HUE, not luminance, so always pair one with the
      number and the word. Safe is aquamarine: a cleared agent should look
      actively approved, not merely unremarkable. */
-  --risk-safe:            #0B7F66;
-  --risk-safe-fill:       #ECF7F2;
-  --risk-safe-border:     #C3E3D5;
-  --risk-safe-ring:       #0E9B7D;
-  --risk-elevated:        #9C6206;   /* caution — text tone on white */
-  --risk-elevated-fill:   #F59E0B;   /* the brand amber IS the surface */
-  --risk-elevated-border: #F59E0B;
+  --risk-safe:            #15803D;
+  --risk-safe-fill:       #F0FDF4;
+  --risk-safe-border:     #BBF7D0;
+  --risk-safe-ring:       #16A34A;
+  --risk-elevated:        #92400E;
+  --risk-elevated-fill:   #FFFBEB;
+  --risk-elevated-border: #FDE68A;
   --risk-elevated-ring:   #F59E0B;
   --risk-high:            #C2410C;
-  --risk-high-fill:       #FDF0E7;
-  --risk-high-border:     #F5D5BC;
-  --risk-critical:        #B3261E;
-  --risk-critical-fill:   #FBECE8;
-  --risk-critical-border: #F3D6CF;
-  --risk-critical-ring:   #AD2418;
-  --risk-clear:           #0B7F66;
-  --risk-clear-fill:      #ECF7F2;
+  --risk-high-fill:       #FFF7ED;
+  --risk-high-border:     #FED7AA;
+  --risk-critical:        #B91C1C;
+  --risk-critical-fill:   #FEF2F2;
+  --risk-critical-border: #FECACA;
+  --risk-critical-ring:   #DC2626;
+  --risk-clear:           #15803D;
+  --risk-clear-fill:      #F0FDF4;
+
+  /* ── Radius — the product's own scale, verbatim ─────────────
+     frontend/src/index.css: "8px — the largest thing in the product".
+     The site used to run 14-20px, which reads as a landing page rather
+     than as the software. */
+  --r-lg:   8px;    /* base: buttons, cards, modals */
+  --r-md:   6px;    /* inputs, badges, small controls */
+  --r-sm:   6px;
+  --r-xs:   4px;    /* checkboxes, tiny elements */
+  --r-pill: 9999px; /* pills, avatars, dot indicators */
+
+  /* ── Shadows (shadows.md) ───────────────────────────────────── */
+  --shadow-2xs: 0 1px rgb(0 0 0 / 0.05);
+  --shadow-xs:  0 1px 2px 0 rgb(0 0 0 / 0.05);
+  --shadow-sm:  0 1px 3px 0 rgb(0 0 0 / 0.08), 0 1px 2px -1px rgb(0 0 0 / 0.08);
+  --shadow-md:  0 4px 6px -1px rgb(0 0 0 / 0.08), 0 2px 4px -2px rgb(0 0 0 / 0.08);
+  --shadow-lg:  0 10px 15px -3px rgb(0 0 0 / 0.08), 0 4px 6px -4px rgb(0 0 0 / 0.08);
+  --shadow-xl:  0 20px 25px -5px rgb(0 0 0 / 0.08), 0 8px 10px -6px rgb(0 0 0 / 0.08);
+
+}
+
+/* ── Reset ────────────────────────────────────────────────── */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  font-stretch: normal;
+}
+
+html { scroll-behavior: smooth; overflow-x: clip; }
+
+/* The header is sticky and 64px tall. Without this, jumping to a section
+   parks its heading underneath the bar. */
+section[id] { scroll-margin-top: 72px; }
+
+body {
+  font-family: var(--font-sans), 'Inter', system-ui, -apple-system, sans-serif;
+  background: var(--clay-cream);
+  color: var(--clay-body);
+  overflow-x: clip; /* contain decorative 3D overflow (hero deck) without breaking sticky nav */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-size: 16px;
+  line-height: 1.625;
+  font-stretch: normal;
+}
+
+/* ── Headings — Poppins, warm near-black ──────────────────── */
+h1, h2, h3, h4, .display {
+  font-family: var(--font-sans), 'Inter', system-ui, sans-serif;
+  color: var(--clay-heading);
+  line-height: 1.1;
+  font-stretch: normal;
+}
+h1 { font-weight: 600; letter-spacing: -0.5px; }
+h2, h3, h4 { font-weight: 600; }
+
+a { color: inherit; text-decoration: none; }
+button { cursor: pointer; font-family: inherit; font-stretch: normal; }
+
+code, .mono {
+  font-family: var(--font-mono), "JetBrains Mono", "Fira Code", monospace;
+  font-size: 0.875em;
+}
+
+/* ── Layout ───────────────────────────────────────────────── */
+.container {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 0 24px;
+}
+
+/* ── Section defaults ─────────────────────────────────────── */
+.section {
+  padding: 112px 0;
+}
+
+/* ── Buttons ──────────────────────────────────────────────────
+   Pill shaped, clay shadow + glint. .btn-black is the primary
+   brand CTA; .btn-outline is the soft clay secondary.            */
+.btn-black {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--clay-brand);
+  color: #fff;
+  font-size: 15px;
+  font-weight: 500;
+  letter-spacing: -0.1px;
+  padding: 10px 24px;
+  border-radius: var(--r-lg);
+  border: 1px solid transparent;
+  box-shadow: var(--shadow-sm), inset var(--color-1-400) 0 10px 6px -6px, var(--color-1-700) 4px 8px 18px -6px;
+  transition: background 0.15s, transform 0.1s, box-shadow 0.15s;
+  cursor: pointer;
+  white-space: nowrap;
+  text-decoration: none;
+}
+.btn-black:hover {
+  background: var(--clay-brand-strong);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md), inset var(--color-1-400) 0 10px 6px -6px, var(--color-1-700) 4px 10px 22px -6px;
+}
+
+.btn-outline {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--clay-cream);
+  color: var(--clay-heading);
+  font-size: 15px;
+  font-weight: 500;
+  letter-spacing: -0.1px;
+  padding: 10px 24px;
+  border-radius: var(--r-lg);
+  border: 1px solid var(--clay-border);
+  box-shadow: var(--shadow-sm), inset var(--color-1-400) 0 10px 6px -6px;
+  transition: background 0.15s, border-color 0.15s, transform 0.1s, box-shadow 0.15s;
+  cursor: pointer;
+  white-space: nowrap;
+  text-decoration: none;
+}
+.btn-outline:hover {
+  background: var(--clay-cream-3);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md), inset var(--color-1-400) 0 10px 6px -6px;
+}
+
+/* Light pill on dark surfaces (CTA banner) */
+.btn-white {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--clay-cream);
+  color: var(--clay-heading);
+  font-size: 15px;
+  font-weight: 500;
+  letter-spacing: -0.1px;
+  padding: 10px 24px;
+  border-radius: var(--r-lg);
+  border: 1px solid transparent;
+  box-shadow: var(--shadow-sm), inset var(--color-1-400) 0 10px 6px -6px, var(--color-1-700) 4px 8px 18px -6px;
+  transition: background 0.15s, transform 0.1s, box-shadow 0.15s;
+  cursor: pointer;
+  white-space: nowrap;
+  text-decoration: none;
+}
+.btn-white:hover { background: #fff; transform: translateY(-1px); }
+
+.btn-white-outline {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(250,246,240,0.06);
+  color: var(--clay-cream);
+  font-size: 15px;
+  font-weight: 500;
+  letter-spacing: -0.1px;
+  padding: 10px 24px;
+  border-radius: var(--r-lg);
+  border: 1px solid rgba(250,246,240,0.35);
+  transition: border-color 0.15s, background 0.15s, transform 0.1s;
+  cursor: pointer;
+  white-space: nowrap;
+  text-decoration: none;
+}
+.btn-white-outline:hover { border-color: rgba(250,246,240,0.7); background: rgba(250,246,240,0.12); transform: translateY(-1px); }
+
+/* ── Cards ────────────────────────────────────────────────── */
+.card {
+  background: var(--clay-cream);
+  border: 1px solid var(--clay-border);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-md);
+  overflow: hidden;
+}
+
+/* ── Chip / badge ─────────────────────────────────────────── */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  padding: 4px 12px;
+  border-radius: var(--r-pill);
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+
+/* ── Section label ────────────────────────────────────────── */
+.eyebrow {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--clay-brand-strong);
+  margin-bottom: 12px;
+}
+
+/* ── Halftone (warm clay dot field) ───────────────────────── */
+.halftone {
+  background-image: radial-gradient(circle, rgba(44,34,21,0.06) 1px, transparent 1px);
+  background-size: 12px 12px;
+}
+
+/* ── Fade-in on scroll ────────────────────────────────────── */
+.fade-up {
+  opacity: 0;
+  transform: translateY(28px);
+  transition: opacity 0.65s cubic-bezier(0.22, 1, 0.36, 1),
+              transform 0.65s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.fade-up.visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* ── Hover helpers ────────────────────────────────────────── */
+.nav-link {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--clay-body);
+  padding: 8px 14px;
+  border-radius: var(--r-pill);
+  transition: color 0.12s, background 0.12s;
+}
+.nav-link:hover { color: var(--clay-heading); background: var(--clay-cream-3); }
+
+.footer-link {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--clay-body-subtle);
+  transition: color 0.12s;
+}
+.footer-link:hover { color: var(--clay-heading); }
+
+.social-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--r-pill);
+  color: var(--clay-body-subtle);
+  transition: color 0.12s, background 0.12s;
+}
+.social-btn:hover { color: var(--clay-heading); background: var(--clay-cream-3); }
+
+/* ── Divider ──────────────────────────────────────────────── */
+.divider { height: 1px; background: var(--clay-border); }
+
+/* ══════════════════════════════════════════════════════════════════
+   Landing-page design system (appended 2026-09-01)
+
+   The clay tokens above still dress /security and /book-demo. Everything
+   below dresses the landing page: graphite for what an agent costs, red
+   for what it can break, and nothing else saturated. Kept additive on
+   purpose — replacing the file outright would have stripped the tokens
+   Positioning.tsx and Proof.tsx are still written against.
+   ══════════════════════════════════════════════════════════════════ */
+
+
+/* ════════════════════════════════════════════════════════════════
+   Arceo brand design tokens
+   Sourced from the Arceo brand deck ("The research recommends the
+   palette; we give each color a job") and the official logo artwork.
+
+   Five colours, five jobs. Nothing here is decorative:
+
+     DEEP BLUE  #0F3D91  authority   structure, headings, the CFO's number
+     TEAL       #14B8A6  controlled  an approved, bounded, safe outcome
+     AQUA       #71D9E2  controlled  the logo's bridge; safe, secondary
+     AMBER      #F59E0B  attention   review it — uncertainty, a decision
+     GRAPHITE   #1F2937  gravity     body text
+     NEUTRAL    #F7F9FB  clarity     backgrounds, breathing room
+
+   Red is deliberately NOT in the brand palette. It is reserved for a
+   single job — a genuinely critical consequence — so that it still
+   lands when it appears. The deck's direction is "calm + consequence",
+   not fear: a fleet reads mostly teal, a few agents amber, and red is
+   rare. Dark surfaces are deep navy, never black.
+   ════════════════════════════════════════════════════════════════ */
+:root {
+    /* ── Brand ───────────────────────────────────────────────────
+     Values are lifted VERBATIM from frontend/src/index.css so the site and
+     the app are one system. If a colour changes there, change it here. */
+  --brand:         #2E2E2E;   /* brand — near-black */
+  --brand-deep:    #0A0A0A;   /* the logo ink */
+  --brand-hover:   #1A1A1A;   /* brand-strong — hover / pressed */
+  --brand-soft:    #F5F5F5;   /* brand-softer */
+  --brand-border:  #D4D4D4;   /* border-brand-subtle */
+  --brand-dark:    #18181B;   /* dark act, raised plane */
+  --brand-darker:  #09090B;   /* dark act, ground */
+
+  /* Success — the shadcn success scale, in the aquamarine slots. */
+  --aqua:          #DCFCE7;
+  --aqua-ink:      #16A34A;
+  --aqua-deep:     #15803D;
+  --aqua-soft:     #F0FDF4;
+  --aqua-line:     #BBF7D0;
+  --teal:          #15803D;
+  --teal-soft:     #F0FDF4;
+  --teal-border:   #BBF7D0;
+
+  /* The former cyan family resolves to zinc: warmth and chrome only. */
+  --cyan-tint:     #F4F4F5;
+  --cyan-soft:     #E4E4E7;
+  --cyan:          #A1A1AA;
+  --cyan-ring:     #52525B;
+  --cyan-ink:      #3F3F46;
+
+  /* Warning. */
+  --amber:         #F59E0B;
+  --amber-ink:     #92400E;
+  --on-amber:      #92400E;
+  --amber-soft:    #FFFBEB;
+  --amber-border:  #FDE68A;
+
+  --graphite:      #18181B;
+
+  /* ── Section bands ──────────────────────────────────────────
+     A landing page can carry more colour than a dense app screen, so the
+     chapters run a touch deeper than the app's tints — same hues, more
+     saturation. Nothing on this site should be a field of plain white. */
+  --band-blue:    #F4F4F5;
+  --band-teal:    #FAFAFA;
+  --band-aqua:    #F4F4F5;
+
+  /* ── Surfaces (were warm creams) ───────────────────────────── */
+  --clay-cream:        var(--paper);
+  --clay-cream-2:      var(--ground);
+  --clay-cream-3:      var(--ground-2);
+  --clay-cream-4:      var(--ground-3);
+
+  /* ── Text ──────────────────────────────────────────────────── */
+  --clay-heading:      var(--ink);
+  --clay-body:         var(--muted);
+  --clay-body-subtle:  var(--muted-2);
+  --clay-disabled:     var(--disabled);
+
+  /* ── Brand (was Carolina blue) ─────────────────────────────── */
+  --clay-brand:        var(--brand);
+  --clay-brand-strong: var(--brand-hover);
+  --clay-brand-soft:   var(--brand-border);
+  --clay-brand-softer: var(--brand-soft);
+
+  /* ── Borders ───────────────────────────────────────────────── */
+  --clay-border:        var(--rule);
+  --clay-border-light:  var(--rule-light);
+  --clay-border-strong: var(--brand);
+
+  /* ── Dark surfaces ─────────────────────────────────────────── */
+  --clay-dark:         var(--brand-darker);
+  --clay-dark-strong:  #09090B;
+
+  /* ── Status ────────────────────────────────────────────────── */
+  --clay-success:      var(--aqua-deep);
+  --clay-danger:       var(--risk-critical);
+  --clay-warning:      var(--amber);
+
+  /* ── Button glint (buttons.md) ─────────────────────────────── */
+  --color-1-400: rgba(255,255,255,0.06);
+  --color-1-700: rgba(0,0,0,0.04);
+}
+
+/* ── Reset ────────────────────────────────────────────────── */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  font-stretch: normal;
+}
+
+html { scroll-behavior: smooth; overflow-x: clip; }
+
+/* The header is sticky and 64px tall. Without this, jumping to a section
+   parks its heading underneath the bar. */
+section[id] { scroll-margin-top: 72px; }
+
+body {
+  font-family: var(--font-sans), 'Inter', system-ui, -apple-system, sans-serif;
+  background: var(--clay-cream);
+  color: var(--clay-body);
+  overflow-x: clip; /* contain decorative 3D overflow (hero deck) without breaking sticky nav */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-size: 16px;
+  line-height: 1.625;
+  font-stretch: normal;
+}
+
+/* ── Headings — Poppins, warm near-black ──────────────────── */
+h1, h2, h3, h4, .display {
+  font-family: var(--font-sans), 'Inter', system-ui, sans-serif;
+  color: var(--clay-heading);
+  line-height: 1.1;
+  font-stretch: normal;
+}
+h1 { font-weight: 600; letter-spacing: -0.5px; }
+h2, h3, h4 { font-weight: 600; }
+
+a { color: inherit; text-decoration: none; }
+button { cursor: pointer; font-family: inherit; font-stretch: normal; }
+
+code, .mono {
+  font-family: var(--font-mono), "JetBrains Mono", "Fira Code", monospace;
+  font-size: 0.875em;
+}
+
+/* ── Layout ───────────────────────────────────────────────── */
+.container {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 0 24px;
+}
+
+/* ── Section defaults ─────────────────────────────────────── */
+.section {
+  padding: 112px 0;
+}
+
+/* ── Buttons ──────────────────────────────────────────────────
+   Pill shaped, clay shadow + glint. .btn-black is the primary
+   brand CTA; .btn-outline is the soft clay secondary.            */
+.btn-black {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--clay-brand);
+  color: #fff;
+  font-size: 15px;
+  font-weight: 500;
+  letter-spacing: -0.1px;
+  padding: 10px 24px;
+  border-radius: var(--r-lg);
+  border: 1px solid transparent;
+  box-shadow: var(--shadow-sm), inset var(--color-1-400) 0 10px 6px -6px, var(--color-1-700) 4px 8px 18px -6px;
+  transition: background 0.15s, transform 0.1s, box-shadow 0.15s;
+  cursor: pointer;
+  white-space: nowrap;
+  text-decoration: none;
+}
+.btn-black:hover {
+  background: var(--clay-brand-strong);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md), inset var(--color-1-400) 0 10px 6px -6px, var(--color-1-700) 4px 10px 22px -6px;
+}
+
+.btn-outline {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--clay-cream);
+  color: var(--clay-heading);
+  font-size: 15px;
+  font-weight: 500;
+  letter-spacing: -0.1px;
+  padding: 10px 24px;
+  border-radius: var(--r-lg);
+  border: 1px solid var(--clay-border);
+  box-shadow: var(--shadow-sm), inset var(--color-1-400) 0 10px 6px -6px;
+  transition: background 0.15s, border-color 0.15s, transform 0.1s, box-shadow 0.15s;
+  cursor: pointer;
+  white-space: nowrap;
+  text-decoration: none;
+}
+.btn-outline:hover {
+  background: var(--clay-cream-3);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md), inset var(--color-1-400) 0 10px 6px -6px;
+}
+
+/* Light pill on dark surfaces (CTA banner) */
+.btn-white {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--clay-cream);
+  color: var(--clay-heading);
+  font-size: 15px;
+  font-weight: 500;
+  letter-spacing: -0.1px;
+  padding: 10px 24px;
+  border-radius: var(--r-lg);
+  border: 1px solid transparent;
+  box-shadow: var(--shadow-sm), inset var(--color-1-400) 0 10px 6px -6px, var(--color-1-700) 4px 8px 18px -6px;
+  transition: background 0.15s, transform 0.1s, box-shadow 0.15s;
+  cursor: pointer;
+  white-space: nowrap;
+  text-decoration: none;
+}
+.btn-white:hover { background: #fff; transform: translateY(-1px); }
+
+.btn-white-outline {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(250,246,240,0.06);
+  color: var(--clay-cream);
+  font-size: 15px;
+  font-weight: 500;
+  letter-spacing: -0.1px;
+  padding: 10px 24px;
+  border-radius: var(--r-lg);
+  border: 1px solid rgba(250,246,240,0.35);
+  transition: border-color 0.15s, background 0.15s, transform 0.1s;
+  cursor: pointer;
+  white-space: nowrap;
+  text-decoration: none;
+}
+.btn-white-outline:hover { border-color: rgba(250,246,240,0.7); background: rgba(250,246,240,0.12); transform: translateY(-1px); }
+
+/* ── Cards ────────────────────────────────────────────────── */
+.card {
+  background: var(--clay-cream);
+  border: 1px solid var(--clay-border);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-md);
+  overflow: hidden;
+}
+
+/* ── Chip / badge ─────────────────────────────────────────── */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  padding: 4px 12px;
+  border-radius: var(--r-pill);
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+
+/* ── Section label ────────────────────────────────────────── */
+.eyebrow {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--clay-brand-strong);
+  margin-bottom: 12px;
+}
+
+/* ── Halftone (warm clay dot field) ───────────────────────── */
+.halftone {
+  background-image: radial-gradient(circle, rgba(44,34,21,0.06) 1px, transparent 1px);
+  background-size: 12px 12px;
+}
+
+/* ── Fade-in on scroll ────────────────────────────────────── */
+.fade-up {
+  opacity: 0;
+  transform: translateY(28px);
+  transition: opacity 0.65s cubic-bezier(0.22, 1, 0.36, 1),
+              transform 0.65s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.fade-up.visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* ── Hover helpers ────────────────────────────────────────── */
+.nav-link {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--clay-body);
+  padding: 8px 14px;
+  border-radius: var(--r-pill);
+  transition: color 0.12s, background 0.12s;
+}
+.nav-link:hover { color: var(--clay-heading); background: var(--clay-cream-3); }
+
+.footer-link {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--clay-body-subtle);
+  transition: color 0.12s;
+}
+.footer-link:hover { color: var(--clay-heading); }
+
+.social-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--r-pill);
+  color: var(--clay-body-subtle);
+  transition: color 0.12s, background 0.12s;
+}
+.social-btn:hover { color: var(--clay-heading); background: var(--clay-cream-3); }
+
+/* ── Divider ──────────────────────────────────────────────── */
+.divider { height: 1px; background: var(--clay-border); }
+
+/* ══════════════════════════════════════════════════════════════════
+   Landing-page design system (appended 2026-09-01)
+
+   The clay tokens above still dress /security and /book-demo. Everything
+   below dresses the landing page: graphite for what an agent costs, red
+   for what it can break, and nothing else saturated. Kept additive on
+   purpose — replacing the file outright would have stripped the tokens
+   Positioning.tsx and Proof.tsx are still written against.
+   ══════════════════════════════════════════════════════════════════ */
+
+
+/* ════════════════════════════════════════════════════════════════
+   Arceo brand design tokens
+   Sourced from the Arceo brand deck ("The research recommends the
+   palette; we give each color a job") and the official logo artwork.
+
+   Five colours, five jobs. Nothing here is decorative:
+
+     DEEP BLUE  #0F3D91  authority   structure, headings, the CFO's number
+     TEAL       #14B8A6  controlled  an approved, bounded, safe outcome
+     AQUA       #71D9E2  controlled  the logo's bridge; safe, secondary
+     AMBER      #F59E0B  attention   review it — uncertainty, a decision
+     GRAPHITE   #1F2937  gravity     body text
+     NEUTRAL    #F7F9FB  clarity     backgrounds, breathing room
+
+   Red is deliberately NOT in the brand palette. It is reserved for a
+   single job — a genuinely critical consequence — so that it still
+   lands when it appears. The deck's direction is "calm + consequence",
+   not fear: a fleet reads mostly teal, a few agents amber, and red is
+   rare. Dark surfaces are deep navy, never black.
+   ════════════════════════════════════════════════════════════════ */
+:root {
+    /* ── Brand ───────────────────────────────────────────────────
+     Values are lifted VERBATIM from frontend/src/index.css so the site and
+     the app are one system. If a colour changes there, change it here. */
+  --brand:         #2E2E2E;   /* brand — near-black */
+  --brand-deep:    #0A0A0A;   /* the logo ink */
+  --brand-hover:   #1A1A1A;   /* brand-strong — hover / pressed */
+  --brand-soft:    #F5F5F5;   /* brand-softer */
+  --brand-border:  #D4D4D4;   /* border-brand-subtle */
+  --brand-dark:    #18181B;   /* dark act, raised plane */
+  --brand-darker:  #09090B;   /* dark act, ground */
+
+  /* Success — the shadcn success scale, in the aquamarine slots. */
+  --aqua:          #DCFCE7;
+  --aqua-ink:      #16A34A;
+  --aqua-deep:     #15803D;
+  --aqua-soft:     #F0FDF4;
+  --aqua-line:     #BBF7D0;
+  --teal:          #15803D;
+  --teal-soft:     #F0FDF4;
+  --teal-border:   #BBF7D0;
+
+  /* The former cyan family resolves to zinc: warmth and chrome only. */
+  --cyan-tint:     #F4F4F5;
+  --cyan-soft:     #E4E4E7;
+  --cyan:          #A1A1AA;
+  --cyan-ring:     #52525B;
+  --cyan-ink:      #3F3F46;
+
+  /* Warning. */
+  --amber:         #F59E0B;
+  --amber-ink:     #92400E;
+  --on-amber:      #92400E;
+  --amber-soft:    #FFFBEB;
+  --amber-border:  #FDE68A;
+
+  --graphite:      #18181B;
+
+  /* ── Section bands ──────────────────────────────────────────
+     A landing page can carry more colour than a dense app screen, so the
+     chapters run a touch deeper than the app's tints — same hues, more
+     saturation. Nothing on this site should be a field of plain white. */
+  --band-blue:    #E4EBF8;
+  --band-teal:    #E2F2EC;
+  --band-aqua:    #DFF3F7;
+
+  /* ── Surfaces ────────────────────────────────────────────────
+     The page is tinted and cards are pure white. That contrast is what
+     makes a card read as a floating plane rather than as a region fenced
+     off by a hairline — which matters, because cards have no border. */
+  --paper:        #FFFFFF;   /* neutral-primary-soft: cards, panels */
+  --ground:       #FAFAFA;   /* neutral-secondary-soft: the page */
+  --ground-2:     #F4F4F5;   /* neutral-tertiary: sunken wells */
+  --ground-3:     #E4E4E7;   /* neutral-quaternary: track fills */
+
+  /* ── Ink / text (zinc) ───────────────────────────────────────── */
+  --ink:          #09090B;   /* heading */
+  --ink-strong:   #09090B;
+  --muted:        #71717A;   /* body */
+  --muted-2:      #A1A1AA;   /* body-subtle */
+  --disabled:     #D4D4D8;
+
+  /* ── Rules ─────────────────────────────────────────────────── */
+  --rule:         #E4E4E7;   /* border-default */
+  --rule-light:   #F4F4F5;   /* border-light */
+  --rule-strong:  #18181B;   /* border-dark */
+
+  /* ── Risk labels ─────────────────────────────────────────────
+     A capability is coloured by WHAT KIND of risk it carries; how bad it
+     is, is a number, not a hue. Nothing decorative gets one.           */
+  --label-money:      #B3261E;   /* moves_money    */
+  --label-money-fill: #FBECE8;
+  --label-delete:     #C2410C;   /* deletes_data   */
+  --label-delete-fill:#FDF0E7;
+  --label-external:   #4F46E5;   /* sends_external — indigo */
+  --label-external-fill:#EEF2FF;
+  --label-pii:        #7C3AED;   /* touches_pii — purple */
+  --label-pii-fill:   #F5F3FF;
+  /* The fifth label, added on dev 2026-09-08 with the multi-agent hero.
+     HeroGraphic reads it, so losing it would blank a chip. */
+  --label-prod:       #0D9488;   /* changes_production */
+  --label-prod-fill:  #F0FDFA;
+
+  /* ── The two channels ────────────────────────────────────────
+     DEEP BLUE is what it costs; the severity ramp is what it can break. */
+  --cost:        #18181B;
+  --cost-soft:   #71717A;
+  --cost-wash:   rgba(24,24,27,0.06);
+  --risk:        #DC2626;
+  --risk-soft:   #FECACA;
+  --risk-wash:   rgba(220,38,38,0.07);
+
+  /* Severity — the app's four real tiers, matching the backend band scale.
+     Bands separate by HUE, not luminance, so always pair one with the
+     number and the word. Safe is aquamarine: a cleared agent should look
+     actively approved, not merely unremarkable. */
+  --risk-safe:            #15803D;
+  --risk-safe-fill:       #F0FDF4;
+  --risk-safe-border:     #BBF7D0;
+  --risk-safe-ring:       #16A34A;
+  --risk-elevated:        #92400E;
+  --risk-elevated-fill:   #FFFBEB;
+  --risk-elevated-border: #FDE68A;
+  --risk-elevated-ring:   #F59E0B;
+  --risk-high:            #C2410C;
+  --risk-high-fill:       #FFF7ED;
+  --risk-high-border:     #FED7AA;
+  --risk-critical:        #B91C1C;
+  --risk-critical-fill:   #FEF2F2;
+  --risk-critical-border: #FECACA;
+  --risk-critical-ring:   #DC2626;
+  --risk-clear:           #15803D;
+  --risk-clear-fill:      #F0FDF4;
 
   /* ── Radius — the product's own scale, verbatim ─────────────
      frontend/src/index.css: "8px — the largest thing in the product".
@@ -624,7 +1709,7 @@ code, .mono {
   font-weight: 600;
   letter-spacing: -0.01em;
   padding: 13px 26px;
-  border-radius: var(--r-pill);
+  border-radius: var(--r-lg);
   border: 1px solid var(--rule);
   transition: background 0.15s, border-color 0.15s, transform 0.1s;
   cursor: pointer;
@@ -672,14 +1757,14 @@ code, .mono {
   letter-spacing: -0.01em;
   padding: 13px 26px;
   border-radius: var(--r-pill);
-  border: 1px solid rgba(113,217,226,0.42);
+  border: 1px solid rgba(255,255,255,0.28);
   transition: border-color 0.15s, background 0.15s, transform 0.1s;
   cursor: pointer;
   white-space: nowrap;
 }
 .btn-white-outline:hover {
-  border-color: rgba(113,217,226,0.85);
-  background: rgba(113,217,226,0.12);
+  border-color: rgba(255,255,255,0.6);
+  background: rgba(255,255,255,0.08);
   transform: translateY(-1px);
 }
 
@@ -835,12 +1920,12 @@ code, .mono {
 .wash-light {
   background-image:
     radial-gradient(78% 58% at 74% 4%, rgba(14,60,144,0.10), transparent 62%),
-    radial-gradient(60% 55% at 8% 96%, rgba(127,255,212,0.22), transparent 66%);
+    radial-gradient(60% 55% at 8% 96%, rgba(24,24,27,0.05), transparent 66%);
 }
 .wash-dark {
   background-image:
-    radial-gradient(70% 55% at 22% 0%, rgba(113,217,226,0.16), transparent 58%),
-    radial-gradient(55% 50% at 92% 100%, rgba(127,255,212,0.10), transparent 62%);
+    radial-gradient(70% 55% at 22% 0%, rgba(255,255,255,0.05), transparent 58%),
+    radial-gradient(55% 50% at 92% 100%, rgba(255,255,255,0.03), transparent 62%);
 }
 
 /* ── The integrations belt ─────────────────────────────────────────
@@ -1047,16 +2132,16 @@ code, .mono {
    dark chapter needs while still reading as Arceo. Teal and aqua carry the
    safe signal across the inversion unchanged. */
 .act-dark {
-  --paper:    #0D2A61;
-  --ground:   #07204F;
-  --ground-2: #103571;
-  --ground-3: #1A4489;
-  --ink:      #F2F6FC;
-  --muted:    #9DB4D6;
-  --muted-2:  #7C93BC;
-  --rule:     rgba(113,217,226,0.16);
-  --rule-light: rgba(113,217,226,0.09);
-  background: #07204F;
+  --paper:    #18181B;
+  --ground:   #09090B;
+  --ground-2: #27272A;
+  --ground-3: #3F3F46;
+  --ink:      #FAFAFA;
+  --muted:    #A1A1AA;
+  --muted-2:  #71717A;
+  --rule:     #27272A;
+  --rule-light: rgba(255,255,255,0.06);
+  background: #09090B;
   color: var(--muted);
 }
 .act-dark h1, .act-dark h2, .act-dark h3, .act-dark h4 { color: var(--ink); }

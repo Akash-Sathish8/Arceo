@@ -14,7 +14,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
           <span
             style={{
               position: "absolute",
-              left: 10,
+              left: 12,
               color: "var(--text-muted)",
               pointerEvents: "none",
               display: "flex",
@@ -27,17 +27,18 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
         <input
           ref={ref}
           style={{
-            background: "var(--bg-sunken)",
-            border: `2px solid ${focused ? "var(--border-focus)" : "transparent"}`,
+            background: "var(--paper)",
+            border: `1px solid ${focused ? "var(--accent)" : "var(--line)"}`,
+            boxShadow: focused ? "0 0 0 1px var(--accent)" : "var(--shadow-2xs)",
             borderRadius: "var(--radius-md)",
             color: "var(--text-primary)",
-            padding: icon ? "0 12px 0 34px" : "0 12px",
-            height: 36,
+            padding: icon ? "8px 12px 8px 36px" : "8px 12px",
             width: "100%",
-            fontSize: 13,
+            fontSize: 14,
+            lineHeight: "20px",
             outline: "none",
             fontFamily: "inherit",
-            transition: "border-color 100ms",
+            transition: "border-color 200ms, box-shadow 200ms",
             ...style,
           }}
           onFocus={(e) => {

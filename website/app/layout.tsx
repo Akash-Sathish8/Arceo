@@ -1,36 +1,17 @@
 import type { Metadata } from "next";
-import { Poppins, Schibsted_Grotesk, Manrope, JetBrains_Mono } from "next/font/google";
+import { Inter, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import { SITE_URL, SITE_NAME, SITE_TAGLINE, SITE_DESCRIPTION } from "@/lib/site";
 import SmoothScroll from "@/components/SmoothScroll";
 
-/* Poppins stays only for /security and /book-demo, which have not been
-   rebuilt yet. Everything else is set in the product app's own three faces,
-   so the site and the thing you sign in to are typographically the same
-   product (frontend/src/index.css is the source of truth):
-
-     Schibsted Grotesk  the words
-     Manrope            every FIGURE — proportional, so tabular-nums is not
-                        optional; it is the only thing keeping a column of
-                        dollar amounts aligned
-     JetBrains Mono     literal code and tool identifiers only            */
-const poppins = Poppins({
-  subsets: ["latin"],
-  variable: "--font-poppins",
-  display: "swap",
-  weight: ["400", "500", "600", "700", "800"],
-});
-
-const sans = Schibsted_Grotesk({
+/* Inter is the one face (shadcn design system, typography.md). The site and
+   the product app share it; figures use tabular-nums on the same face. The
+   legacy --font-poppins and --font-num variables point at Inter too so the
+   pages that still reference them need no change. JetBrains Mono is kept
+   for literal code and tool identifiers only. */
+const inter = Inter({
   subsets: ["latin"],
   variable: "--font-sans",
-  display: "swap",
-  weight: ["400", "500", "600", "700"],
-});
-
-const num = Manrope({
-  subsets: ["latin"],
-  variable: "--font-num",
   display: "swap",
   weight: ["400", "500", "600", "700"],
 });
@@ -98,7 +79,7 @@ const JSON_LD = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={`${poppins.variable} ${sans.variable} ${num.variable} ${mono.variable}`}>
+    <html lang="en" className={`${inter.variable} ${mono.variable}`}>
       <body className="grain">
         <SmoothScroll />
         {children}
