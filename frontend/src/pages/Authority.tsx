@@ -630,8 +630,6 @@ export default function Authority() {
         }
       />
 
-      <SpendTrendCard />
-
       <div style={{ display: 'flex', gap: 26, borderBottom: '1px solid var(--line)', margin: '24px 0 26px' }}>
         {(agents.length === 0
           ? [
@@ -1952,6 +1950,10 @@ export default function Authority() {
         </section>
         )
       })()}
+
+      <div style={{ marginTop: 32 }}>
+        <SpendTrendCard />
+      </div>
 
       <AgentDrawer
         agent={drawerAgent}
