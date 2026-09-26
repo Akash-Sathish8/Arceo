@@ -5,6 +5,13 @@ Run with the backend up on :8000, after any `demo` reset:
     cd backend && ARCEO_ENV=dev ./venv/bin/python seed_demo_incident.py
     ./venv/bin/python seed_demo_incident.py --without-policies   # the "before" state
 
+Against the hosted instance, point ARCEO_BASE at it, give it a token or the
+admin password, and set DATABASE_URL to the owner (unpooled) Neon URL for the
+raw rows it writes directly (audit_log traffic, the is_demo flag):
+
+    ARCEO_BASE=https://app.arceoai.app ARCEO_ADMIN_PASSWORD=... DATABASE_URL=postgresql://... \
+      ./venv/bin/python seed_demo_incident.py
+
 What it seeds, in order:
 
   1. Ingests the twelve-step attack trace as historical evidence. This
@@ -27,6 +34,7 @@ approvals queue fills in front of the audience.
 
 import argparse
 import json
+import os
 import random
 import sys
 from datetime import datetime, timedelta
@@ -38,17 +46,23 @@ from demo_incident import (
     AGENT_DESCRIPTION, AGENT_ID, AGENT_NAME, EXPECTED_CHAIN_IDS, POLICIES, TOOLS, TRACE,
 )
 
-BASE = "http://localhost:8000"
-ADMIN = {"email": "admin@actiongate.io", "password": "admin123"}
+BASE = os.environ.get("ARCEO_BASE", "http://localhost:8000")
+ADMIN = {"email": os.environ.get("ARCEO_ADMIN_EMAIL", "admin@actiongate.io"),
+         "password": os.environ.get("ARCEO_ADMIN_PASSWORD", "admin123")}
 MODEL = "gpt-5.6-sol"
 BURST_CALLS = 3779   # the incident's day-one action count
 BASELINE_PER_DAY = 40
 
 
 def login() -> dict:
-    r = httpx.post(f"{BASE}/api/auth/login", json=ADMIN, timeout=30)
-    r.raise_for_status()
-    return {"Authorization": f"Bearer {r.json()['token']}"}
+    """Bearer headers. ARCEO_TOKEN skips the login (a hosted instance whose
+    admin password is not on this machine); otherwise log in as ADMIN."""
+    tok = os.environ.get("ARCEO_TOKEN")
+    if not tok:
+        r = httpx.post(f"{BASE}/api/auth/login", json=ADMIN, timeout=30)
+        r.raise_for_status()
+        tok = r.json()["token"]
+    return {"Authorization": f"Bearer {tok}"}
 
 
 def ingest_trace(h: dict) -> str:
