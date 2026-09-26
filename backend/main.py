@@ -2723,6 +2723,12 @@ def _upsert_agent(
             raise HTTPException(status_code=409, detail=f"An agent named '{agent_id}' already exists in another workspace. Pick a different name.")
 
     if existing:
+        # A re-registration (code extraction returns a kebab-case identifier)
+        # must not downgrade a human-set name to its own slug.
+        if name == agent_id:
+            prior = conn.execute("SELECT name FROM agents WHERE id = %s", (agent_id,)).fetchone()
+            if prior and prior["name"] and prior["name"] != agent_id:
+                name = prior["name"]
         conn.execute(
             "UPDATE agents SET name = %s, description = %s, "
             "simulation_model = COALESCE(%s, simulation_model), "
