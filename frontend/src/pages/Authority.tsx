@@ -490,6 +490,7 @@ export default function Authority() {
       setUploadResult(data)
       toast(`Extracted ${data!.tools_count} tools, ${data!.actions_count} actions`)
       loadData()
+      if (data?.id) navigate(`/agent/${data.id}`)
     } catch (err) {
       toast((err as Error).message, 'error')
     }

@@ -20,6 +20,7 @@ import Settings from '@/pages/Settings'
 import Approvals from '@/pages/Approvals'
 import CostPortfolio from '@/pages/CostPortfolio'
 import SpendDashboard from '@/pages/SpendDashboard'
+import IncidentReplay from '@/pages/IncidentReplay'
 import NotFound from '@/pages/NotFound'
 
 const queryClient = new QueryClient({
@@ -92,6 +93,14 @@ createRoot(document.getElementById('root')!).render(
               element={
                 <ProtectedRoute>
                   <Workflows />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/incident"
+              element={
+                <ProtectedRoute>
+                  <IncidentReplay />
                 </ProtectedRoute>
               }
             />

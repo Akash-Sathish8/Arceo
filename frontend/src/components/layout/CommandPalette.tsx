@@ -14,6 +14,7 @@ import {
   User,
   Plus,
   Banknote,
+  Siren,
 } from "lucide-react";
 import { useCommandPaletteStore } from "@/store/commandPalette";
 import { apiFetch, isLoggedIn } from "@/lib/api";
@@ -29,6 +30,7 @@ const NAV_ITEMS = [
   { label: "Agents", to: "/", icon: <LayoutDashboard size={14} /> },
   { label: "Spend", to: "/spend", icon: <Banknote size={14} /> },
   { label: "Workflows", to: "/workflows", icon: <GitBranch size={14} /> },
+  { label: "Incident replay", to: "/incident", icon: <Siren size={14} /> },
   { label: "Sandbox", to: "/sandbox", icon: <FlaskConical size={14} /> },
   { label: "History", to: "/history", icon: <Clock size={14} /> },
   { label: "Compare", to: "/compare", icon: <GitCompare size={14} /> },

@@ -5008,6 +5008,9 @@ def get_pending_approvals(user: dict = Depends(get_current_user)):
                  LEFT JOIN tool_actions ta ON ta.tool_id = t.id AND ta.action = e.action
                  LEFT JOIN policies p ON p.id = e.policy_id
                  WHERE e.status = 'PENDING_APPROVAL' AND e.org_id = %s
+                   -- Boundary-test probes enumerate what a policy WOULD hold;
+                   -- nothing is waiting on a human, so they stay out of the queue.
+                   AND COALESCE(e.source, '') <> 'boundary_test'
                  ORDER BY e.id
                ) pending
                ORDER BY pending.timestamp DESC""",
