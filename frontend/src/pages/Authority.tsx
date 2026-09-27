@@ -963,50 +963,85 @@ export default function Authority() {
             </div>
           )}
 
-          {connectTab === 'gha' && (
-            <div className="space-y-6">
-              <p style={{ fontSize: 13, color: 'var(--text-secondary)', background: 'var(--bg-sunken)', borderRadius: 8, padding: '22px 24px', margin: 0, lineHeight: 1.6 }}>
-                Catch risky agents before they merge. Arceo runs on every pull request, posts a risk report as a comment, and can block the merge if anything looks dangerous.
-              </p>
-              <ol className="space-y-4 text-xs text-gray-700" style={{ marginTop: 16 }}>
-                <li className="flex gap-3">
-                  <span className="flex-shrink-0 w-5 h-5 rounded-full bg-gray-900 text-white text-[11px] font-semibold flex items-center justify-center">1</span>
-                  <div><strong className="text-gray-900">Generate an API key.</strong>{' '}<a href="/settings" className="underline text-gray-900 hover:text-indigo-600">Settings → API &amp; Integration → API Keys</a>. Copy it once, because you won't see it again.</div>
-                </li>
-                <li className="flex gap-3">
-                  <span className="flex-shrink-0 w-5 h-5 rounded-full bg-gray-900 text-white text-[11px] font-semibold flex items-center justify-center">2</span>
-                  <div><strong className="text-gray-900">Add it as a repo secret.</strong> GitHub → Settings → Secrets → Actions → New secret. Name: <code className="text-[11px] bg-gray-100 px-1 rounded">ARCEO_API_KEY</code>.</div>
-                </li>
-                <li className="flex gap-3">
-                  <span className="flex-shrink-0 w-5 h-5 rounded-full bg-gray-900 text-white text-[11px] font-semibold flex items-center justify-center">3</span>
-                  <div><strong className="text-gray-900">Commit this workflow.</strong> Create <code className="text-[11px] bg-gray-100 px-1 rounded">.github/workflows/arceo.yml</code>:</div>
-                </li>
-              </ol>
-              <div className="bg-gray-900 text-gray-100 rounded-lg p-4 font-mono text-[12px] leading-relaxed overflow-x-auto">
-                <div><span className="text-amber-300">name</span>: Arceo Agent Security</div>
-                <div className="mt-2"><span className="text-amber-300">on</span>:</div>
-                <div>{'  '}push:</div>
-                <div>{'  '}pull_request:</div>
-                <div className="mt-2"><span className="text-amber-300">jobs</span>:</div>
-                <div>{'  '}scan:</div>
-                <div>{'    '}runs-on: ubuntu-latest</div>
-                <div>{'    '}steps:</div>
-                <div>{'      '}- uses: actions/checkout@v4</div>
-                <div>{'      '}- uses: Akash-Sathish8/Arceo/.github/actions/scan@main</div>
-                <div>{'        '}with:</div>
-                <div>{'          '}api-key: <span className="text-amber-300">${'${{ secrets.ARCEO_API_KEY }}'}</span></div>
-                <div>{'          '}threshold: <span className="text-amber-300">60</span></div>
+          {connectTab === 'gha' && (() => {
+            const yaml = `name: Arceo Agent Security
+
+on:
+  pull_request:
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Akash-Sathish8/Arceo/.github/actions/scan@main
+        with:
+          api-key: \${{ secrets.ARCEO_API_KEY }}
+          threshold: 60
+`
+            const copy = (text: string, msg: string) => { navigator.clipboard.writeText(text); toast(msg) }
+            const stepStyle: React.CSSProperties = { display: 'grid', gridTemplateColumns: '28px minmax(0, 1fr)', columnGap: 14, position: 'relative' }
+            const numStyle: React.CSSProperties = { width: 28, height: 28, borderRadius: '50%', background: 'var(--text-primary)', color: 'var(--white, #fff)', fontSize: 13, fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }
+            const titleStyle: React.CSSProperties = { fontSize: 15, fontWeight: 600, color: 'var(--text-primary)', lineHeight: '28px', margin: 0 }
+            const bodyStyle: React.CSSProperties = { fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.6, margin: '4px 0 0' }
+            const chipStyle: React.CSSProperties = { overflowWrap: 'anywhere', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: 12, background: 'var(--bg-sunken)', border: '1px solid var(--border)', borderRadius: 6, padding: '2px 8px', color: 'var(--text-primary)' }
+            return (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                <p style={{ fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.6, margin: '0 0 24px' }}>
+                  Arceo checks every pull request, comments with a risk report, and blocks the merge when an agent looks dangerous. Three steps, about five minutes.
+                </p>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 28 }}>
+                  <div style={stepStyle}>
+                    <div style={numStyle}>1</div>
+                    <div style={{ minWidth: 0 }}>
+                      <p style={titleStyle}>Create an API key</p>
+                      <p style={bodyStyle}>Copy it right away. Arceo only shows it once.</p>
+                      <a href="/settings" className="btn btn--secondary btn--sm" style={{ marginTop: 12, textDecoration: 'none' }}>
+                        Open API keys
+                      </a>
+                    </div>
+                  </div>
+
+                  <div style={stepStyle}>
+                    <div style={numStyle}>2</div>
+                    <div style={{ minWidth: 0 }}>
+                      <p style={titleStyle}>Save it as a GitHub secret</p>
+                      <p style={bodyStyle}>
+                        In your repo, go to <span style={{ color: 'var(--text-primary)' }}>Settings › Secrets and variables › Actions</span> and add a new repository secret named <code style={chipStyle}>ARCEO_API_KEY</code>.
+                      </p>
+                      <Button size="sm" variant="secondary" style={{ marginTop: 12 }} onClick={() => copy('ARCEO_API_KEY', 'Secret name copied')}>
+                        Copy secret name
+                      </Button>
+                    </div>
+                  </div>
+
+                  <div style={stepStyle}>
+                    <div style={numStyle}>3</div>
+                    <div style={{ minWidth: 0 }}>
+                      <p style={titleStyle}>Add the workflow file</p>
+                      <p style={bodyStyle}>
+                        Save this as <code style={chipStyle}>.github/workflows/arceo.yml</code> and push. The next pull request gets scanned.
+                      </p>
+                      <div style={{ position: 'relative', marginTop: 12 }}>
+                        <pre style={{ margin: 0, background: 'var(--color-gray-950, #09090B)', color: '#E4E4E7', borderRadius: 8, padding: '18px 20px', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: 12.5, lineHeight: 1.7, overflowX: 'auto', whiteSpace: 'pre' }}>
+                          {yaml}
+                        </pre>
+                        <Button size="sm" variant="ghost-dark" style={{ position: 'absolute', top: 10, right: 10 }} onClick={() => copy(yaml, 'Workflow copied')}>
+                          Copy
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '24px 0 0' }}>
+                  <code style={chipStyle}>threshold</code> is the blast-radius score that fails the check. Lower it to be stricter.{' '}
+                  <a href="https://github.com/Akash-Sathish8/Arceo/tree/main/.github/actions/scan" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--text-secondary)', textDecoration: 'underline' }}>Full docs</a>
+                </p>
               </div>
-              <div className="flex flex-wrap gap-2">
-                <Button size="sm" variant="secondary" onClick={() => { navigator.clipboard.writeText(`name: Arceo Agent Security\n\non:\n  push:\n  pull_request:\n\njobs:\n  scan:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n      - uses: Akash-Sathish8/Arceo/.github/actions/scan@main\n        with:\n          api-key: \${{ secrets.ARCEO_API_KEY }}\n          threshold: 60\n`); toast('Workflow YAML copied') }}>
-                  Copy YAML
-                </Button>
-                <a href="https://github.com/Akash-Sathish8/Arceo/tree/main/.github/actions/scan" target="_blank" rel="noopener noreferrer" className="inline-flex items-center px-3 py-1.5 text-xs font-medium text-gray-700 bg-white border border-gray-200 rounded-md hover:bg-gray-50">
-                  Full docs
-                </a>
-              </div>
-            </div>
-          )}
+            )
+          })()}
 
           {connectTab === 'github' && (
             <GithubScanPanel
