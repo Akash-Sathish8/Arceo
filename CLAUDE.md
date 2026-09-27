@@ -137,7 +137,8 @@ All endpoints under `/api/*` require a Bearer JWT in `Authorization` unless flag
 - `POST /api/authority/agents/import/openai` — Import from OpenAI function-calling format
 - `POST /api/authority/agents/connect/mcp` — Live MCP server connect, auto-pull tools
 - `POST /api/authority/agents/extract` — Haiku-powered code extraction from a single file
-- `POST /api/authority/agents/extract-github` — Whole-repo scan (walks public GitHub tree, ~5–8s per file)
+- `POST /api/authority/agents/extract-github` — Whole-repo scan (`backend/github_scan.py`: default-branch lookup, `/tree/<ref>/<dir>` links, 8 parallel fetches + 5 parallel Haiku extractions, ~10–50s per repo). `/extract-github/stream` is the same scan as NDJSON progress events (what the dashboard uses)
+- `GET|DELETE /api/integrations/github`, `POST /api/integrations/github/connect`, `GET /api/integrations/github/{start,callback,repos}` — "Connect with GitHub" (GitHub App, `backend/github_app.py`) for private-repo scans. Hidden until the `GITHUB_APP_*` env vars are set; setup in `docs/GITHUB_APP_SETUP.md`. The server `GITHUB_TOKEN` never reads a private repo
 
 ### Policies + enforcement
 - `GET /api/authority/agent/{id}/policies`
