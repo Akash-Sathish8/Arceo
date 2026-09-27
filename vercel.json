@@ -22,6 +22,7 @@
   "crons": [
     { "path": "/api/internal/cron/snapshot-forecasts", "schedule": "0 2 * * *" },
     { "path": "/api/internal/cron/purge-llm-captures", "schedule": "30 2 * * *" },
+    { "path": "/api/internal/cron/purge-demo-orgs", "schedule": "45 2 * * *" },
     { "path": "/api/internal/cron/weekly-digest", "schedule": "0 14 * * 1" }
   ]
 }

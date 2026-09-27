@@ -116,7 +116,7 @@ def test_the_healthcheck_follows_the_same_port():
 
 @pytest.mark.parametrize("flag", [
     "ARCEO_ENV", "DEMO_MODE", "ARCEO_FAIL_MODE", "ARCEO_ALLOW_INTERNAL_MCP",
-    "ARCEO_ENCRYPT_AT_REST", "ARCEO_VAULT_MASTER_KEY",
+    "ARCEO_ENCRYPT_AT_REST", "ARCEO_VAULT_MASTER_KEY", "ARCEO_OPEN_DEMO_LOGIN",
 ])
 def test_the_dangerous_flags_are_documented(flag):
     """2.10's list. `.env.example` documented none of them, which is how a

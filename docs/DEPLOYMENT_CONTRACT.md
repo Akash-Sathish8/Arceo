@@ -132,6 +132,7 @@ All are dev-only. Each is ignored or refuses to boot outside a dev `ARCEO_ENV`.
 | `DEMO_MODE` | Authentication entirely, and makes a magic login wipe the demo tables. |
 | `ARCEO_FAIL_MODE=allow` | Enforcement fails **open** — errors mid-decision return ALLOW. A documented break-glass; the app now logs a loud warning at boot when it is set. |
 | `ARCEO_ALLOW_INTERNAL_MCP` | The SSRF guard. See below. |
+| `ARCEO_OPEN_DEMO_LOGIN` | Credential checking for *unknown* accounts: any login provisions a fresh, empty, isolated tenant. Real accounts still authenticate. The one flag on this list that may run on a hosted instance, for a demo period only, with `RATE_LIMIT_AUTH_MAX` raised and the `purge-demo-orgs` cron on. |
 
 ⚠️ **`ARCEO_ALLOW_INTERNAL_MCP` had no production gate until Tier 2.10.** It
 returns before DNS resolution, disabling both the loopback/private/link-local

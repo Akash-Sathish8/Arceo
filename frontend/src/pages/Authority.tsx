@@ -293,8 +293,13 @@ export default function Authority() {
     return () => clearInterval(interval)
   }, [])
 
+  // Remembered across the first-load tab decision below, so a login that
+  // lands here with ?connect=true keeps the form open on an empty workspace.
+  const connectRequestedRef = useRef(false)
+
   useEffect(() => {
     if (searchParams.get('connect') === 'true') {
+      connectRequestedRef.current = true
       setShowCreate(true)
       setAgentTab('agents')       // the connect form only renders on the Agents tab
       setConnectTab('upload')
@@ -318,7 +323,7 @@ export default function Authority() {
   // completes; user's manual tab switches afterwards stay sticky.
   useEffect(() => {
     if (loading || initialTabRef.current) return
-    if (agents.length === 0) {
+    if (agents.length === 0 && !connectRequestedRef.current) {
       // Land on Overview for a first-run account, but leave the connect form
       // CLOSED — otherwise the header CTA reads "Cancel" over a hidden form.
       // The user opens it via the "Connect agent" button (which switches tabs).
@@ -1951,9 +1956,11 @@ export default function Authority() {
         )
       })()}
 
-      <div style={{ marginTop: 32 }}>
-        <SpendTrendCard />
-      </div>
+      {agents.length > 0 && (
+        <div style={{ marginTop: 32 }}>
+          <SpendTrendCard />
+        </div>
+      )}
 
       <AgentDrawer
         agent={drawerAgent}

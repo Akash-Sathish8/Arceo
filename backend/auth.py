@@ -45,6 +45,19 @@ def demo_mode_enabled() -> bool:
     left the trace socket unauthenticated in prod when DEMO_MODE=1 (MED-002)."""
     return os.getenv("DEMO_MODE", "").lower() in _DEMO_TRUTHY
 
+
+OPEN_DEMO_MARKER = "+demo-"
+
+
+def open_demo_login_enabled() -> bool:
+    """ARCEO_OPEN_DEMO_LOGIN: any credentials log in, each time into a fresh,
+    empty, isolated tenant. Real accounts still authenticate normally, so the
+    seeded admin org stays behind its password. Unlike DEMO_MODE this is not a
+    JWT bypass and does not collapse the tenant boundary, which is why it is
+    allowed on a hosted instance; the cost is unbounded tenant creation,
+    bounded by the auth rate limit and the nightly purge job."""
+    return os.getenv("ARCEO_OPEN_DEMO_LOGIN", "").lower() in _DEMO_TRUTHY
+
 if SECRET_KEY == "actiongate-demo-secret-key-change-in-prod":
     if ARCEO_ENV not in _DEV_ENVS:
         raise RuntimeError(
@@ -63,6 +76,10 @@ if demo_mode_enabled():
             "environment. Set ARCEO_ENV=dev to acknowledge this is local-only."
         )
     _logger.warning("DEMO_MODE is ON — JWT auth is bypassed and any login wipes demo data. Never set this in production.")
+
+if open_demo_login_enabled():
+    _logger.warning("ARCEO_OPEN_DEMO_LOGIN is ON — any credentials create a fresh isolated tenant. "
+                    "Turn it off when the demo period ends.")
 
 
 def hash_password(password: str) -> str:

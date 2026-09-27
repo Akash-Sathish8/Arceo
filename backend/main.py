@@ -831,12 +831,21 @@ def cron_purge_llm_captures(request: Request):
         return purge_expired_captures(conn)
 
 
+@app.get("/api/internal/cron/purge-demo-orgs")
+def cron_purge_demo_orgs(request: Request):
+    _require_cron_auth(request)
+    from jobs.purge_demo_orgs import purge_demo_orgs
+    return purge_demo_orgs()
+
+
 @app.get("/api/demo-mode")
 def demo_mode_status():
     """Unauthenticated — lets the frontend know if DEMO_MODE is active and
     whether LLM-driven simulation is available (key presence only, never the key)."""
+    from auth import open_demo_login_enabled
     return {
         "demo": demo_mode_enabled(),
+        "open_login": open_demo_login_enabled(),
         "llm_available": bool(os.getenv("ANTHROPIC_API_KEY")),
     }
 
@@ -1884,7 +1893,56 @@ def login(req: LoginRequest, request: Request):
     if is_demo_mode and is_demo_email:
         _wipe_demo_data()
         return login_user("admin@actiongate.io", "admin123")
+    from auth import open_demo_login_enabled
+    if open_demo_login_enabled():
+        # Real accounts (the seeded admin org) authenticate normally. Anything
+        # else, wrong password included, gets its own fresh tenant.
+        try:
+            return login_user(req.email, req.password)
+        except HTTPException as exc:
+            if exc.status_code != 401:
+                raise
+        return _provision_open_demo_tenant(req.email, req.password)
     return login_user(req.email, req.password)
+
+
+def _provision_open_demo_tenant(typed_email: str, password: str) -> dict:
+    """A brand-new org and admin user for an open-demo login.
+
+    The user row carries a unique internal email (`local+demo-<hex>@domain`) so
+    the same typed name can log in any number of times and land somewhere new
+    each time; the token and the returned user carry what was typed, which is
+    what the UI shows. The `+demo-` marker is what the purge job keys on."""
+    from auth import hash_password, create_token, OPEN_DEMO_MARKER
+
+    typed = (typed_email or "").strip() or "guest"
+    if "@" in typed:
+        local, domain = typed.rsplit("@", 1)
+    else:
+        local, domain = typed, "demo.arceoai.app"
+    local = "".join(ch for ch in local if ch.isalnum() or ch in "._-") or "guest"
+    domain = "".join(ch for ch in domain if ch.isalnum() or ch in ".-") or "demo.arceoai.app"
+    stored_email = f"{local}{OPEN_DEMO_MARKER}{uuid.uuid4().hex[:8]}@{domain}"
+
+    user_id = str(uuid.uuid4())
+    org_id = str(uuid.uuid4())
+    now = datetime.utcnow().isoformat()
+    name = local
+    with get_db() as conn:
+        conn.execute(
+            "INSERT INTO organizations (id, name, created_at) VALUES (%s, %s, %s)",
+            (org_id, domain, now),
+        )
+        conn.execute(
+            "INSERT INTO users (id, email, password_hash, name, role, org_id, created_at) VALUES (%s, %s, %s, %s, %s, %s, %s)",
+            (user_id, stored_email, hash_password(password or "demo"), name, "admin", org_id, now),
+        )
+        log_audit(conn, user_id, stored_email, "SIGNUP", detail="Open demo login", org_id=org_id)
+    token = create_token(user_id, typed, "admin", org_id=org_id)
+    return {
+        "token": token,
+        "user": {"id": user_id, "email": typed, "name": name, "role": "admin", "org_id": org_id},
+    }
 
 
 @app.get("/api/auth/me")
