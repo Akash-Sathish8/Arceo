@@ -20,6 +20,7 @@ Event shapes (every event has a `type`):
 from __future__ import annotations
 
 import asyncio
+import logging
 import re
 import time
 from dataclasses import dataclass
@@ -27,6 +28,8 @@ from typing import AsyncIterator, Awaitable, Callable, Optional
 from urllib.parse import quote
 
 import httpx
+
+logger = logging.getLogger("arceo.github_scan")
 
 GITHUB_API = "https://api.github.com"
 GITHUB_RAW = "https://raw.githubusercontent.com"
@@ -399,6 +402,7 @@ async def _scan(owner, repo, branch, subpath, max_files, auths, extract,
                 status, reason = friendly_extract_error(e.status, e.detail)
                 return {"path": f["path"], "status": status, "error": reason}
             except Exception:  # noqa: BLE001 — one bad file must not end the scan
+                logger.exception("repo scan: extraction crashed for %s", f["path"])
                 return {"path": f["path"], "status": "failed", "error": "Extraction failed"}
 
     for fut in asyncio.as_completed([run_one(f) for f in agent_files]):

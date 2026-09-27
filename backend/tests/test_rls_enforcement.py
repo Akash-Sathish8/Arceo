@@ -139,3 +139,36 @@ def test_rls_write_check_blocks_policy_insert_without_org(restricted_role):
         )
         cnt = appconn.execute("SELECT count(*) FROM policies WHERE agent_id = %s", (a_agent,)).fetchone()[0]
         assert cnt == 1
+
+
+def test_agent_registration_works_under_rls(restricted_role):
+    """The trigger that derives agent_tools / tool_actions org_id only fires when
+    org_id IS NULL, but the column DEFAULTs to 'default' — so under a restricted
+    role with a real org context every tool insert failed WITH CHECK. Production
+    connects as a non-superuser, so every extract / register with tools 500'd
+    there while passing locally (superuser bypasses RLS). Inserts now write
+    org_id explicitly."""
+    import db as _db
+    import main
+    from psycopg.rows import dict_row
+
+    org = f"orgR-{uuid.uuid4().hex[:6]}"
+    with psycopg.connect(_admin_url(), autocommit=True) as admin:
+        admin.execute("INSERT INTO organizations (id, name, created_at) VALUES (%s,%s,%s) ON CONFLICT (id) DO NOTHING",
+                      (org, org, "2026-01-01"))
+
+    agent_id = f"rls-reg-{uuid.uuid4().hex[:6]}"
+    token = _db.current_org.set(org)
+    try:
+        with psycopg.connect(_app_url(), row_factory=dict_row) as appconn:
+            appconn.execute("SELECT set_config('app.current_org', %s, true)", (org,))
+            status = main._upsert_agent(
+                appconn, agent_id, agent_id, "",
+                [{"name": "stripe", "service": "Stripe", "description": "",
+                  "actions": [{"name": "create_refund", "description": ""}]}],
+                "test", org_id=org)
+            assert status == "created"
+            tools = appconn.execute("SELECT org_id FROM agent_tools WHERE agent_id = %s", (agent_id,)).fetchall()
+            assert [t["org_id"] for t in tools] == [org]
+    finally:
+        _db.current_org.reset(token)
