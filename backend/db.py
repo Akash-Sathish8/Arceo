@@ -78,6 +78,13 @@ _POOL = ConnectionPool(
     min_size=DB_POOL_MIN,
     max_size=DB_POOL_MAX,
     kwargs={"row_factory": dict_row},
+    # Serverless hosts freeze the instance between requests and Neon drops idle
+    # connections, so a pooled connection can be dead when handed out ("the
+    # connection is lost" on the first query → login 500). Ping before handing
+    # one out (dead ones are replaced), and retire idle ones well before the
+    # server-side idle cutoff.
+    check=ConnectionPool.check_connection,
+    max_idle=float(os.getenv("ARCEO_DB_POOL_MAX_IDLE_S", "60")),
     open=False,
 )
 
