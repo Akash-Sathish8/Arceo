@@ -1018,6 +1018,26 @@ summary:focus-visible {
   .sim-edge-flow { stroke-dasharray: none; }
 }
 
+/* ── Upload teaser graph: scan line during analysis ─────────────────── */
+.scan-line {
+  animation: scan-sweep 2.4s cubic-bezier(.4, 0, .6, 1) infinite;
+}
+@keyframes scan-sweep {
+  from { transform: translateY(-6px); }
+  to   { transform: translateY(230px); }
+}
+.stage-dot-active {
+  animation: stage-blink 1.2s ease-in-out infinite;
+}
+@keyframes stage-blink {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: .35; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .scan-line, .stage-dot-active { animation: none; }
+  .scan-line { transform: translateY(112px); }
+}
+
 /* ── shadcn cards (cards.md) ─────────────────────────────────────────
    Every card surface in the product carries a 1px border-default edge and
    shadow-sm. The two card idioms in the codebase are the Stitch

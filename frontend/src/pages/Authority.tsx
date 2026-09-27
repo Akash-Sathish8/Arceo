@@ -3,13 +3,14 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
   Bot, Headphones, Terminal, BarChart2, Settings2,
-  AlertTriangle, Plus, X, ChevronRight, Info, Search, Upload,
+  AlertTriangle, Plus, X, ChevronRight, Info, Search,
   GalleryHorizontal, GalleryVertical, LayoutGrid,
 } from 'lucide-react'
 import { apiFetch, getUser } from '@/lib/api'
 import { scoreBand, riskLabelName } from '@/lib/utils'
 import { fetchBatchSpendForecasts } from '@/lib/spendApi'
 import { recordAgentView, getAgentViewTimes } from '@/lib/recentViews'
+import AgentDropzone from '@/components/agents/AgentDropzone'
 import type { MockSpend } from '@/lib/mockSpend'
 import { toast } from '@/components/shared/Toast'
 import Tooltip from '@/components/shared/Tooltip'
@@ -245,7 +246,7 @@ export default function Authority() {
   const [uploadSubmitting, setUploadSubmitting] = useState(false)
   const [dragOver, setDragOver] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const [uploadResult, setUploadResult] = useState<{ id: string; name: string; tools_count: number; actions_count: number; model: string; system_prompt: string } | null>(null)
+  const folderInputRef = useRef<HTMLInputElement>(null)
   const [githubUrl, setGithubUrl] = useState('')
   const [githubScanning, setGithubScanning] = useState(false)
   const [githubResult, setGithubResult] = useState<{
@@ -488,14 +489,12 @@ export default function Authority() {
       return
     }
     setUploadSubmitting(true)
-    setUploadResult(null)
     try {
-      const data: typeof uploadResult = await apiFetch('/api/authority/agents/extract', {
+      const data: { id: string; tools_count: number; actions_count: number } = await apiFetch('/api/authority/agents/extract', {
         method: 'POST',
         body: JSON.stringify({ filename: uploadFilename, content: uploadFileContent }),
       })
-      setUploadResult(data)
-      toast(`Extracted ${data!.tools_count} tools, ${data!.actions_count} actions`)
+      toast(`Extracted ${data.tools_count} tools, ${data.actions_count} actions`)
       loadData()
       if (data?.id) navigate(`/agent/${data.id}`)
     } catch (err) {
@@ -925,10 +924,25 @@ export default function Authority() {
                   type="file"
                   accept=".py,.ts,.tsx,.js,.jsx,.json,.yaml,.yml,.txt,.md"
                   multiple
-                  onChange={(e) => { if (e.target.files) bundlePickedFiles(filesFromInput(e.target.files)) }}
+                  onChange={(e) => { if (e.target.files) bundlePickedFiles(filesFromInput(e.target.files)); e.target.value = '' }}
                   style={{ display: 'none' }}
                 />
-                <div
+                <input
+                  ref={folderInputRef}
+                  type="file"
+                  // @ts-expect-error non-standard but supported by every current browser
+                  webkitdirectory=""
+                  multiple
+                  onChange={(e) => { if (e.target.files) bundlePickedFiles(filesFromInput(e.target.files)); e.target.value = '' }}
+                  style={{ display: 'none' }}
+                />
+                <AgentDropzone
+                  filename={uploadFilename}
+                  content={uploadFileContent}
+                  bundledFiles={bundledFiles}
+                  bundling={bundling}
+                  dragOver={dragOver}
+                  analyzing={uploadSubmitting}
                   onDragOver={(e) => { e.preventDefault(); setDragOver(true) }}
                   onDragLeave={() => setDragOver(false)}
                   onDrop={(e) => {
@@ -948,58 +962,9 @@ export default function Authority() {
                       bundlePickedFiles(filesFromInput(dt.files))
                     }
                   }}
-                  onClick={() => fileInputRef.current?.click()}
-                  className="rounded-xl text-center cursor-pointer transition-colors"
-                  style={{
-                    border: `2px dashed ${dragOver ? 'var(--text-primary)' : 'var(--border)'}`,
-                    background: dragOver ? 'var(--bg-sunken)' : 'transparent',
-                    padding: '40px 20px',
-                  }}
-                >
-                  <Upload size={32} className="mx-auto mb-3" style={{ color: dragOver ? 'var(--text-primary)' : 'var(--text-muted)' }} />
-                  {uploadFilename ? (
-                    <>
-                      <p className="text-sm font-medium text-gray-900">{uploadFilename}</p>
-                      <p className="text-[11px] text-gray-500 mt-1">
-                        {bundledFiles.length > 0
-                          ? `${bundledFiles.length} files · ${uploadFileContent.length.toLocaleString()} chars bundled · click to replace`
-                          : `${uploadFileContent.length.toLocaleString()} chars loaded · click to replace`}
-                      </p>
-                    </>
-                  ) : (
-                    <>
-                      <p className="text-sm font-medium text-gray-900">
-                        {bundling ? 'Bundling files…' : 'Drop a file or a whole folder here, or click to browse'}
-                      </p>
-                      {!bundling && (
-                        <p className="text-[11px] text-gray-500 mt-1">A folder is bundled into one agent · drag it from Finder</p>
-                      )}
-                    </>
-                  )}
-                  <div className="flex items-center justify-center gap-1.5 mt-3 flex-wrap">
-                    {['.py', '.ts', '.js', '.json', '.yaml'].map((ext) => (
-                      <span key={ext} style={{
-                        fontSize: 11, fontFamily: 'monospace', fontWeight: 500,
-                        background: 'var(--bg-sunken)', color: 'var(--text-muted)',
-                        border: '1px solid var(--border)', borderRadius: 4, padding: '2px 6px',
-                      }}>{ext}</span>
-                    ))}
-                  </div>
-                </div>
-                {bundledFiles.length > 0 && (
-                  <div className="bg-white border border-gray-200 rounded-lg p-3 space-y-1.5 max-h-60 overflow-auto">
-                    <div className="text-[11px] font-semibold text-gray-700 mb-1.5">
-                      Bundled into one agent, {bundledFiles.length} files
-                    </div>
-                    {bundledFiles.map((b, i) => (
-                      <div key={i} className="flex items-center gap-2 text-[11px]">
-                        <span style={{ width: 8, height: 8, borderRadius: 4, flexShrink: 0, background: b.truncated ? '#d97706' : 'var(--safe)' }} />
-                        <code className="font-mono text-gray-700 truncate flex-1">{b.path}</code>
-                        <span className="text-gray-500">{b.chars.toLocaleString()} chars{b.truncated ? ' (truncated to fit)' : ''}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
+                  onPickFiles={() => fileInputRef.current?.click()}
+                  onPickFolder={() => folderInputRef.current?.click()}
+                />
                 <Button
                   type="submit"
                   loading={uploadSubmitting}
@@ -1008,19 +973,6 @@ export default function Authority() {
                 >
                   {uploadSubmitting ? 'Analyzing…' : 'Analyze this agent'}
                 </Button>
-                {uploadResult && (
-                  <div className="mt-2 bg-green-50 border border-green-200 rounded-lg p-4 space-y-2 text-xs">
-                    <div className="font-semibold text-green-900">✓ Extracted: {uploadResult.name}</div>
-                    <div className="text-green-800"><strong>{uploadResult.tools_count}</strong> tools, <strong>{uploadResult.actions_count}</strong> actions registered.</div>
-                    {uploadResult.model && <div className="text-green-800">Model: <code className="bg-white px-1 py-0.5 rounded">{uploadResult.model}</code></div>}
-                    {uploadResult.system_prompt && (
-                      <details className="text-green-800">
-                        <summary className="cursor-pointer">System prompt ({uploadResult.system_prompt.length} chars)</summary>
-                        <pre className="mt-2 bg-white p-2 rounded text-[11px] whitespace-pre-wrap max-h-40 overflow-auto">{uploadResult.system_prompt}</pre>
-                      </details>
-                    )}
-                  </div>
-                )}
               </form>
             </div>
           )}
