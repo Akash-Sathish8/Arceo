@@ -2492,8 +2492,8 @@ def create_agent(req: AgentInput, user: dict = Depends(get_current_user)):
 
         for tool in req.tools or []:
             cur = conn.execute(
-                "INSERT INTO agent_tools (agent_id, name, service, description) VALUES (%s, %s, %s, %s) RETURNING id",
-                (agent_id, tool.name, tool.service, tool.description),
+                "INSERT INTO agent_tools (agent_id, name, service, description, org_id) VALUES (%s, %s, %s, %s, %s) RETURNING id",
+                (agent_id, tool.name, tool.service, tool.description, org_id),
             )
             tool_id = cur.fetchone()["id"]
             for a in tool.actions:
@@ -2501,8 +2501,8 @@ def create_agent(req: AgentInput, user: dict = Depends(get_current_user)):
                 mapped = classify_with_fallback(tool.name, a.action, a.description,
                                                 input_schema=a.input_schema)
                 conn.execute(
-                    "INSERT INTO tool_actions (tool_id, action, description, risk_labels, reversible, classification_source) VALUES (%s, %s, %s, %s, %s, %s)",
-                    (tool_id, a.action, a.description, json.dumps(mapped.risk_labels), mapped.reversible, mapped.classification_source),
+                    "INSERT INTO tool_actions (tool_id, action, description, risk_labels, reversible, classification_source, org_id) VALUES (%s, %s, %s, %s, %s, %s, %s)",
+                    (tool_id, a.action, a.description, json.dumps(mapped.risk_labels), mapped.reversible, mapped.classification_source, org_id),
                 )
 
         log_audit(conn, user["sub"], user["email"], "CREATE_AGENT", resource=agent_id,
@@ -2592,8 +2592,8 @@ def update_agent(agent_id: str, req: AgentInput, user: dict = Depends(get_curren
 
             for tool in req.tools:
                 cur = conn.execute(
-                    "INSERT INTO agent_tools (agent_id, name, service, description) VALUES (%s, %s, %s, %s) RETURNING id",
-                    (agent_id, tool.name, tool.service, tool.description),
+                    "INSERT INTO agent_tools (agent_id, name, service, description, org_id) VALUES (%s, %s, %s, %s, %s) RETURNING id",
+                    (agent_id, tool.name, tool.service, tool.description, _org(user)),
                 )
                 tool_id = cur.fetchone()["id"]
                 for a in tool.actions:
@@ -2601,8 +2601,8 @@ def update_agent(agent_id: str, req: AgentInput, user: dict = Depends(get_curren
                     mapped = classify_with_fallback(tool.name, a.action, a.description,
                                                     input_schema=a.input_schema)
                     conn.execute(
-                        "INSERT INTO tool_actions (tool_id, action, description, risk_labels, reversible, classification_source) VALUES (%s, %s, %s, %s, %s, %s)",
-                        (tool_id, a.action, a.description, json.dumps(mapped.risk_labels), mapped.reversible, mapped.classification_source),
+                        "INSERT INTO tool_actions (tool_id, action, description, risk_labels, reversible, classification_source, org_id) VALUES (%s, %s, %s, %s, %s, %s, %s)",
+                        (tool_id, a.action, a.description, json.dumps(mapped.risk_labels), mapped.reversible, mapped.classification_source, _org(user)),
                     )
 
         log_audit(conn, user["sub"], user["email"], "UPDATE_AGENT", resource=agent_id,
@@ -2825,8 +2825,8 @@ def _upsert_agent(
 
     for tool in tools:
         cur = conn.execute(
-            "INSERT INTO agent_tools (agent_id, name, service, description) VALUES (%s, %s, %s, %s) RETURNING id",
-            (agent_id, tool["name"], tool["service"], tool["description"]),
+            "INSERT INTO agent_tools (agent_id, name, service, description, org_id) VALUES (%s, %s, %s, %s, %s) RETURNING id",
+            (agent_id, tool["name"], tool["service"], tool["description"], org_id),
         )
         tool_id = cur.fetchone()["id"]
         for a in tool["actions"]:
@@ -2835,8 +2835,8 @@ def _upsert_agent(
                 input_schema=a.get("input_schema"),
             )
             conn.execute(
-                "INSERT INTO tool_actions (tool_id, action, description, risk_labels, reversible, classification_source) VALUES (%s, %s, %s, %s, %s, %s)",
-                (tool_id, a["name"], mapped.description, json.dumps(mapped.risk_labels), mapped.reversible, mapped.classification_source),
+                "INSERT INTO tool_actions (tool_id, action, description, risk_labels, reversible, classification_source, org_id) VALUES (%s, %s, %s, %s, %s, %s, %s)",
+                (tool_id, a["name"], mapped.description, json.dumps(mapped.risk_labels), mapped.reversible, mapped.classification_source, org_id),
             )
 
     log_audit(conn, None, audit_source, f"{status.upper()}_AGENT", resource=agent_id,
@@ -5352,8 +5352,8 @@ def upload_test_data(agent_id: str, req: TestDataInput, user: dict = Depends(get
             conn.execute("UPDATE test_data SET data_json = %s, updated_at = %s WHERE agent_id = %s",
                          (json.dumps(data), now, agent_id))
         else:
-            conn.execute("INSERT INTO test_data (agent_id, data_json, created_at, updated_at) VALUES (%s, %s, %s, %s)",
-                         (agent_id, json.dumps(data), now, now))
+            conn.execute("INSERT INTO test_data (agent_id, data_json, created_at, updated_at, org_id) VALUES (%s, %s, %s, %s, %s)",
+                         (agent_id, json.dumps(data), now, now, _org(user)))
 
         log_audit(conn, user["sub"], user["email"], "UPLOAD_TEST_DATA", resource=agent_id,
                   detail=f"Uploaded custom test data: {list(data.keys())}")
