@@ -231,6 +231,15 @@ export default function Authority() {
     }
   }, [connectMenuOpen])
   const [showConnectTabs, setShowConnectTabs] = useState(false)
+  // One open path for the Connect dialog: the header CTA and the ?connect=true
+  // deep link. Always lands on the tabbed view with Upload selected, even on
+  // an empty workspace (the template picker is no longer the entry screen).
+  const openConnect = useCallback(() => {
+    setShowCreate(true)
+    setAgentTab('agents')       // the connect form only renders on the Agents tab
+    setConnectTab('upload')
+    setShowConnectTabs(true)
+  }, [])
   const [uploadFileContent, setUploadFileContent] = useState('')
   const [uploadFilename, setUploadFilename] = useState('')
   const [uploadSubmitting, setUploadSubmitting] = useState(false)
@@ -255,7 +264,6 @@ export default function Authority() {
   const connectFormRef = useRef<HTMLDivElement>(null)
   const [creating, setCreating] = useState(false)
   // MCP connect
-  const [, setShowMcpConnect] = useState(false)
   const [mcpUrl, setMcpUrl] = useState('')
   const [mcpAgentName, setMcpAgentName] = useState('')
   const [mcpConnecting, setMcpConnecting] = useState(false)
@@ -300,16 +308,10 @@ export default function Authority() {
   useEffect(() => {
     if (searchParams.get('connect') === 'true') {
       connectRequestedRef.current = true
-      setShowCreate(true)
-      setAgentTab('agents')       // the connect form only renders on the Agents tab
-      setConnectTab('upload')
+      openConnect()
       setSearchParams({}, { replace: true })
-      setTimeout(
-        () => connectFormRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }),
-        100,
-      )
     }
-  }, [searchParams])
+  }, [searchParams, openConnect])
 
   useEffect(() => {
     if (!loading && !animReadyRef.current) {
@@ -514,7 +516,6 @@ export default function Authority() {
       setMcpResult(data)
       setMcpUrl('')
       setMcpAgentName('')
-      setShowMcpConnect(false)
       toast(`Connected. We imported ${data.tools_imported} tool${data.tools_imported !== 1 ? 's' : ''}.`)
       loadData()
     } catch (err) {
@@ -624,9 +625,7 @@ export default function Authority() {
         actions={
           <button
             type="button"
-            onClick={() => {
-              setShowCreate(true); setShowMcpConnect(false); setAgentTab('agents')
-            }}
+            onClick={openConnect}
             className="btn btn--primary ag-btn"
           >
             <Plus size={16} strokeWidth={1.8} />
