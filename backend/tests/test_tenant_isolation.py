@@ -269,8 +269,9 @@ def test_tenant_errors_do_not_leak_operator_instructions():
     Telling them to is useless AND a disclosure about how the service is run —
     and it contradicted the UI's own 'Public repos only'."""
     import inspect
+    import github_scan
 
-    src = inspect.getsource(main.extract_agents_from_github)
-    assert "GITHUB_TOKEN env var on the backend" not in src
-    assert "set GITHUB_TOKEN on the backend" not in src
-    assert "Settings → API & Integration → Credentials" in src
+    src = inspect.getsource(github_scan) + inspect.getsource(main._prepare_github_scan)
+    assert "GITHUB_TOKEN" not in src
+    # What a tenant CAN do about a private repo or a shared rate limit.
+    assert "Connect GitHub" in inspect.getsource(github_scan)
