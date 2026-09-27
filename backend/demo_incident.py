@@ -17,8 +17,8 @@ EXPECTED_DECISIONS is what `POST /api/replay` must return for TRACE once
 POLICIES are in place. The test asserts it exactly.
 """
 
-AGENT_NAME = "ExploitGym eval agent"
-AGENT_ID = "exploitgym-eval-agent"
+AGENT_NAME = "OpenAI IM1 Agent"
+AGENT_ID = "openai-im1-agent"
 AGENT_DESCRIPTION = (
     "Cyber-capability evaluation agent. Solves ExploitGym challenges in a "
     "sandbox with a shell, file access, outbound HTTP and a package registry."

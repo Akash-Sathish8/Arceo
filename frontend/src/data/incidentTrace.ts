@@ -10,8 +10,8 @@
  * escalation 11 to 13 July 2026.
  */
 
-export const INCIDENT_AGENT_ID = "exploitgym-eval-agent";
-export const INCIDENT_AGENT_NAME = "ExploitGym eval agent";
+export const INCIDENT_AGENT_ID = "openai-im1-agent";
+export const INCIDENT_AGENT_NAME = "OpenAI IM1 Agent";
 
 export type Decision = "ALLOW" | "BLOCK" | "REQUIRE_APPROVAL";
 
