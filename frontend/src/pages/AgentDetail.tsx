@@ -21,7 +21,6 @@ import { bandDescription, scoreBand, scoreToColor, riskLabelBg, riskLabelColor, 
 import type { RiskLabel } from '@/lib/types'
 import Tooltip from '@/components/shared/Tooltip'
 import ErrorState from '@/components/shared/ErrorState'
-import PrelaunchPanel from '@/components/agents/PrelaunchPanel'
 import { RISK_SCORE_METHODOLOGY } from '@/lib/methodology'
 
 // ── Local types ───────────────────────────────────────────────────────────────
@@ -1304,10 +1303,10 @@ export default function AgentDetail() {
   const [policyConflicts, setPolicyConflicts] = useState<PolicyConflict[]>([])
 
   // Active tab
-  const [activeTab, setActiveTab] = useState<'graph' | 'policies' | 'executions' | 'chains' | 'audit'>(
+  const [activeTab, setActiveTab] = useState<'graph' | 'policies' | 'executions' | 'chains'>(
     () => {
       const p = searchParams.get('tab')
-      if (p === 'policies' || p === 'executions' || p === 'chains' || p === 'audit') return p
+      if (p === 'policies' || p === 'executions' || p === 'chains') return p
       return 'graph'
     }
   )
@@ -1809,7 +1808,6 @@ export default function AgentDetail() {
     { id: 'policies' as const, label: `Policies (${sortedPolicies.length})`, dot: false },
     { id: 'executions' as const, label: `Executions (${executions?.length ?? 0})`, dot: false },
     { id: 'chains' as const, label: `Chains (${chains.length})`, dot: hasCriticalChain },
-    { id: 'audit' as const, label: 'Pre-launch', dot: false },
   ]
 
   // ── Render ───────────────────────────────────────────────────────────────
@@ -2713,11 +2711,6 @@ export default function AgentDetail() {
             })}
           </div>
         </div>
-      )}
-
-      {/* ── Tab: Pre-launch audit ── */}
-      {activeTab === 'audit' && agentId && (
-        <PrelaunchPanel agentId={agentId} onPoliciesChanged={() => loadData({ soft: true })} />
       )}
 
       {/* ── Tab: Chains ── */}

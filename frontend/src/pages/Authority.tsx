@@ -3,15 +3,13 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
   Bot, Headphones, Terminal, BarChart2, Settings2,
-  AlertTriangle, Plus, X, ChevronRight, Info, Search,
+  AlertTriangle, Plus, X, ChevronRight, Info, Search, Upload,
   GalleryHorizontal, GalleryVertical, LayoutGrid,
 } from 'lucide-react'
 import { apiFetch, getUser } from '@/lib/api'
 import { scoreBand, riskLabelName } from '@/lib/utils'
 import { fetchBatchSpendForecasts } from '@/lib/spendApi'
 import { recordAgentView, getAgentViewTimes } from '@/lib/recentViews'
-import AgentDropzone from '@/components/agents/AgentDropzone'
-import GithubScanPanel from '@/components/connect/GithubScanPanel'
 import type { MockSpend } from '@/lib/mockSpend'
 import { toast } from '@/components/shared/Toast'
 import Tooltip from '@/components/shared/Tooltip'
@@ -158,13 +156,6 @@ function parseToolsText(toolsText: string) {
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-const GITHUB_CONNECT_ERRORS: Record<string, string> = {
-  expired: 'That GitHub connection link expired. Start again from Connect GitHub.',
-  denied: 'GitHub access wasn\u2019t granted.',
-  state: 'That GitHub sign-in didn\u2019t match this browser session. Try again.',
-  vault: 'This server can\u2019t store GitHub connections yet. Ask your admin to set up the credential vault.',
-}
-
 export default function Authority() {
   const [searchParams, setSearchParams] = useSearchParams()
   const navigate = useNavigate()
@@ -201,11 +192,7 @@ export default function Authority() {
   // One close path for the Connect dialog: the X, the footer button, the scrim
   // and Esc. Declared with the other hooks — this component returns early for
   // its loading and error states, so a hook below those runs conditionally.
-  const closeConnect = useCallback(() => {
-    // A repo scan keeps running server-side; its agents land in the list when it ends.
-    if (githubBusyRef.current) toast('The repo scan keeps running. New agents will appear here when it finishes.')
-    setShowCreate(false)
-  }, [])
+  const closeConnect = useCallback(() => setShowCreate(false), [])
   useEffect(() => {
     if (!showCreate) return
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') closeConnect() }
@@ -244,29 +231,31 @@ export default function Authority() {
     }
   }, [connectMenuOpen])
   const [showConnectTabs, setShowConnectTabs] = useState(false)
-  // One open path for the Connect dialog: the header CTA and the ?connect=true
-  // deep link. Always lands on the tabbed view with Upload selected, even on
-  // an empty workspace (the template picker is no longer the entry screen).
-  const openConnect = useCallback(() => {
-    setShowCreate(true)
-    setAgentTab('agents')       // the connect form only renders on the Agents tab
-    setConnectTab('upload')
-    setShowConnectTabs(true)
-  }, [])
   const [uploadFileContent, setUploadFileContent] = useState('')
   const [uploadFilename, setUploadFilename] = useState('')
   const [uploadSubmitting, setUploadSubmitting] = useState(false)
   const [dragOver, setDragOver] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const folderInputRef = useRef<HTMLInputElement>(null)
-  const githubBusyRef = useRef(false)
-  const [githubJustConnected, setGithubJustConnected] = useState(false)
+  const [uploadResult, setUploadResult] = useState<{ id: string; name: string; tools_count: number; actions_count: number; model: string; system_prompt: string } | null>(null)
+  const [githubUrl, setGithubUrl] = useState('')
+  const [githubScanning, setGithubScanning] = useState(false)
+  const [githubResult, setGithubResult] = useState<{
+    owner: string; repo: string; branch: string;
+    files_scanned: number; agents_detected: number; agents_registered: number;
+    results: { path: string; status: string; agent_id?: string; tools_count?: number; model?: string; error?: string }[]
+    // Coverage disclosure the backend already sends (candidate cap, max_files
+    // stop, rate-limited fetches, size skips) — apiFetch is a bare res.json(),
+    // so these are in the response at runtime; the type just didn't admit it.
+    truncated?: boolean; scan_notes?: string[]; fetch_errors?: number;
+    candidates_total?: number; candidates_scanned?: number;
+  } | null>(null)
   const [bundledFiles, setBundledFiles] = useState<{ path: string; chars: number; truncated?: boolean }[]>([])
   const [bundling, setBundling] = useState(false)
   const [proxyName, setProxyName] = useState('')
   const connectFormRef = useRef<HTMLDivElement>(null)
   const [creating, setCreating] = useState(false)
   // MCP connect
+  const [, setShowMcpConnect] = useState(false)
   const [mcpUrl, setMcpUrl] = useState('')
   const [mcpAgentName, setMcpAgentName] = useState('')
   const [mcpConnecting, setMcpConnecting] = useState(false)
@@ -304,31 +293,18 @@ export default function Authority() {
     return () => clearInterval(interval)
   }, [])
 
-  // Remembered across the first-load tab decision below, so a login that
-  // lands here with ?connect=true keeps the form open on an empty workspace.
-  const connectRequestedRef = useRef(false)
-
   useEffect(() => {
     if (searchParams.get('connect') === 'true') {
-      connectRequestedRef.current = true
-      openConnect()
+      setShowCreate(true)
+      setAgentTab('agents')       // the connect form only renders on the Agents tab
+      setConnectTab('upload')
       setSearchParams({}, { replace: true })
+      setTimeout(
+        () => connectFormRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }),
+        100,
+      )
     }
-    // Back from GitHub's "Connect GitHub" flow: reopen on the repo scan.
-    if (searchParams.get('connect') === 'github') {
-      connectRequestedRef.current = true
-      openConnect()
-      setConnectTab('github')
-      const err = searchParams.get('github_error')
-      if (searchParams.get('github') === 'connected') {
-        setGithubJustConnected(true)
-        toast('GitHub connected. Pick a repo to scan.')
-      } else if (err) {
-        toast(GITHUB_CONNECT_ERRORS[err] ?? 'Connecting GitHub didn\u2019t finish. Try again.', 'error')
-      }
-      setSearchParams({}, { replace: true })
-    }
-  }, [searchParams, openConnect])
+  }, [searchParams])
 
   useEffect(() => {
     if (!loading && !animReadyRef.current) {
@@ -342,7 +318,7 @@ export default function Authority() {
   // completes; user's manual tab switches afterwards stay sticky.
   useEffect(() => {
     if (loading || initialTabRef.current) return
-    if (agents.length === 0 && !connectRequestedRef.current) {
+    if (agents.length === 0) {
       // Land on Overview for a first-run account, but leave the connect form
       // CLOSED — otherwise the header CTA reads "Cancel" over a hidden form.
       // The user opens it via the "Connect agent" button (which switches tabs).
@@ -468,6 +444,36 @@ export default function Authority() {
     }
   }
 
+  const handleGithubScan = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!githubUrl.trim()) {
+      toast('Enter a GitHub URL', 'error')
+      return
+    }
+    setGithubScanning(true)
+    setGithubResult(null)
+    try {
+      const data: typeof githubResult = await apiFetch('/api/authority/agents/extract-github', {
+        method: 'POST',
+        body: JSON.stringify({ url: githubUrl }),
+      })
+      setGithubResult(data)
+      // Branch on what was DETECTED, not what registered: 25 detected /
+      // 25 failed used to read "no agent files detected" and blame the repo.
+      if (data && data.agents_registered > 0) {
+        toast(`Registered ${data.agents_registered} agent${data.agents_registered !== 1 ? 's' : ''} from ${data.owner}/${data.repo}`)
+      } else if (data && data.agents_detected > 0) {
+        toast(`Detected ${data.agents_detected} agent file${data.agents_detected !== 1 ? 's' : ''} but we couldn't register them. Check the per-file results below.`, 'error')
+      } else {
+        toast("Scan finished, but we didn't find any agent files", 'error')
+      }
+      loadData()
+    } catch (err) {
+      toast((err as Error).message, 'error')
+    }
+    setGithubScanning(false)
+  }
+
   const handleUploadSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!uploadFileContent.trim()) {
@@ -475,14 +481,15 @@ export default function Authority() {
       return
     }
     setUploadSubmitting(true)
+    setUploadResult(null)
     try {
-      const data: { id: string; tools_count: number; actions_count: number } = await apiFetch('/api/authority/agents/extract', {
+      const data: typeof uploadResult = await apiFetch('/api/authority/agents/extract', {
         method: 'POST',
         body: JSON.stringify({ filename: uploadFilename, content: uploadFileContent }),
       })
-      toast(`Extracted ${data.tools_count} tools, ${data.actions_count} actions`)
+      setUploadResult(data)
+      toast(`Extracted ${data!.tools_count} tools, ${data!.actions_count} actions`)
       loadData()
-      if (data?.id) navigate(`/agent/${data.id}`)
     } catch (err) {
       toast((err as Error).message, 'error')
     }
@@ -501,6 +508,7 @@ export default function Authority() {
       setMcpResult(data)
       setMcpUrl('')
       setMcpAgentName('')
+      setShowMcpConnect(false)
       toast(`Connected. We imported ${data.tools_imported} tool${data.tools_imported !== 1 ? 's' : ''}.`)
       loadData()
     } catch (err) {
@@ -610,7 +618,9 @@ export default function Authority() {
         actions={
           <button
             type="button"
-            onClick={openConnect}
+            onClick={() => {
+              setShowCreate(true); setShowMcpConnect(false); setAgentTab('agents')
+            }}
             className="btn btn--primary ag-btn"
           >
             <Plus size={16} strokeWidth={1.8} />
@@ -618,6 +628,8 @@ export default function Authority() {
           </button>
         }
       />
+
+      <SpendTrendCard />
 
       <div style={{ display: 'flex', gap: 26, borderBottom: '1px solid var(--line)', margin: '24px 0 26px' }}>
         {(agents.length === 0
@@ -809,7 +821,7 @@ export default function Authority() {
                 }}>RECOMMENDED</span>
               )
               const githubChildren: { id: ConnectTabId; label: string; sub: string }[] = [
-                { id: 'github', label: 'Scan a repo',   sub: 'Every agent in a repo, public or private' },
+                { id: 'github', label: 'GitHub repo',   sub: 'Scan an entire repo at once' },
                 { id: 'gha',    label: 'GitHub Action', sub: 'Re-scan on every PR' },
               ]
               const postChildren: { id: ConnectTabId; label: string; sub: string }[] = [
@@ -910,25 +922,10 @@ export default function Authority() {
                   type="file"
                   accept=".py,.ts,.tsx,.js,.jsx,.json,.yaml,.yml,.txt,.md"
                   multiple
-                  onChange={(e) => { if (e.target.files) bundlePickedFiles(filesFromInput(e.target.files)); e.target.value = '' }}
+                  onChange={(e) => { if (e.target.files) bundlePickedFiles(filesFromInput(e.target.files)) }}
                   style={{ display: 'none' }}
                 />
-                <input
-                  ref={folderInputRef}
-                  type="file"
-                  // @ts-expect-error non-standard but supported by every current browser
-                  webkitdirectory=""
-                  multiple
-                  onChange={(e) => { if (e.target.files) bundlePickedFiles(filesFromInput(e.target.files)); e.target.value = '' }}
-                  style={{ display: 'none' }}
-                />
-                <AgentDropzone
-                  filename={uploadFilename}
-                  content={uploadFileContent}
-                  bundledFiles={bundledFiles}
-                  bundling={bundling}
-                  dragOver={dragOver}
-                  analyzing={uploadSubmitting}
+                <div
                   onDragOver={(e) => { e.preventDefault(); setDragOver(true) }}
                   onDragLeave={() => setDragOver(false)}
                   onDrop={(e) => {
@@ -948,9 +945,58 @@ export default function Authority() {
                       bundlePickedFiles(filesFromInput(dt.files))
                     }
                   }}
-                  onPickFiles={() => fileInputRef.current?.click()}
-                  onPickFolder={() => folderInputRef.current?.click()}
-                />
+                  onClick={() => fileInputRef.current?.click()}
+                  className="rounded-xl text-center cursor-pointer transition-colors"
+                  style={{
+                    border: `2px dashed ${dragOver ? 'var(--text-primary)' : 'var(--border)'}`,
+                    background: dragOver ? 'var(--bg-sunken)' : 'transparent',
+                    padding: '40px 20px',
+                  }}
+                >
+                  <Upload size={32} className="mx-auto mb-3" style={{ color: dragOver ? 'var(--text-primary)' : 'var(--text-muted)' }} />
+                  {uploadFilename ? (
+                    <>
+                      <p className="text-sm font-medium text-gray-900">{uploadFilename}</p>
+                      <p className="text-[11px] text-gray-500 mt-1">
+                        {bundledFiles.length > 0
+                          ? `${bundledFiles.length} files · ${uploadFileContent.length.toLocaleString()} chars bundled · click to replace`
+                          : `${uploadFileContent.length.toLocaleString()} chars loaded · click to replace`}
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      <p className="text-sm font-medium text-gray-900">
+                        {bundling ? 'Bundling files…' : 'Drop a file or a whole folder here, or click to browse'}
+                      </p>
+                      {!bundling && (
+                        <p className="text-[11px] text-gray-500 mt-1">A folder is bundled into one agent · drag it from Finder</p>
+                      )}
+                    </>
+                  )}
+                  <div className="flex items-center justify-center gap-1.5 mt-3 flex-wrap">
+                    {['.py', '.ts', '.js', '.json', '.yaml'].map((ext) => (
+                      <span key={ext} style={{
+                        fontSize: 11, fontFamily: 'monospace', fontWeight: 500,
+                        background: 'var(--bg-sunken)', color: 'var(--text-muted)',
+                        border: '1px solid var(--border)', borderRadius: 4, padding: '2px 6px',
+                      }}>{ext}</span>
+                    ))}
+                  </div>
+                </div>
+                {bundledFiles.length > 0 && (
+                  <div className="bg-white border border-gray-200 rounded-lg p-3 space-y-1.5 max-h-60 overflow-auto">
+                    <div className="text-[11px] font-semibold text-gray-700 mb-1.5">
+                      Bundled into one agent, {bundledFiles.length} files
+                    </div>
+                    {bundledFiles.map((b, i) => (
+                      <div key={i} className="flex items-center gap-2 text-[11px]">
+                        <span style={{ width: 8, height: 8, borderRadius: 4, flexShrink: 0, background: b.truncated ? '#d97706' : 'var(--safe)' }} />
+                        <code className="font-mono text-gray-700 truncate flex-1">{b.path}</code>
+                        <span className="text-gray-500">{b.chars.toLocaleString()} chars{b.truncated ? ' (truncated to fit)' : ''}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
                 <Button
                   type="submit"
                   loading={uploadSubmitting}
@@ -959,97 +1005,138 @@ export default function Authority() {
                 >
                   {uploadSubmitting ? 'Analyzing…' : 'Analyze this agent'}
                 </Button>
+                {uploadResult && (
+                  <div className="mt-2 bg-green-50 border border-green-200 rounded-lg p-4 space-y-2 text-xs">
+                    <div className="font-semibold text-green-900">✓ Extracted: {uploadResult.name}</div>
+                    <div className="text-green-800"><strong>{uploadResult.tools_count}</strong> tools, <strong>{uploadResult.actions_count}</strong> actions registered.</div>
+                    {uploadResult.model && <div className="text-green-800">Model: <code className="bg-white px-1 py-0.5 rounded">{uploadResult.model}</code></div>}
+                    {uploadResult.system_prompt && (
+                      <details className="text-green-800">
+                        <summary className="cursor-pointer">System prompt ({uploadResult.system_prompt.length} chars)</summary>
+                        <pre className="mt-2 bg-white p-2 rounded text-[11px] whitespace-pre-wrap max-h-40 overflow-auto">{uploadResult.system_prompt}</pre>
+                      </details>
+                    )}
+                  </div>
+                )}
               </form>
             </div>
           )}
 
-          {connectTab === 'gha' && (() => {
-            const yaml = `name: Arceo Agent Security
-
-on:
-  pull_request:
-
-jobs:
-  scan:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: Akash-Sathish8/Arceo/.github/actions/scan@main
-        with:
-          api-key: \${{ secrets.ARCEO_API_KEY }}
-          threshold: 60
-`
-            const copy = (text: string, msg: string) => { navigator.clipboard.writeText(text); toast(msg) }
-            const stepStyle: React.CSSProperties = { display: 'grid', gridTemplateColumns: '28px minmax(0, 1fr)', columnGap: 14, position: 'relative' }
-            const numStyle: React.CSSProperties = { width: 28, height: 28, borderRadius: '50%', background: 'var(--text-primary)', color: 'var(--white, #fff)', fontSize: 13, fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }
-            const titleStyle: React.CSSProperties = { fontSize: 15, fontWeight: 600, color: 'var(--text-primary)', lineHeight: '28px', margin: 0 }
-            const bodyStyle: React.CSSProperties = { fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.6, margin: '4px 0 0' }
-            const chipStyle: React.CSSProperties = { overflowWrap: 'anywhere', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: 12, background: 'var(--bg-sunken)', border: '1px solid var(--border)', borderRadius: 6, padding: '2px 8px', color: 'var(--text-primary)' }
-            return (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                <p style={{ fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.6, margin: '0 0 24px' }}>
-                  Arceo checks every pull request, comments with a risk report, and blocks the merge when an agent looks dangerous. Three steps, about five minutes.
-                </p>
-
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 28 }}>
-                  <div style={stepStyle}>
-                    <div style={numStyle}>1</div>
-                    <div style={{ minWidth: 0 }}>
-                      <p style={titleStyle}>Create an API key</p>
-                      <p style={bodyStyle}>Copy it right away. Arceo only shows it once.</p>
-                      <a href="/settings" className="btn btn--secondary btn--sm" style={{ marginTop: 12, textDecoration: 'none' }}>
-                        Open API keys
-                      </a>
-                    </div>
-                  </div>
-
-                  <div style={stepStyle}>
-                    <div style={numStyle}>2</div>
-                    <div style={{ minWidth: 0 }}>
-                      <p style={titleStyle}>Save it as a GitHub secret</p>
-                      <p style={bodyStyle}>
-                        In your repo, go to <span style={{ color: 'var(--text-primary)' }}>Settings › Secrets and variables › Actions</span> and add a new repository secret named <code style={chipStyle}>ARCEO_API_KEY</code>.
-                      </p>
-                      <Button size="sm" variant="secondary" style={{ marginTop: 12 }} onClick={() => copy('ARCEO_API_KEY', 'Secret name copied')}>
-                        Copy secret name
-                      </Button>
-                    </div>
-                  </div>
-
-                  <div style={stepStyle}>
-                    <div style={numStyle}>3</div>
-                    <div style={{ minWidth: 0 }}>
-                      <p style={titleStyle}>Add the workflow file</p>
-                      <p style={bodyStyle}>
-                        Save this as <code style={chipStyle}>.github/workflows/arceo.yml</code> and push. The next pull request gets scanned.
-                      </p>
-                      <div style={{ position: 'relative', marginTop: 12 }}>
-                        <pre style={{ margin: 0, background: 'var(--color-gray-950, #09090B)', color: '#E4E4E7', borderRadius: 8, padding: '18px 20px', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: 12.5, lineHeight: 1.7, overflowX: 'auto', whiteSpace: 'pre' }}>
-                          {yaml}
-                        </pre>
-                        <Button size="sm" variant="ghost-dark" style={{ position: 'absolute', top: 10, right: 10 }} onClick={() => copy(yaml, 'Workflow copied')}>
-                          Copy
-                        </Button>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '24px 0 0' }}>
-                  <code style={chipStyle}>threshold</code> is the blast-radius score that fails the check. Lower it to be stricter.{' '}
-                  <a href="https://github.com/Akash-Sathish8/Arceo/tree/main/.github/actions/scan" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--text-secondary)', textDecoration: 'underline' }}>Full docs</a>
-                </p>
+          {connectTab === 'gha' && (
+            <div className="space-y-6">
+              <p style={{ fontSize: 13, color: 'var(--text-secondary)', background: 'var(--bg-sunken)', borderRadius: 8, padding: '22px 24px', margin: 0, lineHeight: 1.6 }}>
+                Catch risky agents before they merge. Arceo runs on every pull request, posts a risk report as a comment, and can block the merge if anything looks dangerous.
+              </p>
+              <ol className="space-y-4 text-xs text-gray-700" style={{ marginTop: 16 }}>
+                <li className="flex gap-3">
+                  <span className="flex-shrink-0 w-5 h-5 rounded-full bg-gray-900 text-white text-[11px] font-semibold flex items-center justify-center">1</span>
+                  <div><strong className="text-gray-900">Generate an API key.</strong>{' '}<a href="/settings" className="underline text-gray-900 hover:text-indigo-600">Settings → API &amp; Integration → API Keys</a>. Copy it once, because you won't see it again.</div>
+                </li>
+                <li className="flex gap-3">
+                  <span className="flex-shrink-0 w-5 h-5 rounded-full bg-gray-900 text-white text-[11px] font-semibold flex items-center justify-center">2</span>
+                  <div><strong className="text-gray-900">Add it as a repo secret.</strong> GitHub → Settings → Secrets → Actions → New secret. Name: <code className="text-[11px] bg-gray-100 px-1 rounded">ARCEO_API_KEY</code>.</div>
+                </li>
+                <li className="flex gap-3">
+                  <span className="flex-shrink-0 w-5 h-5 rounded-full bg-gray-900 text-white text-[11px] font-semibold flex items-center justify-center">3</span>
+                  <div><strong className="text-gray-900">Commit this workflow.</strong> Create <code className="text-[11px] bg-gray-100 px-1 rounded">.github/workflows/arceo.yml</code>:</div>
+                </li>
+              </ol>
+              <div className="bg-gray-900 text-gray-100 rounded-lg p-4 font-mono text-[12px] leading-relaxed overflow-x-auto">
+                <div><span className="text-amber-300">name</span>: Arceo Agent Security</div>
+                <div className="mt-2"><span className="text-amber-300">on</span>:</div>
+                <div>{'  '}push:</div>
+                <div>{'  '}pull_request:</div>
+                <div className="mt-2"><span className="text-amber-300">jobs</span>:</div>
+                <div>{'  '}scan:</div>
+                <div>{'    '}runs-on: ubuntu-latest</div>
+                <div>{'    '}steps:</div>
+                <div>{'      '}- uses: actions/checkout@v4</div>
+                <div>{'      '}- uses: Akash-Sathish8/Arceo/.github/actions/scan@main</div>
+                <div>{'        '}with:</div>
+                <div>{'          '}api-key: <span className="text-amber-300">${'${{ secrets.ARCEO_API_KEY }}'}</span></div>
+                <div>{'          '}threshold: <span className="text-amber-300">60</span></div>
               </div>
-            )
-          })()}
+              <div className="flex flex-wrap gap-2">
+                <Button size="sm" variant="secondary" onClick={() => { navigator.clipboard.writeText(`name: Arceo Agent Security\n\non:\n  push:\n  pull_request:\n\njobs:\n  scan:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n      - uses: Akash-Sathish8/Arceo/.github/actions/scan@main\n        with:\n          api-key: \${{ secrets.ARCEO_API_KEY }}\n          threshold: 60\n`); toast('Workflow YAML copied') }}>
+                  Copy YAML
+                </Button>
+                <a href="https://github.com/Akash-Sathish8/Arceo/tree/main/.github/actions/scan" target="_blank" rel="noopener noreferrer" className="inline-flex items-center px-3 py-1.5 text-xs font-medium text-gray-700 bg-white border border-gray-200 rounded-md hover:bg-gray-50">
+                  Full docs
+                </a>
+              </div>
+            </div>
+          )}
 
           {connectTab === 'github' && (
-            <GithubScanPanel
-              onScanned={loadData}
-              onClose={closeConnect}
-              onBusyChange={(busy) => { githubBusyRef.current = busy }}
-              justConnected={githubJustConnected}
-            />
+            <div className="space-y-4">
+              <p style={{ fontSize: 13, color: 'var(--text-secondary)', background: 'var(--bg-sunken)', borderRadius: 8, padding: '10px 14px', margin: 0 }}>
+                Arceo scans the repo and registers every agent it finds. One scan covers your whole fleet.
+              </p>
+              <form onSubmit={handleGithubScan} className="space-y-3">
+                <div>
+                  <label className="text-xs font-medium text-gray-700 block mb-1">GitHub repository URL</label>
+                  <Input
+                    type="url"
+                    value={githubUrl}
+                    onChange={(e) => setGithubUrl(e.target.value)}
+                    placeholder="https://github.com/your-company/your-agent-repo"
+                    style={{ height: 40 }}
+                  />
+                  <p className="text-[11px] text-gray-500 mt-1">
+                    Public repos only. Arceo picks files with LLM SDK calls (anthropic / openai / langchain) and runs Haiku extraction on each. Capped at 25 agents per scan.
+                  </p>
+                </div>
+                <Button type="submit" loading={githubScanning} disabled={githubScanning || !githubUrl.trim()} style={{ width: '100%', marginTop: 16 }}>
+                  {githubScanning ? 'Scanning repo…' : 'Scan and register all agents'}
+                </Button>
+                {githubResult && (() => {
+                  // Tone follows the outcome. This panel used to be green with
+                  // a hardcoded ✓ even when every detected file failed.
+                  const failedCount = githubResult.results.filter((r) => r.status !== 'registered' && r.status !== 'skipped').length
+                  const allFailed = githubResult.agents_detected > 0 && githubResult.agents_registered === 0
+                  const tone = allFailed ? 'red' : failedCount > 0 ? 'amber' : 'green'
+                  const paneClass = tone === 'red'
+                    ? 'mt-2 bg-red-50 border border-red-200 rounded-lg p-4 space-y-2 text-xs'
+                    : tone === 'amber'
+                    ? 'mt-2 bg-amber-50 border border-amber-200 rounded-lg p-4 space-y-2 text-xs'
+                    : 'mt-2 bg-green-50 border border-green-200 rounded-lg p-4 space-y-2 text-xs'
+                  const headClass = tone === 'red' ? 'font-semibold text-red-900' : tone === 'amber' ? 'font-semibold text-amber-900' : 'font-semibold text-green-900'
+                  const bodyClass = tone === 'red' ? 'text-red-800' : tone === 'amber' ? 'text-amber-800' : 'text-green-800'
+                  const scannedShort = (githubResult.candidates_scanned ?? 0) < (githubResult.candidates_total ?? 0)
+                  const showCoverage = Boolean(githubResult.truncated || scannedShort || (githubResult.fetch_errors ?? 0) > 0)
+                  return (
+                  <div className={paneClass}>
+                    <div className={headClass}>{allFailed ? '✗' : '✓'} {githubResult.owner}/{githubResult.repo} <span className="font-normal opacity-75">({githubResult.branch})</span></div>
+                    <div className={bodyClass}>
+                      Scanned <strong>{githubResult.files_scanned}</strong> files → detected <strong>{githubResult.agents_detected}</strong> with LLM SDK usage → registered <strong>{githubResult.agents_registered}</strong> agents.
+                    </div>
+                    {showCoverage && (
+                      <div className="bg-amber-50 border border-amber-200 rounded p-2 text-amber-900">
+                        Scanned {githubResult.candidates_scanned ?? githubResult.files_scanned} of {githubResult.candidates_total ?? githubResult.files_scanned} candidate files{(githubResult.fetch_errors ?? 0) > 0 ? `, ${githubResult.fetch_errors} fetches failed` : ''}. Results cover only what was scanned.
+                        {(githubResult.scan_notes ?? []).map((n, i) => (
+                          <div key={i} className="mt-1 text-[11px]">{n}</div>
+                        ))}
+                      </div>
+                    )}
+                    {githubResult.results.length > 0 && (
+                      <details className={bodyClass}>
+                        <summary className="cursor-pointer">Per-file results</summary>
+                        <div className="mt-2 bg-white rounded p-2 max-h-60 overflow-auto space-y-1">
+                          {githubResult.results.map((r, i) => (
+                            <div key={i} className="flex items-center gap-2 text-[11px]">
+                              <span style={{ width: 8, height: 8, borderRadius: 4, flexShrink: 0, background: r.status === 'registered' ? 'var(--safe)' : r.status === 'skipped' ? '#9ca3af' : 'var(--critical)' }} />
+                              <code className="font-mono text-gray-700 truncate flex-1">{r.path}</code>
+                              <span className="text-gray-500">{r.status === 'registered' ? `→ ${r.agent_id} (${r.tools_count} tools${r.model ? `, ${r.model}` : ''})` : r.status === 'skipped' ? 'skipped' : `failed: ${r.error}`}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </details>
+                    )}
+                  </div>
+                  )
+                })()}
+              </form>
+            </div>
           )}
 
           {connectTab === 'proxy' && (
@@ -1864,12 +1951,6 @@ jobs:
         </section>
         )
       })()}
-
-      {agents.length > 0 && (
-        <div style={{ marginTop: 32 }}>
-          <SpendTrendCard />
-        </div>
-      )}
 
       <AgentDrawer
         agent={drawerAgent}
