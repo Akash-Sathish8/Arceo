@@ -1,5 +1,4 @@
 import { useState, useEffect, useCallback } from "react";
-import { GithubIntegrationCard } from "@/components/connect/GithubScanPanel";
 import { Eye, EyeOff, Copy, Check, Users, KeyRound, UserCircle, Banknote, Bell, X } from "lucide-react";
 import { apiFetch, getUser, getToken } from "@/lib/api";
 import { timeAgo } from "@/lib/utils";
@@ -1024,7 +1023,6 @@ if (await enforce("Stripe", "create_refund", { amount: 500 })) {
           {/* ── API & Integration ── */}
           {activeSection === "api" && (
             <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
-              <GithubIntegrationCard />
               {/* ── API keys ──────────────────────────────────────────────────
                   This card is what Authority.tsx's connect flow sends people to
                   ("Settings → API Keys → New Key"). Until it existed that link

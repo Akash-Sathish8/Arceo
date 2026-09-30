@@ -24,7 +24,6 @@ import {
   FlaskConical,
   GitBranch,
   GitCompare,
-  Siren,
   Settings as SettingsIcon,
   LogOut,
   PanelLeftClose,
@@ -92,7 +91,6 @@ export default function Sidebar(): React.ReactElement {
     { id: "approvals", label: "Approvals", to: "/approvals", Icon: ShieldCheck,  group: "Monitor", badge: pendingCount > 0 ? pendingCount : undefined },
     { id: "history",   label: "History",   to: "/history",   Icon: Clock,        group: "Monitor" },
     { id: "spend",     label: "Spend",     to: "/spend",     Icon: Banknote,     group: "Monitor" },
-    { id: "incident",  label: "Incident replay", to: "/incident", Icon: Siren,     group: "Tools" },
     { id: "sandbox",   label: "Sandbox",   to: "/sandbox",   Icon: FlaskConical, group: "Tools" },
     { id: "workflows", label: "Workflows", to: "/workflows", Icon: GitBranch,    group: "Tools" },
     { id: "compare",   label: "Compare",   to: "/compare",   Icon: GitCompare,   group: "Tools" },
@@ -129,7 +127,7 @@ export default function Sidebar(): React.ReactElement {
   return (
     <aside
       className="shrink-0 h-screen flex flex-col bg-neutral-sunken font-body transition-[width] duration-200"
-      style={{ width: collapsed ? 72 : 256 }}
+      style={{ width: collapsed ? 72 : 240 }}
     >
       {/* Brand */}
       <div className={`flex items-center gap-2 ${collapsed ? "px-3 justify-center" : "px-5"} pt-6 pb-5`}>
