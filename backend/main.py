@@ -1735,6 +1735,31 @@ def _compute_agent_summary(agent_dict: dict, conn=None) -> dict:
     }
 
 
+# What each risk label looks like as something the agent is doing — used to
+# title chain recommendations in plain English instead of the rule name.
+_LABEL_DOING = {
+    "moves_money": "moving money",
+    "touches_pii": "reading customer data",
+    "deletes_data": "deleting data",
+    "sends_external": "sending things outside the company",
+    "changes_production": "changing live systems",
+    "changes_access": "changing who has access",
+    "reads_secrets": "reading passwords or keys",
+    "evades_detection": "turning off logging",
+    "bulk_export": "exporting data in bulk",
+    "executes_code": "running code",
+}
+
+
+def _chain_title(chain, critical: bool) -> str:
+    """'Stop it from reading customer data, then moving money'."""
+    first, second = (chain.steps + chain.steps)[:2]
+    a = _LABEL_DOING.get(first, first.replace("_", " "))
+    b = _LABEL_DOING.get(second, second.replace("_", " "))
+    what = f"{a} more than once" if first == second else f"{a}, then {b}"
+    return f"Stop it from {what}" if critical else f"Watch for it {what}"
+
+
 def _generate_recommendations(radius, chain_result) -> list[dict]:
     """Generate recommendations from the agent's specific risk profile and chains."""
     recs = []
@@ -1746,16 +1771,16 @@ def _generate_recommendations(radius, chain_result) -> list[dict]:
         escalation_actions = fc.matching_actions[1] if len(fc.matching_actions) > 1 else []
         action_list = ", ".join(escalation_actions[:3])
         if chain.severity == "critical":
-            recs.append({"severity": "critical", "title": f"Break chain: {chain.name}",
+            recs.append({"severity": "critical", "title": _chain_title(chain, critical=True),
                           "description": f"{chain.description}. Gate the escalation actions ({action_list}) with approval to prevent this chain."})
         else:
-            recs.append({"severity": "high", "title": f"Monitor chain: {chain.name}",
+            recs.append({"severity": "high", "title": _chain_title(chain, critical=False),
                           "description": f"{chain.description}. Consider requiring approval for: {action_list}."})
 
     # Recommendations from irreversible actions — these can't be undone
     if radius.irreversible_actions > 0:
         recs.append({"severity": "critical" if radius.irreversible_actions > 2 else "high",
-                      "title": "Irreversible actions need gates",
+                      "title": "Require approval for actions that can't be undone",
                       "description": f"{radius.irreversible_actions} actions are irreversible (deletes, terminates, sends). These cannot be undone, so add approval or block policies."})
 
     # Only add label-count recs if no chain already covers it
@@ -1764,26 +1789,26 @@ def _generate_recommendations(radius, chain_result) -> list[dict]:
         chain_labels.update(fc.chain.risk_tags)
 
     if radius.moves_money > 0 and "moves_money" not in chain_labels:
-        recs.append({"severity": "high", "title": "Financial actions exposed",
+        recs.append({"severity": "high", "title": "It can move money with no approval",
                       "description": f"{radius.moves_money} money-moving action(s). Run a simulation to see which ones fire, then add approval gates."})
     if radius.deletes_data > 0 and "deletes_data" not in chain_labels:
-        recs.append({"severity": "high", "title": "Deletion actions exposed",
+        recs.append({"severity": "high", "title": "It can delete data with no approval",
                       "description": f"{radius.deletes_data} data-deletion action(s). Run a simulation to test, then block or require approval."})
     if radius.changes_access > 0 and "changes_access" not in chain_labels:
-        recs.append({"severity": "high", "title": "Access-control changes exposed",
+        recs.append({"severity": "high", "title": "It can change who has access",
                       "description": f"{radius.changes_access} action(s) can change who has access (roles, permissions, credentials). Require approval so the agent can't quietly escalate its own privileges."})
     if radius.reads_secrets > 0 and "reads_secrets" not in chain_labels:
-        recs.append({"severity": "high", "title": "Secret access exposed",
+        recs.append({"severity": "high", "title": "It can read passwords or keys",
                       "description": f"{radius.reads_secrets} action(s) can read secrets or credentials. Scope them tightly and gate any that combine with an external-send action."})
     if radius.evades_detection > 0:
-        recs.append({"severity": "critical", "title": "Logging/monitoring can be disabled",
+        recs.append({"severity": "critical", "title": "It can turn off logging",
                       "description": f"{radius.evades_detection} action(s) can turn off logging, audit trails, or alerting. An agent that can go dark should never do so without approval. Block these outright."})
     if radius.executes_code > 0:
-        recs.append({"severity": "critical", "title": "Arbitrary code execution exposed",
+        recs.append({"severity": "critical", "title": "It can run any code",
                       "description": f"{radius.executes_code} action(s) run arbitrary code, shell, or SQL, which is effectively an unlimited blast radius. Sandbox or require approval."})
 
     if not recs:
-        recs.append({"severity": "info", "title": "Low risk profile",
+        recs.append({"severity": "info", "title": "Nothing risky found",
                       "description": "No critical chains or high-risk actions detected. Run simulations to verify."})
 
     return recs

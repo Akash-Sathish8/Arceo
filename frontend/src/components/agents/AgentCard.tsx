@@ -24,14 +24,10 @@ export interface AgentCardData {
   name: string;
   description: string;
   tools: string[];
-  /** 0-100, higher = riskier. The INHERENT score — the capability ceiling.
-   *  Policy-blind by design (graph.py), so it never moves when gates are added. */
+  /** 0-100, higher = riskier. The one score: tools, adjusted for deployment
+   *  context, reduced by the agent's policies (graph.py). */
   score: number;
-  /** What's left after the agent's policies gate its actions. Only rendered
-   *  when the agent actually has policies: an agent with none can still report
-   *  residual < score, because `score` is floored to its band minimum
-   *  (graph.py display_score) and residual isn't — a 2-point display artifact,
-   *  not mitigation. */
+  /** What's left after the agent's policies gate its actions. */
   residual?: number;
   /** Backend-authoritative band (low|medium|high|critical); local fallback if absent. */
   band?: string;
@@ -281,11 +277,11 @@ export default function AgentCard({ agent, onOpen }: AgentCardProps): React.Reac
 const MISMATCH_COPY: Record<"stalled" | "ungoverned", { label: string; title: string }> = {
   stalled: {
     label: "Stalled",
-    title: "Declared production, but it has never run. Either it shipped nothing or it is failing silently.",
+    title: "Marked as production, but it hasn't run in the last 7 days. It may not be live yet, or it may be broken.",
   },
   ungoverned: {
     label: "Ungoverned",
-    title: "Declared dev or staging, but carrying live traffic. That is production load on an agent nobody signed off.",
+    title: "Marked as dev or staging, but it's handling real traffic. Nobody approved it for production.",
   },
 };
 

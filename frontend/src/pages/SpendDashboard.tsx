@@ -539,7 +539,7 @@ export default function SpendDashboard() {
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse">
             <thead>
-              <tr className="bg-bar-dark font-eyebrow text-eyebrow text-on-bar-dark-muted uppercase">
+              <tr className="bg-bar font-eyebrow text-eyebrow text-on-bar uppercase">
                 <th className="py-3 px-6">Tool &amp; action</th>
                 <th className="py-3 px-6">Agent</th>
                 <th className="py-3 px-6 text-right">Calls / mo</th>
@@ -574,7 +574,7 @@ export default function SpendDashboard() {
             </tbody>
           </table>
         </div>
-        <div className="p-4 px-6 bg-bar-dark flex items-center justify-between font-meta text-meta text-on-bar-dark-muted">
+        <div className="p-4 px-6 bg-bar flex items-center justify-between font-meta text-meta text-on-bar">
           <span>
             Showing {shownToolActions.length} of {topToolActions.length} priced tool {pluralize(topToolActions.length, "integration")}
           </span>

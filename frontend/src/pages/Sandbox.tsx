@@ -12,7 +12,7 @@ import { scoreToColor, timeAgo } from '@/lib/utils'
 import { chainShortLabel } from '@/lib/chainLabels'
 import NewSimulationModal, { CUSTOM_SCENARIO_ID, type RunPurpose } from '@/components/sandbox/NewSimulationModal'
 import ScenarioLibrary from '@/components/sandbox/ScenarioLibrary'
-import SimulationCanvas, { type CanvasRun } from '@/components/sandbox/SimulationCanvas'
+import SimulationCanvas, { type CanvasRun, SCENARIO_DRAG_TYPE, StepList } from '@/components/sandbox/SimulationCanvas'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -186,6 +186,108 @@ function Toggle({
 }
 
 /** One pre-flight row: aquamarine tick when the condition holds, amber when not. */
+/** The Agents page's view-toggle look (soft track, chosen option raised),
+ *  with text labels. Wraps when there isn't room. */
+function Segmented<T extends string>({
+  options,
+  value,
+  onChange,
+  label,
+}: {
+  options: { value: T; label: string; title?: string; disabled?: boolean }[]
+  value: T
+  onChange: (v: T) => void
+  label: string
+}) {
+  return (
+    <div className="view-toggle flex-wrap" role="radiogroup" aria-label={label}>
+      {options.map((o) => (
+        <button
+          key={o.value}
+          type="button"
+          role="radio"
+          aria-checked={value === o.value}
+          title={o.title}
+          disabled={o.disabled}
+          onClick={() => onChange(o.value)}
+          className={`view-toggle-btn${value === o.value ? ' is-active' : ''} disabled:opacity-40 disabled:cursor-not-allowed`}
+          style={{ width: 'auto', height: 28, padding: '0 10px', fontSize: 12, fontWeight: value === o.value ? 600 : 500, fontFamily: 'inherit', cursor: 'pointer' }}
+        >
+          {o.label}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+/** "?" beside the run-mode switch: what Live model is and what it needs.
+ *  A click-open panel, not a hover tooltip, so its links can be clicked. */
+function LiveModelHelp({ llmAvailable }: { llmAvailable: boolean | null }) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!open) return
+    const close = (e: MouseEvent) => { if (!ref.current?.contains(e.target as Node)) setOpen(false) }
+    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false) }
+    document.addEventListener('mousedown', close)
+    document.addEventListener('keydown', esc)
+    return () => { document.removeEventListener('mousedown', close); document.removeEventListener('keydown', esc) }
+  }, [open])
+  return (
+    <div className="relative shrink-0" ref={ref}>
+      <button
+        type="button"
+        aria-label="What Live model needs"
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+        className="inline-flex items-center justify-center w-4 h-4 text-[10px] bg-gray-200 text-gray-600 rounded-full cursor-pointer border-0 p-0"
+      >
+        ?
+      </button>
+      {open && (
+        <div
+          role="dialog"
+          aria-label="About Live model"
+          className="absolute z-40 bottom-full mb-2 left-0 w-80 rounded-lg p-4 text-xs text-gray-700 bg-white"
+          style={{ border: '1px solid var(--line)' }}
+        >
+          <div className="text-sm font-semibold text-gray-800 mb-1">
+            {llmAvailable === false ? 'What Live model needs' : 'About Live model'}
+          </div>
+          <p className="m-0 mb-2 leading-relaxed">
+            Dry run guesses the agent's calls from the scenario. Live model lets the agent's own AI model decide
+            each call, so you see what it would really do. Tools stay mocked either way.
+          </p>
+          <div className="mb-1 font-medium text-gray-800">To turn it on:</div>
+          <ol className="m-0 pl-4 space-y-1 leading-relaxed" style={{ listStyleType: 'decimal' }}>
+            <li>
+              Create an API key in the{' '}
+              <a
+                href="https://console.anthropic.com/settings/keys"
+                target="_blank"
+                rel="noreferrer"
+                className="text-gray-900 underline underline-offset-2"
+              >
+                Anthropic console
+              </a>
+              .
+            </li>
+            <li>
+              Set it as <code>ANTHROPIC_API_KEY</code> where the Arceo backend runs: <code>backend/.env</code> locally,
+              or the environment variables of your deployment. Someone with server access has to do this.
+            </li>
+            <li>
+              If the agent uses another model, add that provider's key too (<code>OPENAI_API_KEY</code> for GPT),
+              or run Ollama for local models.
+            </li>
+            <li>Restart the backend.</li>
+          </ol>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function PreflightCheck({ ok, okLabel, failLabel }: { ok: boolean; okLabel: string; failLabel: string }) {
   return (
     <div className="flex items-center gap-2">
@@ -312,6 +414,22 @@ export default function Sandbox() {
 
   // "Configure Simulation" dialog (Sandbox header → New Simulation).
   const [lastRun, setLastRun] = useState<CanvasRun | null>(null)
+  // A single run stays on the canvas: its summary and a key that makes the
+  // canvas play the trace back. Batches still open the report page.
+  const [lastResult, setLastResult] = useState<{ id: string; report: SimulationReport } | null>(null)
+  const [autoplayKey, setAutoplayKey] = useState<string | null>(null)
+  const [replayAt, setReplayAt] = useState<number | null>(null)
+  // Without an Anthropic key the backend quietly runs "live" as a dry run, so
+  // the switch must say so instead of offering a mode that doesn't exist.
+  const [llmAvailable, setLlmAvailable] = useState<boolean | null>(null)
+  useEffect(() => {
+    apiFetch<{ llm_available?: boolean }>('/api/demo-mode', { skipLogoutOn401: true })
+      .then((d) => setLlmAvailable(!!d.llm_available))
+      .catch(() => setLlmAvailable(null))
+  }, [])
+  useEffect(() => {
+    if (llmAvailable === false) setRunMode('dry')
+  }, [llmAvailable])
   const [newSimOpen, setNewSimOpen] = useState(false)
   const [modalScenarioId, setModalScenarioId] = useState('')
   const [runPurpose, setRunPurpose] = useState<RunPurpose>('explore')
@@ -510,6 +628,9 @@ export default function Sandbox() {
     })
   }
 
+  // A different agent's canvas shouldn't show the last agent's result line.
+  useEffect(() => { setLastResult(null) }, [selectedAgent])
+
   // Pull the newest recorded trace for the selected agent so the canvas can
   // show where that agent actually got stopped, and replay it step by step.
   useEffect(() => {
@@ -523,7 +644,9 @@ export default function Sandbox() {
         const rawSteps = (trace.steps ?? []) as Record<string, unknown>[]
         setLastRun({
           id: latest.id,
+          scenarioId: latest.scenario_id,
           scenario: formatDesc(latest.scenario_id),
+          predicted: rawSteps.some((st) => !!(st.params as { _predicted?: boolean } | undefined)?._predicted),
           steps: rawSteps.map((st) => ({
             tool: String(st.tool ?? ''),
             action: String(st.action ?? ''),
@@ -600,6 +723,38 @@ export default function Sandbox() {
         toast("That scenario didn't run. Check the agent is set up correctly.", 'error')
       }
       setRunning(false)
+      if (toRun.length === 1 && completed.length === 1) {
+        const item = toRun[0]
+        setLastRun({
+          id: lastData.simulation_id,
+          scenarioId: item.type === 'scenario' ? item.scenario.id : item.prompt,
+          scenario: item.type === 'scenario' ? item.scenario.name : item.prompt,
+          predicted: (lastData.trace?.steps ?? []).some((st) => (st as { params?: { _predicted?: boolean } }).params?._predicted),
+          steps: (lastData.trace?.steps ?? []).map((st) => ({
+            tool: String(st.tool ?? ''),
+            action: String(st.action ?? ''),
+            decision: String(st.enforce_decision ?? 'ALLOW'),
+          })),
+        })
+        setLastResult({ id: lastData.simulation_id, report: lastData.report })
+        setAutoplayKey(lastData.simulation_id)
+        // Count it in Past runs without leaving the page.
+        setSimulations((prev) => [
+          {
+            id: lastData.simulation_id,
+            agent_id: item.agentId,
+            scenario_id: item.type === 'scenario' ? item.scenario.id : 'custom',
+            risk_score: lastData.report.risk_score,
+            violations: lastData.report.violations?.length ?? 0,
+            actions_blocked: lastData.report.actions_blocked,
+            total_steps: lastData.report.total_steps,
+            created_at: new Date().toISOString(),
+          },
+          ...prev.filter((x) => x.id !== lastData.simulation_id),
+        ])
+        setSimTotal((t) => t + 1)
+        return
+      }
       // A fleet-wide calibration ends where it was asked for: the spend page,
       // where the confidence tiers it just moved are on screen.
       if (agentIds.length > 1) {
@@ -664,6 +819,12 @@ export default function Sandbox() {
 
   const sel = agents.find((a) => a.id === selectedAgent)
   const queueCount = selectedScenarios.length + queuedCustomPrompts.length
+  // A recorded run is only shown for the scenario it was run with.
+  const canvasRun =
+    lastRun && (queueCount === 0 ||
+      (queueCount === 1 && (selectedScenarios[0]?.id ?? queuedCustomPrompts[0]) === lastRun.scenarioId))
+      ? lastRun
+      : null
 
   return (
     <div className="space-y-8" style={{ padding: '34px 40px 64px', maxWidth: 1140, margin: '0 auto', fontFamily: 'var(--font-sans)' }}>
@@ -746,11 +907,11 @@ export default function Sandbox() {
         {/* ── Left: configuration ──────────────────────────────────── */}
         <div
           id="run-section"
-          className="w-full lg:w-80 shrink-0 flex flex-col gap-stack-gap bg-surface-container-lowest rounded-lg p-container-padding"
+          className="w-full lg:w-80 shrink-0 flex flex-col gap-5 bg-white rounded-xl p-6"
         >
           {/* Agent selection */}
           <div className="flex flex-col gap-2" ref={agentSelectorRef}>
-            <span className="font-eyebrow text-eyebrow text-neutral-secondary uppercase">Agent selection</span>
+            <h2 className="font-eyebrow text-eyebrow text-neutral-secondary uppercase m-0">Agent</h2>
             {agents.length === 0 ? (
               <div className="text-body text-neutral-secondary">
                 No agents yet. <a href="/" className="text-on-surface underline">Create one</a> to get started.
@@ -760,7 +921,7 @@ export default function Sandbox() {
                 <button
                   type="button"
                   onClick={() => setAgentOpen((v) => !v)}
-                  className="w-full bg-surface border border-neutral-border text-on-surface font-body text-body px-3 py-2.5 rounded shadow-sm flex items-center justify-between hover:bg-surface-container-low transition-colors cursor-pointer"
+                  className="w-full text-sm text-gray-800 px-3 flex items-center justify-between hover:opacity-80 transition-opacity cursor-pointer border-0" style={{ background: 'var(--bg-sunken)', borderRadius: 'var(--radius-md)', height: 36 }}
                 >
                   <div className="flex items-center gap-2 min-w-0">
                     <span
@@ -772,7 +933,7 @@ export default function Sandbox() {
                   <ChevronDown size={18} className="text-neutral-muted shrink-0" />
                 </button>
                 {agentOpen && (
-                  <div className="absolute z-30 top-full left-0 right-0 mt-1 bg-surface-container-lowest rounded-lg overflow-hidden max-h-72 overflow-y-auto">
+                  <div className="absolute z-30 top-full left-0 right-0 mt-1 bg-white rounded-lg overflow-hidden max-h-72 overflow-y-auto" style={{ border: '1px solid var(--line)' }}>
                     {agents.map((a) => (
                       <button
                         key={a.id}
@@ -806,12 +967,12 @@ export default function Sandbox() {
           {/* Scenario template */}
           <div className="flex flex-col gap-3">
             <div className="flex items-center justify-between gap-2">
-              <span className="font-eyebrow text-eyebrow text-neutral-secondary uppercase">Scenario template</span>
+              <h2 className="font-eyebrow text-eyebrow text-neutral-secondary uppercase m-0">Scenarios</h2>
               {filteredScenarios.length > 0 && (
                 <button
                   type="button"
                   onClick={() => { if (runMode === 'llm') { setShowAddAllConfirm(true) } else { addAllToQueue() } }}
-                  className="font-meta text-meta text-neutral-secondary hover:text-on-surface bg-transparent border-0 p-0 cursor-pointer underline underline-offset-2"
+                  className="text-xs text-gray-500 hover:text-gray-800 bg-transparent border-0 p-0 cursor-pointer underline underline-offset-2"
                 >
                   Queue all {filteredScenarios.length}
                 </button>
@@ -820,40 +981,39 @@ export default function Sandbox() {
 
             {/* Category filter + Claude-generated scenarios */}
             <div className="flex flex-wrap gap-1.5">
+              <Segmented
+                label="Scenario category"
+                value={categoryFilter}
+                onChange={setCategoryFilter}
+                options={CATEGORY_FILTERS.map((c) => ({ value: c.value, label: c.label }))}
+              />
               <button
                 type="button"
                 onClick={generateScenarios}
                 disabled={!selectedAgent || generatingScenarios}
-                className="font-meta text-meta px-2 py-1 rounded border border-neutral-border bg-surface text-neutral-secondary hover:text-on-surface transition-colors cursor-pointer disabled:opacity-50"
+                className="text-xs text-gray-500 hover:text-gray-800 bg-transparent border-0 px-1 cursor-pointer underline underline-offset-2 disabled:opacity-50"
               >
                 {generatingScenarios ? 'Generating…' : 'Generate with Claude'}
               </button>
-              {CATEGORY_FILTERS.map((c) => (
-                <button
-                  key={c.value}
-                  type="button"
-                  onClick={() => setCategoryFilter(c.value)}
-                  className={`font-meta text-meta px-2 py-1 rounded border transition-colors cursor-pointer ${
-                    categoryFilter === c.value
-                      ? 'bg-primary-container text-on-primary-container border-transparent'
-                      : 'bg-surface text-neutral-secondary border-neutral-border hover:text-on-surface'
-                  }`}
-                >
-                  {c.label}
-                </button>
-              ))}
             </div>
 
             <div className="flex flex-col gap-2 max-h-[420px] overflow-y-auto -mr-2 pr-2">
               {filteredScenarios.length === 0 && (
-                <p className="font-meta text-meta text-neutral-muted m-0">No scenarios in this category.</p>
+                <p className="text-xs text-gray-400 m-0">No scenarios in this category.</p>
               )}
               {filteredScenarios.map((sc) => {
                 const isSelected = selectedScenarios.some((x) => x.id === sc.id)
                 return (
                   <label
                     key={sc.id}
-                    className="cursor-pointer relative flex items-start p-3 bg-surface hover:bg-surface-container-low rounded-lg transition-colors border border-neutral-border"
+                    draggable
+                    onDragStart={(e) => {
+                      e.dataTransfer.setData(SCENARIO_DRAG_TYPE, sc.id)
+                      e.dataTransfer.effectAllowed = 'copy'
+                    }}
+                    title="Drag onto the canvas, or tick to queue"
+                    className="cursor-grab active:cursor-grabbing relative flex items-start p-3 rounded-lg transition-colors hover:bg-gray-50"
+                    style={isSelected ? { background: 'var(--bg-sunken)' } : undefined}
                   >
                     <input
                       type="checkbox"
@@ -872,8 +1032,8 @@ export default function Sandbox() {
                       }}
                     />
                     <span className="flex flex-col min-w-0">
-                      <span className="font-monospace-data text-monospace-data text-on-surface">{sc.name}</span>
-                      <span className="font-meta text-meta text-neutral-secondary mt-1">
+                      <span className="text-sm font-medium text-gray-800">{sc.name}</span>
+                      <span className="text-xs text-gray-500 mt-0.5">
                         {formatDesc(sc.description)}
                       </span>
                     </span>
@@ -887,14 +1047,14 @@ export default function Sandbox() {
 
           {/* Custom scenario */}
           <div className="flex flex-col gap-2">
-            <span className="font-eyebrow text-eyebrow text-neutral-secondary uppercase">Custom scenario</span>
+            <h2 className="font-eyebrow text-eyebrow text-neutral-secondary uppercase m-0">Write your own</h2>
             <textarea
               id="sandbox-custom-scenario"
               value={customPrompt}
               onChange={(e) => setCustomPrompt(e.target.value)}
               placeholder="e.g. 'A customer wants a refund for a $200 charge they don't recognize'"
               rows={3}
-              className="w-full bg-surface border border-neutral-border rounded font-body text-body text-on-surface p-3 resize-y focus:outline-none focus:border-primary"
+              className="w-full text-sm text-gray-800 p-3 resize-y border-2 border-transparent focus:outline-none focus:border-[color:var(--border-focus)]" style={{ background: 'var(--bg-sunken)', borderRadius: 'var(--radius-md)' }}
             />
             {customPrompt.trim() && (
               <button
@@ -924,38 +1084,14 @@ export default function Sandbox() {
             )}
           </div>
 
-          <div className="h-px w-full bg-neutral-border" />
-
-          {/* Policy override */}
-          <div className="flex flex-col gap-3">
-            <span className="font-eyebrow text-eyebrow text-neutral-secondary uppercase">Policy override</span>
-            <div className="flex flex-col gap-3">
-              {/* Sandbox always enforces the agent's policies — the executor has
-                  no bypass — so this reads its true state rather than offering a
-                  switch that would do nothing. */}
-              <Toggle label="Strict mode" checked disabled hint="Policy enforcement is always on in the sandbox." />
-              <Toggle
-                label="Mock external APIs"
-                checked={runMode === 'dry'}
-                onChange={(v) => setRunMode(v ? 'dry' : 'llm')}
-                hint="Runs against mock services and skips the live model."
-              />
-              <Toggle
-                label="Allow side effects"
-                checked={runMode === 'llm'}
-                onChange={(v) => setRunMode(v ? 'llm' : 'dry')}
-                hint="Runs the agent's real model loop. Tool calls still hit mocks."
-              />
-            </div>
-          </div>
         </div>
 
-        {/* ── Right: canvas + pre-flight ───────────────────────────── */}
+        {/* ── Right: canvas ─────────────────────────────────────────── */}
         <div className="flex flex-col flex-1 gap-stack-gap min-w-0 w-full">
-          <div className="relative bg-surface-container-lowest rounded-lg p-container-padding flex flex-col overflow-hidden" style={{ minHeight: 520 }}>
+          <div className="relative bg-white rounded-xl p-6 flex flex-col overflow-hidden" style={{ minHeight: 600 }}>
             <div className="flex items-center justify-between mb-4 z-10 relative">
-              <span className="font-card-title text-card-title text-on-surface">Simulation canvas</span>
-              <span className="font-monospace-label text-monospace-label text-neutral-muted">
+              <h2 className="m-0" style={{ fontSize: 16, fontWeight: 600, color: 'var(--ink-900)', letterSpacing: -0.2 }}>Simulation</h2>
+              <span className="text-xs text-gray-400">
                 {sel ? `${sel.tools?.filter(Boolean).length ?? 0} tools` : 'None'}
               </span>
             </div>
@@ -964,33 +1100,83 @@ export default function Sandbox() {
               tools={(sel?.tools ?? []).filter(Boolean)}
               running={running}
               progress={runProgress}
-              lastRun={lastRun}
+              lastRun={canvasRun}
+              replayAt={replayAt}
+              onReplayAtChange={setReplayAt}
+              onOpenResult={(id) => navigate(`/sandbox/${id}`)}
+              scenarioLabel={
+                queueCount === 0
+                  ? null
+                  : queueCount === 1
+                    ? (selectedScenarios[0]?.name ?? queuedCustomPrompts[0] ?? null)
+                    : `${queueCount} scenarios queued`
+              }
+              onDropScenario={(id) => {
+                const sc = scenarios.find((x) => x.id === id)
+                if (!sc) return
+                // Dropping sets THE scenario; ticking boxes in the list still builds a batch.
+                setSelectedScenarios([sc])
+                setQueuedCustomPrompts([])
+              }}
+              autoplayKey={autoplayKey}
             />
 
-            {/* Run control */}
-            <div className="absolute bottom-6 left-1/2 -translate-x-1/2 rounded-full px-6 py-3 shadow-xl z-20 flex items-center gap-4 backdrop-blur-md"
-                 style={{ background: 'rgba(30, 40, 54, 0.92)' }}>
-              <span className="font-monospace-label text-monospace-label tracking-wider whitespace-nowrap" style={{ color: 'var(--surface-container-highest, #e2e2e9)' }}>
-                {running
-                  ? runProgress && runProgress.total > 1
-                    ? `RUNNING ${Math.min(runProgress.current + 1, runProgress.total)}/${runProgress.total}`
-                    : 'RUNNING'
-                  : !selectedAgent
-                    ? 'SELECT AN AGENT'
-                    : queueCount === 0
-                      ? 'SELECT A SCENARIO'
-                      : 'READY FOR EXECUTION'}
-              </span>
-              <div className="w-px h-4" style={{ background: 'rgba(255,255,255,0.22)' }} />
+            {/* Run control: how to run it, and the button. */}
+            <div
+              className="absolute bottom-0 left-0 right-0 z-20 flex items-center justify-between gap-4 px-6 py-4 bg-white" style={{ borderTop: '1px solid var(--line)' }}
+            >
+              <div className="flex items-center gap-3 min-w-0">
+                <Segmented
+                  label="Run mode"
+                  value={runMode}
+                  onChange={setRunMode}
+                  options={[
+                    { value: 'dry', label: 'Dry run', title: 'Predicts the calls from the scenario. No AI model, instant and free.' },
+                    {
+                      value: 'llm',
+                      label: 'Live model',
+                      disabled: llmAvailable === false,
+                      title: llmAvailable === false
+                        ? 'Needs an Anthropic API key on the backend (ANTHROPIC_API_KEY).'
+                        : "The agent's real AI model decides each call. Tools are still mocked.",
+                    },
+                  ]}
+                />
+                <LiveModelHelp llmAvailable={llmAvailable} />
+                {lastResult && !running && lastRun?.id === lastResult.id && (queueCount === 1 && (selectedScenarios[0]?.id ?? queuedCustomPrompts[0]) === lastRun.scenarioId) ? (
+                  <span className="text-xs text-gray-700 truncate">
+                    {lastResult.report.actions_executed} allowed
+                    {lastResult.report.actions_pending > 0 && `, ${lastResult.report.actions_pending} held for approval`}
+                    {lastResult.report.actions_blocked > 0 && `, ${lastResult.report.actions_blocked} blocked`}
+                    {'  '}
+                    <Link to={`/sandbox/${lastResult.id}`} className="text-gray-800 underline underline-offset-2 ml-2">
+                      Open full report
+                    </Link>
+                  </span>
+                ) : (
+                <span className="text-xs text-gray-500 truncate">
+                  {running
+                    ? runProgress && runProgress.total > 1
+                      ? `Running ${Math.min(runProgress.current + 1, runProgress.total)} of ${runProgress.total}…`
+                      : 'Running…'
+                    : !selectedAgent
+                      ? 'Select an agent'
+                      : queueCount === 0
+                        ? 'Drag a scenario onto the canvas'
+                        : runMode === 'dry'
+                          ? 'Predicts the calls, no AI model'
+                          : 'The AI model decides each call'}
+                </span>
+                )}
+              </div>
               <button
                 type="button"
                 onClick={() => handleRun(runMode === 'dry')}
                 disabled={running || sweeping || !selectedAgent || queueCount === 0}
-                className="font-body font-semibold text-body flex items-center gap-1 uppercase tracking-wide whitespace-nowrap bg-transparent border-0 cursor-pointer transition-opacity disabled:opacity-40 disabled:cursor-not-allowed"
-                style={{ color: 'var(--aqua)' }}
+                className="btn btn--primary inline-flex items-center gap-1.5 shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
               >
-                <Play size={16} strokeWidth={2.4} />
-                Run simulation
+                <Play size={14} strokeWidth={2.4} />
+                {queueCount > 1 ? `Run ${queueCount} simulations` : 'Run simulation'}
               </button>
             </div>
 
@@ -1003,19 +1189,12 @@ export default function Sandbox() {
             )}
           </div>
 
-          {/* Pre-flight checks */}
-          <div className="bg-surface-container-lowest rounded-lg p-container-padding shrink-0 flex flex-col sm:flex-row sm:items-center gap-6">
-            <span className="font-eyebrow text-eyebrow text-neutral-secondary uppercase sm:min-w-[120px]">Pre-flight checks</span>
-            <div className="flex-1 flex flex-wrap items-center gap-x-8 gap-y-4">
-              <PreflightCheck
-                ok={!!sel && (sel.tools?.filter(Boolean).length ?? 0) > 0}
-                okLabel="Agent connectivity OK"
-                failLabel="Agent has no tools"
-              />
-              <PreflightCheck ok okLabel="Sandbox isolation ACTIVE" failLabel="Sandbox isolation OFF" />
-              <PreflightCheck ok okLabel="Audit logging ENABLED" failLabel="Audit logging OFF" />
+          {canvasRun && canvasRun.steps.length > 0 && (
+            <div className="bg-white rounded-xl p-6">
+              <StepList run={canvasRun} tools={(sel?.tools ?? []).filter(Boolean)} current={replayAt} onSelect={(i) => setReplayAt(i)} />
             </div>
-          </div>
+          )}
+
         </div>
       </div>
       )}

@@ -97,6 +97,7 @@ interface BlastRadius {
   /** Backend-authoritative band: low | medium | high | critical. */
   band?: string
   // ── two-number danger model ──
+  inherent_score?: number       // tools only — the starting point `score` adjusts from
   residual_score?: number       // exposed now, after the agent's policies
   contextual_score?: number     // inherent × deployment-context multiplier
   magnitude_usd?: number        // worst-case per-incident $ across actions
@@ -256,19 +257,120 @@ const actionRiskDot = (tool: string, action: string): string => {
 
 const blastLabel = (score: number): string => bandDescription(scoreBand(score).key)
 
-/** Stable dot colour per service. Uses the neutral chart ramp on purpose —
- *  a service identity must not borrow the severity or risk-label scales. */
-const SERVICE_DOTS = ['#0E3C90', '#5578B8', '#9DB3DC', '#1E2836', '#747783']
-function serviceColor(name: string): string {
-  let h = 0
-  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0
-  return SERVICE_DOTS[h % SERVICE_DOTS.length]
+// Logos copied from the marketing site (website/public/brand/integrations);
+// salesforce.svg has its wordmark knocked out so it survives as a mask.
+const TOOL_LOGOS = new Set([
+  'aws', 'calendly', 'github', 'gmail', 'hubspot', 'pagerduty',
+  'salesforce', 'sendgrid', 'slack', 'stripe', 'zendesk',
+])
+const toolLogoUrl = (name: string): string | null => {
+  const key = name.toLowerCase().replace(/[^a-z0-9]/g, '')
+  return TOOL_LOGOS.has(key) ? `/brand/integrations/${key}.svg` : null
+}
+
+/** Grey logo for a tool, or a letter tile when we have no mark for it.
+ *  Grey on purpose: colour on this page means a risk label, so a brand
+ *  colour (Stripe purple, SendGrid blue) would read as one. The logo is a
+ *  mask over a flat grey, so multi-colour marks come out one even tone. */
+function ToolLogo({ tool }: { tool: AgentTool }) {
+  const url = toolLogoUrl(tool.name) ?? toolLogoUrl(tool.service || '')
+  const color = 'var(--ink-500)'
+  if (url) {
+    const mask = `url(${url}) center / contain no-repeat`
+    return (
+      <span
+        aria-hidden="true"
+        style={{ width: 14, height: 14, flexShrink: 0, background: color, WebkitMask: mask, mask }}
+      />
+    )
+  }
+  return (
+    <span
+      aria-hidden="true"
+      style={{
+        width: 14, height: 14, borderRadius: 3, flexShrink: 0,
+        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+        background: color, color: 'var(--white, #fff)', fontSize: 9, fontWeight: 700, lineHeight: 1,
+      }}
+    >
+      {(tool.service || tool.name).charAt(0).toUpperCase()}
+    </span>
+  )
+}
+
+// One colour per risk label, shared by the header's legend
+// and the stat drill-down.
+const LABEL_COLOR: Record<string, string> = {
+  moves_money: 'var(--critical)',
+  touches_pii: '#7c3aed',
+  deletes_data: 'var(--high)',
+  sends_external: '#2563eb',
+  changes_production: '#0d9488',
+  changes_access: '#b91c1c',
+  reads_secrets: '#a21caf',
+  evades_detection: '#4338ca',
+  bulk_export: '#15803d',
+  executes_code: '#334155',
+}
+
+
+const LEGEND_TEXT: Record<string, [one: string, many: string]> = {
+  moves_money: ['moves money', 'move money'],
+  touches_pii: ['touches personal data', 'touch personal data'],
+  deletes_data: ['deletes data', 'delete data'],
+  sends_external: ['sends outside the company', 'send outside the company'],
+  changes_production: ['changes production', 'change production'],
+  changes_access: ['changes who has access', 'change who has access'],
+  reads_secrets: ['reads secrets', 'read secrets'],
+  evades_detection: ['can hide its tracks', 'can hide its tracks'],
+  bulk_export: ['exports data in bulk', 'export data in bulk'],
+  executes_code: ['runs code', 'run code'],
+  irreversible: ["can't be undone", "can't be undone"],
+}
+const legendText = (key: string, n: number) => {
+  const t = LEGEND_TEXT[key]
+  return t ? t[n === 1 ? 0 : 1] : key
 }
 
 const fmtUsd = (usd: number): string => {
   if (usd >= 1_000_000) return `$${(usd / 1_000_000).toFixed(1)}M`
   if (usd >= 1_000) return `$${Math.round(usd / 1_000)}k`
   return `$${Math.round(usd)}`
+}
+
+// Per-incident $ ceilings are one flat figure per risk category from
+// cost_defaults.yaml, not derived from the agent — hidden until they are,
+// for the same reason the CFO report retired them (lib/cfoReport.ts).
+const SHOW_INCIDENT_USD = false
+
+// Plain-language reasons behind the deployment-context score. Mirrors the
+// multiplier tables in backend/authority/graph.py (ENV_MULT / TRIGGER_MULT /
+// HITL_MULT) — keep the up/down directions in sync with them.
+// `short` is the clause used in the one-line summary; `text` is the full line.
+type ContextReason = { text: string; short?: string; effect: 'up' | 'down' | 'none' }
+function deploymentReasons(ctx: NonNullable<BlastRadius['exposure_context']>): ContextReason[] {
+  const out: ContextReason[] = []
+  const env = (ctx.environment ?? '').toLowerCase()
+  if (env === 'prod' || env === 'production')
+    out.push({ text: 'It runs in production, where mistakes reach real customers and data', short: 'it runs in production', effect: 'up' })
+  else if (env === 'dev' || env === 'development')
+    out.push({ text: 'It runs in a development environment, away from real customers and data', short: 'it runs in development', effect: 'down' })
+  else if (env === 'staging')
+    out.push({ text: 'It runs in staging', effect: 'none' })
+
+  const trig = (ctx.trigger_source ?? '').toLowerCase()
+  if (trig === 'untrusted' || trig === 'external')
+    out.push({ text: 'People outside your company can start it, so someone could try to trick it', short: 'outsiders can start it', effect: 'up' })
+  else if (trig === 'internal')
+    out.push({ text: 'Only people inside your company can start it', effect: 'none' })
+  else if (trig === 'scheduled')
+    out.push({ text: 'It runs on a schedule, not on request', effect: 'none' })
+
+  if (ctx.human_in_loop === true)
+    out.push({ text: 'A person approves its actions before they happen', short: 'a person approves its actions', effect: 'down' })
+  else if (ctx.human_in_loop === false)
+    out.push({ text: 'Nobody approves its actions before they happen', effect: 'none' })
+  return out
 }
 
 // Confidence is trust in the NUMBER, not risk level — so high = reassuring
@@ -489,10 +591,12 @@ function DeploymentContextEditor({
   agentId,
   context,
   onSaved,
+  onCancel,
 }: {
   agentId: string
   context?: BlastRadius['exposure_context']
   onSaved: () => void
+  onCancel?: () => void
 }) {
   const [env, setEnv] = useState(context?.environment ?? '')
   const [trigger, setTrigger] = useState(context?.trigger_source ?? '')
@@ -520,26 +624,35 @@ function DeploymentContextEditor({
   }
 
   const sel = 'text-xs border border-gray-200 rounded px-2 py-1 bg-white'
+  const label = 'flex flex-col gap-1 text-xs'
   return (
-    <div className="flex items-center gap-2 flex-wrap mb-4 -mt-1">
-      <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Deployment context</span>
-      <select className={sel} value={env} onChange={(e) => setEnv(e.target.value)} aria-label="environment">
-        <option value="">environment…</option>
-        <option value="prod">prod</option>
-        <option value="staging">staging</option>
-        <option value="dev">dev</option>
-      </select>
-      <select className={sel} value={trigger} onChange={(e) => setTrigger(e.target.value)} aria-label="trigger source">
-        <option value="">trigger…</option>
-        <option value="untrusted">untrusted input</option>
-        <option value="internal">internal</option>
-        <option value="scheduled">scheduled</option>
-      </select>
-      <select className={sel} value={hitl} onChange={(e) => setHitl(e.target.value)} aria-label="human in loop">
-        <option value="">human-in-loop…</option>
-        <option value="yes">yes</option>
-        <option value="no">no</option>
-      </select>
+    <div className="flex items-end gap-3 flex-wrap">
+      <label className={label} style={{ color: 'var(--ink-600)' }}>
+        Where does it run?
+        <select className={sel} value={env} onChange={(e) => setEnv(e.target.value)}>
+          <option value="">Not set</option>
+          <option value="prod">Production</option>
+          <option value="staging">Staging</option>
+          <option value="dev">Development</option>
+        </select>
+      </label>
+      <label className={label} style={{ color: 'var(--ink-600)' }}>
+        Who can start it?
+        <select className={sel} value={trigger} onChange={(e) => setTrigger(e.target.value)}>
+          <option value="">Not set</option>
+          <option value="untrusted">People outside the company</option>
+          <option value="internal">Only people inside the company</option>
+          <option value="scheduled">Runs on a schedule</option>
+        </select>
+      </label>
+      <label className={label} style={{ color: 'var(--ink-600)' }}>
+        Does a person approve its actions first?
+        <select className={sel} value={hitl} onChange={(e) => setHitl(e.target.value)}>
+          <option value="">Not set</option>
+          <option value="yes">Yes</option>
+          <option value="no">No</option>
+        </select>
+      </label>
       <button
         onClick={save}
         disabled={saving}
@@ -548,7 +661,16 @@ function DeploymentContextEditor({
       >
         {saving ? 'Saving…' : 'Save'}
       </button>
-      <span className="text-[11px] text-gray-400">scales the in-context score</span>
+      {onCancel && (
+        <button
+          type="button"
+          onClick={onCancel}
+          className="text-xs py-1"
+          style={{ color: 'var(--ink-500)', background: 'none', border: 'none', cursor: 'pointer' }}
+        >
+          Cancel
+        </button>
+      )}
     </div>
   )
 }
@@ -559,15 +681,24 @@ interface WorstCasePanelProps {
   policies: Policy[]
   onScrollToPolicies: () => void
   agentId: string
+  onContextSaved: () => void
 }
+
+// The panel only renders for agents worth a worst-case readout; the page
+// shows the deployment-settings editor on its own when it doesn't.
+const showsWorstCase = (br: BlastRadius | null | undefined, chains: Chain[]) =>
+  !!br && !(br.score < 30 && chains.length === 0)
 
 function WorstCasePanel({
   br,
   chains,
   policies,
   onScrollToPolicies,
+  agentId,
+  onContextSaved,
 }: WorstCasePanelProps) {
-  if (!br || (br.score < 30 && chains.length === 0)) return null
+  const [editingContext, setEditingContext] = useState(false)
+  if (!showsWorstCase(br, chains)) return null
 
   const topChain =
     chains.find((c) => c.severity === 'critical') ||
@@ -624,8 +755,28 @@ function WorstCasePanel({
     br.magnitude_usd ??
     Math.max(0, ...(br.top_contributors ?? []).map((c) => c.usd || 0))
 
-  const gated = br.residual_score !== undefined && br.residual_score < br.score
   const scoreBandLabel = scoreBand(br.score).label
+  // Everything that moved the score off its tools-only starting point.
+  const scoreReasons: ContextReason[] = [
+    ...(br.exposure_context ? deploymentReasons(br.exposure_context) : []),
+    hasCoveringPolicy
+      ? { text: 'Your policies block or require approval for some of its risky actions', short: 'your policies gate some risky actions', effect: 'down' as const }
+      : { text: 'No policies limit what it can do yet', effect: 'none' as const },
+  ]
+  // One line: "Up from 40 because it runs in production and outsiders can start it."
+  const joinClauses = (xs: string[]) =>
+    xs.length <= 1 ? xs.join('') : `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}`
+  const ups = scoreReasons.filter((r) => r.effect === 'up' && r.short).map((r) => r.short!)
+  const downs = scoreReasons.filter((r) => r.effect === 'down' && r.short).map((r) => r.short!)
+  const base = br.inherent_score ?? br.score
+  const raised = br.score > base
+  const main = raised ? ups : downs
+  const offset = raised ? downs : ups
+  const scoreSummary =
+    br.score === base || main.length === 0
+      ? 'Based on what its tools can do.'
+      : `${raised ? 'Up' : 'Down'} from ${base} because ${joinClauses(main)}` +
+        (offset.length ? `, partly offset because ${joinClauses(offset)}.` : '.')
 
   const sevStyle = topChain
     ? SEV_STYLE[topChain.severity] ?? { bg: 'var(--high-bg)', color: 'var(--high)' }
@@ -728,7 +879,7 @@ function WorstCasePanel({
                     can&rsquo;t be undone
                   </span>
                 )}
-                {st.usd !== null && (
+                {SHOW_INCIDENT_USD && st.usd !== null && (
                   <span className="mono text-xs ml-auto flex-shrink-0" style={{ color: 'var(--ink-600)' }}>
                     up to {fmtUsd(st.usd)}
                   </span>
@@ -739,7 +890,7 @@ function WorstCasePanel({
         )}
 
         {/* 2 — the money, stated as what it is: a ceiling, never a total. */}
-        {peakUsd > 0 && (
+        {SHOW_INCIDENT_USD && peakUsd > 0 && (
           <div className="pt-4 mb-4" style={rule}>
             <div style={eyebrow}>What one incident could cost</div>
             <div className="flex items-baseline gap-2 mt-2">
@@ -759,33 +910,72 @@ function WorstCasePanel({
           </div>
         )}
 
-        {/* 3 — where you stand: one before/after pair, not two loose numbers. */}
-        <div className="pt-4 flex items-end justify-between gap-4 flex-wrap" style={rule}>
+        {/* 3 — the one score, with the reasons it sits where it does. */}
+        <div className="pt-4 flex items-start justify-between gap-4 flex-wrap" style={rule}>
           <div>
-            <div style={eyebrow}>Where you stand</div>
+            <div style={eyebrow}>Risk score</div>
             <div className="flex items-baseline gap-2 mt-2 flex-wrap">
               <span className="mono text-2xl font-bold" style={{ color: scoreToColor(br.score) }}>
                 {br.score}
               </span>
-              {gated && (
-                <>
-                  <span style={{ color: 'var(--ink-300)' }}>&rarr;</span>
-                  <span className="mono text-2xl font-bold" style={{ color: scoreToColor(br.residual_score!) }}>
-                    {br.residual_score}
-                  </span>
-                </>
-              )}
               <span className="text-xs" style={{ color: 'var(--ink-600)' }}>
-                {gated
-                  ? `blast radius after your policies (−${Math.round(br.score - br.residual_score!)})`
-                  : `blast radius, ${scoreBandLabel.toLowerCase()}, out of 100`}
+                {scoreBandLabel.toLowerCase()}, out of 100
               </span>
             </div>
-            <p className="text-xs mt-1.5" style={{ color: 'var(--ink-400)' }}>
-              {br.evidence?.dryRunOnly || br.confidence === 'low'
-                ? 'This is a static read of what the agent can do. Run a simulation to confirm it.'
-                : CONF_STYLE[br.confidence ?? 'low'].label + ', graded against a simulation run.'}
-            </p>
+            <p className="text-xs mt-2" style={{ color: 'var(--ink-600)' }}>{scoreSummary}</p>
+            <details className="text-xs mt-1">
+              <summary className="cursor-pointer select-none" style={{ color: 'var(--ink-500)' }}>Show details</summary>
+              <p className="mt-2" style={{ color: 'var(--ink-600)' }}>
+                Starts at <strong className="mono">{base}</strong> from what its tools can do, then:
+              </p>
+              <ul className="mt-1 space-y-1" style={{ color: 'var(--ink-600)', listStyle: 'none', padding: 0 }}>
+                {scoreReasons.map((r) => (
+                  <li key={r.text} className="flex items-start gap-2">
+                    <span
+                      className="mono flex-shrink-0"
+                      style={{
+                        width: 12,
+                        color: r.effect === 'up' ? 'var(--critical)' : r.effect === 'down' ? 'var(--safe)' : 'var(--ink-400)',
+                      }}
+                    >
+                      {r.effect === 'up' ? '↑' : r.effect === 'down' ? '↓' : '–'}
+                    </span>
+                    <span>
+                      {r.text}
+                      <span style={{ color: 'var(--ink-400)' }}>
+                        {r.effect === 'up' ? ' (raises risk)' : r.effect === 'down' ? ' (lowers risk)' : ' (no change)'}
+                      </span>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+              {agentId && (
+                editingContext ? (
+                  <div className="mt-3">
+                    <DeploymentContextEditor
+                      agentId={agentId}
+                      context={br.exposure_context}
+                      onSaved={() => { setEditingContext(false); onContextSaved() }}
+                      onCancel={() => setEditingContext(false)}
+                    />
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    className="mt-2 text-xs underline"
+                    style={{ color: 'var(--accent-ink)', background: 'none', border: 'none', padding: 0, cursor: 'pointer' }}
+                    onClick={() => setEditingContext(true)}
+                  >
+                    Edit deployment settings
+                  </button>
+                )
+              )}
+              <p className="mt-2" style={{ color: 'var(--ink-400)', lineHeight: 1.6, maxWidth: '86ch' }}>
+                {br.evidence?.dryRunOnly || br.confidence === 'low'
+                  ? 'Based on what the agent can do and the deployment details entered for it, not on watching it run. Run a simulation to confirm it.'
+                  : CONF_STYLE[br.confidence ?? 'low'].label + ', graded against a simulation run.'}
+              </p>
+            </details>
           </div>
           {!hasCoveringPolicy && (
             <button className="btn btn--primary hover:opacity-90 transition-opacity" onClick={onScrollToPolicies} >
@@ -793,24 +983,6 @@ function WorstCasePanel({
             </button>
           )}
         </div>
-
-        {br.exposure_context?.multiplier !== undefined && br.exposure_context.multiplier !== 1 && (
-          <div className="text-xs mt-3" style={{ color: 'var(--ink-500)' }}>
-            In deployment context:{' '}
-            <strong style={{ color: scoreToColor(br.contextual_score ?? br.score) }}>
-              {br.contextual_score ?? br.score}
-            </strong>
-            {' ('}
-            {[
-              br.exposure_context.environment,
-              br.exposure_context.trigger_source ? `${br.exposure_context.trigger_source}-triggered` : null,
-              br.exposure_context.human_in_loop ? 'human-in-loop' : null,
-            ]
-              .filter(Boolean)
-              .join(', ')}
-            {')'}
-          </div>
-        )}
       </div>
     </div>
   )
@@ -1289,7 +1461,6 @@ export default function AgentDetail() {
   const [policyAdded, setPolicyAdded] = useState(false)
 
   const [applyingRecs, setApplyingRecs] = useState(false)
-  const [showRecsMenu, setShowRecsMenu] = useState(false)
   const [selectedRecs, setSelectedRecs] = useState<Set<number>>(new Set())
   const [appliedRecIndices, setAppliedRecIndices] = useState<Set<number>>(new Set())
 
@@ -1354,15 +1525,6 @@ export default function AgentDetail() {
       )
     }
   }, [searchParams, data])
-
-  useEffect(() => {
-    if (!showRecsMenu) return
-    const handler = (e: MouseEvent) => {
-      if (!(e.target as Element).closest('.apply-recs-wrapper')) setShowRecsMenu(false)
-    }
-    document.addEventListener('mousedown', handler)
-    return () => document.removeEventListener('mousedown', handler)
-  }, [showRecsMenu])
 
   const handleEdit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -1548,7 +1710,7 @@ export default function AgentDetail() {
       toast('All selected policies are already applied')
       setAppliedRecIndices((prev) => new Set([...prev, ...selectedRecs]))
       setApplyingRecs(false)
-      setShowRecsMenu(false)
+      setSelectedRecs(new Set())
       return
     }
     try {
@@ -1567,7 +1729,7 @@ export default function AgentDetail() {
       toast(`Applied ${toCreate.size} polic${toCreate.size !== 1 ? 'ies' : 'y'}`)
       setAppliedRecIndices((prev) => new Set([...prev, ...selectedRecs]))
       loadData({ soft: true })
-      setShowRecsMenu(false)
+      setSelectedRecs(new Set())
     } catch (err: unknown) {
       toast('Failed: ' + (err instanceof Error ? err.message : 'Unknown error'), 'error')
     }
@@ -1667,6 +1829,7 @@ export default function AgentDetail() {
     ? 'Action Required'
     : scoreBand(br.score, hasCriticalChains ? 1 : 0, br.band).label
   const scoreColor = br.score < 40 && hasCriticalChains ? '#d97706' : scoreToColor(br.score)
+
   const ringR = 44
   const ringC = 2 * Math.PI * ringR
   const ringOffset = ringC * (1 - br.score / 100)
@@ -1683,70 +1846,70 @@ export default function AgentDetail() {
       label: 'Move Money',
       tooltip: 'Charges, refunds, transfers, and subscription changes. Anything that moves funds.',
       value: br.moves_money,
-      color: 'var(--critical)',
+      color: LABEL_COLOR.moves_money,
       riskKey: 'moves_money',
     },
     {
       label: 'Touch PII',
       tooltip: 'Reads or writes personal data such as names, emails, addresses, payment info, or any customer record.',
       value: br.touches_pii,
-      color: '#7c3aed',
+      color: LABEL_COLOR.touches_pii,
       riskKey: 'touches_pii',
     },
     {
       label: 'Delete Data',
       tooltip: 'Permanently removes records, files, or data. Cannot be undone.',
       value: br.deletes_data,
-      color: 'var(--high)',
+      color: LABEL_COLOR.deletes_data,
       riskKey: 'deletes_data',
     },
     {
       label: 'Send External',
       tooltip: 'Emails, messages, or webhooks sent to customers or third-party services outside your system.',
       value: br.sends_external,
-      color: '#2563eb',
+      color: LABEL_COLOR.sends_external,
       riskKey: 'sends_external',
     },
     {
       label: 'Change Prod',
       tooltip: 'Edits to live configuration, infrastructure, or deployment settings.',
       value: br.changes_production,
-      color: '#0d9488',
+      color: LABEL_COLOR.changes_production,
       riskKey: 'changes_production',
     },
     {
       label: 'Access control',
       tooltip: 'Can hand out or change who has access, so it can grant roles, promote to admin, reset passwords, or issue API keys.',
       value: br.changes_access ?? 0,
-      color: '#b91c1c',
+      color: LABEL_COLOR.changes_access,
       riskKey: 'changes_access',
     },
     {
       label: 'Secrets',
       tooltip: 'Can read secrets, credentials, API keys, or environment variables.',
       value: br.reads_secrets ?? 0,
-      color: '#a21caf',
+      color: LABEL_COLOR.reads_secrets,
       riskKey: 'reads_secrets',
     },
     {
       label: 'Log tampering',
       tooltip: 'Can turn off or delete logging, audit trails, or alerts, so its own actions go unrecorded.',
       value: br.evades_detection ?? 0,
-      color: '#4338ca',
+      color: LABEL_COLOR.evades_detection,
       riskKey: 'evades_detection',
     },
     {
       label: 'Bulk export',
       tooltip: 'Can pull data out in bulk, meaning full exports or whole-table dumps rather than one record at a time.',
       value: br.bulk_export ?? 0,
-      color: '#15803d',
+      color: LABEL_COLOR.bulk_export,
       riskKey: 'bulk_export',
     },
     {
       label: 'Code exec',
       tooltip: 'Can run arbitrary code, shell commands, or SQL, which gives it effectively unlimited reach.',
       value: br.executes_code ?? 0,
-      color: '#334155',
+      color: LABEL_COLOR.executes_code,
       riskKey: 'executes_code',
     },
     {
@@ -1757,6 +1920,10 @@ export default function AgentDetail() {
       riskKey: 'irreversible',
     },
   ]
+  const caveatCount =
+    (agent.deployment_mismatch === 'stalled' || agent.deployment_mismatch === 'ungoverned' ? 1 : 0) +
+    (br.coverage && br.coverage.totalActions > 0 && br.coverage.recognizedActions < br.coverage.totalActions ? 1 : 0) +
+    ((br.coverage?.unclassifiedActions ?? 0) > 0 ? 1 : 0)
   const visibleStats = statItems.filter(
     (s, i) => i === 0 || i === statItems.length - 1 || s.value > 0
   )
@@ -1921,34 +2088,53 @@ export default function AgentDetail() {
               <h1 className="text-2xl font-bold text-gray-900 mb-1">{agent.name}</h1>
               <p className="text-sm text-gray-500 mb-3">{agent.description}</p>
               <div className="flex flex-wrap gap-1.5">
-                {agent.tools.map((t) => {
-                  const isActive = selectedGraphService === t.name
+                {agent.tools.map((t) => (
+                  <span
+                    key={t.name}
+                    style={{
+                      display: 'inline-flex', alignItems: 'center', gap: 7,
+                      padding: '5px 11px', fontSize: 12.5, fontWeight: 500,
+                      fontFamily: 'var(--font-num)', borderRadius: 6,
+                      border: '1px solid var(--line)',
+                      background: 'var(--paper-2)',
+                      color: 'var(--ink-700)',
+                    }}
+                  >
+                    <ToolLogo tool={t} />
+                    {t.service}
+                  </span>
+                ))}
+              </div>
+
+              {/* What it can do, in words. Each item opens the matching
+                  actions (the drill-down the old stat columns provided). */}
+              <div className="flex flex-wrap items-center gap-x-1 gap-y-1.5 mt-4 text-xs" style={{ color: 'var(--ink-600)' }}>
+                <span className="mr-1">
+                  Of its <strong>{br.total_actions}</strong> {br.total_actions === 1 ? 'action' : 'actions'}:
+                </span>
+                {visibleStats.filter((s) => s.riskKey !== 'all' && s.value > 0).map((s) => {
+                  const isActive = activeStatFilter === s.riskKey
                   return (
                     <button
-                      key={t.name}
+                      key={s.riskKey}
                       type="button"
-                      onClick={() => {
-                        const next = isActive ? null : t.name
-                        setSelectedGraphService(next)
-                        setActiveTab('graph')
-                      }}
+                      title={s.tooltip}
+                      onClick={() => setActiveStatFilter(isActive ? null : s.riskKey)}
+                      className="inline-flex items-center gap-1.5 text-xs"
                       style={{
-                        display: 'inline-flex', alignItems: 'center', gap: 7,
-                        padding: '5px 11px', fontSize: 12.5, fontWeight: 500,
-                        fontFamily: 'var(--font-num)', borderRadius: 999, cursor: 'pointer',
-                        border: isActive ? '1.5px solid var(--accent)' : '1px solid var(--line)',
-                        background: isActive ? 'var(--accent-soft)' : 'var(--paper-2)',
-                        color: isActive ? 'var(--accent-ink)' : 'var(--ink-700)',
-                        transition: 'all 120ms',
+                        background: isActive ? 'var(--paper-2)' : 'transparent',
+                        border: isActive ? '1px solid var(--line)' : '1px solid transparent',
+                        borderRadius: 4, padding: '2px 6px',
+                        color: 'var(--ink-700)', cursor: 'pointer', fontFamily: 'inherit',
                       }}
                     >
                       <span
                         style={{
-                          width: 6, height: 6, borderRadius: 999, flexShrink: 0,
-                          background: serviceColor(t.service || t.name),
+                          width: 8, height: 8, borderRadius: 999, flexShrink: 0,
+                          background: s.color ?? 'var(--ink-700)',
                         }}
                       />
-                      {t.service}
+                      <strong>{s.value}</strong> {legendText(s.riskKey, s.value)}
                     </button>
                   )
                 })}
@@ -1956,99 +2142,37 @@ export default function AgentDetail() {
             </div>
           )}
 
-          <Tooltip content={RISK_SCORE_METHODOLOGY}>
-            <div
-              className="flex flex-col items-center flex-shrink-0 cursor-help pl-6"
-              style={{ color: scoreColor, borderLeft: '1px solid var(--line)' }}
-            >
-              <div className="relative w-24 h-24">
-                <svg viewBox="0 0 110 110" className="w-full h-full">
-                  <circle
-                    cx="55"
-                    cy="55"
-                    r={ringR}
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="7"
-                    opacity="0.12"
-                  />
-                  <circle
-                    cx="55"
-                    cy="55"
-                    r={ringR}
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="7"
-                    strokeDasharray={ringC}
-                    strokeDashoffset={ringOffset}
-                    strokeLinecap="round"
-                    transform="rotate(-90 55 55)"
-                    style={{
-                      transition: 'stroke-dashoffset 0.8s cubic-bezier(0.4, 0, 0.2, 1)',
-                    }}
-                  />
-                </svg>
-                <div className="absolute inset-0 flex flex-col items-center justify-center">
-                  <span className="text-2xl font-bold leading-none mono">{br.score}</span>
+          <div className="flex flex-col items-center flex-shrink-0 pl-6" style={{ borderLeft: '1px solid var(--line)' }}>
+            <Tooltip content={RISK_SCORE_METHODOLOGY}>
+              <div className="flex flex-col items-center cursor-help" style={{ color: scoreColor }}>
+                <div className="relative w-24 h-24">
+                  <svg viewBox="0 0 110 110" className="w-full h-full">
+                    <circle cx="55" cy="55" r={ringR} fill="none" stroke="currentColor" strokeWidth="7" opacity="0.12" />
+                    <circle
+                      cx="55" cy="55" r={ringR} fill="none" stroke="currentColor" strokeWidth="7"
+                      strokeDasharray={ringC} strokeDashoffset={ringOffset} strokeLinecap="round"
+                      transform="rotate(-90 55 55)"
+                      style={{ transition: 'stroke-dashoffset 0.8s cubic-bezier(0.4, 0, 0.2, 1)' }}
+                    />
+                  </svg>
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <span className="text-2xl font-bold leading-none mono">{br.score}</span>
+                  </div>
+                </div>
+                <div className="text-xs font-medium mt-1">
+                  {scoreLevel === 'Action Required' ? scoreLevel : `${scoreLevel} risk`}
                 </div>
               </div>
-              <div className="text-xs font-medium mt-1">Risk Score</div>
-              <div className="text-xs opacity-80 flex items-center gap-1.5">
-                <span style={{ width: 6, height: 6, borderRadius: 999, background: scoreColor, display: 'inline-block' }} />
-                {scoreLevel}
-              </div>
-              <Link
-                to={`/sandbox?agent=${agentId}`}
-                onClick={(e) => e.stopPropagation()}
-                className="inline-flex items-center gap-1.5 hover:opacity-90 transition-opacity mt-4 no-underline"
-                style={{ background: 'var(--color-cta)', color: 'var(--text-inverse)', borderRadius: 'var(--radius-md)', padding: '9px 18px', fontWeight: 600, fontSize: 13, whiteSpace: 'nowrap' }}
-              >
-                <FlaskConical size={15} strokeWidth={1.9} />
-                Simulate in Sandbox
-              </Link>
-            </div>
-          </Tooltip>
-        </div>
-
-        <div
-          className="grid mt-5 pt-5"
-          style={{ gridTemplateColumns: `repeat(${visibleStats.length}, 1fr)`, borderTop: '1px solid var(--line)' }}
-        >
-          {visibleStats.map((s) => {
-            const clickable = s.value > 0
-            const isActive = activeStatFilter === s.riskKey
-            return (
-              <div key={s.label} className="flex flex-col">
-                <span className="stat-block__label">
-                  {s.label}
-                  {s.tooltip && (
-                    <Tooltip text={s.tooltip}>
-                      <span className="inline-flex items-center justify-center w-3.5 h-3.5 text-[10px] bg-gray-200 text-gray-600 rounded-full cursor-help">
-                        ?
-                      </span>
-                    </Tooltip>
-                  )}
-                </span>
-                <button
-                  type="button"
-                  disabled={!clickable}
-                  onClick={() => setActiveStatFilter(isActive ? null : s.riskKey)}
-                  style={{
-                    background: isActive ? (s.color ?? '#374151') + '18' : 'transparent',
-                    border: isActive ? `1.5px solid ${s.color ?? '#374151'}30` : '1.5px solid transparent',
-                    borderRadius: 6, padding: '0 6px', marginLeft: -6, width: 'fit-content',
-                    cursor: clickable ? 'pointer' : 'default',
-                    color: s.color ?? undefined,
-                    transition: 'all 120ms',
-                    fontFamily: 'inherit',
-                  }}
-                  className="stat-block__value hover:opacity-80 text-left"
-                >
-                  {s.value}
-                </button>
-              </div>
-            )
-          })}
+            </Tooltip>
+            <Link
+              to={`/sandbox?agent=${agentId}`}
+              className="inline-flex items-center justify-center gap-1.5 hover:opacity-90 transition-opacity mt-3 no-underline"
+              style={{ background: 'var(--color-cta)', color: 'var(--text-inverse)', borderRadius: 'var(--radius-md)', padding: '8px 14px', fontWeight: 600, fontSize: 13, whiteSpace: 'nowrap' }}
+            >
+              <FlaskConical size={15} strokeWidth={1.9} />
+              Simulate in sandbox
+            </Link>
+          </div>
         </div>
 
         {/* Classification caveats — the score is only as good as our catalog
@@ -2057,10 +2181,15 @@ export default function AgentDetail() {
           (br.coverage.totalActions > 0 && br.coverage.recognizedActions < br.coverage.totalActions) ||
           (br.coverage.unclassifiedActions ?? 0) > 0
         )) || !!agent.deployment_mismatch) && (
-        <div
-          className="mt-5 rounded-lg px-3.5 py-2.5 space-y-2"
+        <details
+          className="mt-5 rounded-lg px-3.5 py-2"
           style={{ background: 'var(--paper-2)', border: '1px solid var(--line)' }}
         >
+        <summary className="text-xs cursor-pointer select-none flex items-center gap-1.5" style={{ color: 'var(--ink-600)' }}>
+          <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" />
+          {caveatCount} {caveatCount === 1 ? 'thing' : 'things'} to check about this score
+        </summary>
+        <div className="space-y-2 mt-2">
         {/* Declared environment vs observed traffic. Sits with the other
             caveats because it is the same kind of statement: something about
             this agent is not what it was written down to be. */}
@@ -2068,9 +2197,9 @@ export default function AgentDetail() {
           <div className="text-xs flex items-start gap-1.5" style={{ lineHeight: 1.45, color: 'var(--severity-high, #b45309)' }}>
             <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
             <span>
-              Registered as <strong>{agent.environment}</strong>, but{' '}
-              {agent.live_calls_7d ? `${agent.live_calls_7d.toLocaleString()} calls were captured` : 'traffic was captured'}{' '}
-              in the last 7 days. That is production load on an agent nobody signed off as production.
+              Marked as <strong>{agent.environment}</strong>, but it&rsquo;s handling real traffic
+              {agent.live_calls_7d ? ` (${agent.live_calls_7d.toLocaleString()} calls this week)` : ' this week'}.
+              Nobody approved it for production.
             </span>
           </div>
         )}
@@ -2078,8 +2207,8 @@ export default function AgentDetail() {
           <div className="text-xs flex items-start gap-1.5" style={{ lineHeight: 1.45, color: 'var(--ink-600)' }}>
             <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
             <span>
-              Registered as <strong>production</strong>, but has never run and captured no calls in the
-              last 7 days. Either it never shipped, or it is failing silently.
+              Marked as <strong>production</strong>, but it hasn&rsquo;t run in the last 7 days. It may
+              not be live yet, or it may be broken.
             </span>
           </div>
         )}
@@ -2087,8 +2216,8 @@ export default function AgentDetail() {
           <div className="text-xs flex items-start gap-1.5" style={{ lineHeight: 1.45, color: 'var(--ink-600)' }}>
             <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
             <span>
-              {br.coverage.totalActions - br.coverage.recognizedActions} of {br.coverage.totalActions} actions run on tools outside our risk catalog
-              {br.coverage.unrecognizedTools.length > 0 ? ` (${br.coverage.unrecognizedTools.join(', ')})` : ''} and were classified by best guess, so this score may understate the real exposure.
+              {br.coverage.totalActions - br.coverage.recognizedActions} of {br.coverage.totalActions} actions use tools we don&rsquo;t know well
+              {br.coverage.unrecognizedTools.length > 0 ? ` (${br.coverage.unrecognizedTools.join(', ')})` : ''}, so their risk is estimated and the score may be too low.
             </span>
           </div>
         )}
@@ -2100,12 +2229,13 @@ export default function AgentDetail() {
           <div className="text-xs flex items-start gap-1.5" style={{ lineHeight: 1.45, color: 'var(--severity-high, #b45309)' }}>
             <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
             <span>
-              {br.coverage.unclassifiedActions} {(br.coverage.unclassifiedActions ?? 0) === 1 ? 'action' : 'actions'} could not be classified at all
-              {(br.coverage.unclassifiedList?.length ?? 0) > 0 ? ` (${br.coverage.unclassifiedList!.slice(0, 3).join(', ')}${br.coverage.unclassifiedList!.length > 3 ? ', …' : ''})` : ''}. Their names and descriptions carry no risk signal, so they score 0 while their real risk stays unknown. Worth checking these by hand.
+              We couldn&rsquo;t tell how risky {(br.coverage.unclassifiedActions ?? 0) === 1 ? '1 action is' : `${br.coverage.unclassifiedActions} actions are`}
+              {(br.coverage.unclassifiedList?.length ?? 0) > 0 ? ` (${br.coverage.unclassifiedList!.slice(0, 3).join(', ')}${br.coverage.unclassifiedList!.length > 3 ? ', …' : ''})` : ''}, so {(br.coverage.unclassifiedActions ?? 0) === 1 ? 'it counts' : 'they count'} as zero in the score. Worth checking by hand.
             </span>
           </div>
         )}
         </div>
+        </details>
         )}
 
         {/* Stat drill-down panel */}
@@ -2131,7 +2261,9 @@ export default function AgentDetail() {
             <div className="mt-5">
               <div className="flex items-center justify-between mb-2">
                 <span className="text-xs font-semibold" style={{ color: stat?.color ?? 'var(--text-primary)' }}>
-                  {stat?.label}, {matchingActions.length} action{matchingActions.length !== 1 ? 's' : ''}
+                  {activeStatFilter === 'all'
+                    ? `All ${matchingActions.length} actions`
+                    : `${matchingActions.length} ${matchingActions.length === 1 ? 'action' : 'actions'} ${legendText(activeStatFilter, matchingActions.length)}`}
                 </span>
                 <button
                   type="button"
@@ -2176,6 +2308,7 @@ export default function AgentDetail() {
         chains={chains}
         policies={policies}
         agentId={agentId ?? ''}
+        onContextSaved={loadData}
         onScrollToPolicies={() => {
           setActiveTab('policies')
           setShowAddPolicyForm(true) // open the add-policy form so the click isn't a no-op
@@ -2187,12 +2320,14 @@ export default function AgentDetail() {
         }}
       />
 
-      {agentId && (
-        <DeploymentContextEditor
-          agentId={agentId}
-          context={br.exposure_context}
-          onSaved={loadData}
-        />
+      {agentId && !showsWorstCase(br, chains) && (
+        <div className="mb-4">
+          <DeploymentContextEditor
+            agentId={agentId}
+            context={br.exposure_context}
+            onSaved={loadData}
+          />
+        </div>
       )}
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
@@ -2926,78 +3061,20 @@ export default function AgentDetail() {
                   </span>
                 )}
               </div>
-              <div className="apply-recs-wrapper relative flex items-center gap-2">
-                <button className="btn btn--primary hover:opacity-80 transition-opacity" disabled={applyingRecs} onClick={() => handleApplyAll(visibleRecs, policies, agent.tools)} >
-                  {applyingRecs ? 'Applying…' : 'Apply All'}
-                </button>
-                <button
-                  className="btn btn--secondary hover:opacity-70 transition-opacity"
-                  onClick={() => {
-                    // Open with nothing pre-checked — the user opts in per rec
-                    // (pre-checking read as "already applied/approved"). "Select
-                    // all" below is available if they want everything.
-                    if (!showRecsMenu) setSelectedRecs(new Set())
-                    setShowRecsMenu((v) => !v)
-                  }}
-                >
-                  Choose which ones
-                  <ChevronDown className={`w-3.5 h-3.5 transition-transform ${showRecsMenu ? 'rotate-180' : ''}`} />
-                </button>
-                {showRecsMenu && (
-                  <div className="absolute right-0 top-full mt-1 w-72 bg-white rounded-xl z-20">
-                    <div className="flex items-center justify-between px-3 py-2 border-b border-gray-100">
-                      <span className="text-xs font-medium text-gray-600">Select to apply</span>
-                      <button
-                        className="text-xs text-gray-700 hover:underline"
-                        style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
-                        onClick={() =>
-                          setSelectedRecs(
-                            selectedRecs.size === visibleRecs.length
-                              ? new Set()
-                              : new Set(visibleRecs.map(({ i }) => i))
-                          )
-                        }
-                      >
-                        {selectedRecs.size === visibleRecs.length ? 'Deselect all' : 'Select all'}
-                      </button>
-                    </div>
-                    <div className="max-h-52 overflow-y-auto">
-                      {visibleRecs.map(({ r, i }) => {
-                        const sev = SEV_STYLE[r.severity] || SEV_STYLE['high']
-                        const checked = selectedRecs.has(i)
-                        return (
-                          <label key={i} className="flex items-center gap-2 px-3 py-2 hover:bg-gray-50 cursor-pointer">
-                            <input
-                              type="checkbox"
-                              className="rounded"
-                              checked={checked}
-                              onChange={() => {
-                                const next = new Set(selectedRecs)
-                                if (checked) next.delete(i)
-                                else next.add(i)
-                                setSelectedRecs(next)
-                              }}
-                            />
-                            <span
-                              className="text-xs px-1.5 py-0.5 rounded font-medium capitalize flex-shrink-0"
-                              style={{ background: sev.bg, color: sev.color }}
-                            >
-                              {r.severity}
-                            </span>
-                            <span className="text-xs text-gray-700 flex-1">{r.title}</span>
-                          </label>
-                        )
-                      })}
-                    </div>
-                    <div className="flex gap-2 px-3 py-2 border-t border-gray-100">
-                      <button className="btn btn--primary hover:opacity-80 transition-opacity disabled:opacity-50" disabled={applyingRecs || selectedRecs.size === 0} onClick={() => handleApplySelected(visibleRecs, policies, agent.tools)} >
-                        {applyingRecs ? 'Applying…' : `Apply ${selectedRecs.size} selected`}
-                      </button>
-                      <button className="btn btn--secondary hover:opacity-70 transition-opacity" onClick={() => setShowRecsMenu(false)} >
-                        Cancel
-                      </button>
-                    </div>
-                  </div>
+              <div className="flex items-center gap-2">
+                {selectedRecs.size > 0 ? (
+                  <>
+                    <button className="btn btn--primary hover:opacity-80 transition-opacity disabled:opacity-50" disabled={applyingRecs} onClick={() => handleApplySelected(visibleRecs, policies, agent.tools)} >
+                      {applyingRecs ? 'Applying…' : `Apply ${selectedRecs.size} selected`}
+                    </button>
+                    <button className="btn btn--secondary hover:opacity-70 transition-opacity" onClick={() => setSelectedRecs(new Set())} >
+                      Clear
+                    </button>
+                  </>
+                ) : (
+                  <button className="btn btn--primary hover:opacity-80 transition-opacity" disabled={applyingRecs} onClick={() => handleApplyAll(visibleRecs, policies, agent.tools)} >
+                    {applyingRecs ? 'Applying…' : 'Apply all'}
+                  </button>
                 )}
               </div>
             </div>
@@ -3006,23 +3083,38 @@ export default function AgentDetail() {
           <div className="space-y-2">
             {visibleRecs.map(({ r, i }) => {
               const sev = SEV_STYLE[r.severity] || SEV_STYLE['high']
+              // Title only by default; the explanation opens on click.
               return (
-                <div
+                <details
                   key={i}
-                  className="p-3 border border-gray-100 rounded-lg"
+                  className="group border border-gray-100 rounded-lg"
                   style={{ borderLeftWidth: 3, borderLeftColor: sev.color }}
                 >
-                  <div className="flex items-center gap-2 mb-1">
+                  <summary className="flex items-center gap-2 p-3 cursor-pointer select-none list-none [&::-webkit-details-marker]:hidden">
+                    <input
+                      type="checkbox"
+                      className="rounded flex-shrink-0 cursor-pointer"
+                      aria-label={`Select: ${r.title}`}
+                      checked={selectedRecs.has(i)}
+                      onClick={(e) => e.stopPropagation()}
+                      onChange={() => {
+                        const next = new Set(selectedRecs)
+                        if (next.has(i)) next.delete(i)
+                        else next.add(i)
+                        setSelectedRecs(next)
+                      }}
+                    />
                     <span
-                      className="text-xs px-1.5 py-0.5 rounded font-medium capitalize"
+                      className="text-xs px-1.5 py-0.5 rounded font-medium capitalize flex-shrink-0"
                       style={{ background: sev.bg, color: sev.color }}
                     >
                       {r.severity}
                     </span>
-                    <strong className="text-sm text-gray-800">{r.title}</strong>
-                  </div>
-                  <p className="text-xs text-gray-500">{formatDescription(r.description)}</p>
-                </div>
+                    <strong className="text-sm text-gray-800 flex-1 min-w-0">{r.title}</strong>
+                    <ChevronDown className="w-4 h-4 text-gray-400 flex-shrink-0 transition-transform group-open:rotate-180" />
+                  </summary>
+                  <p className="text-xs text-gray-500 px-3 pb-3 -mt-1">{formatDescription(r.description)}</p>
+                </details>
               )
             })}
           </div>

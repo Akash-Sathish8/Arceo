@@ -154,24 +154,22 @@
   --color-neutral-border:    #E9E9E7;
   /* The rail stays a cold neutral, one step off the page. Cyan lives on the
      INTERACTIONS instead, which is where a colour earns its keep: hover takes
-     the pale wash from the spend graph, the selected item takes the saturated
-     cyan from the simulation canvas. Both carry dark text — white on the
-     selected pill is 2.0:1 and unusable. */
+     the pale wash from the spend graph. The selected item takes the dark
+     primary-container blue with white text. */
   --color-neutral-sunken:    #e8e7f0;
   --color-rail-primary:      #37352F;   /* 10.0:1 on the rail */
   --color-rail-secondary:    #4c4a45;   /*  6.6:1 — the page default is 3.7:1 here */
   --color-rail-muted:        #63615c;   /*  4.6:1 */
   --color-rail-hover:        #e1f7f9;   /* spend-graph wash */
-  --color-rail-active:       #34c9d5;   /* simulation-canvas cyan */
-  --color-on-rail-active:    #0f2126;   /*  8.3:1 on it */
+  --color-rail-active:       #0e3c90;   /* primary-container dark blue */
+  --color-on-rail-active:    #ffffff;   /* 10.2:1 on it */
 
-  /* Charcoal bars that bracket a data table: the header row and the footer
-     summary. On a borderless, shadowless card the old --neutral-sunken bar was
-     within 1.03:1 of the page and read as nothing, so the table lost its frame
-     entirely. Graphite gives the table two hard edges instead. */
-  --color-bar-dark:          #1E2836;
-  --color-on-bar-dark:       #ffffff;   /* 14.9:1 */
-  --color-on-bar-dark-muted: #aab6c2;   /*  7.2:1 */
+  /* Pale-blue bars that bracket a data table: the header row and the footer
+     summary. The old --neutral-sunken bar was within 1.03:1 of the page and
+     read as nothing; primary-fixed (1.3:1 against the white card) keeps two
+     visible edges while staying in the rail's blue family. */
+  --color-bar:               #dae2ff;   /* primary-fixed */
+  --color-on-bar:            #0e3c90;   /*  7.9:1 on it */
 
   /* Typography — Stitch's eight named steps */
   --font-display:         'Manrope Variable', 'Manrope', system-ui, sans-serif;
@@ -1053,6 +1051,8 @@ summary:focus-visible {
   to { stroke-dashoffset: -16; }
 }
 .sim-pulse {
+  /* fill-box: scale around the circle itself, not the SVG viewport's centre. */
+  transform-box: fill-box;
   transform-origin: center;
   animation: sim-pulse 1.6s ease-out infinite;
 }
