@@ -48,7 +48,9 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
     remember(v)
     set({ workspace: v })
     try {
-      await apiFetch('/api/workspace', { method: 'PUT', body: JSON.stringify({ workspace: v }) })
+      // keepalive: the switch is often followed straight away by a navigation,
+      // which would otherwise cancel the save and revert the choice on reload.
+      await apiFetch('/api/workspace', { method: 'PUT', body: JSON.stringify({ workspace: v }), keepalive: true })
     } catch { /* view preference: keep the local choice even if the save fails */ }
   },
   prime: (v) => { remember(v); set({ workspace: v }) },

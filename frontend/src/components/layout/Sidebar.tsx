@@ -30,6 +30,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   ScrollText,
+  ArrowLeftRight,
   Layers,
   Scale,
 } from "lucide-react";
@@ -202,15 +203,28 @@ export default function Sidebar({ drawer = false }: { drawer?: boolean }): React
         ))}
 
         <div className="mt-8 pt-4 border-t border-neutral-border">
-          {!collapsed && (
-            <button
-              type="button"
-              onClick={() => void setWorkspace(workspace === "prompts" ? "agents" : "prompts")}
-              className="w-full text-left px-4 py-2 mb-1 rounded-lg text-meta text-rail-secondary bg-transparent border-0 cursor-pointer hover:bg-rail-hover hover:text-rail-primary"
-            >
-              {workspace === "prompts" ? "Show agent governance tools" : "Prompts only view"}
-            </button>
-          )}
+          {/* Workspace switch: a real button (bordered card, icon, two lines) so
+              it doesn't read as a nav link or a caption. Icon-only when collapsed. */}
+          <button
+            type="button"
+            onClick={() => void setWorkspace(workspace === "prompts" ? "agents" : "prompts")}
+            title={collapsed ? (workspace === "prompts" ? "Show agent governance tools" : "Switch to prompts only") : undefined}
+            aria-label={workspace === "prompts" ? "Show agent governance tools" : "Switch to prompts only"}
+            className={`w-full flex items-center gap-3 mb-3 rounded-lg cursor-pointer transition-colors hover:border-rail-active ${collapsed ? "justify-center px-0 py-2.5" : "px-3 py-2.5 text-left"}`}
+            style={{ background: "var(--card)", border: "1px solid var(--line)", boxShadow: "var(--shadow-card-new)" }}
+          >
+            <ArrowLeftRight size={18} strokeWidth={1.8} className="text-rail-primary shrink-0" />
+            {!collapsed && (
+              <span className="flex flex-col min-w-0">
+                <span className="text-body font-semibold text-rail-primary">
+                  {workspace === "prompts" ? "Show agent tools" : "Prompts only"}
+                </span>
+                <span className="text-meta text-rail-secondary">
+                  {workspace === "prompts" ? "Agents, approvals, spend" : "Hide the agent tools"}
+                </span>
+              </span>
+            )}
+          </button>
           <NavLink
             to="/settings"
             className={linkClass}
