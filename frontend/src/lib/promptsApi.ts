@@ -13,7 +13,7 @@ export type CostBasis = "exact" | "heuristic" | "declared" | "measured" | "unava
 export interface VariableSpec {
   sample?: string
   expected_tokens?: number
-  untrusted?: boolean
+  untrusted?: boolean | null
 }
 
 export interface CostRow {
@@ -168,41 +168,7 @@ export const forkPrompt = (id: string) =>
 export const getPublicPrompt = (id: string) =>
   apiFetch<Prompt>(`/api/public/prompts/${encodeURIComponent(id)}`, { skipLogoutOn401: true })
 
-// ── formatting ───────────────────────────────────────────────────────────
-
-/** Per-run prices are routinely fractions of a cent, so formatMoney's whole
- *  dollars would print $0 for every prompt. Show enough digits to compare. */
-export function formatRunCost(usd: number | null | undefined): string {
-  if (usd == null || isNaN(usd)) return "Unavailable"
-  if (usd === 0) return "$0"
-  if (usd >= 1) return `$${usd.toFixed(2)}`
-  if (usd >= 0.01) return `$${usd.toFixed(3)}`
-  if (usd >= 0.0001) return `$${usd.toFixed(4)}`
-  return "<$0.0001"
-}
-
-export const BASIS_LABEL: Record<CostBasis, string> = {
-  measured: "measured",
-  exact: "exact tokens",
-  declared: "declared",
-  heuristic: "estimate",
-  unavailable: "input only",
-}
-
-export const BASIS_HELP: Record<CostBasis, string> = {
-  measured: "Output length measured from QA runs of this prompt.",
-  exact: "Counted with the provider's own tokenizer.",
-  declared: "Uses the output length you declared. Run QA to measure it.",
-  heuristic: "Input estimated at ~4 characters per token. Exact counts need the provider tokenizer.",
-  unavailable: "No output length yet, so this is the input cost only. Declare an expected output length or run QA.",
-}
-
-/** The headline cost for a prompt: the cheapest priced model. */
-export function headlineCost(cost: CostSummary | null | undefined): CostRow | null {
-  if (!cost) return null
-  const priced = cost.models.filter((m) => m.available && m.usd_per_run != null)
-  return priced.find((m) => m.model_key === cost.cheapest_model) ?? priced[0] ?? null
-}
+export { formatRunCost, BASIS_LABEL, BASIS_HELP, headlineCost, rowBasis } from "./promptFormat"
 
 export interface QaResult {
   kind: "test" | "probe"
@@ -253,3 +219,132 @@ export const runQa = (id: string) =>
 
 export const getQaHistory = (id: string) =>
   apiFetch<{ runs: { run_group: string; at: string; runs: QaHistoryRun[] }[] }>(`/api/prompts/${encodeURIComponent(id)}/qa`)
+
+// ── Workflows (phase 4) ──────────────────────────────────────────────────
+export type StepSource = { from: "input"; name: string } | { from: "step"; step: number }
+
+export interface WorkflowStep {
+  prompt_id: string
+  input_map: Record<string, StepSource>
+}
+
+export interface WorkflowInput {
+  name: string
+  untrusted?: boolean | null
+  expected_tokens?: number
+}
+
+export interface WorkflowSpec {
+  steps: WorkflowStep[]
+  inputs: WorkflowInput[]
+}
+
+export interface WorkflowCostRow {
+  model: string
+  model_key?: string
+  available: boolean
+  usd_per_run?: number
+  usd_per_1k_runs?: number
+  basis?: CostBasis
+  is_floor?: boolean
+  steps?: { step: number; usd_per_run: number; basis: CostBasis; input_tokens: number; output_tokens: number | null }[]
+}
+
+export interface WorkflowScore {
+  cost: { models: WorkflowCostRow[]; cheapest_model: string | null }
+  danger: Omit<DangerSummary, "reasons"> & { steps: { step: number; title: string; score: number; band: DangerSummary["band"] }[]; reasons: (DangerReason & { step: number })[] }
+}
+
+export interface PromptWorkflow {
+  id: string
+  author_name: string | null
+  title: string
+  description: string | null
+  steps: WorkflowSpec | null
+  visibility: "private" | "org" | "public"
+  status: "draft" | "published"
+  cost_summary: WorkflowScore["cost"] | null
+  danger_summary: WorkflowScore["danger"] | null
+  owned: boolean
+  updated_at: string
+  step_count?: number
+}
+
+const wf = (id: string) => `/api/prompt-workflows/${encodeURIComponent(id)}`
+
+export const scoreWorkflow = (spec: WorkflowSpec) =>
+  apiFetch<WorkflowScore>("/api/prompt-workflows/score", { method: "POST", body: JSON.stringify(spec) })
+export const listWorkflows = (scope: "all" | "mine" | "public" = "all") =>
+  apiFetch<{ workflows: PromptWorkflow[] }>(`/api/prompt-workflows?scope=${scope}`)
+export const getWorkflow = (id: string) => apiFetch<PromptWorkflow>(wf(id))
+export const createWorkflow = (body: WorkflowSpec & { title: string; description: string }) =>
+  apiFetch<PromptWorkflow>("/api/prompt-workflows", { method: "POST", body: JSON.stringify(body) })
+export const updateWorkflow = (id: string, body: WorkflowSpec & { title: string; description: string }) =>
+  apiFetch<PromptWorkflow>(wf(id), { method: "PUT", body: JSON.stringify(body) })
+export const deleteWorkflow = (id: string) => apiFetch<{ deleted: string }>(wf(id), { method: "DELETE" })
+export const publishWorkflow = (id: string, visibility: "org" | "public") =>
+  apiFetch<PromptWorkflow>(`${wf(id)}/publish`, { method: "POST", body: JSON.stringify({ visibility }) })
+
+// ── Battles (phase 5) ────────────────────────────────────────────────────
+export interface BattleInput { label: string; values: Record<string, string> }
+
+export interface LeaderRow {
+  id: string
+  rank: number
+  author_id?: string
+  author_name: string | null
+  elo: number
+  wins: number
+  losses: number
+  ties: number
+  votes: number
+  cost: { model_key: string; usd_per_run: number; output_tokens: number; basis: CostBasis } | null
+  danger: DangerSummary | null
+  body: string | null
+  mine?: boolean
+}
+
+export interface Battle {
+  id: string
+  title: string
+  task: string
+  model: string
+  status: "open" | "closed"
+  created_at: string
+  is_creator: boolean
+  variables: string[]
+  input_count: number
+  inputs: BattleInput[] | null
+  entry_count: number
+  vote_count: number
+  leaderboard: LeaderRow[]
+}
+
+export interface BattleSummary {
+  id: string; title: string; task: string; model: string; status: "open" | "closed"
+  created_at: string; entry_count: number; vote_count: number
+}
+
+export interface Matchup {
+  input_index: number
+  input: BattleInput
+  left: { id: string; output: string }
+  right: { id: string; output: string }
+}
+
+export type BattleSort = "best" | "cheapest_good" | "safest"
+
+const bt = (id: string) => `/api/battles/${encodeURIComponent(id)}`
+
+export const listBattles = () => apiFetch<{ battles: BattleSummary[] }>("/api/battles")
+export const createBattle = (body: { title: string; task: string; model: string; inputs: BattleInput[] }) =>
+  apiFetch<Battle>("/api/battles", { method: "POST", body: JSON.stringify(body) })
+export const getBattle = (id: string, sort: BattleSort = "best") => apiFetch<Battle>(`${bt(id)}?sort=${sort}`)
+export const enterBattle = (id: string, body: string) =>
+  apiFetch<{ id: string }>(`${bt(id)}/entries`, { method: "POST", body: JSON.stringify({ body }), timeoutMs: 120_000 })
+export const getMatchup = (id: string) => apiFetch<{ matchup: Matchup | null }>(`${bt(id)}/matchup`)
+export const castVote = (id: string, v: { entry_a: string; entry_b: string; input_index: number; winner: string }) =>
+  apiFetch<{ ok: boolean }>(`${bt(id)}/votes`, { method: "POST", body: JSON.stringify(v) })
+export const closeBattle = (id: string) => apiFetch<Battle>(`${bt(id)}/close`, { method: "POST" })
+export const getPublicBattle = (id: string, sort: BattleSort = "best") =>
+  apiFetch<Battle>(`/api/public/battles/${encodeURIComponent(id)}?sort=${sort}`, { skipLogoutOn401: true })

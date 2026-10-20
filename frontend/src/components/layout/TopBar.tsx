@@ -29,6 +29,9 @@ const SECTION: Record<string, string> = {
   workflows: "Workflows",
   compare: "Compare",
   settings: "Settings",
+  prompts: "Prompts",
+  "prompt-workflows": "Prompt workflows",
+  battles: "Battles",
 };
 
 const LEAF: Record<string, string> = {

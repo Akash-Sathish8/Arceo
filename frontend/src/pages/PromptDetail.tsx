@@ -52,7 +52,8 @@ function VariablesTable({ names, vars, untrusted, onChange, readOnly }: {
   }
   return (
     <div style={{ overflowX: "auto" }}>
-      <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 460 }}>
+      <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 440, tableLayout: "fixed" }}>
+        <colgroup><col style={{ width: 110 }} /><col /><col style={{ width: 92 }} /><col style={{ width: 150 }} /></colgroup>
         <thead>
           <tr>
             <th style={TH}>Variable</th>
@@ -67,13 +68,13 @@ function VariablesTable({ names, vars, untrusted, onChange, readOnly }: {
             const isUntrusted = spec.untrusted ?? untrusted.includes(n)
             return (
               <tr key={n}>
-                <td style={{ ...TD, fontFamily: "var(--font-num)" }}>{`{{${n}}}`}</td>
+                <td style={{ ...TD, fontFamily: "var(--font-num)", overflowWrap: "anywhere" }}>{`{{${n}}}`}</td>
                 <td style={TD}>
                   <textarea
                     aria-label={`Sample for ${n}`}
                     rows={2} disabled={readOnly} value={spec.sample ?? ""}
                     onChange={(e) => onChange(n, { ...spec, sample: e.target.value || undefined })}
-                    style={{ ...FIELD, resize: "vertical", minWidth: 160 }}
+                    style={{ ...FIELD, resize: "vertical" }}
                   />
                 </td>
                 <td style={TD}>
@@ -81,18 +82,18 @@ function VariablesTable({ names, vars, untrusted, onChange, readOnly }: {
                     aria-label={`Expected tokens for ${n}`}
                     type="number" min={0} disabled={readOnly} value={spec.expected_tokens ?? ""}
                     onChange={(e) => onChange(n, { ...spec, expected_tokens: e.target.value ? Number(e.target.value) : undefined })}
-                    style={{ ...FIELD, width: 90 }}
+                    style={FIELD}
                   />
                 </td>
                 <td style={TD}>
                   <select
                     aria-label={`Source of ${n}`}
                     disabled={readOnly}
-                    value={spec.untrusted === undefined ? "auto" : spec.untrusted ? "untrusted" : "trusted"}
+                    value={spec.untrusted == null ? "auto" : spec.untrusted ? "untrusted" : "trusted"}
                     onChange={(e) => onChange(n, { ...spec, untrusted: e.target.value === "auto" ? undefined : e.target.value === "untrusted" })}
-                    style={{ ...FIELD, width: 150 }}
+                    style={FIELD}
                   >
-                    <option value="auto">Auto ({isUntrusted ? "pasted in" : "you write it"})</option>
+                    <option value="auto">Auto: {isUntrusted ? "pasted" : "yours"}</option>
                     <option value="untrusted">Pasted in (untrusted)</option>
                     <option value="trusted">You write it</option>
                   </select>

@@ -25,6 +25,11 @@ import NotFound from '@/pages/NotFound'
 import PromptLibrary from '@/pages/PromptLibrary'
 import PromptDetail from '@/pages/PromptDetail'
 import PublicPrompt from '@/pages/PublicPrompt'
+import PromptWorkflows from '@/pages/PromptWorkflows'
+import PromptWorkflowBuilder from '@/pages/PromptWorkflowBuilder'
+import Battles from '@/pages/Battles'
+import BattleDetail from '@/pages/BattleDetail'
+import PublicBattle from '@/pages/PublicBattle'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -156,9 +161,14 @@ createRoot(document.getElementById('root')!).render(
               }
             />
             <Route path="/prompts" element={<ProtectedRoute><PromptLibrary /></ProtectedRoute>} />
+            <Route path="/prompt-workflows" element={<ProtectedRoute><PromptWorkflows /></ProtectedRoute>} />
+            <Route path="/prompt-workflows/:workflowId" element={<ProtectedRoute><PromptWorkflowBuilder /></ProtectedRoute>} />
             <Route path="/prompts/:promptId" element={<ProtectedRoute><PromptDetail /></ProtectedRoute>} />
+            <Route path="/battles" element={<ProtectedRoute><Battles /></ProtectedRoute>} />
+            <Route path="/battles/:battleId" element={<ProtectedRoute><BattleDetail /></ProtectedRoute>} />
             {/* Public, unauthenticated share page. */}
             <Route path="/p/:promptId" element={<PublicPrompt />} />
+            <Route path="/b/:battleId" element={<PublicBattle />} />
             <Route path="*" element={<ProtectedRoute><NotFound /></ProtectedRoute>} />
           </Routes>
         </AppShell>

@@ -4,7 +4,7 @@
  * Spend and Authority pages use.
  */
 
-import { BASIS_HELP, BASIS_LABEL, formatRunCost, type CostRow } from "@/lib/promptsApi"
+import { BASIS_HELP, BASIS_LABEL, formatRunCost, rowBasis, type CostRow } from "@/lib/promptsApi"
 
 export default function CostBadge({ row, compact }: { row: CostRow | null; compact?: boolean }) {
   if (!row || !row.available) {
@@ -14,7 +14,7 @@ export default function CostBadge({ row, compact }: { row: CostRow | null; compa
       </span>
     )
   }
-  const basis = row.is_floor && row.basis !== "unavailable" ? "unavailable" : (row.basis ?? "heuristic")
+  const basis = rowBasis(row)
   return (
     <span
       title={`${row.model_key}: ${BASIS_HELP[basis]}`}

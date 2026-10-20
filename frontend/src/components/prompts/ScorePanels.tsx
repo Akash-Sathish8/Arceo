@@ -7,7 +7,7 @@
 import { AlertTriangle } from "lucide-react"
 import DangerBadge from "@/components/prompts/DangerBadge"
 import { CARD, EYEBROW, TD, TH } from "@/components/prompts/ui"
-import { BASIS_HELP, BASIS_LABEL, formatRunCost, type CostSummary, type DangerSummary } from "@/lib/promptsApi"
+import { BASIS_HELP, BASIS_LABEL, formatRunCost, rowBasis, type CostSummary, type DangerSummary } from "@/lib/promptsApi"
 import { scoreBand } from "@/lib/utils"
 
 const FACTOR_LABEL: Record<string, string> = {
@@ -42,7 +42,7 @@ export function CostTable({ cost }: { cost: CostSummary | null }) {
           </thead>
           <tbody>
             {rows.map((r) => {
-              const basis = r.is_floor && r.basis !== "unavailable" ? "unavailable" : (r.basis ?? "heuristic")
+              const basis = rowBasis(r)
               const cheapest = r.model_key && r.model_key === cost.cheapest_model
               return (
                 <tr key={r.model}>
