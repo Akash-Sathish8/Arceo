@@ -1,12 +1,12 @@
 /**
- * Prompt battles: one task, hidden inputs, every entry run on the same model.
+ * Compare: one task, hidden inputs, every entry run on the same model.
  * The community votes blind; the leaderboard ranks by quality, by the cheapest
  * entry that's still good, or by the safest.
  */
 
 import { useEffect, useState } from "react"
 import { useNavigate } from "react-router-dom"
-import { Plus, Swords, X } from "lucide-react"
+import { Plus, Scale, X } from "lucide-react"
 import PageHeader from "@/components/shared/PageHeader"
 import EmptyState from "@/components/shared/EmptyState"
 import ErrorState from "@/components/shared/ErrorState"
@@ -63,7 +63,7 @@ function CreateBattle({ onDone }: { onDone: (id: string) => void }) {
         ))}
         {inputs.length < 5 && <Button variant="ghost" size="sm" icon={<Plus size={13} />} onClick={() => setInputs([...inputs, ""])}>Add input</Button>}
       </div>
-      <div style={{ marginTop: 12 }}><Button loading={busy} onClick={() => void submit()}>Start battle</Button></div>
+      <div style={{ marginTop: 12 }}><Button loading={busy} onClick={() => void submit()}>Start comparison</Button></div>
     </div>
   )
 }
@@ -79,20 +79,20 @@ export default function Battles() {
   return (
     <div style={{ padding: PAGE_PAD }}>
       <PageHeader
-        title="Battles"
+        title="Compare"
         description="Same task, same hidden inputs, same model. Vote blind. Rank by quality, by the cheapest prompt that's still good, or by the safest."
-        actions={<Button icon={<Plus size={14} />} onClick={() => setCreating((c) => !c)}>{creating ? "Cancel" : "New battle"}</Button>}
+        actions={<Button icon={<Plus size={14} />} onClick={() => setCreating((c) => !c)}>{creating ? "Cancel" : "New comparison"}</Button>}
       />
-      {creating && <CreateBattle onDone={(id) => navigate(`/battles/${id}`)} />}
+      {creating && <CreateBattle onDone={(id) => navigate(`/prompt-compare/${id}`)} />}
       {error ? <ErrorState message={error} /> : items === null ? (
         <div className="skeleton" style={{ height: 80, borderRadius: 10 }} aria-busy="true" />
       ) : items.length === 0 ? (
-        <EmptyState icon={<Swords size={22} />} title="No battles yet" body="Start one with a task and a few hidden inputs." />
+        <EmptyState icon={<Scale size={22} />} title="No comparisons yet" body="Start one with a task and a few hidden inputs." />
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           {items.map((b) => (
-            <div key={b.id} className="ag-card" role="button" tabIndex={0} onClick={() => navigate(`/battles/${b.id}`)}
-              onKeyDown={(e) => { if (e.key === "Enter") navigate(`/battles/${b.id}`) }}
+            <div key={b.id} className="ag-card" role="button" tabIndex={0} onClick={() => navigate(`/prompt-compare/${b.id}`)}
+              onKeyDown={(e) => { if (e.key === "Enter") navigate(`/prompt-compare/${b.id}`) }}
               style={{ ...CARD, cursor: "pointer", display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
               <div style={{ flex: "1 1 240px", minWidth: 0 }}>
                 <div style={{ fontWeight: 600, fontSize: "var(--fs-title)" }}>{b.title}</div>

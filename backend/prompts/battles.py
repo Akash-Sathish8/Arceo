@@ -74,7 +74,7 @@ def run_entry(battle: dict, body: str, org_id: str) -> dict:
     defaults = load_defaults(org_id)
     priced = price_call(battle["model"], 0, 0, defaults=defaults)
     if priced["usd"] is None:
-        raise qa.QaError(400, "This battle's model isn't in the price catalog.")
+        raise qa.QaError(400, "This comparison's model isn't in the price catalog.")
     key = priced["model_key"]
     provider = model_provider((defaults.get("models") or {}).get(key) or {})
     inputs = battle["inputs"] or []

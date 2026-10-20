@@ -31,7 +31,7 @@ import {
   PanelLeftOpen,
   ScrollText,
   Layers,
-  Swords,
+  Scale,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import LogoMark, { ArceoWordmark } from "@/components/shared/LogoMark";
@@ -101,7 +101,7 @@ export default function Sidebar(): React.ReactElement {
     { id: "compare",   label: "Compare",   to: "/compare",   Icon: GitCompare,   group: "Tools" },
     { id: "prompts",   label: "Library",   to: "/prompts",   Icon: ScrollText,   group: "Prompts" },
     { id: "prompt-workflows", label: "Prompt workflows", to: "/prompt-workflows", Icon: Layers, group: "Prompts" },
-    { id: "battles",   label: "Battles",   to: "/battles",   Icon: Swords,       group: "Prompts" },
+    { id: "prompt-compare", label: "Compare", to: "/prompt-compare",   Icon: Scale,       group: "Prompts" },
   ];
 
   const groups: { name: string | null; items: NavItem[] }[] = [];

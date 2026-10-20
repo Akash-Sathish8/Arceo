@@ -1,5 +1,5 @@
 /**
- * One battle: enter a prompt, vote blind on pairs of outputs, and watch the
+ * One comparison: enter a prompt, vote blind on pairs of outputs, and watch the
  * leaderboard. Entry text stays hidden until the organiser closes it.
  */
 
@@ -67,17 +67,17 @@ export default function BattleDetail() {
 
   const open = b.status === "open"
   const entered = b.leaderboard.some((r) => r.mine)
-  const share = `${window.location.origin}/b/${b.id}`
+  const share = `${window.location.origin}/c/${b.id}`
 
   return (
     <div style={{ padding: PAGE_PAD }}>
       <PageHeader
-        back={{ to: "/battles", label: "Battles" }}
+        back={{ to: "/prompt-compare", label: "Compare" }}
         title={b.title}
         description={`${b.task} · runs on ${b.model} · ${b.entry_count} entries · ${b.vote_count} votes`}
         actions={<>
           <Pill tone={open ? "accent" : "neutral"}>{open ? "Open" : "Closed"}</Pill>
-          {b.is_creator && open && <Button variant="secondary" size="sm" onClick={() => closeBattle(b.id).then(setB)}>Close battle</Button>}
+          {b.is_creator && open && <Button variant="secondary" size="sm" onClick={() => closeBattle(b.id).then(setB)}>Close comparison</Button>}
         </>}
       />
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 420px), 1fr))", gap: 16, alignItems: "start" }}>
@@ -111,7 +111,7 @@ export default function BattleDetail() {
               </p>
               <textarea id="b-entry" rows={6} style={{ ...FIELD, fontFamily: "var(--font-code)", resize: "vertical" }} value={entry}
                 placeholder={`Write a punchy opener for {{${b.variables[0] ?? "input"}}}…`} onChange={(e) => setEntry(e.target.value)} />
-              <div style={{ marginTop: 8 }}><Button loading={entering} disabled={!entry.trim()} onClick={() => void submitEntry()}>Enter battle</Button></div>
+              <div style={{ marginTop: 8 }}><Button loading={entering} disabled={!entry.trim()} onClick={() => void submitEntry()}>Submit entry</Button></div>
             </div>
           )}
           {b.inputs && (

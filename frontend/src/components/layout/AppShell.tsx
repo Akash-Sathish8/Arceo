@@ -16,9 +16,9 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     mainRef.current?.scrollTo({ top: 0, left: 0, behavior: "auto" });
   }, [location.pathname]);
 
-  // Public share pages (/p/:id prompts, /b/:id battles) render without app chrome.
+  // Public share pages (/p/:id prompts, /c/:id comparisons) render without app chrome.
   const chromeless = location.pathname === "/login"
-    || location.pathname.startsWith("/p/") || location.pathname.startsWith("/b/");
+    || location.pathname.startsWith("/p/") || location.pathname.startsWith("/c/");
   if (chromeless) {
     // Login gets its own boundary too — a crash here used to blank the screen.
     return <ErrorBoundary resetKey={location.pathname}>{children}</ErrorBoundary>;

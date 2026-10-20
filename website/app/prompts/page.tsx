@@ -28,7 +28,7 @@ const POINTS = [
     body: "QA runs your prompt on real models, then tries to inject instructions, leak a planted secret and hijack the output. You see which attacks worked.",
   },
   {
-    title: "Battles ranked on cost and safety",
+    title: "Compare prompts on cost and safety",
     body: "Same task, same hidden inputs, blind votes. The leaderboard sorts by best, by the cheapest prompt that's still good, or by the safest.",
   },
 ];

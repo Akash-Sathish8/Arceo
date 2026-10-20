@@ -134,7 +134,7 @@ def get_battle(battle_id: str, sort: Sort = "best", user: dict = Depends(get_cur
     with get_db() as conn:
         b = _load(conn, battle_id)
         if not b:
-            raise HTTPException(status_code=404, detail="Battle not found")
+            raise HTTPException(status_code=404, detail="Comparison not found")
         return _view(b, _entries(conn, battle_id), _votes(conn, battle_id), user.get("sub"), sort)
 
 
@@ -146,12 +146,12 @@ def enter_battle(battle_id: str, req: EntryCreate, user: dict = Depends(get_curr
     with get_db() as conn:
         b = _load(conn, battle_id)
         if not b:
-            raise HTTPException(status_code=404, detail="Battle not found")
+            raise HTTPException(status_code=404, detail="Comparison not found")
         if b["status"] != "open":
-            raise HTTPException(status_code=409, detail="This battle is closed.")
+            raise HTTPException(status_code=409, detail="This comparison is closed.")
         if conn.execute("SELECT 1 FROM battle_entries WHERE battle_id = %s AND author_id = %s",
                         (battle_id, user.get("sub"))).fetchone():
-            raise HTTPException(status_code=409, detail="You already entered this battle.")
+            raise HTTPException(status_code=409, detail="You already entered this comparison.")
     expected = set(battles.battle_variables(b["inputs"] or []))
     used = set(variables_in(req.body))
     if used != expected:
@@ -181,7 +181,7 @@ def matchup(battle_id: str, user: dict = Depends(get_current_user)):
     with get_db() as conn:
         b = _load(conn, battle_id)
         if not b:
-            raise HTTPException(status_code=404, detail="Battle not found")
+            raise HTTPException(status_code=404, detail="Comparison not found")
         entries = _entries(conn, battle_id)
         mine = conn.execute("SELECT entry_a, entry_b, input_index FROM battle_votes WHERE battle_id = %s AND voter_id = %s",
                             (battle_id, user.get("sub"))).fetchall()
@@ -209,7 +209,7 @@ def vote(battle_id: str, req: VoteCreate, user: dict = Depends(get_current_user)
     with get_db() as conn:
         b = _load(conn, battle_id)
         if not b:
-            raise HTTPException(status_code=404, detail="Battle not found")
+            raise HTTPException(status_code=404, detail="Comparison not found")
         if b["status"] != "open":
             raise HTTPException(status_code=409, detail="Voting has closed.")
         if req.input_index >= len(b["inputs"] or []):
@@ -238,7 +238,7 @@ def close_battle(battle_id: str, user: dict = Depends(get_current_user)):
     with get_db() as conn:
         b = _load(conn, battle_id)
         if not b or b.get("created_by") != user.get("sub"):
-            raise HTTPException(status_code=404, detail="Battle not found")
+            raise HTTPException(status_code=404, detail="Comparison not found")
         conn.execute("UPDATE battles SET status = 'closed' WHERE id = %s AND org_id = %s", (battle_id, _org(user)))
         b = _load(conn, battle_id)
         return _view(b, _entries(conn, battle_id), _votes(conn, battle_id), user.get("sub"), "best")
@@ -249,7 +249,7 @@ def public_battle(battle_id: str, sort: Sort = "best"):
     with get_db() as conn:
         b = _load(conn, battle_id)
         if not b:
-            raise HTTPException(status_code=404, detail="Battle not found")
+            raise HTTPException(status_code=404, detail="Comparison not found")
         view = _view(b, _entries(conn, battle_id), _votes(conn, battle_id), None, sort)
     for row in view["leaderboard"]:
         row.pop("author_id", None)

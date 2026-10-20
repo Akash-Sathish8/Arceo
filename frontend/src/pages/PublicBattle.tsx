@@ -1,4 +1,4 @@
-/** Public battle page: /b/:battleId. Leaderboard only, no login. */
+/** Public comparison page: /c/:battleId. Leaderboard only, no login. */
 
 import { useEffect, useState } from "react"
 import { Link, useParams } from "react-router-dom"
@@ -17,7 +17,7 @@ export default function PublicBattle() {
   const [error, setError] = useState(false)
 
   useEffect(() => { getPublicBattle(battleId!, sort).then(setB).catch(() => setError(true)) }, [battleId, sort])
-  useEffect(() => { if (b) document.title = `${b.title} · Arceo battles` }, [b])
+  useEffect(() => { if (b) document.title = `${b.title} · Arceo compare` }, [b])
 
   return (
     <div style={{ minHeight: "100vh", background: "var(--bg-page)", fontFamily: "var(--font-sans)", color: "var(--ink-900)" }}>
@@ -25,10 +25,10 @@ export default function PublicBattle() {
         <Link to="/" style={{ display: "flex", alignItems: "center", gap: 8, textDecoration: "none" }} aria-label="Arceo">
           <LogoMark size={26} /><ArceoWordmark height={12} />
         </Link>
-        <span style={{ fontSize: "var(--fs-small)", color: "var(--ink-400)", marginLeft: 6 }}>Battles</span>
+        <span style={{ fontSize: "var(--fs-small)", color: "var(--ink-400)", marginLeft: 6 }}>Compare</span>
       </header>
       <main style={{ maxWidth: 960, margin: "0 auto", padding: "32px clamp(16px, 4vw, 40px) 64px" }}>
-        {error ? <ErrorState title="This battle isn't available" message="The link may be wrong." /> : !b ? (
+        {error ? <ErrorState title="This comparison isn't available" message="The link may be wrong." /> : !b ? (
           <div className="skeleton" style={{ height: 30, width: 280 }} aria-busy="true" />
         ) : (
           <>
@@ -41,7 +41,7 @@ export default function PublicBattle() {
               </div>
               <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
                 <Pill tone={b.status === "open" ? "accent" : "neutral"}>{b.status === "open" ? "Open" : "Closed"}</Pill>
-                {b.status === "open" && <a href={isLoggedIn() ? `/battles/${b.id}` : "/login"} style={{ textDecoration: "none" }}><Button>Enter or vote</Button></a>}
+                {b.status === "open" && <a href={isLoggedIn() ? `/prompt-compare/${b.id}` : "/login"} style={{ textDecoration: "none" }}><Button>Enter or vote</Button></a>}
               </div>
             </div>
             <div style={CARD}><Leaderboard rows={b.leaderboard} sort={sort} onSort={setSort} showBodies={b.status === "closed"} /></div>

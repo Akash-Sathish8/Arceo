@@ -31,7 +31,7 @@ const SECTION: Record<string, string> = {
   settings: "Settings",
   prompts: "Prompts",
   "prompt-workflows": "Prompt workflows",
-  battles: "Battles",
+  "prompt-compare": "Compare",
 };
 
 const LEAF: Record<string, string> = {
