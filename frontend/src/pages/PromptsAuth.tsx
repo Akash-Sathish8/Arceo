@@ -79,8 +79,11 @@ export default function PromptsAuth() {
         )}
         <form onSubmit={submit} style={{ display: "flex", flexDirection: "column", gap: 14, marginTop: 20 }}>
           <div>
-            <Label htmlFor="pa-email">Work email</Label>
-            <input id="pa-email" type="email" autoComplete="email" style={{ ...FIELD, height: 42 }} value={email} onChange={(e) => setEmail(e.target.value)} />
+            {/* Sign-in takes whatever the account was created with (an email, or a
+                plain username for invited accounts); sign-up needs a real email. */}
+            <Label htmlFor="pa-email">{mode === "signup" ? "Work email" : "Email or username"}</Label>
+            <input id="pa-email" type={mode === "signup" ? "email" : "text"} inputMode="email" autoComplete="username"
+              style={{ ...FIELD, height: 42 }} value={email} onChange={(e) => setEmail(e.target.value)} />
           </div>
           <div>
             <Label htmlFor="pa-pw">Password</Label>
