@@ -8339,9 +8339,15 @@ def readiness(response: Response):
 # Mounted before the SPA catch-all below so /api/prompts/* never falls through.
 from prompts.router import public_router as _prompts_public_router  # noqa: E402
 from prompts.router import router as _prompts_router  # noqa: E402
+from prompts.workflow_router import router as _prompt_workflows_router  # noqa: E402
+from prompts.battle_router import public_router as _battles_public_router  # noqa: E402
+from prompts.battle_router import router as _battles_router  # noqa: E402
 
 app.include_router(_prompts_router)
 app.include_router(_prompts_public_router)
+app.include_router(_prompt_workflows_router)
+app.include_router(_battles_router)
+app.include_router(_battles_public_router)
 
 
 
