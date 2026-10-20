@@ -8335,6 +8335,13 @@ def readiness(response: Response):
     return {"status": "ready" if ok else "not ready", "detail": detail}
 
 
+# ── Prompt library (HackThePrompt) ────────────────────────────────────────
+# Mounted before the SPA catch-all below so /api/prompts/* never falls through.
+from prompts.router import router as _prompts_router  # noqa: E402
+
+app.include_router(_prompts_router)
+
+
 
 # ── Serve frontend static files ───────────────────────────────────────────
 

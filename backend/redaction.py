@@ -77,6 +77,31 @@ def redact_text(text: str) -> str:
     return text
 
 
+def find_sensitive(text: str) -> list[tuple[str, str]]:
+    """Detect (kind, matched_text) pairs, with kind 'secret' | 'email' | 'ssn' | 'card' | 'phone'.
+
+    Same patterns and precedence as redact_text, but it reports instead of
+    masking, and it ignores ARCEO_PII_REDACTION: the prompt library's danger
+    score must flag a pasted API key whether or not trace redaction is on.
+    Matched secret spans are blanked before the PII rules run so a key is
+    never double-reported as a phone or card.
+    """
+    if not text:
+        return []
+    found: list[tuple[str, str]] = []
+    for pat in _SECRETS:
+        for m in pat.finditer(text):
+            found.append(("secret", m.group(0)))
+        text = pat.sub(" ", text)
+    for kind, pat in (("email", _EMAIL), ("ssn", _SSN)):
+        found.extend((kind, m.group(0)) for m in pat.finditer(text))
+    found.extend(("card", m.group(0)) for m in _CARD.finditer(text) if _luhn_ok(m.group(0)))
+    text = _CARD.sub(lambda m: " " if _luhn_ok(m.group(0)) else m.group(0), text)
+    text = _SSN.sub(" ", text)
+    found.extend(("phone", m.group(0)) for m in _PHONE.finditer(text))
+    return found
+
+
 def redact_value(value):
     """Recursively redact strings inside dicts/lists/scalars, preserving shape."""
     if not redaction_enabled():
