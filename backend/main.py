@@ -8337,9 +8337,11 @@ def readiness(response: Response):
 
 # ── Prompt library (HackThePrompt) ────────────────────────────────────────
 # Mounted before the SPA catch-all below so /api/prompts/* never falls through.
+from prompts.router import public_router as _prompts_public_router  # noqa: E402
 from prompts.router import router as _prompts_router  # noqa: E402
 
 app.include_router(_prompts_router)
+app.include_router(_prompts_public_router)
 
 
 

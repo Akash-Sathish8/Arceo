@@ -22,6 +22,9 @@ import CostPortfolio from '@/pages/CostPortfolio'
 import SpendDashboard from '@/pages/SpendDashboard'
 import IncidentReplay from '@/pages/IncidentReplay'
 import NotFound from '@/pages/NotFound'
+import PromptLibrary from '@/pages/PromptLibrary'
+import PromptDetail from '@/pages/PromptDetail'
+import PublicPrompt from '@/pages/PublicPrompt'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -152,6 +155,10 @@ createRoot(document.getElementById('root')!).render(
                 </ProtectedRoute>
               }
             />
+            <Route path="/prompts" element={<ProtectedRoute><PromptLibrary /></ProtectedRoute>} />
+            <Route path="/prompts/:promptId" element={<ProtectedRoute><PromptDetail /></ProtectedRoute>} />
+            {/* Public, unauthenticated share page. */}
+            <Route path="/p/:promptId" element={<PublicPrompt />} />
             <Route path="*" element={<ProtectedRoute><NotFound /></ProtectedRoute>} />
           </Routes>
         </AppShell>

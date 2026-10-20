@@ -29,6 +29,7 @@ import {
   LogOut,
   PanelLeftClose,
   PanelLeftOpen,
+  ScrollText,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import LogoMark, { ArceoWordmark } from "@/components/shared/LogoMark";
@@ -96,6 +97,7 @@ export default function Sidebar(): React.ReactElement {
     { id: "sandbox",   label: "Sandbox",   to: "/sandbox",   Icon: FlaskConical, group: "Tools" },
     { id: "workflows", label: "Workflows", to: "/workflows", Icon: GitBranch,    group: "Tools" },
     { id: "compare",   label: "Compare",   to: "/compare",   Icon: GitCompare,   group: "Tools" },
+    { id: "prompts",   label: "Library",   to: "/prompts",   Icon: ScrollText,   group: "Prompts" },
   ];
 
   const groups: { name: string | null; items: NavItem[] }[] = [];
