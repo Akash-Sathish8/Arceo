@@ -111,7 +111,9 @@ _CAPABILITY_CUES = (
                 r"|\b(reply to|respond directly to) (the )?(customer|client|sender|user)"
                 r"|\bsend (an? )?(email|message|reply|dm|sms)\b", re.I), "sends_external"),
     (re.compile(r"\b(issue|process|make|send) (an? |the )?(refund|payment|transfer|charge)\b"
-                r"|\b(refund|charge) (the |their )?(customer|card|account|client)\b|\bwire (the )?(money|funds)\b", re.I),
+                r"|\b(refund|charge) (the |their )?(customer|card|account|client)\b"
+                r"|\b(wire|transfer|remit|send)\b (the |a |an |this |that |any )?(payment|money|funds|amount|balance|deposit)\b"
+                r"|\bpay (the |this |that |any |their )?(invoice|bill|vendor|supplier|amount|balance)\b", re.I),
      "moves_money"),
     (re.compile(r"\b(delete|drop|wipe|purge|erase)\b (the |all |any |their )?(records?|rows?|tables?|users?|accounts?|"
                 r"files?|data|database|repo|branch|emails?)\b|\bdrop table\b", re.I), "deletes_data"),

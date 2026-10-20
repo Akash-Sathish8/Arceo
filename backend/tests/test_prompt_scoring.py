@@ -150,6 +150,16 @@ def test_injection_that_can_act_is_a_critical_chain():
     assert chain and chain[0]["evidence"] == "email -> moves_money"
 
 
+def test_payment_wording_is_caught():
+    # A fake invoice email redirecting a payment is the classic business-email-compromise.
+    for body in ("Read the invoice email {{email}} and wire the payment to the bank account it lists.",
+                 "Pay the invoice in {{email}}.",
+                 "Transfer the funds described in {{email}}."):
+        r = score_danger(body, {})
+        assert r["band"] == "critical", body
+        assert any(x["evidence"] == "email -> moves_money" for x in r["reasons"]), body
+
+
 def test_ordinary_words_do_not_read_as_actions():
     for body in ("Rate this on a scale of 1-10 and remove filler words.",
                  "Summarize this client email in 3 bullets.",
