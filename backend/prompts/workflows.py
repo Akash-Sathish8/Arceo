@@ -201,7 +201,7 @@ def run_workflow(spec: WorkflowSpec, prompts: list[Optional[dict]], inputs: dict
     _validate(spec, prompts)
     missing = [i.name for i in spec.inputs if not (inputs.get(i.name) or "").strip()]
     if missing:
-        raise qa.QaError(400, "Fill in " + ", ".join(missing) + " to run this workflow.")
+        raise qa.QaError(400, "Fill in " + ", ".join(m.replace("_", " ") for m in missing) + " to run this workflow.")
     (model_key, provider), = qa.resolve_models([model], org_id)
     keys = qa.Keys(org_id, {provider})
     defaults = load_defaults(org_id)

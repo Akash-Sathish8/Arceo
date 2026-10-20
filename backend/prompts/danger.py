@@ -163,7 +163,9 @@ def _reason(factor: str, points: float, title: str, detail: str, evidence: Optio
     return {"id": f"{factor}:{key if key is not None else (evidence or title)}",
             "factor": factor, "points": int(round(points)), "severity": _severity(points),
             "title": title, "detail": detail, "evidence": evidence,
-            "dismissable": factor in DISMISSABLE, "dismissed": False}
+            "dismissable": factor in DISMISSABLE, "dismissed": False,
+            # Whether "Fix it for me" (fixer.py) can address this reason.
+            "fixable": factor in ("data_exposure", "injection", "jailbreak")}
 
 
 def _mask(s: str) -> str:
@@ -281,8 +283,10 @@ def score_danger(
         pts = _CAPABILITY_SCORES.get(lab)
         if pts is None:
             continue
-        reasons.append(_reason("capability", max(pts - discount, 0), f"Can {_CAPABILITY_TITLES.get(lab, lab)}",
-                               f"Triggered by {cue}.{review_note}", cue, key=lab))
+        r = _reason("capability", max(pts - discount, 0), f"Can {_CAPABILITY_TITLES.get(lab, lab)}",
+                    f"Triggered by {cue}.{review_note}", cue, key=lab)
+        r["fixable"] = lab in _CHAINABLE and not has_review  # the fix adds a human-approval rule
+        reasons.append(r)
     live_labels = [l for l in labels if l in _CHAINABLE and f"capability:{l}" not in dismissed_ids]
     chained = sorted(live_labels, key=lambda l: -_CAPABILITY_SCORES[l])
     if untrusted_names and chained:
@@ -298,8 +302,9 @@ def score_danger(
                 f"Injected text could make it {_CAPABILITY_TITLES.get(chained[0], chained[0])}"
             detail = (f"Content in {', '.join('{{' + n + '}}' for n in untrusted_names)} reaches a prompt "
                       "that acts. One malicious email or page could make it act for the attacker.")
-        reasons.append(_reason("chain", points, title, detail,
-                               f"{untrusted_names[0]} -> {chained[0]}", key=chained[0]))
+        r = _reason("chain", points, title, detail, f"{untrusted_names[0]} -> {chained[0]}", key=chained[0])
+        r["fixable"] = not mitigated
+        reasons.append(r)
 
     # 5. Probed: real attack results from the QA engine.
     status = "static"

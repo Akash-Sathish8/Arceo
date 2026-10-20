@@ -57,7 +57,10 @@ export function logout(): void {
   setToken(null);
   localStorage.removeItem("arceo_user");
   localStorage.removeItem("arceo_demo_session");
-  window.location.href = "/login";
+  // A prompts workspace signs back in on the prompts sign-in page.
+  let prompts = false;
+  try { prompts = localStorage.getItem("arceo.workspace") === "prompts"; } catch { /* ignore */ }
+  window.location.href = prompts ? "/login?for=prompts" : "/login";
 }
 
 export function getUser(): User | null {

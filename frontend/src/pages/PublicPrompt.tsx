@@ -6,12 +6,12 @@
 
 import { useEffect, useState } from "react"
 import { Link, useParams } from "react-router-dom"
-import { Copy, GitFork } from "lucide-react"
+import { GitFork, Play } from "lucide-react"
 import LogoMark, { ArceoWordmark } from "@/components/shared/LogoMark"
 import ErrorState from "@/components/shared/ErrorState"
-import { toast } from "@/components/shared/Toast"
 import { Button } from "@/components/ui/Button"
-import { CostTable, DangerPanel } from "@/components/prompts/ScorePanels"
+import { CostPanel, DangerPanel } from "@/components/prompts/ScorePanels"
+import UseModal from "@/components/prompts/UseModal"
 import { CARD, EYEBROW } from "@/components/prompts/ui"
 import { isLoggedIn } from "@/lib/api"
 import { getPublicPrompt, type Prompt } from "@/lib/promptsApi"
@@ -20,6 +20,7 @@ export default function PublicPrompt() {
   const { promptId } = useParams()
   const [p, setP] = useState<Prompt | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [using, setUsing] = useState(false)
 
   useEffect(() => {
     getPublicPrompt(promptId!).then(setP).catch((e: Error) => setError(e.message))
@@ -51,33 +52,38 @@ export default function PublicPrompt() {
               <div style={{ minWidth: 0 }}>
                 <h1 style={{ fontSize: "var(--fs-page)", fontWeight: 600, lineHeight: 1.2 }}>{p.title}</h1>
                 <p style={{ fontSize: "var(--fs-small)", color: "var(--ink-500)", marginTop: 5 }}>
-                  {[p.author_name && `By ${p.author_name}`, p.use_case, `version ${p.published_version}`].filter(Boolean).join(" · ")}
+                  {p.author_name && p.author_id
+                    ? <Link to={`/u/${p.author_id}`} style={{ color: "var(--ink-700)" }}>By {p.author_name}</Link>
+                    : p.author_name && `By ${p.author_name}`}
+                  {[p.use_case, `version ${p.published_version}`, p.use_count ? `used ${p.use_count} times` : null].filter(Boolean).map((x) => ` · ${x}`)}
                 </p>
                 {p.description && <p style={{ fontSize: "var(--fs-small)", color: "var(--ink-600)", marginTop: 8, maxWidth: 620, lineHeight: 1.5 }}>{p.description}</p>}
               </div>
-              <a href={forkHref} style={{ textDecoration: "none" }}>
-                <Button icon={<GitFork size={14} />}>Fork in Arceo</Button>
-              </a>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                <Button icon={<Play size={14} />} onClick={() => setUsing(true)}>Use this prompt</Button>
+                <a href={forkHref} style={{ textDecoration: "none" }}>
+                  <Button variant="secondary" icon={<GitFork size={14} />}>Fork in Arceo</Button>
+                </a>
+              </div>
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 420px), 1fr))", gap: 16, alignItems: "start" }}>
               <div style={CARD}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <div style={EYEBROW}>Prompt</div>
-                  <Button variant="ghost" size="sm" icon={<Copy size={13} />}
-                    onClick={() => navigator.clipboard?.writeText(p.body).then(() => toast("Copied"))}>Copy</Button>
-                </div>
+                <div style={EYEBROW}>Prompt</div>
                 <pre style={{ whiteSpace: "pre-wrap", fontFamily: "var(--font-code)", fontSize: 13, lineHeight: 1.55, color: "var(--ink-800)", marginTop: 10 }}>
                   {p.body}
                 </pre>
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 16, minWidth: 0 }}>
                 <DangerPanel danger={p.danger_summary} />
-                <CostTable cost={p.cost_summary} />
+                <CostPanel cost={p.cost_summary} runsPerDay={p.runs_per_day} preferredModel={p.model} />
               </div>
             </div>
           </>
         )}
       </main>
+      {using && p && (
+        <UseModal promptId={p.id} title={p.title} body={p.body} variables={p.variables} signedIn={isLoggedIn()} onClose={() => setUsing(false)} />
+      )}
     </div>
   )
 }

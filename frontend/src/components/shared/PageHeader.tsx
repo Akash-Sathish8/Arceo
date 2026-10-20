@@ -7,6 +7,8 @@ interface PageHeaderProps {
   actions?: React.ReactNode;
   /** Optional deep-link-safe back link (never navigate(-1)). */
   back?: { to: string; label: string };
+  /** Optional link under the description (e.g. a creator's page). */
+  byline?: { to: string; label: string };
 }
 
 /**
@@ -14,7 +16,7 @@ interface PageHeaderProps {
  * "Welcome back" etc.) with a consistent title / description / actions row on
  * the --fs-page type scale.
  */
-export default function PageHeader({ title, description, actions, back }: PageHeaderProps) {
+export default function PageHeader({ title, description, actions, back, byline }: PageHeaderProps) {
   return (
     <div style={{ marginBottom: 24 }}>
       {back && (
@@ -29,7 +31,8 @@ export default function PageHeader({ title, description, actions, back }: PageHe
           <ArrowLeft size={13} /> {back.label}
         </Link>
       )}
-      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16 }}>
+      {/* Wraps on narrow screens so actions drop below the title instead of overlapping it. */}
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
         <div style={{ minWidth: 0 }}>
           <h1 style={{ fontSize: "var(--fs-page)", fontWeight: 600, color: "var(--ink-900)", lineHeight: 1.2 }}>
             {title}
@@ -39,8 +42,13 @@ export default function PageHeader({ title, description, actions, back }: PageHe
               {description}
             </p>
           )}
+          {byline && (
+            <Link to={byline.to} style={{ display: "inline-block", fontSize: "var(--fs-small)", color: "var(--accent)", marginTop: 4, textDecoration: "none" }}>
+              {byline.label} →
+            </Link>
+          )}
         </div>
-        {actions && <div style={{ flexShrink: 0, display: "flex", gap: 8, alignItems: "center" }}>{actions}</div>}
+        {actions && <div style={{ flexShrink: 0, maxWidth: "100%", display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>{actions}</div>}
       </div>
     </div>
   );

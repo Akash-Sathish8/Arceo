@@ -38,6 +38,7 @@ import LogoMark, { ArceoWordmark } from "@/components/shared/LogoMark";
 import { apiFetch, isLoggedIn, getUser, logout } from "@/lib/api";
 import { deriveOrgName } from "@/lib/orgName";
 import { useSidebarStore } from "@/store/sidebar";
+import { useWorkspaceStore } from "@/store/workspace";
 
 interface NavItem {
   id: string;
@@ -51,10 +52,18 @@ interface NavItem {
 // deriveOrgName (with its demo-session / consumer-domain rules) lives in
 // @/lib/orgName so the CFO PDF exports print the same org name as the chrome.
 
-export default function Sidebar(): React.ReactElement {
+export default function Sidebar({ drawer = false }: { drawer?: boolean }): React.ReactElement {
   const [pendingCount, setPendingCount] = useState(0);
-  const collapsed = useSidebarStore((s) => s.collapsed);
+  // In the phone drawer the rail is always full width: collapsing makes no sense there.
+  const storedCollapsed = useSidebarStore((s) => s.collapsed);
+  const collapsed = drawer ? false : storedCollapsed;
   const toggle = useSidebarStore((s) => s.toggle);
+  const setMobileOpen = useSidebarStore((s) => s.setMobileOpen);
+  const workspace = useWorkspaceStore((s) => s.workspace);
+  const loadWorkspace = useWorkspaceStore((s) => s.load);
+  const setWorkspace = useWorkspaceStore((s) => s.set);
+
+  useEffect(() => { void loadWorkspace(); }, [loadWorkspace]);
 
   const user = getUser() as { email?: string } | null;
   const orgName = deriveOrgName(user?.email);
@@ -90,7 +99,12 @@ export default function Sidebar(): React.ReactElement {
     };
   }, []);
 
-  const navItems: NavItem[] = [
+  const promptItems: NavItem[] = [
+    { id: "prompts",   label: "Library",   to: "/prompts",   Icon: ScrollText,   group: "Prompts" },
+    { id: "prompt-workflows", label: "Prompt workflows", to: "/prompt-workflows", Icon: Layers, group: "Prompts" },
+    { id: "prompt-compare", label: "Compare", to: "/prompt-compare", Icon: Scale, group: "Prompts" },
+  ];
+  const agentItems: NavItem[] = [
     { id: "agents",    label: "Agents",    to: "/",          Icon: LayoutGrid,   group: null },
     { id: "approvals", label: "Approvals", to: "/approvals", Icon: ShieldCheck,  group: "Monitor", badge: pendingCount > 0 ? pendingCount : undefined },
     { id: "history",   label: "History",   to: "/history",   Icon: Clock,        group: "Monitor" },
@@ -98,11 +112,11 @@ export default function Sidebar(): React.ReactElement {
     { id: "incident",  label: "Incident replay", to: "/incident", Icon: Siren,     group: "Tools" },
     { id: "sandbox",   label: "Sandbox",   to: "/sandbox",   Icon: FlaskConical, group: "Tools" },
     { id: "workflows", label: "Workflows", to: "/workflows", Icon: GitBranch,    group: "Tools" },
-    { id: "compare",   label: "Compare",   to: "/compare",   Icon: GitCompare,   group: "Tools" },
-    { id: "prompts",   label: "Library",   to: "/prompts",   Icon: ScrollText,   group: "Prompts" },
-    { id: "prompt-workflows", label: "Prompt workflows", to: "/prompt-workflows", Icon: Layers, group: "Prompts" },
-    { id: "prompt-compare", label: "Compare", to: "/prompt-compare",   Icon: Scale,       group: "Prompts" },
+    { id: "compare",   label: "Policy diff", to: "/compare", Icon: GitCompare,  group: "Tools" },
   ];
+  // A prompts workspace (founders and agencies) sees only the prompt library;
+  // the agent-governance tools are one click away, not in their face.
+  const navItems: NavItem[] = workspace === "prompts" ? promptItems : [...agentItems, ...promptItems];
 
   const groups: { name: string | null; items: NavItem[] }[] = [];
   for (const item of navItems) {
@@ -134,8 +148,10 @@ export default function Sidebar(): React.ReactElement {
 
   return (
     <aside
+      // In the phone drawer, any link tap closes it, including the page you're already on.
+      onClickCapture={drawer ? (e) => { if ((e.target as HTMLElement).closest("a")) setMobileOpen(false); } : undefined}
       className="shrink-0 h-screen flex flex-col bg-neutral-sunken font-body transition-[width] duration-200"
-      style={{ width: collapsed ? 72 : 256 }}
+      style={{ width: drawer ? "min(280px, 85vw)" : collapsed ? 72 : 256, height: drawer ? "100%" : undefined }}
     >
       {/* Brand */}
       <div className={`flex items-center gap-2 ${collapsed ? "px-3 justify-center" : "px-5"} pt-6 pb-5`}>
@@ -144,7 +160,7 @@ export default function Sidebar(): React.ReactElement {
           <>
             <ArceoWordmark height={13} />
             <div className="flex-1" />
-            {toggleBtn}
+            {!drawer && toggleBtn}
           </>
         )}
       </div>
@@ -186,6 +202,15 @@ export default function Sidebar(): React.ReactElement {
         ))}
 
         <div className="mt-8 pt-4 border-t border-neutral-border">
+          {!collapsed && (
+            <button
+              type="button"
+              onClick={() => void setWorkspace(workspace === "prompts" ? "agents" : "prompts")}
+              className="w-full text-left px-4 py-2 mb-1 rounded-lg text-meta text-rail-secondary bg-transparent border-0 cursor-pointer hover:bg-rail-hover hover:text-rail-primary"
+            >
+              {workspace === "prompts" ? "Show agent governance tools" : "Prompts only view"}
+            </button>
+          )}
           <NavLink
             to="/settings"
             className={linkClass}

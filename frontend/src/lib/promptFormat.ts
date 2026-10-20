@@ -24,13 +24,14 @@ export function rowBasis(row: Pick<CostRow, "basis" | "is_floor" | "output_basis
   return row.basis ?? "heuristic"
 }
 
+// Plain words for how sure a cost figure is. Founders don't think in tokens.
 export const BASIS_LABEL: Record<CostBasis | "floor", string> = {
-  floor: "floor",
-  measured: "measured",
-  exact: "exact tokens",
-  declared: "declared",
-  heuristic: "estimate",
-  unavailable: "input only",
+  floor: "at least this",
+  measured: "measured from real runs",
+  exact: "exact count",
+  declared: "based on your length",
+  heuristic: "estimated",
+  unavailable: "add an output length",
 }
 
 export const BASIS_HELP: Record<CostBasis | "floor", string> = {
@@ -42,9 +43,39 @@ export const BASIS_HELP: Record<CostBasis | "floor", string> = {
   unavailable: "No output length yet, so this is the input cost only. Declare an expected output length or run QA.",
 }
 
-/** The headline cost for a prompt: the cheapest priced model. */
-export function headlineCost(cost: CostSummary | null | undefined): CostRow | null {
+/** The headline cost for a prompt: the author's own model if priced, else the cheapest. */
+export function headlineCost(cost: CostSummary | null | undefined, preferred?: string | null): CostRow | null {
   if (!cost) return null
   const priced = cost.models.filter((m) => m.available && m.usd_per_run != null)
-  return priced.find((m) => m.model_key === cost.cheapest_model) ?? priced[0] ?? null
+  return (preferred ? priced.find((m) => m.model_key === preferred || m.model === preferred) : undefined)
+    ?? priced.find((m) => m.model_key === cost.cheapest_model) ?? priced[0] ?? null
+}
+
+
+/** Monthly cost at the author's volume (30-day month). null when either is unknown. */
+export function monthlyCost(usdPerRun: number | null | undefined, runsPerDay: number | null | undefined): number | null {
+  if (usdPerRun == null || runsPerDay == null || runsPerDay <= 0) return null
+  return usdPerRun * runsPerDay * 30
+}
+
+/** "$3.10/mo", "$1,240/mo", "<$0.01/mo". */
+export function formatMonthly(usd: number | null | undefined): string {
+  if (usd == null || isNaN(usd)) return "n/a"
+  if (usd > 0 && usd < 0.01) return "<$0.01/mo"
+  return `$${usd.toLocaleString("en-US", { minimumFractionDigits: usd < 100 ? 2 : 0, maximumFractionDigits: usd < 100 ? 2 : 0 })}/mo`
+}
+
+// ~0.75 English words per token. Shown to people as words; stored as tokens.
+export const wordsToTokens = (words: number): number => Math.round(words / 0.75)
+export const tokensToWords = (tokens: number): number => Math.round(tokens * 0.75)
+
+export const OUTPUT_PRESETS = [
+  { key: "short", label: "Short", hint: "about 75 words", tokens: 100 },
+  { key: "medium", label: "Medium", hint: "about 250 words", tokens: 330 },
+  { key: "long", label: "Long", hint: "about 600 words", tokens: 800 },
+] as const
+
+/** The finished prompt: every {{variable}} replaced, missing ones left blank. */
+export function fillPrompt(body: string, values: Record<string, string>): string {
+  return body.replace(/\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}\}/g, (_, name: string) => values[name] ?? "")
 }

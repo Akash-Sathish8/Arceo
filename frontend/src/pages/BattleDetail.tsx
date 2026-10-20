@@ -12,6 +12,7 @@ import { toast } from "@/components/shared/Toast"
 import { Button } from "@/components/ui/Button"
 import Leaderboard from "@/components/prompts/Leaderboard"
 import { CARD, EYEBROW, FIELD, Label, PAGE_PAD, Pill } from "@/components/prompts/ui"
+import { shareUrl } from "@/lib/shareUrl"
 import {
   castVote, closeBattle, enterBattle, getBattle, getMatchup,
   type Battle, type BattleSort, type Matchup,
@@ -67,7 +68,7 @@ export default function BattleDetail() {
 
   const open = b.status === "open"
   const entered = b.leaderboard.some((r) => r.mine)
-  const share = `${window.location.origin}/c/${b.id}`
+  const share = shareUrl("c", b.id)
 
   return (
     <div style={{ padding: PAGE_PAD }}>

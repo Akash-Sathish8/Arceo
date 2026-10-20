@@ -113,6 +113,13 @@ def test_fix_removes_jailbreak_sentence_only():
     assert r["after"]["band"] == "low"
 
 
+def test_fixable_flags_go_false_once_fixed():
+    before = score_danger(REFUND, {})
+    assert any(r["fixable"] for r in before["reasons"])
+    after = fix_prompt(REFUND, {})["after"]
+    assert not any(r["fixable"] for r in after["reasons"])
+
+
 def test_fix_is_idempotent():
     once = fix_prompt(REFUND, {})
     twice = fix_prompt(once["body"], {k: VariableSpec(**v) for k, v in once["variables"].items()})

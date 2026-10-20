@@ -11,7 +11,9 @@
 
 import { useEffect, useState } from "react";
 import { Link, useLocation, useParams } from "react-router-dom";
-import { Bell, ChevronRight, Search } from "lucide-react";
+import { Bell, ChevronRight, Menu, Search } from "lucide-react";
+import { useIsMobile } from "@/lib/useIsMobile";
+import { useSidebarStore } from "@/store/sidebar";
 import { apiFetch, isLoggedIn } from "@/lib/api";
 import { useCommandPaletteStore } from "@/store/commandPalette";
 
@@ -27,11 +29,12 @@ const SECTION: Record<string, string> = {
   sandbox: "Sandbox",
   sweep: "Sandbox",
   workflows: "Workflows",
-  compare: "Compare",
+  compare: "Policy diff",
   settings: "Settings",
   prompts: "Prompts",
   "prompt-workflows": "Prompt workflows",
   "prompt-compare": "Compare",
+  creators: "Creators",
 };
 
 const LEAF: Record<string, string> = {
@@ -57,6 +60,8 @@ function useCrumbs(): string[] {
 export default function TopBar(): React.ReactElement {
   const crumbs = useCrumbs();
   const openPalette = useCommandPaletteStore((s) => s.setOpen);
+  const mobile = useIsMobile();
+  const openDrawer = useSidebarStore((s) => s.setMobileOpen);
   const [pending, setPending] = useState(0);
 
   useEffect(() => {
@@ -80,7 +85,17 @@ export default function TopBar(): React.ReactElement {
 
   return (
     <header className="sticky top-0 z-40 h-16 flex items-center justify-between px-container-padding bg-surface/80 backdrop-blur-xl border-b border-neutral-border">
-      <nav aria-label="Breadcrumb" className="flex items-center gap-2 text-meta font-meta text-neutral-secondary">
+      {mobile && (
+        <button
+          type="button"
+          onClick={() => openDrawer(true)}
+          aria-label="Open navigation"
+          className="flex items-center justify-center p-1.5 -ml-1 mr-2 rounded-lg bg-transparent border-0 cursor-pointer text-neutral-secondary hover:text-on-surface"
+        >
+          <Menu size={20} />
+        </button>
+      )}
+      <nav aria-label="Breadcrumb" className="flex items-center gap-2 text-meta font-meta text-neutral-secondary flex-1 min-w-0">
         {crumbs.map((c, i) => (
           <span key={c} className="flex items-center gap-2">
             {i > 0 && <ChevronRight size={14} strokeWidth={2} />}

@@ -1,19 +1,30 @@
 /**
- * QA for one prompt: test cases + checks, run on real models, then canary
- * attacks through every pasted-in variable. A run turns the cost from
- * "declared" into "measured" and the danger score from "static only" into
- * "red-teamed". Spend is capped server-side and shown after each run.
+ * QA for one prompt. One button: with nothing set up, the server writes
+ * realistic test inputs and a pass rubric, runs them on the chosen models,
+ * then attacks every pasted-in blank. The result is one plain sentence
+ * ("Worked 3 of 3 times · resisted 2 of 3 attacks"); the test editor is there
+ * for people who want it, folded away. Runs use the team's own model key when
+ * they've added one, otherwise a free monthly allowance shown up front.
  */
 
 import { useEffect, useMemo, useState } from "react"
+import { Link } from "react-router-dom"
 import { CheckCircle2, Play, Plus, X, XCircle } from "lucide-react"
 import { Button } from "@/components/ui/Button"
 import { toast } from "@/components/shared/Toast"
 import { CARD, EYEBROW, FIELD, Label } from "@/components/prompts/ui"
 import {
-  formatRunCost, getQaHistory, runQa, saveQaSuite,
-  type Prompt, type QaCheck, type QaHistoryRun, type QaSuite,
+  formatRunCost, getQaBudget, getQaHistory, runQa, saveQaSuite,
+  type Prompt, type QaBudget, type QaCheck, type QaHistoryRun, type QaSuite,
 } from "@/lib/promptsApi"
+
+function budgetLine(b: QaBudget | null): React.ReactNode {
+  if (!b) return null
+  const own = [b.own_keys.anthropic && "Anthropic", b.own_keys.openai && "OpenAI"].filter(Boolean)
+  if (own.length) return <>Runs use your own {own.join(" and ")} key. No limit from us.</>
+  if (!b.free_providers.length) return <>Add your Anthropic or OpenAI key in <Link to="/settings#model-keys">Settings</Link> to run QA.</>
+  return <>{b.remaining} of {b.free_runs} free runs left this month. <Link to="/settings#model-keys">Use your own key</Link> for unlimited runs.</>
+}
 
 const QA_MODELS = ["claude-haiku-4-5", "claude-sonnet-4-6", "gpt-5-mini", "gpt-4o-mini"]
 
@@ -47,9 +58,11 @@ export default function QaPanel({ prompt, onUpdated }: { prompt: Prompt; onUpdat
   const [running, setRunning] = useState(false)
   const [last, setLast] = useState<{ at: string; runs: QaHistoryRun[] } | null>(null)
   const [lastSpend, setLastSpend] = useState<number | null>(null)
+  const [budget, setBudget] = useState<QaBudget | null>(null)
 
   useEffect(() => {
     getQaHistory(prompt.id).then((h) => setLast(h.runs[0] ?? null)).catch(() => {})
+    getQaBudget().then(setBudget).catch(() => {})
   }, [prompt.id])
 
   const patch = (p: Partial<QaSuite>) => setSuite((s) => ({ ...s, ...p }))
@@ -60,20 +73,27 @@ export default function QaPanel({ prompt, onUpdated }: { prompt: Prompt; onUpdat
       await saveQaSuite(prompt.id, suite)
       const r = await runQa(prompt.id)
       setLastSpend(r.usd_total)
+      if (r.generated_suite) setSuite(r.generated_suite)
       const h = await getQaHistory(prompt.id)
       setLast(h.runs[0] ?? null)
-      toast(`QA done · ${r.reliability == null ? "no test cases" : `${Math.round(r.reliability * 100)}% passed`}`)
+      toast(r.summary)
       onUpdated()
     } catch (e) {
       toast((e as Error).message, "error")
     } finally {
       setRunning(false)
+      getQaBudget().then(setBudget).catch(() => {})
     }
   }
 
   const tests = last?.runs.filter((r) => r.kind === "test") ?? []
   const probes = last?.runs.filter((r) => r.kind === "probe") ?? []
   const passRate = tests.length ? tests.filter((r) => r.passed).length / tests.length : null
+  const resisted = probes.filter((p) => p.passed !== false).length
+  const summaryText = last ? [
+    tests.length ? `Worked ${tests.filter((r) => r.passed).length} of ${tests.length} times` : null,
+    probes.length ? `resisted ${resisted} of ${probes.length} attacks` : null,
+  ].filter(Boolean).join(" · ") : null
 
   return (
     <div style={CARD}>
@@ -82,13 +102,24 @@ export default function QaPanel({ prompt, onUpdated }: { prompt: Prompt; onUpdat
         <Button size="sm" icon={<Play size={13} />} loading={running} onClick={() => void run()}>Run QA</Button>
       </div>
       <p style={{ fontSize: "var(--fs-small)", color: "var(--ink-500)", marginTop: 6, lineHeight: 1.5 }}>
-        Runs each test case on the models you pick and measures the real cost, then tries three attacks through
-        every pasted-in variable. Runs on Arceo's key and is capped per run.
+        Runs your prompt on real models to check it works and measure the real cost, then tries three attacks through
+        every pasted-in blank. No setup needed: we write test inputs for you.
       </p>
+      {budget && <p style={{ fontSize: "var(--fs-micro)", color: "var(--ink-500)", marginTop: 4 }}>{budgetLine(budget)}</p>}
 
+      {summaryText && (
+        <div style={{ marginTop: 12, padding: "10px 12px", borderRadius: "var(--radius-md)", background: "var(--paper-2)", fontSize: "var(--fs-small)", color: "var(--ink-800)", fontWeight: 600 }}>
+          {summaryText}
+        </div>
+      )}
+
+      <details style={{ marginTop: 14 }}>
+        <summary style={{ cursor: "pointer", fontSize: "var(--fs-small)", color: "var(--ink-500)" }}>
+          Customize tests{suite.cases.length || suite.checks.length ? ` (${suite.cases.length} inputs, ${suite.checks.length} checks)` : ""}
+        </summary>
       {/* Test cases */}
       <div style={{ marginTop: 14 }}>
-        <Label>Test cases {suite.cases.length === 0 && <span style={{ textTransform: "none", fontWeight: 400 }}>(none: uses your variable samples)</span>}</Label>
+        <Label>Test inputs {suite.cases.length === 0 && <span style={{ textTransform: "none", fontWeight: 400 }}>(none yet: we'll write 3 for you)</span>}</Label>
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           {suite.cases.map((c, i) => (
             <div key={i} style={{ border: "1px solid var(--line)", borderRadius: "var(--radius-md)", padding: 10 }}>
@@ -162,9 +193,10 @@ export default function QaPanel({ prompt, onUpdated }: { prompt: Prompt; onUpdat
         </div>
         <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: "var(--fs-small)", color: "var(--ink-700)", marginTop: 20 }}>
           <input type="checkbox" checked={suite.probes} onChange={(e) => patch({ probes: e.target.checked })} />
-          Red-team probes
+          Try attacks
         </label>
       </div>
+      </details>
 
       {/* Last run */}
       {last && (

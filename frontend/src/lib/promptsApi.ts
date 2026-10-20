@@ -42,6 +42,10 @@ export interface CostSummary {
 }
 
 export interface DangerReason {
+  id: string
+  dismissable: boolean
+  dismissed: boolean
+  fixable?: boolean
   factor: "data_exposure" | "injection" | "jailbreak" | "capability" | "chain" | "probed"
   points: number
   severity: "low" | "medium" | "high" | "critical"
@@ -57,6 +61,7 @@ export interface DangerSummary {
   reasons: DangerReason[]
   publish_blockers: string[]
   untrusted_variables: string[]
+  ai_checked?: boolean
 }
 
 export interface PromptVersion {
@@ -92,6 +97,10 @@ export interface Prompt {
   created_at: string
   updated_at: string
   versions?: PromptVersion[]
+  runs_per_day: number | null
+  model: string | null
+  dismissed: string[] | null
+  use_count: number
 }
 
 export type PromptListItem = Omit<Prompt, "body" | "variables" | "tools" | "expected_output_tokens" | "tests">
@@ -104,6 +113,9 @@ export interface PromptDraft {
   variables: Record<string, VariableSpec>
   tools: string[]
   expected_output_tokens: number | null
+  runs_per_day: number | null
+  model: string | null
+  dismissed: string[]
 }
 
 export interface ScoreResult {
@@ -131,11 +143,78 @@ export interface QaSuite {
   probes: boolean
 }
 
-export const scorePrompt = (draft: Pick<PromptDraft, "body" | "variables" | "tools" | "expected_output_tokens">) =>
+export const scorePrompt = (
+  draft: Pick<PromptDraft, "body" | "variables" | "tools" | "expected_output_tokens"> & { dismissed?: string[] },
+  promptId?: string,
+) =>
   apiFetch<ScoreResult>("/api/prompts/score", {
     method: "POST",
-    body: JSON.stringify({ ...draft, expected_output_tokens: draft.expected_output_tokens ?? undefined }),
+    body: JSON.stringify({
+      body: draft.body, variables: draft.variables, tools: draft.tools,
+      expected_output_tokens: draft.expected_output_tokens ?? undefined,
+      dismissed: draft.dismissed ?? [], prompt_id: promptId,
+    }),
   })
+
+export interface FixResult {
+  body: string
+  variables: Record<string, VariableSpec>
+  changes: string[]
+  before: { score: number; band: DangerSummary["band"] }
+  after: DangerSummary
+  unchanged: boolean
+}
+
+export const fixPrompt = (draft: Pick<PromptDraft, "body" | "variables" | "tools">) =>
+  apiFetch<FixResult>("/api/prompts/fix", {
+    method: "POST", body: JSON.stringify({ body: draft.body, variables: draft.variables, tools: draft.tools }),
+  })
+
+export const dismissReason = (id: string, reason_id: string, dismissed: boolean) =>
+  apiFetch<Prompt>(`/api/prompts/${encodeURIComponent(id)}/dismiss`, {
+    method: "POST", body: JSON.stringify({ reason_id, dismissed }),
+  })
+
+export interface QaBudget {
+  free_runs: number
+  used: number
+  remaining: number
+  own_keys: { anthropic: boolean; openai: boolean }
+  free_providers: string[]
+}
+
+export const getQaBudget = () => apiFetch<QaBudget>("/api/prompts/qa-budget")
+
+export interface CompareResult {
+  model: string
+  cases: QaCase[]
+  variants: { label: string; body: string; outputs: string[]; danger: DangerSummary;
+              cost: { model_key: string; usd_per_run: number; output_tokens: number; basis: CostBasis } }[]
+  usd_total: number
+  runs_per_day: number | null
+}
+
+export const compareVersions = (id: string, variants: { label: string; body: string }[], model?: string) =>
+  apiFetch<CompareResult>(`/api/prompts/${encodeURIComponent(id)}/compare`, {
+    method: "POST", body: JSON.stringify({ variants, model }), timeoutMs: 180_000,
+  })
+
+/** Count a use. Fire-and-forget: a failed count must never block the person copying. */
+export const recordUse = (id: string, signedIn: boolean) =>
+  apiFetch(signedIn ? `/api/prompts/${encodeURIComponent(id)}/use` : `/api/public/prompts/${encodeURIComponent(id)}/use`,
+    { method: "POST", skipLogoutOn401: true }).catch(() => {})
+
+export interface CreatorProfile {
+  author_id: string
+  author_name: string | null
+  prompts: PromptListItem[]
+  total_forks: number
+  total_uses: number
+  comparison_wins: number
+}
+
+export const getCreator = (id: string) =>
+  apiFetch<CreatorProfile>(`/api/public/creators/${encodeURIComponent(id)}`, { skipLogoutOn401: true })
 
 export const listPrompts = (scope: "all" | "mine" | "public", q?: string) => {
   const params = new URLSearchParams({ scope })
@@ -168,7 +247,7 @@ export const forkPrompt = (id: string) =>
 export const getPublicPrompt = (id: string) =>
   apiFetch<Prompt>(`/api/public/prompts/${encodeURIComponent(id)}`, { skipLogoutOn401: true })
 
-export { formatRunCost, BASIS_LABEL, BASIS_HELP, headlineCost, rowBasis } from "./promptFormat"
+export { formatRunCost, BASIS_LABEL, BASIS_HELP, headlineCost, rowBasis, monthlyCost, formatMonthly, OUTPUT_PRESETS, wordsToTokens, tokensToWords } from "./promptFormat"
 
 export interface QaResult {
   kind: "test" | "probe"
@@ -195,6 +274,9 @@ export interface QaRunResponse {
   usd_total: number
   cost: CostSummary
   danger: DangerSummary
+  summary: string
+  generated_suite: QaSuite | null
+  key_source: "server" | "own"
 }
 
 export interface QaHistoryRun {
@@ -214,7 +296,7 @@ export interface QaHistoryRun {
 export const saveQaSuite = (id: string, suite: QaSuite) =>
   apiFetch<{ tests: QaSuite }>(`/api/prompts/${encodeURIComponent(id)}/tests`, { method: "PUT", body: JSON.stringify(suite) })
 
-export const runQa = (id: string) =>
+export const runQa = (id: string): Promise<QaRunResponse> =>
   apiFetch<QaRunResponse>(`/api/prompts/${encodeURIComponent(id)}/qa`, { method: "POST", timeoutMs: 180_000 })
 
 export const getQaHistory = (id: string) =>
@@ -265,6 +347,7 @@ export interface PromptWorkflow {
   status: "draft" | "published"
   cost_summary: WorkflowScore["cost"] | null
   danger_summary: WorkflowScore["danger"] | null
+  last_run?: WorkflowRunResult | null
   owned: boolean
   updated_at: string
   step_count?: number
@@ -282,6 +365,17 @@ export const createWorkflow = (body: WorkflowSpec & { title: string; description
 export const updateWorkflow = (id: string, body: WorkflowSpec & { title: string; description: string }) =>
   apiFetch<PromptWorkflow>(wf(id), { method: "PUT", body: JSON.stringify(body) })
 export const deleteWorkflow = (id: string) => apiFetch<{ deleted: string }>(wf(id), { method: "DELETE" })
+
+export interface WorkflowRunResult {
+  model: string
+  steps: { step: number; title: string; output: string; input_tokens: number; output_tokens: number; usd: number }[]
+  usd_total: number
+  at: string
+  key_source: "server" | "own"
+}
+
+export const runWorkflow = (id: string, inputs: Record<string, string>, model: string) =>
+  apiFetch<WorkflowRunResult>(`${wf(id)}/run`, { method: "POST", body: JSON.stringify({ inputs, model }), timeoutMs: 180_000 })
 export const publishWorkflow = (id: string, visibility: "org" | "public") =>
   apiFetch<PromptWorkflow>(`${wf(id)}/publish`, { method: "POST", body: JSON.stringify({ visibility }) })
 

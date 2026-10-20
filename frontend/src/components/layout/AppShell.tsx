@@ -2,12 +2,20 @@ import { useLocation } from "react-router-dom";
 import { useEffect, useRef } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import Sidebar from "./Sidebar";
+import { useIsMobile } from "@/lib/useIsMobile";
+import { useSidebarStore } from "@/store/sidebar";
 import TopBar from "./TopBar";
 import ErrorBoundary from "./ErrorBoundary";
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const location = useLocation();
   const mainRef = useRef<HTMLElement>(null);
+  const mobile = useIsMobile();
+  const mobileOpen = useSidebarStore((s) => s.mobileOpen);
+  const setMobileOpen = useSidebarStore((s) => s.setMobileOpen);
+
+  // The drawer closes whenever the route changes (a nav tap) or the layout widens.
+  useEffect(() => { setMobileOpen(false); }, [location.pathname, mobile, setMobileOpen]);
 
   // Scroll the content region back to top on every route change — <main> is the
   // scroll container, so navigating from the bottom of a long list used to land
@@ -18,7 +26,8 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
   // Public share pages (/p/:id prompts, /c/:id comparisons) render without app chrome.
   const chromeless = location.pathname === "/login"
-    || location.pathname.startsWith("/p/") || location.pathname.startsWith("/c/");
+    || location.pathname.startsWith("/p/") || location.pathname.startsWith("/c/")
+    || location.pathname.startsWith("/u/");
   if (chromeless) {
     // Login gets its own boundary too — a crash here used to blank the screen.
     return <ErrorBoundary resetKey={location.pathname}>{children}</ErrorBoundary>;
@@ -36,7 +45,26 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         WebkitFontSmoothing: "antialiased",
       }}
     >
-      <Sidebar />
+      {mobile ? (
+        mobileOpen && (
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="Navigation"
+            style={{ position: "fixed", inset: 0, zIndex: 60, display: "flex" }}
+          >
+            <Sidebar drawer />
+            <button
+              type="button"
+              aria-label="Close navigation"
+              onClick={() => setMobileOpen(false)}
+              style={{ flex: 1, border: 0, background: "rgba(15,15,15,0.32)", cursor: "pointer" }}
+            />
+          </div>
+        )
+      ) : (
+        <Sidebar />
+      )}
       <main
         ref={mainRef}
         style={{ flex: 1, minWidth: 0, overflowY: "auto", background: "var(--bg-page)" }}

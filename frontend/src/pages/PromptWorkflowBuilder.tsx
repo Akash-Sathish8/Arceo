@@ -6,7 +6,7 @@
 
 import { useEffect, useMemo, useState } from "react"
 import { useNavigate, useParams } from "react-router-dom"
-import { ArrowDown, Plus, Trash2, X } from "lucide-react"
+import { ArrowDown, Play, Plus, Trash2, X } from "lucide-react"
 import PageHeader from "@/components/shared/PageHeader"
 import ErrorState from "@/components/shared/ErrorState"
 import { toast } from "@/components/shared/Toast"
@@ -15,8 +15,9 @@ import DangerBadge from "@/components/prompts/DangerBadge"
 import { CARD, EYEBROW, FIELD, Label, PAGE_PAD, SegControl, TD, TH } from "@/components/prompts/ui"
 import {
   BASIS_LABEL, createWorkflow, deleteWorkflow, formatRunCost, getPrompt, getWorkflow, listPrompts, publishWorkflow,
-  scoreWorkflow, updateWorkflow,
-  type Prompt, type PromptListItem, type PromptWorkflow, type StepSource, type WorkflowScore, type WorkflowSpec,
+  runWorkflow, scoreWorkflow, updateWorkflow,
+  type Prompt, type PromptListItem, type PromptWorkflow, type StepSource, type WorkflowRunResult, type WorkflowScore,
+  type WorkflowSpec,
 } from "@/lib/promptsApi"
 import { scoreBand } from "@/lib/utils"
 
@@ -37,6 +38,62 @@ function removeStep(spec: WorkflowSpec, i: number): WorkflowSpec {
       ),
     })),
   }
+}
+
+const RUN_MODELS = ["claude-haiku-4-5", "claude-sonnet-4-6", "gpt-5-mini", "gpt-4o-mini"]
+
+function RunPanel({ wf, spec }: { wf: PromptWorkflow; spec: WorkflowSpec }) {
+  const [inputs, setInputs] = useState<Record<string, string>>({})
+  const [model, setModel] = useState(RUN_MODELS[0])
+  const [busy, setBusy] = useState(false)
+  const [result, setResult] = useState<WorkflowRunResult | null>(wf.last_run ?? null)
+
+  async function run() {
+    setBusy(true)
+    try { setResult(await runWorkflow(wf.id, inputs, model)); toast("Workflow ran") }
+    catch (e) { toast((e as Error).message, "error") }
+    finally { setBusy(false) }
+  }
+
+  return (
+    <div style={CARD}>
+      <div style={EYEBROW}>Run it</div>
+      <p style={{ fontSize: "var(--fs-small)", color: "var(--ink-500)", marginTop: 6 }}>
+        Runs every step for real, feeding each result into the next. Uses one run.
+      </p>
+      {spec.inputs.map((inp) => (
+        <div key={inp.name} style={{ marginTop: 10 }}>
+          <Label htmlFor={`run-${inp.name}`}>{inp.name.replace(/_/g, " ")}</Label>
+          <textarea id={`run-${inp.name}`} rows={4} style={{ ...FIELD, resize: "vertical" }} value={inputs[inp.name] ?? ""}
+            onChange={(e) => setInputs((v) => ({ ...v, [inp.name]: e.target.value }))} />
+        </div>
+      ))}
+      <div style={{ display: "flex", gap: 10, alignItems: "flex-end", flexWrap: "wrap", marginTop: 10 }}>
+        <div>
+          <Label htmlFor="run-model">Model</Label>
+          <select id="run-model" style={{ ...FIELD, width: 180 }} value={model} onChange={(e) => setModel(e.target.value)}>
+            {RUN_MODELS.map((m) => <option key={m}>{m}</option>)}
+          </select>
+        </div>
+        <Button icon={<Play size={13} />} loading={busy} onClick={() => void run()}>Run workflow</Button>
+      </div>
+      {result && (
+        <div style={{ marginTop: 14, borderTop: "1px solid var(--line)", paddingTop: 12 }}>
+          <div style={{ fontSize: "var(--fs-small)", color: "var(--ink-700)", fontWeight: 600 }}>
+            Last run on {result.model}: {formatRunCost(result.usd_total)} for all {result.steps.length} steps
+          </div>
+          {result.steps.map((st) => (
+            <details key={st.step} open={st.step === result.steps.length - 1} style={{ marginTop: 8 }}>
+              <summary style={{ cursor: "pointer", fontSize: "var(--fs-small)", color: "var(--ink-800)" }}>
+                Step {st.step + 1}: {st.title} <span style={{ color: "var(--ink-400)" }}>· {formatRunCost(st.usd)}</span>
+              </summary>
+              <pre style={{ whiteSpace: "pre-wrap", fontFamily: "var(--font-sans)", fontSize: "var(--fs-small)", background: "var(--paper-2)", padding: 10, borderRadius: "var(--radius-md)", marginTop: 6, maxHeight: 240, overflow: "auto" }}>{st.output}</pre>
+            </details>
+          ))}
+        </div>
+      )}
+    </div>
+  )
 }
 
 export default function PromptWorkflowBuilder() {
@@ -127,7 +184,7 @@ export default function PromptWorkflowBuilder() {
       <PageHeader
         back={{ to: "/prompt-workflows", label: "Prompt workflows" }}
         title={isNew ? "New workflow" : title}
-        description={owned ? "Wire each variable to a workflow input or an earlier step's output." : `By ${wf?.author_name ?? "a creator"}`}
+        description={owned ? "Chain prompts: each blank uses something you paste in, or an earlier step's result." : `By ${wf?.author_name ?? "a creator"}`}
         actions={owned ? (
           <>
             {!isNew && <Button variant="ghost" size="sm" icon={<Trash2 size={14} />}
@@ -160,7 +217,7 @@ export default function PromptWorkflowBuilder() {
                   </div>
                   {vars.length > 0 && (
                     <table style={{ width: "100%", borderCollapse: "collapse", marginTop: 8 }}>
-                      <thead><tr><th style={TH}>Variable</th><th style={TH}>Filled from</th></tr></thead>
+                      <thead><tr><th style={TH}>Blank</th><th style={TH}>Uses</th></tr></thead>
                       <tbody>
                         {vars.map((v) => (
                           <tr key={v}>
@@ -168,10 +225,10 @@ export default function PromptWorkflowBuilder() {
                             <td style={TD}>
                               <select aria-label={`Source for ${v}`} style={FIELD} disabled={!owned} value={srcValue(s.input_map[v])}
                                 onChange={(e) => mapVar(i, v, e.target.value)}>
-                                <option value="">Prompt's own sample</option>
-                                {spec.inputs.map((inp) => <option key={inp.name} value={`input:${inp.name}`}>Workflow input "{inp.name}"</option>)}
-                                {!spec.inputs.some((inp) => inp.name === v) && <option value={`input:${v}`}>New workflow input "{v}"</option>}
-                                {spec.steps.slice(0, i).map((_, k) => <option key={k} value={`step:${k}`}>Output of step {k + 1}</option>)}
+                                <option value="">Its own example text</option>
+                                {spec.inputs.map((inp) => <option key={inp.name} value={`input:${inp.name}`}>The {inp.name.replace(/_/g, " ")} you paste in</option>)}
+                                {!spec.inputs.some((inp) => inp.name === v) && <option value={`input:${v}`}>Something you paste in ({v.replace(/_/g, " ")})</option>}
+                                {spec.steps.slice(0, i).map((_, k) => <option key={k} value={`step:${k}`}>Step {k + 1}'s result</option>)}
                               </select>
                             </td>
                           </tr>
@@ -195,14 +252,14 @@ export default function PromptWorkflowBuilder() {
           )}
           {spec.inputs.length > 0 && owned && (
             <div style={CARD}>
-              <div style={{ ...EYEBROW, marginBottom: 8 }}>Workflow inputs</div>
+              <div style={{ ...EYEBROW, marginBottom: 8 }}>What you paste in</div>
               {spec.inputs.map((inp, i) => (
                 <div key={inp.name} style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 6, flexWrap: "wrap" }}>
                   <span style={{ fontFamily: "var(--font-num)", minWidth: 120 }}>{inp.name}</span>
                   <select aria-label={`Source of ${inp.name}`} style={{ ...FIELD, width: 170 }}
                     value={inp.untrusted == null ? "auto" : inp.untrusted ? "untrusted" : "trusted"}
                     onChange={(e) => setSpec((s) => ({ ...s, inputs: s.inputs.map((x, j) => j === i ? { ...x, untrusted: e.target.value === "auto" ? undefined : e.target.value === "untrusted" } : x) }))}>
-                    <option value="auto">Auto-detect</option><option value="untrusted">Pasted in (untrusted)</option><option value="trusted">You write it</option>
+                    <option value="auto">Auto-detect</option><option value="untrusted">From outside (untrusted)</option><option value="trusted">You write it</option>
                   </select>
                   <input aria-label={`Expected tokens for ${inp.name}`} type="number" min={0} placeholder="~tokens" style={{ ...FIELD, width: 100 }}
                     value={inp.expected_tokens ?? ""}
@@ -269,6 +326,7 @@ export default function PromptWorkflowBuilder() {
                   </table>
                 </div>
               </div>
+              {owned && wf && <RunPanel wf={wf} spec={spec} />}
               {owned && wf && (
                 <div style={CARD}>
                   <div style={{ ...EYEBROW, marginBottom: 10 }}>Share</div>
