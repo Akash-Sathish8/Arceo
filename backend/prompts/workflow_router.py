@@ -5,16 +5,18 @@
 
 from __future__ import annotations
 
+import json
 from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
+import encryption
 from auth import get_current_user
 from db import get_db
 
 from . import store
-from .workflows import WorkflowError, WorkflowSpec, score_workflow
+from .workflows import WorkflowError, WorkflowSpec, run_workflow, score_workflow
 
 router = APIRouter(prefix="/api/prompt-workflows", tags=["prompt-workflows"])
 
@@ -26,6 +28,11 @@ class WorkflowWrite(WorkflowSpec):
 
 class WorkflowPublish(BaseModel):
     visibility: Literal["org", "public"] = "public"
+
+
+class WorkflowRun(BaseModel):
+    inputs: dict[str, str] = Field(default_factory=dict)
+    model: str = Field(default="claude-haiku-4-5", max_length=80)
 
 
 def _org(user: dict) -> Optional[str]:
@@ -57,7 +64,13 @@ def _get(conn, wf_id: str, org_id: Optional[str]) -> Optional[dict]:
     owned = bool(org_id) and row["org_id"] == org_id
     if not owned and not (row["visibility"] == "public" and row["status"] == "published"):
         return None
+    row = dict(row)
+    # The last run's outputs can carry pasted content: owner-only, decrypted here.
+    last_raw = encryption.read(row, "last_run") if owned else None
+    row.pop("last_run", None)
+    row.pop("last_run_enc", None)
     out = store.hydrate(row)
+    out["last_run"] = json.loads(last_raw) if last_raw else None
     out["owned"] = owned
     out.pop("org_id", None)
     return out
@@ -171,3 +184,33 @@ def publish_workflow(wf_id: str, req: WorkflowPublish, user: dict = Depends(get_
              wf_id, _org(user)),
         )
         return _get(conn, wf_id, _org(user))
+
+
+@router.post("/{wf_id}/run")
+def run(wf_id: str, req: WorkflowRun, user: dict = Depends(get_current_user)):
+    """Run the workflow for real: each step on one model, outputs fed forward.
+    Uses one run of the free allowance (or the team's own key)."""
+    _require_editor(user)
+    import shared_state
+    if not shared_state.rate_limit_ok(f"prompt-qa:{_org(user)}", 6, 300):
+        raise HTTPException(status_code=429, detail="Too many runs in a few minutes. Try again shortly.")
+    with get_db() as conn:
+        wf = _get(conn, wf_id, _org(user))
+    if not wf or not wf["owned"]:
+        raise HTTPException(status_code=404, detail="Workflow not found")
+    spec = _spec_of(wf)
+    if not spec.steps:
+        raise HTTPException(status_code=400, detail="Add at least one step first.")
+    prompts = [store.get_prompt(s.prompt_id, _org(user)) for s in spec.steps]
+    from . import qa
+    try:
+        result = run_workflow(spec, prompts, req.inputs, req.model, _org(user))
+    except WorkflowError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except qa.QaError as e:
+        raise HTTPException(status_code=e.status, detail=str(e))
+    plain, enc = encryption.split(json.dumps(result))
+    with get_db() as conn:
+        conn.execute("UPDATE prompt_workflows SET last_run = %s, last_run_enc = %s WHERE id = %s AND org_id = %s",
+                     (plain, enc, wf_id, _org(user)))
+    return result

@@ -26,7 +26,7 @@ from pydantic import BaseModel, Field
 from authority.graph import _soft_cap, score_band
 
 from .cost import default_models, score_cost, weakest
-from .danger import CHAIN_UPLIFT, MULTI_FACTOR_UPLIFT, _reason, score_danger
+from .danger import _TRUSTED_SUFFIX, CHAIN_UPLIFT, MULTI_FACTOR_UPLIFT, _reason, score_danger
 from .template import VariableSpec, variables_in
 
 MAX_STEPS = 8
@@ -81,7 +81,9 @@ def _validate(spec: WorkflowSpec, prompts: list[Optional[dict]]) -> None:
 
 
 def _input_untrusted(inp: WorkflowInput) -> bool:
-    return inp.untrusted if inp.untrusted is not None else bool(_UNTRUSTED_INPUT.search(inp.name))
+    if inp.untrusted is not None:
+        return inp.untrusted
+    return bool(_UNTRUSTED_INPUT.search(inp.name)) and not _TRUSTED_SUFFIX.search(inp.name)
 
 
 def score_workflow(spec: WorkflowSpec, prompts: list[Optional[dict]], org_id: Optional[str],
@@ -182,3 +184,51 @@ def score_workflow(spec: WorkflowSpec, prompts: list[Optional[dict]], org_id: Op
         "danger": {"score": score, "band": score_band(score), "status": "static",
                    "reasons": reasons, "steps": step_dangers},
     }
+
+
+def run_workflow(spec: WorkflowSpec, prompts: list[Optional[dict]], inputs: dict[str, str],
+                 model: str, org_id: Optional[str]) -> dict:
+    """Run every step in order on one model, feeding outputs forward.
+
+    Same spend rules as QA (qa.Keys: own key or the free allowance; up-front cap
+    from the worst case of every step at max output). Returns per-step outputs
+    and measured tokens and dollars, plus the total.
+    """
+    from analysis.spend_forecast import load_defaults, price_call
+
+    from . import qa
+
+    _validate(spec, prompts)
+    missing = [i.name for i in spec.inputs if not (inputs.get(i.name) or "").strip()]
+    if missing:
+        raise qa.QaError(400, "Fill in " + ", ".join(missing) + " to run this workflow.")
+    (model_key, provider), = qa.resolve_models([model], org_id)
+    keys = qa.Keys(org_id, {provider})
+    defaults = load_defaults(org_id)
+    est = 0.0
+    longest_input = sum(len(v) for v in inputs.values())
+    for p in prompts:
+        row = score_cost(p["body"], {}, expected_output_tokens=qa.MAX_OUTPUT_TOKENS, models=[model_key],
+                         org_id=org_id, allow_network=False)["models"][0]
+        # Each step can receive the inputs plus every earlier step's max output.
+        carry = longest_input // 3 + qa.MAX_OUTPUT_TOKENS * len(prompts)
+        est += row["usd_per_run"] + (price_call(model_key, carry, 0, defaults=defaults)["usd"] or 0.0)
+    qa.check_caps(est, keys, org_id)
+
+    outputs: list[str] = []
+    steps, total = [], 0.0
+    for idx, (step, p) in enumerate(zip(spec.steps, prompts)):
+        values = {k: (v or {}).get("sample") or "" for k, v in (p.get("variables") or {}).items()}
+        for var, src in step.input_map.items():
+            values[var] = outputs[src.step] if src.source == "step" else inputs.get(src.name, "")
+        text = qa._fill(p["body"], values)
+        r = qa.call_model(model_key, provider, None, text, org_id, api_key=keys.key_for(provider))
+        usd = price_call(model_key, r["input_tokens"], r["output_tokens"], defaults=defaults)["usd"] or 0.0
+        total += usd
+        outputs.append(r["text"])
+        steps.append({"step": idx, "title": p["title"], "output": r["text"], "input_tokens": r["input_tokens"],
+                      "output_tokens": r["output_tokens"], "usd": round(usd, 8), "latency_ms": r["latency_ms"]})
+    keys.record("workflow_run", total)
+    from .store import now
+    return {"model": model_key, "steps": steps, "usd_total": round(total, 8), "at": now(),
+            "key_source": "server" if keys.uses_server else "own"}

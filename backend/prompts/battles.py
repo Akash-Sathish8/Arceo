@@ -69,34 +69,32 @@ def run_entry(battle: dict, body: str, org_id: str) -> dict:
     Same spend rules as QA: priced up front against the per-run cap and the
     org's monthly cap, metered to the entrant's org.
     """
-    import cogs
-
     defaults = load_defaults(org_id)
     priced = price_call(battle["model"], 0, 0, defaults=defaults)
     if priced["usd"] is None:
         raise qa.QaError(400, "This comparison's model isn't in the price catalog.")
     key = priced["model_key"]
     provider = model_provider((defaults.get("models") or {}).get(key) or {})
+    keys = qa.Keys(org_id, {provider})
     inputs = battle["inputs"] or []
     est_row = score_cost(body, {}, expected_output_tokens=qa.MAX_OUTPUT_TOKENS, models=[key],
                          org_id=org_id, allow_network=False)["models"][0]
     longest = max((sum(len(v) for v in (i.get("values") or {}).values()) for i in inputs), default=0)
     estimate = (est_row["usd_per_run"] + (price_call(key, longest // 4, 0, defaults=defaults)["usd"] or 0)) * len(inputs)
-    if estimate > qa.RUN_CAP_USD:
-        raise qa.QaError(400, f"Running this entry could cost up to ${estimate:.2f}, over the per-run cap.")
-    if (cogs.total(org_id) or 0.0) + estimate > qa.MONTHLY_CAP_USD:
-        raise qa.QaError(429, "Your team has used its monthly QA budget.")
+    qa.check_caps(estimate, keys, org_id)
 
     outputs, outs_tok, ins_tok = [], [], []
     for i in inputs:
         text = qa._fill(body, i.get("values") or {})
-        r = qa.call_model(key, provider, None, text, org_id)
+        r = qa.call_model(key, provider, None, text, org_id, api_key=keys.key_for(provider))
         outputs.append(r["text"])
         outs_tok.append(r["output_tokens"])
         ins_tok.append(r["input_tokens"])
     med_in = int(statistics.median(ins_tok)) if ins_tok else 0
     med_out = int(statistics.median(outs_tok)) if outs_tok else 0
     usd = price_call(key, med_in, med_out, defaults=defaults)["usd"]
+    keys.record("comparison_entry", sum(price_call(key, i, o, defaults=defaults)["usd"] or 0.0
+                                        for i, o in zip(ins_tok, outs_tok)))
     cost = {"model_key": key, "usd_per_run": round(usd or 0.0, 8), "usd_per_1k_runs": round((usd or 0.0) * 1000, 5),
             "input_tokens": med_in, "output_tokens": med_out, "basis": "measured"}
     # Battle inputs are written by the organiser, so they're scored as pasted-in

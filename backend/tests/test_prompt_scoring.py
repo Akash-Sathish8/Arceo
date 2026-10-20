@@ -210,7 +210,7 @@ def test_score_endpoint_requires_auth(client):
 
 
 def test_score_endpoint_returns_cost_and_danger(client):
-    from tests.conftest import _signup_org
+    from tests.prompt_helpers import signup as _signup_org
 
     org = _signup_org(client, f"prompts-{uuid.uuid4().hex[:8]}@example.com")
     r = client.post("/api/prompts/score", headers=org["headers"], json={
@@ -229,7 +229,7 @@ def test_score_endpoint_returns_cost_and_danger(client):
 
 
 def test_score_endpoint_rejects_oversized_input(client):
-    from tests.conftest import _signup_org
+    from tests.prompt_helpers import signup as _signup_org
 
     org = _signup_org(client, f"prompts-{uuid.uuid4().hex[:8]}@example.com")
     r = client.post("/api/prompts/score", headers=org["headers"], json={"body": "x" * 100_001})

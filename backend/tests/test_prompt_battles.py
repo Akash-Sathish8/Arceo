@@ -18,7 +18,7 @@ BATTLE = {
 }
 
 
-def fake_call(model_key, provider, system, user_text, org_id, max_tokens=1024):
+def fake_call(model_key, provider, system, user_text, org_id, max_tokens=1024, api_key=None):
     # Longer prompts produce longer outputs, so entries get different measured costs.
     return {"text": f"Opener for: {user_text[:40]}", "input_tokens": len(user_text) // 4,
             "output_tokens": 10 + len(user_text) // 10, "latency_ms": 3}
@@ -26,12 +26,13 @@ def fake_call(model_key, provider, system, user_text, org_id, max_tokens=1024):
 
 @pytest.fixture(autouse=True)
 def _fake_model(monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test-not-real")
     monkeypatch.setattr(qa, "call_model", fake_call)
 
 
 @pytest.fixture()
 def players(client):
-    from tests.conftest import _signup_org
+    from tests.prompt_helpers import signup as _signup_org
     tag = uuid.uuid4().hex[:6]
     return [_signup_org(client, f"bt-{i}-{tag}@example.com") for i in range(4)]
 

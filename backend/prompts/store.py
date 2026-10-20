@@ -15,7 +15,7 @@ from typing import Any, Optional
 
 from db import get_db
 
-_JSON_COLS = ("variables", "tools", "tests", "cost_summary", "danger_summary", "cost", "danger",
+_JSON_COLS = ("variables", "tools", "tests", "cost_summary", "danger_summary", "cost", "danger", "ai_check", "dismissed",
               "steps", "inputs", "outputs", "checks")
 
 PUBLIC_PRED = "visibility = 'public' AND status = 'published'"
@@ -56,7 +56,8 @@ def display_name(conn, user: dict) -> str:
 # ── prompts ──────────────────────────────────────────────────────────────
 
 _PROMPT_LIST_COLS = ("id, org_id, author_id, author_name, title, description, use_case, visibility, status, "
-                     "published_version, parent_id, cost_summary, danger_summary, reliability, created_at, updated_at")
+                     "published_version, parent_id, cost_summary, danger_summary, reliability, use_count, "
+                     "runs_per_day, model, created_at, updated_at")
 
 
 def list_prompts(org_id: str, scope: str, q: Optional[str], use_case: Optional[str],
@@ -159,21 +160,44 @@ def delete_prompt(prompt_id: str, org_id: str) -> bool:
         return bool(cur.rowcount)
 
 
+def increment_use(prompt_id: str) -> None:
+    with get_db() as conn:
+        conn.execute("UPDATE prompts SET use_count = use_count + 1 WHERE id = %s", (prompt_id,))
+
+
 def creator_profile(author_id: str) -> dict:
-    """Public stats for a creator, from PUBLIC published prompts only."""
+    """Public stats for a creator, from PUBLIC published prompts and closed
+    comparisons only: published prompts, uses, forks, comparison wins."""
+    from . import battles
     with get_db() as conn:
         rows = conn.execute(
-            f"SELECT id, title, use_case, author_name, danger_summary, cost_summary, reliability, updated_at "
-            f"FROM prompts WHERE author_id = %s AND {PUBLIC_PRED} ORDER BY updated_at DESC LIMIT 200",
+            f"SELECT id, title, use_case, author_name, danger_summary, cost_summary, reliability, use_count, "
+            f"runs_per_day, updated_at FROM prompts WHERE author_id = %s AND {PUBLIC_PRED} "
+            f"ORDER BY use_count DESC, updated_at DESC LIMIT 200",
             (author_id,),
         ).fetchall()
         ids = [r["id"] for r in rows]
         forks = 0
         if ids:
             forks = conn.execute(
-                f"SELECT COUNT(*) AS n FROM prompts WHERE parent_id = ANY(%s)", (ids,)
+                "SELECT COUNT(*) AS n FROM prompts WHERE parent_id = ANY(%s)", (ids,)
             ).fetchone()["n"]
+        name_row = conn.execute("SELECT author_name FROM battle_entries WHERE author_id = %s LIMIT 1",
+                                (author_id,)).fetchone()
+        closed = conn.execute(
+            "SELECT DISTINCT b.id FROM battles b JOIN battle_entries e ON e.battle_id = b.id "
+            "WHERE e.author_id = %s AND b.status = 'closed'", (author_id,)).fetchall()
+        wins = 0
+        for b in closed:
+            entries = [hydrate(e) for e in conn.execute(
+                "SELECT id, author_id, cost, danger FROM battle_entries WHERE battle_id = %s", (b["id"],)).fetchall()]
+            votes = conn.execute("SELECT entry_a, entry_b, winner FROM battle_votes WHERE battle_id = %s "
+                                 "ORDER BY created_at, id", (b["id"],)).fetchall()
+            board = battles.leaderboard(entries, votes, "best")
+            if board and board[0].get("author_id") == author_id and board[0]["votes"] > 0:
+                wins += 1
     prompts = [hydrate(r) for r in rows]
-    return {"author_id": author_id,
-            "author_name": prompts[0]["author_name"] if prompts else None,
-            "prompts": prompts, "total_forks": forks}
+    name = prompts[0]["author_name"] if prompts else (name_row or {}).get("author_name")
+    return {"author_id": author_id, "author_name": name, "prompts": prompts,
+            "total_forks": forks, "total_uses": sum(p.get("use_count") or 0 for p in prompts),
+            "comparison_wins": wins}

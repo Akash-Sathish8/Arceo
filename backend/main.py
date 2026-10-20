@@ -14,7 +14,7 @@ import anyio
 import anyio.to_thread
 from dataclasses import asdict
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Literal, Optional
 import logging
 logger = logging.getLogger(__name__)
 
@@ -1800,6 +1800,9 @@ class SignupRequest(BaseModel):
     email: str
     password: str
     name: str = ""
+    # Which product the signup came for: a founder arriving from the prompts
+    # page gets a prompts workspace (Prompts-first sidebar and landing).
+    workspace: Literal["agents", "prompts"] = "agents"
 
 
 @app.post("/api/auth/signup")
@@ -1848,8 +1851,8 @@ def signup(req: SignupRequest, request: Request):
         # Each new account gets its own organization — the tenant boundary every
         # other query scopes by. (The seeded demo admin stays in DEFAULT_ORG_ID.)
         conn.execute(
-            "INSERT INTO organizations (id, name, created_at) VALUES (%s, %s, %s)",
-            (org_id, org_name, now),
+            "INSERT INTO organizations (id, name, created_at, workspace) VALUES (%s, %s, %s, %s)",
+            (org_id, org_name, now, req.workspace),
         )
         conn.execute(
             "INSERT INTO users (id, email, password_hash, name, role, org_id, created_at) VALUES (%s, %s, %s, %s, %s, %s, %s)",
@@ -1860,7 +1863,7 @@ def signup(req: SignupRequest, request: Request):
     token = create_token(user_id, req.email, "admin", org_id=org_id)
     return {
         "token": token,
-        "user": {"id": user_id, "email": req.email, "name": name, "role": "admin"},
+        "user": {"id": user_id, "email": req.email, "name": name, "role": "admin", "workspace": req.workspace},
     }
 
 
@@ -4671,7 +4674,11 @@ def send_test_digest(user: dict = Depends(get_current_user)):
 #: force_push, merge_pull_request and delete_branch — so reusing it for repo
 #: READS would mean every scan runs with a production write credential. Two
 #: purposes, two secrets, and a customer can grant the scan one read-only scope.
-VAULT_SUPPORTED_PROVIDERS = {"stripe", "github", "github_scan", "sendgrid", "zendesk", "salesforce"}
+# llm_anthropic / llm_openai: a customer's own model key for prompt QA, compare
+# and workflow runs (prompts/qa.py). Named apart from the proxy's service names
+# so storing one never changes how /proxy forwards.
+VAULT_SUPPORTED_PROVIDERS = {"stripe", "github", "github_scan", "sendgrid", "zendesk", "salesforce",
+                             "llm_anthropic", "llm_openai"}
 
 
 def _github_scan_token(org_id: str) -> tuple[str | None, str]:
@@ -8342,12 +8349,14 @@ from prompts.router import router as _prompts_router  # noqa: E402
 from prompts.workflow_router import router as _prompt_workflows_router  # noqa: E402
 from prompts.battle_router import public_router as _battles_public_router  # noqa: E402
 from prompts.battle_router import router as _battles_router  # noqa: E402
+from prompts.workspace_router import router as _workspace_router  # noqa: E402
 
 app.include_router(_prompts_router)
 app.include_router(_prompts_public_router)
 app.include_router(_prompt_workflows_router)
 app.include_router(_battles_router)
 app.include_router(_battles_public_router)
+app.include_router(_workspace_router)
 
 
 

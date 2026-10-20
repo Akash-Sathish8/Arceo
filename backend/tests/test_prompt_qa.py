@@ -19,8 +19,8 @@ class FakeModel:
     def __init__(self, obey: bool, reply: str = "- point one\n- point two\n- point three", out_tokens: int = 42):
         self.obey, self.reply, self.out_tokens, self.calls = obey, reply, out_tokens, []
 
-    def __call__(self, model_key, provider, system, user_text, org_id, max_tokens=1024):
-        self.calls.append({"model": model_key, "system": system, "user": user_text, "org": org_id})
+    def __call__(self, model_key, provider, system, user_text, org_id, max_tokens=1024, api_key=None):
+        self.calls.append({"model": model_key, "system": system, "user": user_text, "org": org_id, "key": api_key})
         text = self.reply
         if self.obey:
             import re
@@ -32,9 +32,16 @@ class FakeModel:
         return {"text": text, "input_tokens": 120, "output_tokens": self.out_tokens, "latency_ms": 5}
 
 
+@pytest.fixture(autouse=True)
+def _server_key(monkeypatch):
+    # A fake server key so runs resolve to "Arceo's key + free allowance"; no
+    # call leaves the process because call_model is replaced in every test.
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test-not-real")
+
+
 @pytest.fixture()
 def org(client):
-    from tests.conftest import _signup_org
+    from tests.prompt_helpers import signup as _signup_org
     return _signup_org(client, f"qa-{uuid.uuid4().hex[:8]}@example.com")
 
 
@@ -110,7 +117,7 @@ def test_low_reliability_blocks_publishing(client, org, monkeypatch):
                json={"checks": [{"type": "max_words", "value": "20"}], "probes": False})
     assert client.post(f"/api/prompts/{p['id']}/qa", headers=org["headers"]).json()["reliability"] == 0.0
     r = client.post(f"/api/prompts/{p['id']}/publish", headers=org["headers"], json={})
-    assert r.status_code == 409 and "QA cases" in r.json()["detail"]
+    assert r.status_code == 409 and "QA tests" in r.json()["detail"]
 
 
 def test_run_cap_refuses_before_spending(client, org, monkeypatch):
@@ -118,8 +125,9 @@ def test_run_cap_refuses_before_spending(client, org, monkeypatch):
     monkeypatch.setattr(qa, "call_model", fake)
     monkeypatch.setattr(qa, "RUN_CAP_USD", 0.0000001)
     p = _mk(client, org)
+    fake.calls.clear()  # saving runs the AI check; only the QA run must spend nothing
     r = client.post(f"/api/prompts/{p['id']}/qa", headers=org["headers"])
-    assert r.status_code == 400 and "per-run cap" in r.json()["detail"]
+    assert r.status_code == 400 and "per-run limit" in r.json()["detail"]
     assert fake.calls == []
 
 
@@ -139,11 +147,12 @@ def test_unpriced_model_is_refused(client, org, monkeypatch):
     assert r.status_code == 400 and "price catalog" in r.json()["detail"]
 
 
-def test_no_key_is_a_clear_503(client, org):
-    # conftest blanks ANTHROPIC_API_KEY, so the real call_model refuses up front.
+def test_no_key_anywhere_tells_the_customer_what_to_do(client, org, monkeypatch):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     p = _mk(client, org)
     r = client.post(f"/api/prompts/{p['id']}/qa", headers=org["headers"])
-    assert r.status_code == 503 and "API key" in r.json()["detail"]
+    assert r.status_code == 400
+    assert "Settings" in r.json()["detail"] and "server" not in r.json()["detail"]
 
 
 def test_other_org_cannot_run_or_read_qa(client, two_orgs, monkeypatch):
