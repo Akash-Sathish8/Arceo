@@ -60,6 +60,8 @@ class TurnUsage:
     input_tokens: int
     cached_input_tokens: int
     output_tokens: int
+    # Wall-clock time of the provider round-trip; 0 on traces saved before it existed.
+    latency_ms: int = 0
 
 
 @dataclass

@@ -73,11 +73,11 @@ def _validate(spec: WorkflowSpec, prompts: list[Optional[dict]]) -> None:
         body_vars = set(variables_in(p["body"]))
         for var, src in step.input_map.items():
             if var not in body_vars:
-                raise WorkflowError(f"Step {idx + 1}: the prompt has no {{{{{var}}}}}.")
+                raise WorkflowError(f"Step {idx + 1}: the prompt has no {var.replace('_', ' ')} blank.")
             if src.source == "step" and (src.step is None or src.step >= idx):
-                raise WorkflowError(f"Step {idx + 1}: {{{{{var}}}}} can only use the output of an EARLIER step.")
+                raise WorkflowError(f"Step {idx + 1}: the {var.replace('_', ' ')} blank can only use the answer from an EARLIER step.")
             if src.source == "input" and src.name not in names:
-                raise WorkflowError(f"Step {idx + 1}: {{{{{var}}}}} uses an input that isn't defined.")
+                raise WorkflowError(f"Step {idx + 1}: the {var.replace('_', ' ')} blank uses something you paste in that hasn't been set up.")
 
 
 def _input_untrusted(inp: WorkflowInput) -> bool:
@@ -164,9 +164,9 @@ def score_workflow(spec: WorkflowSpec, prompts: list[Optional[dict]], org_id: Op
             src_step = step.input_map[upstream[0]].step
             reasons.append({**_reason(
                 "chain", top["points"] + CHAIN_UPLIFT,
-                f"Pasted content can steer step {idx + 1} through step {src_step + 1}",
-                f"Step {src_step + 1} reads untrusted content and its output feeds step {idx + 1}, which can act "
-                f"({top['title'].lower()}). An attacker's text survives the hand-off.",
+                f"A stranger's message in step {src_step + 1} could steer step {idx + 1}",
+                f"Step {src_step + 1} reads text from outside, and its answer goes into step {idx + 1}, which takes action "
+                f"({top['title'].lower()}). Hidden instructions in that text can carry through from one step to the next.",
                 f"step {src_step + 1} -> step {idx + 1}"), "step": idx})
 
     by_factor: dict[str, float] = {}

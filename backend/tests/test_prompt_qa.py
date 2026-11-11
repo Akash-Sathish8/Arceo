@@ -117,7 +117,7 @@ def test_low_reliability_blocks_publishing(client, org, monkeypatch):
                json={"checks": [{"type": "max_words", "value": "20"}], "probes": False})
     assert client.post(f"/api/prompts/{p['id']}/qa", headers=org["headers"]).json()["reliability"] == 0.0
     r = client.post(f"/api/prompts/{p['id']}/publish", headers=org["headers"], json={})
-    assert r.status_code == 409 and "QA tests" in r.json()["detail"]
+    assert r.status_code == 409 and "of its tests" in r.json()["detail"]
 
 
 def test_run_cap_refuses_before_spending(client, org, monkeypatch):

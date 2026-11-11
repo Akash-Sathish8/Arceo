@@ -20,7 +20,7 @@ from analysis.spend_forecast import load_defaults, price_call
 from auth import get_current_user
 from db import get_db
 
-from . import ai_check, qa, store
+from . import agent_try, ai_check, qa, store
 from .cost import default_models, score_cost
 from .danger import score_danger
 from .fixer import fix_prompt
@@ -103,6 +103,15 @@ class CompareVariant(BaseModel):
 class CompareRequest(BaseModel):
     variants: list[CompareVariant] = Field(..., min_length=2, max_length=3)
     model: Optional[str] = Field(default=None, max_length=80)
+
+
+class AgentTryRequest(BaseModel):
+    agent_id: str = Field(..., min_length=1, max_length=80)
+    mode: Literal["instructions", "task"] = "task"
+    task: Optional[str] = Field(default=None, max_length=4000)
+    values: Optional[dict[str, str]] = None
+    # The editor's unsaved text, so the estimate follows edits before a save.
+    body: Optional[str] = Field(default=None, max_length=MAX_BODY_CHARS)
 
 
 class PublicScoreRequest(BaseModel):
@@ -293,7 +302,7 @@ def dismiss_reason(prompt_id: str, req: DismissRequest, user: dict = Depends(get
     current = (p.get("danger_summary") or {}).get("reasons") or []
     match = next((r for r in current if r.get("id") == req.reason_id), None)
     if req.dismissed and (not match or not match.get("dismissable")):
-        raise HTTPException(status_code=400, detail="That risk can't be marked not applicable.")
+        raise HTTPException(status_code=400, detail="That risk can't be marked as not applying.")
     dismissed = [d for d in (p.get("dismissed") or []) if d != req.reason_id]
     if req.dismissed:
         dismissed.append(req.reason_id)
@@ -319,16 +328,16 @@ def publish_prompt(prompt_id: str, req: PublishRequest, user: dict = Depends(get
         reliability = None  # the text changed since that QA run
     if reliability is not None and reliability < PUBLISH_MIN_RELIABILITY:
         raise HTTPException(status_code=409, detail=(
-            f"This prompt worked in {round(reliability * 100)}% of its QA tests. "
-            f"Get it to {round(PUBLISH_MIN_RELIABILITY * 100)}% or more before publishing."))
+            f"This prompt did the job in {round(reliability * 100)}% of its tests. "
+            f"Get it to {round(PUBLISH_MIN_RELIABILITY * 100)}% or more before sharing it."))
     cost, danger = _rescore_saved(p, _org(user))
     if danger["publish_blockers"]:
         raise HTTPException(status_code=409, detail=(
-            "Publishing blocked: remove the API key or personal data from the prompt first. "
+            "Publishing blocked: take the password, key or personal info out of the prompt first. "
             "Fix it for me does this."))
     if danger["band"] == "critical" and not req.acknowledge_risk:
         raise HTTPException(status_code=409, detail=(
-            "This prompt scores critical. Confirm you accept the risk to publish it."))
+            "This prompt scores critical. Tick the box to confirm you accept the risk, then share it."))
     version = int(p.get("published_version") or 0) + 1
     ts = store.now()
     with get_db() as conn:
@@ -439,6 +448,41 @@ def compare_versions(prompt_id: str, req: CompareRequest, user: dict = Depends(g
         raise HTTPException(status_code=e.status, detail=str(e))
     return {"model": model_key, "cases": [c.model_dump() for c in cases], "variants": out,
             "usd_total": round(total, 6), "runs_per_day": p.get("runs_per_day")}
+
+
+def _try_inputs(prompt_id: str, req: AgentTryRequest, user: dict, conn) -> tuple[dict, dict]:
+    from db import get_agent_from_db
+    p = _owned(prompt_id, user)
+    if req.body is not None:
+        p = {**p, "body": req.body}
+    agent = get_agent_from_db(conn, req.agent_id, org_id=_org(user))
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agent not found")
+    return p, agent
+
+
+@router.post("/{prompt_id}/agent-try/estimate")
+def agent_try_estimate(prompt_id: str, req: AgentTryRequest, user: dict = Depends(get_current_user)):
+    """Free: what this prompt can reach inside one of your agents, and what it costs there."""
+    _rate_limit(user)
+    with get_db() as conn:
+        p, agent = _try_inputs(prompt_id, req, user, conn)
+        return agent_try.estimate(conn, p, agent, req.mode, req.task, req.values, _org(user))
+
+
+@router.post("/{prompt_id}/agent-try/run")
+async def agent_try_run(prompt_id: str, req: AgentTryRequest, user: dict = Depends(get_current_user)):
+    """One real sandbox run of the agent with this prompt. Costs one run."""
+    from main import _budget_gate, _run_heavy_job
+    _require_editor(user)
+    _qa_rate_limit(user)
+    with get_db() as conn:
+        p, agent = _try_inputs(prompt_id, req, user, conn)
+    _budget_gate(agent["id"], _org(user))
+    try:
+        return await _run_heavy_job(agent_try.run, p, agent, req.mode, req.task, req.values, _org(user), user)
+    except qa.QaError as e:
+        raise HTTPException(status_code=e.status, detail=str(e))
 
 
 @router.post("/{prompt_id}/use")

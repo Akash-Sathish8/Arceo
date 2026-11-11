@@ -14,7 +14,7 @@ import { Button } from "@/components/ui/Button"
 import DangerBadge from "@/components/prompts/DangerBadge"
 import { CARD, EYEBROW, FIELD, Label, PAGE_PAD, SegControl, TD, TH } from "@/components/prompts/ui"
 import {
-  BASIS_LABEL, createWorkflow, deleteWorkflow, formatRunCost, getPrompt, getWorkflow, listPrompts, publishWorkflow,
+  BASIS_LABEL, blankName, createWorkflow, deleteWorkflow, formatRunCost, getPrompt, getWorkflow, listPrompts, modelName, publishWorkflow,
   runWorkflow, scoreWorkflow, updateWorkflow,
   type Prompt, type PromptListItem, type PromptWorkflow, type StepSource, type WorkflowRunResult, type WorkflowScore,
   type WorkflowSpec,
@@ -50,32 +50,32 @@ function RunPanel({ wf, spec }: { wf: PromptWorkflow; spec: WorkflowSpec }) {
 
   async function run() {
     setBusy(true)
-    try { setResult(await runWorkflow(wf.id, inputs, model)); toast("Workflow ran") }
+    try { setResult(await runWorkflow(wf.id, inputs, model)); toast("Done. Every step ran.") }
     catch (e) { toast((e as Error).message, "error") }
     finally { setBusy(false) }
   }
 
   return (
     <div style={CARD}>
-      <div style={EYEBROW}>Run it</div>
+      <div style={EYEBROW}>Try it</div>
       <p style={{ fontSize: "var(--fs-small)", color: "var(--ink-500)", marginTop: 6 }}>
-        Runs every step for real, feeding each result into the next. Uses one run.
+        Runs every step for real, passing each answer to the next step. Uses one free test.
       </p>
       {spec.inputs.map((inp) => (
         <div key={inp.name} style={{ marginTop: 10 }}>
-          <Label htmlFor={`run-${inp.name}`}>{inp.name.replace(/_/g, " ")}</Label>
+          <Label htmlFor={`run-${inp.name}`}>{blankName(inp.name)}</Label>
           <textarea id={`run-${inp.name}`} rows={4} style={{ ...FIELD, resize: "vertical" }} value={inputs[inp.name] ?? ""}
             onChange={(e) => setInputs((v) => ({ ...v, [inp.name]: e.target.value }))} />
         </div>
       ))}
       <div style={{ display: "flex", gap: 10, alignItems: "flex-end", flexWrap: "wrap", marginTop: 10 }}>
         <div>
-          <Label htmlFor="run-model">Model</Label>
+          <Label htmlFor="run-model">AI model</Label>
           <select id="run-model" style={{ ...FIELD, width: 180 }} value={model} onChange={(e) => setModel(e.target.value)}>
-            {RUN_MODELS.map((m) => <option key={m}>{m}</option>)}
+            {RUN_MODELS.map((m) => <option key={m} value={m}>{modelName(m)}</option>)}
           </select>
         </div>
-        <Button icon={<Play size={13} />} loading={busy} onClick={() => void run()}>Run workflow</Button>
+        <Button icon={<Play size={13} />} loading={busy} onClick={() => void run()}>Run all steps</Button>
       </div>
       {result && (
         <div style={{ marginTop: 14, borderTop: "1px solid var(--line)", paddingTop: 12 }}>
@@ -184,7 +184,7 @@ export default function PromptWorkflowBuilder() {
       <PageHeader
         back={{ to: "/prompt-workflows", label: "Prompt workflows" }}
         title={isNew ? "New workflow" : title}
-        description={owned ? "Chain prompts: each blank uses something you paste in, or an earlier step's result." : `By ${wf?.author_name ?? "a creator"}`}
+        description={owned ? "Link prompts into steps. Each blank gets something you paste in, or the answer from an earlier step." : `By ${wf?.author_name ?? "a creator"}`}
         actions={owned ? (
           <>
             {!isNew && <Button variant="ghost" size="sm" icon={<Trash2 size={14} />}
@@ -217,7 +217,7 @@ export default function PromptWorkflowBuilder() {
                   </div>
                   {vars.length > 0 && (
                     <table style={{ width: "100%", borderCollapse: "collapse", marginTop: 8 }}>
-                      <thead><tr><th style={TH}>Blank</th><th style={TH}>Uses</th></tr></thead>
+                      <thead><tr><th style={TH}>Blank</th><th style={TH}>Filled with</th></tr></thead>
                       <tbody>
                         {vars.map((v) => (
                           <tr key={v}>
@@ -259,7 +259,7 @@ export default function PromptWorkflowBuilder() {
                   <select aria-label={`Source of ${inp.name}`} style={{ ...FIELD, width: 170 }}
                     value={inp.untrusted == null ? "auto" : inp.untrusted ? "untrusted" : "trusted"}
                     onChange={(e) => setSpec((s) => ({ ...s, inputs: s.inputs.map((x, j) => j === i ? { ...x, untrusted: e.target.value === "auto" ? undefined : e.target.value === "untrusted" } : x) }))}>
-                    <option value="auto">Auto-detect</option><option value="untrusted">From outside (untrusted)</option><option value="trusted">You write it</option>
+                    <option value="auto">Guess for me</option><option value="untrusted">Someone else (emails, web pages, customers)</option><option value="trusted">Me</option>
                   </select>
                   <input aria-label={`Expected tokens for ${inp.name}`} type="number" min={0} placeholder="~tokens" style={{ ...FIELD, width: 100 }}
                     value={inp.expected_tokens ?? ""}
@@ -277,12 +277,12 @@ export default function PromptWorkflowBuilder() {
           {scoreError && <div style={{ ...CARD, color: "var(--critical)", fontSize: "var(--fs-small)" }}>{scoreError}</div>}
           {!score ? (
             <div style={{ ...CARD, color: "var(--ink-500)", fontSize: "var(--fs-small)" }}>
-              <Plus size={14} style={{ verticalAlign: -2 }} /> Add a step to see the workflow's cost and danger.
+              <Plus size={14} style={{ verticalAlign: -2 }} /> Add a step to see what the whole workflow costs and whether it's safe.
             </div>
           ) : (
             <>
               <div style={CARD}>
-                <div style={EYEBROW}>How dangerous, end to end</div>
+                <div style={EYEBROW}>Is it safe? (all steps)</div>
                 <div style={{ marginTop: 10 }}><DangerBadge danger={score.danger} size={52} /></div>
                 <ul style={{ listStyle: "none", padding: 0, margin: "12px 0 0", display: "flex", flexDirection: "column", gap: 10 }}>
                   {score.danger.reasons.slice(0, 6).map((r, i) => {
@@ -301,25 +301,24 @@ export default function PromptWorkflowBuilder() {
               </div>
               <div style={CARD}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-                  <div style={EYEBROW}>Cost per run, all steps</div>
-                  {cheapest && <span style={{ fontFamily: "var(--font-num)", fontWeight: 600 }}>{formatRunCost(cheapest.usd_per_run)} on {cheapest.model_key}</span>}
+                  <div style={EYEBROW}>Cost each time, all steps</div>
+                  {cheapest && <span style={{ fontFamily: "var(--font-num)", fontWeight: 600 }}>{formatRunCost(cheapest.usd_per_run)} on {modelName(cheapest.model_key)}</span>}
                 </div>
                 <div style={{ overflowX: "auto", marginTop: 8 }}>
                   <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 360 }}>
-                    <thead><tr><th style={TH}>Model</th><th style={{ ...TH, textAlign: "right" }}>Per run</th><th style={{ ...TH, textAlign: "right" }}>Per 1,000</th></tr></thead>
+                    <thead><tr><th style={TH}>AI model</th><th style={{ ...TH, textAlign: "right" }}>Each time</th></tr></thead>
                     <tbody>
                       {score.cost.models.map((m) => (
                         <tr key={m.model}>
-                          <td style={TD}>{m.model_key ?? m.model}</td>
+                          <td style={TD}>{modelName(m.model_key ?? m.model)}</td>
                           {m.available ? (
                             <>
                               <td style={{ ...TD, textAlign: "right", fontFamily: "var(--font-num)" }}>
                                 {m.is_floor ? "≥ " : ""}{formatRunCost(m.usd_per_run)}
                                 <div style={{ fontSize: "var(--fs-micro)", color: "var(--ink-400)", fontFamily: "var(--font-sans)" }}>{BASIS_LABEL[m.is_floor ? "floor" : (m.basis ?? "heuristic")]}</div>
                               </td>
-                              <td style={{ ...TD, textAlign: "right", fontFamily: "var(--font-num)" }}>{formatRunCost(m.usd_per_1k_runs)}</td>
                             </>
-                          ) : <td style={{ ...TD, color: "var(--ink-400)" }} colSpan={2}>Not priced</td>}
+                          ) : <td style={{ ...TD, color: "var(--ink-400)" }}>Price not available yet</td>}
                         </tr>
                       ))}
                     </tbody>
@@ -331,7 +330,7 @@ export default function PromptWorkflowBuilder() {
                 <div style={CARD}>
                   <div style={{ ...EYEBROW, marginBottom: 10 }}>Share</div>
                   <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
-                    <SegControl options={[{ value: "public", label: "Community" }, { value: "org", label: "My team" }] as const} value={visibility} onChange={setVisibility} />
+                    <SegControl options={[{ value: "public", label: "Everyone" }, { value: "org", label: "Just my team" }] as const} value={visibility} onChange={setVisibility} />
                     <Button onClick={() => publishWorkflow(wf.id, visibility).then((w) => { setWf(w); toast("Published") }).catch((e: Error) => toast(e.message, "error"))}>
                       Publish
                     </Button>

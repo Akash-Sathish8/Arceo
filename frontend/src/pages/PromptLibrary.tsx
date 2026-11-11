@@ -16,7 +16,7 @@ import { Button } from "@/components/ui/Button"
 import { Input } from "@/components/ui/Input"
 import DangerBadge from "@/components/prompts/DangerBadge"
 import { CARD, FIELD, PAGE_PAD, Pill, SegControl } from "@/components/prompts/ui"
-import { formatMonthly, formatRunCost, headlineCost, listPrompts, monthlyCost, type PromptListItem } from "@/lib/promptsApi"
+import { formatMonthly, formatRunCost, headlineCost, listPrompts, modelName, monthlyCost, type PromptListItem } from "@/lib/promptsApi"
 import { scoreBand, timeAgo } from "@/lib/utils"
 
 type Scope = "all" | "mine" | "public"
@@ -32,8 +32,8 @@ function cardCost(p: PromptListItem): { value: number | null; text: string; sub:
   const row = headlineCost(p.cost_summary, p.model)
   if (!row || row.usd_per_run == null) return { value: null, text: "n/a", sub: "" }
   const m = monthlyCost(row.usd_per_run, p.runs_per_day)
-  if (m != null) return { value: m, text: `${row.is_floor ? "≥ " : ""}${formatMonthly(m)}`, sub: `${p.runs_per_day}/day on ${row.model_key}` }
-  return { value: row.usd_per_run, text: `${row.is_floor ? "≥ " : ""}${formatRunCost(row.usd_per_run)}`, sub: `a run on ${row.model_key}` }
+  if (m != null) return { value: m, text: `${row.is_floor ? "≥ " : ""}${formatMonthly(m)}`, sub: `${p.runs_per_day}× a day on ${modelName(row.model_key)}` }
+  return { value: row.usd_per_run, text: `${row.is_floor ? "≥ " : ""}${formatRunCost(row.usd_per_run)}`, sub: `each time, on ${modelName(row.model_key)}` }
 }
 
 function PromptCard({ p, onOpen }: { p: PromptListItem; onOpen: () => void }) {
@@ -62,7 +62,7 @@ function PromptCard({ p, onOpen }: { p: PromptListItem; onOpen: () => void }) {
           </div>
           <div style={{ fontSize: "var(--fs-small)", color: "var(--ink-500)", marginTop: 2,
             overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-            {[p.use_case, p.owned ? "You" : p.author_name, p.use_count ? `used ${p.use_count}×` : null, timeAgo(p.updated_at)].filter(Boolean).join(" · ")}
+            {[p.use_case, p.owned ? "You" : p.author_name, p.use_count ? `used ${p.use_count} ${p.use_count === 1 ? "time" : "times"}` : null, timeAgo(p.updated_at)].filter(Boolean).join(" · ")}
           </div>
         </div>
         {p.owned && p.status === "draft" && <Pill>Draft</Pill>}
@@ -121,7 +121,7 @@ export default function PromptLibrary() {
     <div style={{ padding: PAGE_PAD }}>
       <PageHeader
         title="Prompts"
-        description="See what every prompt costs a month and how it could be abused, before you ship it."
+        description="Ready-made AI prompts for everyday work. Each one shows what it costs a month and whether it's safe to use."
         actions={<Button icon={<Plus size={14} />} onClick={() => navigate("/prompts/new")}>New prompt</Button>}
       />
 
@@ -129,11 +129,11 @@ export default function PromptLibrary() {
         <div style={{ ...CARD, display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap", marginBottom: 18, background: "var(--accent-soft)" }}>
           <Sparkles size={18} style={{ color: "var(--accent-ink)", flexShrink: 0 }} />
           <div style={{ flex: "1 1 260px", fontSize: "var(--fs-small)", color: "var(--accent-ink)", lineHeight: 1.5 }}>
-            <b>Start in 30 seconds.</b> Open an example, see its monthly cost and danger, and fix it with one click.
-            Or paste a prompt you already use.
+            <b>New here? Start with an example.</b> You'll see what it costs and whether it's safe, and you can make it safer with one click.
+            Or paste in something you already ask ChatGPT or Claude to do.
           </div>
           <Button size="sm" onClick={() => navigate("/prompts/new?example=1")}>Try an example</Button>
-          <Button variant="secondary" size="sm" onClick={() => navigate("/prompts/new")}>Paste my own</Button>
+          <Button variant="secondary" size="sm" onClick={() => navigate("/prompts/new")}>Paste my own prompt</Button>
         </div>
       )}
 
@@ -143,13 +143,13 @@ export default function PromptLibrary() {
           <Input icon={<Search size={14} />} placeholder="Search prompts" value={q} onChange={(e) => setQ(e.target.value)} />
         </div>
         <select aria-label="Sort" style={{ ...FIELD, width: 170 }} value={sort} onChange={(e) => setSort(e.target.value as Sort)}>
-          <option value="recent">Newest</option>
-          <option value="cheapest">Cheapest</option>
-          <option value="safest">Safest</option>
-          <option value="used">Most used</option>
+          <option value="recent">Newest first</option>
+          <option value="cheapest">Cheapest first</option>
+          <option value="safest">Safest first</option>
+          <option value="used">Most popular</option>
         </select>
         <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: "var(--fs-small)", color: "var(--ink-700)" }}>
-          <input type="checkbox" checked={lowOnly} onChange={(e) => setLowOnly(e.target.checked)} /> Low danger only
+          <input type="checkbox" checked={lowOnly} onChange={(e) => setLowOnly(e.target.checked)} /> Safe ones only
         </label>
       </div>
       {useCases.length > 1 && (
@@ -161,7 +161,7 @@ export default function PromptLibrary() {
                 fontSize: "var(--fs-small)", background: useCase === u ? "var(--ink-900)" : "var(--card)",
                 color: useCase === u ? "var(--paper)" : "var(--ink-700)",
               }}>
-              {u ?? "All use cases"}
+              {u ?? "Everything"}
             </button>
           ))}
         </div>
@@ -177,8 +177,8 @@ export default function PromptLibrary() {
         <EmptyState
           icon={<ScrollText size={22} />}
           title={items.length ? "Nothing matches those filters" : scope === "public" ? "No community prompts yet" : "No prompts yet"}
-          body={items.length ? "Try another use case, or turn off Low danger only." :
-            <>Paste a prompt you use every week, or <Link to="/prompts/new?example=1">try an example</Link>.</>}
+          body={items.length ? "Try another category, or turn off Safe ones only." :
+            <>Paste in something you ask an AI to do every week, or <Link to="/prompts/new?example=1">try an example</Link>.</>}
           action={items.length ? undefined : <Button onClick={() => navigate("/prompts/new")}>New prompt</Button>}
         />
       ) : (

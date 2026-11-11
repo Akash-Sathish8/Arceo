@@ -13,7 +13,7 @@ import ErrorState from "@/components/shared/ErrorState"
 import { toast } from "@/components/shared/Toast"
 import { Button } from "@/components/ui/Button"
 import { CARD, FIELD, Label, PAGE_PAD, Pill } from "@/components/prompts/ui"
-import { createBattle, listBattles, type BattleInput, type BattleSummary } from "@/lib/promptsApi"
+import { createBattle, listBattles, modelName, type BattleInput, type BattleSummary } from "@/lib/promptsApi"
 import { timeAgo } from "@/lib/utils"
 
 function CreateBattle({ onDone }: { onDone: (id: string) => void }) {
@@ -26,10 +26,10 @@ function CreateBattle({ onDone }: { onDone: (id: string) => void }) {
 
   async function submit() {
     const filled = inputs.map((v) => v.trim()).filter(Boolean)
-    if (!title.trim() || !task.trim() || filled.length === 0) { toast("Add a title, the task, and at least one input.", "error"); return }
+    if (!title.trim() || !task.trim() || filled.length === 0) { toast("Add a title, the task, and at least one example.", "error"); return }
     setBusy(true)
     try {
-      const body: BattleInput[] = filled.map((v, i) => ({ label: `input ${i + 1}`, values: { [variable]: v } }))
+      const body: BattleInput[] = filled.map((v, i) => ({ label: `example ${i + 1}`, values: { [variable]: v } }))
       const b = await createBattle({ title, task, model, inputs: body })
       onDone(b.id)
     } catch (e) { toast((e as Error).message, "error") } finally { setBusy(false) }
@@ -39,11 +39,11 @@ function CreateBattle({ onDone }: { onDone: (id: string) => void }) {
     <div style={{ ...CARD, marginBottom: 18 }}>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 12 }}>
         <div><Label htmlFor="b-title">Title</Label><input id="b-title" style={FIELD} value={title} placeholder="Best cold-email opener" onChange={(e) => setTitle(e.target.value)} /></div>
-        <div><Label htmlFor="b-var">Variable name</Label><input id="b-var" style={FIELD} value={variable} onChange={(e) => setVariable(e.target.value.replace(/[^A-Za-z0-9_]/g, "") || "input")} /></div>
+        <div><Label htmlFor="b-var">Name of the blank</Label><input id="b-var" style={FIELD} value={variable} placeholder="e.g. product" onChange={(e) => setVariable(e.target.value.replace(/\s+/g, "_").replace(/[^A-Za-z0-9_]/g, "") || "input")} /></div>
         <div>
-          <Label htmlFor="b-model">Model</Label>
+          <Label htmlFor="b-model">AI model</Label>
           <select id="b-model" style={FIELD} value={model} onChange={(e) => setModel(e.target.value)}>
-            {["claude-haiku-4-5", "claude-sonnet-4-6", "gpt-5-mini", "gpt-4o-mini"].map((m) => <option key={m}>{m}</option>)}
+            {["claude-haiku-4-5", "claude-sonnet-4-6", "gpt-5-mini", "gpt-4o-mini"].map((m) => <option key={m} value={m}>{modelName(m)}</option>)}
           </select>
         </div>
       </div>
@@ -53,15 +53,15 @@ function CreateBattle({ onDone }: { onDone: (id: string) => void }) {
           placeholder="Write a 2-sentence cold email opener for the product described." onChange={(e) => setTask(e.target.value)} />
       </div>
       <div style={{ marginTop: 12 }}>
-        <Label>Hidden inputs for {`{{${variable}}}`} (entrants can't see these)</Label>
+        <Label>Secret examples for the {variable.replace(/_/g, " ")} blank (entrants can't see these)</Label>
         {inputs.map((v, i) => (
           <div key={i} style={{ display: "flex", gap: 6, marginTop: 6 }}>
-            <input aria-label={`Input ${i + 1}`} style={FIELD} value={v} onChange={(e) => setInputs(inputs.map((x, j) => j === i ? e.target.value : x))} />
-            {inputs.length > 1 && <button type="button" aria-label="Remove input" onClick={() => setInputs(inputs.filter((_, j) => j !== i))}
+            <input aria-label={`Example ${i + 1}`} style={FIELD} value={v} onChange={(e) => setInputs(inputs.map((x, j) => j === i ? e.target.value : x))} />
+            {inputs.length > 1 && <button type="button" aria-label="Remove example" onClick={() => setInputs(inputs.filter((_, j) => j !== i))}
               style={{ border: 0, background: "transparent", cursor: "pointer", color: "var(--ink-400)" }}><X size={14} /></button>}
           </div>
         ))}
-        {inputs.length < 5 && <Button variant="ghost" size="sm" icon={<Plus size={13} />} onClick={() => setInputs([...inputs, ""])}>Add input</Button>}
+        {inputs.length < 5 && <Button variant="ghost" size="sm" icon={<Plus size={13} />} onClick={() => setInputs([...inputs, ""])}>Add an example</Button>}
       </div>
       <div style={{ marginTop: 12 }}><Button loading={busy} onClick={() => void submit()}>Start comparison</Button></div>
     </div>
@@ -80,14 +80,14 @@ export default function Battles() {
     <div style={{ padding: PAGE_PAD }}>
       <PageHeader
         title="Compare"
-        description="Same task, same hidden inputs, same model. Vote blind. Rank by quality, by the cheapest prompt that's still good, or by the safest."
+        description="Ask people to write a prompt for the same task. Everyone's prompt runs on the same secret examples, people vote on the answers without knowing whose is whose, and you see which is best, cheapest or safest."
         actions={<Button icon={<Plus size={14} />} onClick={() => setCreating((c) => !c)}>{creating ? "Cancel" : "New comparison"}</Button>}
       />
       {creating && <CreateBattle onDone={(id) => navigate(`/prompt-compare/${id}`)} />}
       {error ? <ErrorState message={error} /> : items === null ? (
         <div className="skeleton" style={{ height: 80, borderRadius: 10 }} aria-busy="true" />
       ) : items.length === 0 ? (
-        <EmptyState icon={<Scale size={22} />} title="No comparisons yet" body="Start one with a task and a few hidden inputs." />
+        <EmptyState icon={<Scale size={22} />} title="No comparisons yet" body="Start one with a task and a few secret examples." />
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           {items.map((b) => (
@@ -99,7 +99,7 @@ export default function Battles() {
                 <div style={{ fontSize: "var(--fs-small)", color: "var(--ink-500)", marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{b.task}</div>
               </div>
               <span style={{ fontSize: "var(--fs-small)", color: "var(--ink-500)", fontFamily: "var(--font-num)" }}>
-                {b.entry_count} entries · {b.vote_count} votes · {b.model} · {timeAgo(b.created_at)}
+                {b.entry_count} entries · {b.vote_count} votes · {modelName(b.model)} · {timeAgo(b.created_at)}
               </span>
               <Pill tone={b.status === "open" ? "accent" : "neutral"}>{b.status === "open" ? "Open" : "Closed"}</Pill>
             </div>

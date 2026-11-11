@@ -7,18 +7,19 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useNavigate, useParams, useSearchParams } from "react-router-dom"
-import { Columns2, Copy, GitFork, Link2, Play, Trash2, X } from "lucide-react"
+import { Columns2, Copy, GitFork, Link2, Play, Plus, Trash2, X } from "lucide-react"
 import PageHeader from "@/components/shared/PageHeader"
 import ErrorState from "@/components/shared/ErrorState"
 import { toast } from "@/components/shared/Toast"
 import { Button } from "@/components/ui/Button"
 import { CostPanel, DangerPanel } from "@/components/prompts/ScorePanels"
 import QaPanel from "@/components/prompts/QaPanel"
+import AgentTryPanel from "@/components/prompts/AgentTryPanel"
 import UseModal from "@/components/prompts/UseModal"
 import CompareVersions from "@/components/prompts/CompareVersions"
 import { CARD, EYEBROW, FIELD, Label, PAGE_PAD, Pill, SegControl, TD, TH } from "@/components/prompts/ui"
 import {
-  OUTPUT_PRESETS, createPrompt, deletePrompt, dismissReason, fixPrompt, forkPrompt, getPrompt, publishPrompt,
+  OUTPUT_PRESETS, blankName, createPrompt, deletePrompt, dismissReason, fixPrompt, forkPrompt, getPrompt, modelName, publishPrompt,
   scorePrompt, tokensToWords, unpublishPrompt, updatePrompt, wordsToTokens,
   type CostSummary, type DangerReason, type DangerSummary, type Prompt, type PromptDraft, type VariableSpec,
 } from "@/lib/promptsApi"
@@ -67,20 +68,21 @@ function VariablesTable({ names, vars, untrusted, onChange, readOnly }: {
   readOnly?: boolean
 }) {
   if (names.length === 0) {
-    return <p style={{ fontSize: "var(--fs-small)", color: "var(--ink-500)" }}>
-      No blanks yet. Write <code>{"{{email}}"}</code> wherever pasted content goes, and it becomes a fill-in field.
+    return <p style={{ fontSize: "var(--fs-small)", color: "var(--ink-500)", lineHeight: 1.5 }}>
+      No blanks yet. A blank is a spot you fill in each time you use the prompt, like an email you paste in.
+      Press <b>Add a blank</b> under the prompt to make one.
     </p>
   }
   return (
     <div style={{ overflowX: "auto" }}>
-      <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 440, tableLayout: "fixed" }}>
-        <colgroup><col style={{ width: 110 }} /><col /><col style={{ width: 96 }} /><col style={{ width: 150 }} /></colgroup>
+      <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 480, tableLayout: "fixed" }}>
+        <colgroup><col style={{ width: 96 }} /><col /><col style={{ width: 90 }} /><col style={{ width: 196 }} /></colgroup>
         <thead>
           <tr>
             <th style={TH}>Blank</th>
-            <th style={TH}>Example text</th>
-            <th style={TH}>Or ~words</th>
-            <th style={TH}>Comes from</th>
+            <th style={TH}>Example</th>
+            <th style={TH}>Usual words</th>
+            <th style={TH}>Who writes it</th>
           </tr>
         </thead>
         <tbody>
@@ -89,7 +91,7 @@ function VariablesTable({ names, vars, untrusted, onChange, readOnly }: {
             const isUntrusted = spec.untrusted ?? untrusted.includes(n)
             return (
               <tr key={n}>
-                <td style={{ ...TD, fontFamily: "var(--font-num)", overflowWrap: "anywhere" }}>{`{{${n}}}`}</td>
+                <td style={{ ...TD, fontWeight: 600, overflowWrap: "anywhere" }}>{blankName(n)}</td>
                 <td style={TD}>
                   <textarea aria-label={`Example for ${n}`} rows={2} disabled={readOnly} value={spec.sample ?? ""}
                     onChange={(e) => onChange(n, { ...spec, sample: e.target.value || undefined })}
@@ -106,9 +108,9 @@ function VariablesTable({ names, vars, untrusted, onChange, readOnly }: {
                     value={spec.untrusted == null ? "auto" : spec.untrusted ? "untrusted" : "trusted"}
                     onChange={(e) => onChange(n, { ...spec, untrusted: e.target.value === "auto" ? undefined : e.target.value === "untrusted" })}
                     style={FIELD}>
-                    <option value="auto">Auto: {isUntrusted ? "pasted" : "yours"}</option>
-                    <option value="untrusted">Pasted from outside</option>
-                    <option value="trusted">You write it</option>
+                    <option value="auto">Guess: {isUntrusted ? "someone else" : "you"}</option>
+                    <option value="untrusted">Someone else (emails, web pages, customers)</option>
+                    <option value="trusted">Me</option>
                   </select>
                 </td>
               </tr>
@@ -171,6 +173,7 @@ export default function PromptDetail() {
   const [showCompare, setShowCompare] = useState(false)
   const [exampleTip, setExampleTip] = useState(showExample)
   const dirty = useRef(false)
+  const bodyRef = useRef<HTMLTextAreaElement>(null)
 
   const load = useCallback(() => {
     if (isNew) { setPrompt(null); return }
@@ -233,7 +236,7 @@ export default function PromptDetail() {
     try {
       const p = await publishPrompt(saved.id, visibility, ack)
       setPrompt(p); setDraft(toDraft(p))
-      toast(visibility === "public" ? "Published to the community" : "Shared with your team")
+      toast(visibility === "public" ? "Shared. Anyone with Arceo can find and use it." : "Shared with your team")
     } catch (e) {
       toast((e as Error).message, "error")
     }
@@ -247,12 +250,29 @@ export default function PromptDetail() {
       setPreFix({ body: draft.body, variables: draft.variables, changes: r.changes })
       set({ body: r.body, variables: { ...draft.variables, ...r.variables } })
       setExampleTip(false)
-      toast(`${r.before.band === r.after.band ? "Hardened" : `Went from ${r.before.band} to ${r.after.band}`}. Review the changes, then save.`)
+      toast(`${r.before.band === r.after.band ? "Made safer" : `Danger went from ${r.before.band} to ${r.after.band}`}. Look over the changes, then save.`)
     } catch (e) {
       toast((e as Error).message, "error")
     } finally {
       setFixing(false)
     }
+  }
+
+  // Insert a {{blank}} at the cursor with its name selected, so the person
+  // types the name straight over it instead of learning the brace syntax.
+  function addBlank() {
+    const el = bodyRef.current
+    let name = "text"
+    for (let i = 2; names.includes(name); i++) name = `text_${i}`
+    const token = `{{${name}}}`
+    const start = el?.selectionStart ?? draft.body.length
+    const end = el?.selectionEnd ?? draft.body.length
+    set({ body: draft.body.slice(0, start) + token + draft.body.slice(end) })
+    requestAnimationFrame(() => {
+      if (!el) return
+      el.focus()
+      el.setSelectionRange(start + 2, start + 2 + name.length)
+    })
   }
 
   function undoFix() {
@@ -275,7 +295,7 @@ export default function PromptDetail() {
   async function onFork() {
     try {
       const p = await forkPrompt(prompt!.id)
-      toast("Forked into your library")
+      toast("Saved a copy to your library. Change it however you like.")
       navigate(`/prompts/${p.id}`)
     } catch (e) { toast((e as Error).message, "error") }
   }
@@ -303,8 +323,8 @@ export default function PromptDetail() {
         back={{ to: "/prompts", label: "Prompts" }}
         title={isNew ? "New prompt" : (prompt?.title ?? "")}
         description={owned
-          ? "Cost and danger update as you type. Drafts are private until you publish."
-          : `By ${prompt?.author_name ?? "a creator"} · version ${prompt?.published_version} · used ${prompt?.use_count ?? 0} times`}
+          ? "The cost and safety check update as you type. Only you can see this until you share it."
+          : `By ${prompt?.author_name ?? "a creator"} · version ${prompt?.published_version} · used ${prompt?.use_count ?? 0} ${prompt?.use_count === 1 ? "time" : "times"}`}
         byline={!owned && prompt?.author_id ? { to: `/creators/${prompt.author_id}`, label: `More from ${prompt.author_name ?? "this creator"}` } : undefined}
         actions={owned ? (
           <>
@@ -320,7 +340,7 @@ export default function PromptDetail() {
         ) : (
           <>
             <Button variant="secondary" icon={<Play size={14} />} onClick={() => setShowUse(true)}>Use</Button>
-            <Button icon={<GitFork size={14} />} onClick={onFork}>Fork to my library</Button>
+            <Button icon={<GitFork size={14} />} onClick={onFork}>Save a copy</Button>
           </>
         )}
       />
@@ -328,8 +348,8 @@ export default function PromptDetail() {
       {exampleTip && (
         <div style={{ ...CARD, display: "flex", gap: 12, alignItems: "flex-start", marginBottom: 16, background: "var(--accent-soft)" }}>
           <div style={{ flex: 1, fontSize: "var(--fs-small)", color: "var(--accent-ink)", lineHeight: 1.5 }}>
-            <b>Here's an example to try.</b> It's risky on purpose: a pasted email can make it issue refunds.
-            Press <b>Fix it for me</b> on the right and watch the danger drop, then change the text to your own prompt.
+            <b>Here's an example to try.</b> It's risky on purpose: a stranger's email could trick it into giving out refunds.
+            Press <b>Fix it for me</b> and watch the danger drop. Then swap in your own words.
           </div>
           <button type="button" aria-label="Dismiss tip" onClick={() => setExampleTip(false)} style={{ border: 0, background: "none", cursor: "pointer", color: "var(--accent-ink)" }}><X size={15} /></button>
         </div>
@@ -351,23 +371,32 @@ export default function PromptDetail() {
                   placeholder="Client email summary" onChange={(e) => set({ title: e.target.value })} />
               </div>
               <div>
-                <Label htmlFor="p-use">Use case</Label>
+                <Label htmlFor="p-use">Category</Label>
                 <input id="p-use" style={FIELD} disabled={!owned} value={draft.use_case}
-                  placeholder="agency ops" onChange={(e) => set({ use_case: e.target.value })} />
+                  placeholder="e.g. sales, support, marketing" onChange={(e) => set({ use_case: e.target.value })} />
               </div>
             </div>
             <div style={{ marginTop: 12 }}>
-              <Label htmlFor="p-body">Prompt</Label>
+              <Label htmlFor="p-body">What should the AI do?</Label>
               <textarea
+                ref={bodyRef}
                 id="p-body" rows={12} disabled={!owned} value={draft.body}
-                placeholder={"Summarize the client email below in 3 bullets.\n{{email}}"}
+                placeholder={"Summarize the client email below in 3 bullet points.\n{{email}}"}
                 onChange={(e) => set({ body: e.target.value })}
-                style={{ ...FIELD, fontFamily: "var(--font-code)", lineHeight: 1.55, resize: "vertical" }}
+                style={{ ...FIELD, lineHeight: 1.55, resize: "vertical" }}
               />
+              {owned && (
+                <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginTop: 6 }}>
+                  <Button variant="ghost" size="sm" icon={<Plus size={13} />} onClick={addBlank}>Add a blank</Button>
+                  <span style={{ fontSize: "var(--fs-micro)", color: "var(--ink-500)", flex: "1 1 220px", lineHeight: 1.45 }}>
+                    Blanks are the parts that change each time, like {"{{email}}"} or {"{{customer_name}}"}. Use one word, no spaces.
+                  </span>
+                </div>
+              )}
             </div>
             {preFix && (
               <div style={{ marginTop: 10, padding: "10px 12px", borderRadius: "var(--radius-md)", background: "var(--paper-2)", fontSize: "var(--fs-small)", color: "var(--ink-700)" }}>
-                <div style={{ fontWeight: 600, marginBottom: 4 }}>Fix it for me changed:</div>
+                <div style={{ fontWeight: 600, marginBottom: 4 }}>What Fix it for me changed:</div>
                 <ul style={{ margin: 0, paddingLeft: 18, lineHeight: 1.5 }}>{preFix.changes.map((c, i) => <li key={i}>{c}</li>)}</ul>
               </div>
             )}
@@ -377,17 +406,17 @@ export default function PromptDetail() {
             <div style={{ ...EYEBROW, marginBottom: 10 }}>How you'll use it</div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 12 }}>
               <div>
-                <Label htmlFor="p-runs">Runs per day</Label>
+                <Label htmlFor="p-runs">Times used a day</Label>
                 <input id="p-runs" type="number" min={0} style={FIELD} disabled={!owned}
                   value={draft.runs_per_day ?? ""} placeholder="e.g. 20"
                   onChange={(e) => set({ runs_per_day: e.target.value ? Number(e.target.value) : null })} />
               </div>
               <div>
-                <Label htmlFor="p-model">Your model</Label>
+                <Label htmlFor="p-model">Which AI?</Label>
                 <select id="p-model" style={FIELD} disabled={!owned} value={draft.model ?? ""}
                   onChange={(e) => set({ model: e.target.value || null })}>
                   <option value="">Not sure (show the cheapest)</option>
-                  {modelOptions.map((m) => <option key={m} value={m}>{m}</option>)}
+                  {modelOptions.map((m) => <option key={m} value={m}>{modelName(m)}</option>)}
                 </select>
               </div>
             </div>
@@ -395,8 +424,8 @@ export default function PromptDetail() {
               <OutputLength tokens={draft.expected_output_tokens} disabled={!owned} onChange={(t) => set({ expected_output_tokens: t })} />
             </div>
             <details style={{ marginTop: 12 }}>
-              <summary style={{ cursor: "pointer", fontSize: "var(--fs-small)", color: "var(--ink-500)" }}>Advanced: tools it can call</summary>
-              <input aria-label="Tools it can call" style={{ ...FIELD, marginTop: 8 }} disabled={!owned} value={draft.tools.join(", ")}
+              <summary style={{ cursor: "pointer", fontSize: "var(--fs-small)", color: "var(--ink-500)" }}>For developers: tools it can use</summary>
+              <input aria-label="Tools it can use" style={{ ...FIELD, marginTop: 8 }} disabled={!owned} value={draft.tools.join(", ")}
                 placeholder="gmail.send_email, stripe.create_refund"
                 onChange={(e) => set({ tools: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) })} />
             </details>
@@ -415,27 +444,27 @@ export default function PromptDetail() {
               <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                 <div style={EYEBROW}>Share</div>
                 {prompt?.status === "published" && (
-                  <Pill tone="accent">v{prompt.published_version} · {prompt.visibility === "org" ? "Team" : "Community"}</Pill>
+                  <Pill tone="accent">Version {prompt.published_version} · {prompt.visibility === "org" ? "shared with your team" : "shared with everyone"}</Pill>
                 )}
               </div>
               <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginTop: 10 }}>
                 <SegControl
-                  options={[{ value: "public", label: "Community" }, { value: "org", label: "My team" }] as const}
+                  options={[{ value: "public", label: "Everyone" }, { value: "org", label: "Just my team" }] as const}
                   value={visibility} onChange={setVisibility}
                 />
                 <Button onClick={() => void publish()} disabled={blocked || (critical && !ack)}>
-                  {prompt?.status === "published" ? "Publish new version" : "Publish"}
+                  {prompt?.status === "published" ? "Share the update" : "Share"}
                 </Button>
                 {prompt?.status === "published" && (
-                  <Button variant="ghost" size="sm" onClick={() => unpublishPrompt(prompt.id).then((p) => { setPrompt(p); toast("Unpublished") })}>
-                    Unpublish
+                  <Button variant="ghost" size="sm" onClick={() => unpublishPrompt(prompt.id).then((p) => { setPrompt(p); toast("No longer shared") })}>
+                    Stop sharing
                   </Button>
                 )}
               </div>
               {critical && !blocked && (
                 <label style={{ display: "flex", gap: 8, alignItems: "flex-start", marginTop: 10, fontSize: "var(--fs-small)", color: "var(--ink-700)" }}>
                   <input type="checkbox" checked={ack} onChange={(e) => setAck(e.target.checked)} style={{ marginTop: 3 }} />
-                  This prompt scores critical. I understand the risks listed and still want to share it.
+                  This prompt is rated critical. I've read the risks listed and still want to share it.
                 </label>
               )}
               {link && (
@@ -455,7 +484,7 @@ export default function PromptDetail() {
         <div style={{ display: "flex", flexDirection: "column", gap: 16, minWidth: 0 }} aria-busy={scoring}>
           {!cost && !danger ? (
             <div style={{ ...CARD, color: "var(--ink-500)", fontSize: "var(--fs-small)" }}>
-              Start typing a prompt to see what it costs a month and how it could be abused.
+              Start typing to see what this prompt costs a month and whether it's safe to use.
             </div>
           ) : (
             <>
@@ -466,6 +495,7 @@ export default function PromptDetail() {
               <CostPanel cost={cost} runsPerDay={draft.runs_per_day} preferredModel={draft.model} />
             </>
           )}
+          {owned && prompt && <AgentTryPanel promptId={prompt.id} body={draft.body} variables={draft.variables} />}
         </div>
       </div>
 

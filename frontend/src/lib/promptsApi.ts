@@ -247,7 +247,7 @@ export const forkPrompt = (id: string) =>
 export const getPublicPrompt = (id: string) =>
   apiFetch<Prompt>(`/api/public/prompts/${encodeURIComponent(id)}`, { skipLogoutOn401: true })
 
-export { formatRunCost, BASIS_LABEL, BASIS_HELP, headlineCost, rowBasis, monthlyCost, formatMonthly, OUTPUT_PRESETS, wordsToTokens, tokensToWords } from "./promptFormat"
+export { formatRunCost, BASIS_LABEL, BASIS_HELP, headlineCost, rowBasis, monthlyCost, formatMonthly, OUTPUT_PRESETS, wordsToTokens, tokensToWords, modelName, blankName } from "./promptFormat"
 
 export interface QaResult {
   kind: "test" | "probe"
@@ -442,3 +442,95 @@ export const castVote = (id: string, v: { entry_a: string; entry_b: string; inpu
 export const closeBattle = (id: string) => apiFetch<Battle>(`${bt(id)}/close`, { method: "POST" })
 export const getPublicBattle = (id: string, sort: BattleSort = "best") =>
   apiFetch<Battle>(`/api/public/battles/${encodeURIComponent(id)}?sort=${sort}`, { skipLogoutOn401: true })
+
+// ── Try on my agent ────────────────────────────────────────────────────────
+
+export type AgentTryMode = "instructions" | "task"
+
+export interface AgentTryRequest {
+  agent_id: string
+  mode: AgentTryMode
+  task?: string
+  values?: Record<string, string>
+  body?: string
+}
+
+export interface AgentTryAction { tool: string; action: string; decision: string }
+export interface AgentTryChain { name: string; severity: string }
+export interface AgentTryRadius { score: number; residual_score: number; band: string; magnitude_usd: number }
+
+export interface AgentTryEstimate {
+  mode: AgentTryMode
+  basis: "estimate"
+  agent: { id: string; name: string; model: string }
+  system_prompt: string | null
+  user_message: string
+  blast_radius: {
+    reachable: AgentTryRadius
+    ceiling: AgentTryRadius
+    likely_actions: AgentTryAction[]
+    chains: AgentTryChain[]
+    ceiling_chains: AgentTryChain[]
+    overlaps: { severity: string; title: string; actions: string[] }[]
+  }
+  efficiency: {
+    available: boolean
+    model_key?: string
+    usd_per_run?: number
+    usd_per_month?: number
+    baseline_usd_per_run?: number
+    baseline_usd_per_month?: number
+    delta_pct?: number
+    turns: number
+    tool_calls: number
+    runs_per_day: number | null
+  }
+}
+
+export interface AgentTryRun {
+  mode: AgentTryMode
+  basis: "measured"
+  agent: { id: string; name: string; model: string }
+  simulation_id: string
+  status: string
+  error: string | null
+  blast_radius: {
+    risk_score: number
+    actions: AgentTryAction[]
+    executed: number
+    blocked: number
+    pending: number
+    chains: AgentTryChain[]
+    violations: { title: string; severity: string }[]
+    summary: string
+  }
+  efficiency: {
+    model_key: string
+    turns: number
+    max_turns: number
+    tool_calls: number
+    input_tokens: number
+    output_tokens: number
+    latency_ms: number
+    latency_ms_per_turn: number | null
+    usd_per_run: number
+    usd_per_month: number | null
+    runs_per_day: number | null
+  }
+  key_source: "server" | "org"
+}
+
+export interface MyAgent { id: string; name: string }
+
+export const listMyAgents = () =>
+  apiFetch<{ agents: MyAgent[] }>("/api/authority/agents").then((r) => r.agents.map((a) => ({ id: a.id, name: a.name })))
+
+export const estimateAgentTry = (promptId: string, req: AgentTryRequest) =>
+  apiFetch<AgentTryEstimate>(`/api/prompts/${encodeURIComponent(promptId)}/agent-try/estimate`, {
+    method: "POST", body: JSON.stringify(req),
+  })
+
+export const runAgentTry = (promptId: string, req: AgentTryRequest) =>
+  apiFetch<AgentTryRun>(`/api/prompts/${encodeURIComponent(promptId)}/agent-try/run`, {
+    method: "POST", body: JSON.stringify(req), timeoutMs: 300_000,
+  })

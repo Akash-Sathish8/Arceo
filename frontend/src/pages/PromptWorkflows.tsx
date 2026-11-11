@@ -32,7 +32,7 @@ export default function PromptWorkflows() {
     <div style={{ padding: PAGE_PAD }}>
       <PageHeader
         title="Prompt workflows"
-        description="Stack prompts into steps. See what the whole chain costs per run, and where pasted content can reach a step that acts."
+        description="Link prompts into steps, like summarize an email and then draft a reply. See what the whole thing costs and whether it's safe."
         actions={<Button icon={<Plus size={14} />} onClick={() => navigate("/prompt-workflows/new")}>New workflow</Button>}
       />
       <div style={{ marginBottom: 18 }}><SegControl options={SCOPES} value={scope} onChange={setScope} /></div>
@@ -40,7 +40,7 @@ export default function PromptWorkflows() {
         <div className="skeleton" style={{ height: 112, borderRadius: 10 }} aria-busy="true" />
       ) : items.length === 0 ? (
         <EmptyState icon={<Layers size={22} />} title="No workflows yet"
-          body="Chain two prompts, like summarize an email and then draft the reply, to see the combined cost and risk."
+          body="Link two prompts, like summarize an email and then draft the reply, to see what they cost together and whether it's safe."
           action={<Button onClick={() => navigate("/prompt-workflows/new")}>New workflow</Button>} />
       ) : (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 12 }}>
@@ -66,7 +66,7 @@ export default function PromptWorkflows() {
                   <DangerBadge danger={w.danger_summary} size={36} />
                   <span style={{ fontFamily: "var(--font-num)", fontWeight: 600 }}>
                     {cheapest ? `${cheapest.is_floor ? "≥ " : ""}${formatRunCost(cheapest.usd_per_run)}` : "n/a"}
-                    <span style={{ fontSize: "var(--fs-micro)", color: "var(--ink-500)", fontWeight: 400 }}> /run</span>
+                    <span style={{ fontSize: "var(--fs-micro)", color: "var(--ink-500)", fontWeight: 400 }}> each time</span>
                   </span>
                 </div>
               </div>

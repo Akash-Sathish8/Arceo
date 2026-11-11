@@ -62,7 +62,7 @@ export default function PublicPrompt() {
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                 <Button icon={<Play size={14} />} onClick={() => setUsing(true)}>Use this prompt</Button>
                 <a href={forkHref} style={{ textDecoration: "none" }}>
-                  <Button variant="secondary" icon={<GitFork size={14} />}>Fork in Arceo</Button>
+                  <Button variant="secondary" icon={<GitFork size={14} />}>Save a copy in Arceo</Button>
                 </a>
               </div>
             </div>

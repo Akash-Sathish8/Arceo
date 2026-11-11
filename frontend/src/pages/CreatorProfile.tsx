@@ -42,7 +42,7 @@ export default function CreatorProfile({ publicView = false }: { publicView?: bo
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 16 }}>
         <Stat label="Prompts" value={p.prompts.length} />
         <Stat label="Uses" value={p.total_uses} />
-        <Stat label="Forks" value={p.total_forks} />
+        <Stat label="Copies saved" value={p.total_forks} />
         <Stat label="Comparison wins" value={p.comparison_wins} />
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(100%, 280px), 1fr))", gap: 12, marginTop: 20 }}>

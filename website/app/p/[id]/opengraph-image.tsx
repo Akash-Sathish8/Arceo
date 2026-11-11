@@ -33,7 +33,7 @@ export default async function Image({ params }: { params: Promise<{ id: string }
           )}
           {h && (
             <div style={{ display: "flex", alignItems: "center", gap: 12, background: C.ground, borderRadius: 16, padding: "18px 26px" }}>
-              <div style={{ display: "flex", fontSize: 30, fontWeight: 800, color: C.ink }}>{h.perMonth ?? `${runCost(h.perRun)}/run`}</div>
+              <div style={{ display: "flex", fontSize: 30, fontWeight: 800, color: C.ink }}>{h.perMonth ?? `${runCost(h.perRun)} each time`}</div>
               <div style={{ display: "flex", fontSize: 24, color: C.muted }}>{`on ${h.model}`}</div>
             </div>
           )}

@@ -46,24 +46,24 @@ export default async function PromptPage({ params }: Props) {
           {p.description && <p style={{ fontSize: 15, color: "var(--muted)", marginTop: 8, maxWidth: 640, lineHeight: 1.6 }}>{p.description}</p>}
           <div style={{ display: "flex", gap: 12, flexWrap: "wrap", margin: "24px 0 32px" }}>
             <a href={useHref} className="btn-black">Use this prompt</a>
-            {APP_URL && <a href={`${APP_URL}/login?for=prompts`} className="btn-outline">Score your own prompts free</a>}
+            {APP_URL && <a href={`${APP_URL}/login?for=prompts`} className="btn-outline">Check your own prompts free</a>}
           </div>
 
           <div className="share-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, alignItems: "start" }}>
             <div style={{ background: "var(--paper)", borderRadius: "var(--r-lg)", padding: 20, boxShadow: "0 1px 4px rgba(0,0,0,0.05)" }}>
               <div style={{ fontSize: 11, fontWeight: 700, color: "var(--muted-2)", textTransform: "uppercase", letterSpacing: "0.08em" }}>Prompt</div>
-              <pre style={{ whiteSpace: "pre-wrap", fontFamily: "var(--font-mono, ui-monospace, monospace)", fontSize: 13, lineHeight: 1.6, color: "var(--ink)", margin: "10px 0 0" }}>{p.body}</pre>
+              <pre style={{ whiteSpace: "pre-wrap", fontFamily: "inherit", fontSize: 14, lineHeight: 1.6, color: "var(--ink)", margin: "10px 0 0" }}>{p.body}</pre>
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
               {band && p.danger_summary && (
                 <div style={{ background: "var(--paper)", borderRadius: "var(--r-lg)", padding: 20, boxShadow: "0 1px 4px rgba(0,0,0,0.05)" }}>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: "var(--muted-2)", textTransform: "uppercase", letterSpacing: "0.08em" }}>How dangerous</div>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: "var(--muted-2)", textTransform: "uppercase", letterSpacing: "0.08em" }}>Is it safe?</div>
                   <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginTop: 10 }}>
                     <span style={{ fontSize: 13, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", color: band.ink }}>{band.label} danger</span>
-                    <span style={{ fontSize: 13, color: "var(--muted-2)" }}>{p.danger_summary.score} / 100 · {p.danger_summary.status === "probed" ? "red-teamed" : "static check"}</span>
+                    <span style={{ fontSize: 13, color: "var(--muted-2)" }}>{p.danger_summary.score} / 100 · {p.danger_summary.status === "probed" ? "tested" : "not tested yet"}</span>
                   </div>
                   {reasons.length === 0
-                    ? <p style={{ fontSize: 14, color: "var(--muted)", marginTop: 10 }}>No risky patterns found.</p>
+                    ? <p style={{ fontSize: 14, color: "var(--muted)", marginTop: 10 }}>Nothing risky found.</p>
                     : <ul style={{ margin: "12px 0 0", padding: 0, listStyle: "none", display: "flex", flexDirection: "column", gap: 10 }}>
                         {reasons.map((r, i) => (
                           <li key={i} style={{ borderLeft: `3px solid ${BAND[r.severity].ring}`, paddingLeft: 10 }}>
@@ -76,10 +76,10 @@ export default async function PromptPage({ params }: Props) {
               )}
               {h && (
                 <div style={{ background: "var(--paper)", borderRadius: "var(--r-lg)", padding: 20, boxShadow: "0 1px 4px rgba(0,0,0,0.05)" }}>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: "var(--muted-2)", textTransform: "uppercase", letterSpacing: "0.08em" }}>Cost to run</div>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: "var(--muted-2)", textTransform: "uppercase", letterSpacing: "0.08em" }}>What it costs</div>
                   <div style={{ fontSize: 28, fontWeight: 700, color: "var(--ink)", marginTop: 8, fontVariantNumeric: "tabular-nums" }}>{h.perMonth ?? runCost(h.perRun)}</div>
                   <div style={{ fontSize: 13, color: "var(--muted)", marginTop: 4 }}>
-                    {h.perMonth ? `${p.runs_per_day} runs a day on ${h.model} · ${runCost(h.perRun)} a run` : `a run on ${h.model}`}
+                    {h.perMonth ? `Used ${p.runs_per_day} times a day on ${h.model} · ${runCost(h.perRun)} each time` : `each time, on ${h.model}`}
                   </div>
                 </div>
               )}

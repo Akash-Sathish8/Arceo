@@ -10,7 +10,7 @@ import type { DangerSummary } from "@/lib/promptsApi"
 
 export default function DangerBadge({ danger, size = 40 }: { danger: DangerSummary | null; size?: number }) {
   if (!danger) {
-    return <span style={{ fontSize: "var(--fs-small)", color: "var(--ink-400)" }}>Not scored</span>
+    return <span style={{ fontSize: "var(--fs-small)", color: "var(--ink-400)" }}>Not checked yet</span>
   }
   const b = scoreBand(danger.score, 0, danger.band)
   return (
@@ -23,10 +23,10 @@ export default function DangerBadge({ danger, size = 40 }: { danger: DangerSumma
         <span
           style={{ fontSize: "var(--fs-micro)", color: "var(--ink-500)" }}
           title={danger.status === "static"
-            ? "Scored from the prompt text only. Run QA to attack it with real injection and leak probes."
-            : "Includes results from real red-team probes."}
+            ? "Checked by reading the prompt. Test it to see if it holds up when someone tries to trick it."
+            : "Includes the results of real tests where we tried to trick it."}
         >
-          {danger.status === "static" ? "static only" : "red-teamed"}
+          {danger.status === "static" ? "not tested yet" : "tested"}
         </span>
       </span>
     </span>

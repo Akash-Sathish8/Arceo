@@ -23,9 +23,9 @@ export default function Leaderboard({ rows, sort, onSort, showBodies }: {
         <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 520 }}>
           <thead>
             <tr>
-              <th style={TH}>#</th><th style={TH}>Creator</th>
-              <th style={{ ...TH, textAlign: "right" }}>Rating</th><th style={{ ...TH, textAlign: "right" }}>W-L-T</th>
-              <th style={{ ...TH, textAlign: "right" }}>Per run</th><th style={TH}>Danger</th>
+              <th style={TH}>Rank</th><th style={TH}>By</th>
+              <th style={{ ...TH, textAlign: "right" }}>Score</th><th style={{ ...TH, textAlign: "right" }}>Won · lost · tied</th>
+              <th style={{ ...TH, textAlign: "right" }}>Each time</th><th style={TH}>Danger</th>
             </tr>
           </thead>
           <tbody>
@@ -37,15 +37,15 @@ export default function Leaderboard({ rows, sort, onSort, showBodies }: {
                   {showBodies && r.body && (
                     <details style={{ marginTop: 4 }}>
                       <summary style={{ cursor: "pointer", fontSize: "var(--fs-micro)", color: "var(--ink-500)" }}>Prompt</summary>
-                      <pre style={{ whiteSpace: "pre-wrap", fontFamily: "var(--font-code)", fontSize: 12, background: "var(--paper-2)", padding: 8, borderRadius: "var(--radius-md)" }}>{r.body}</pre>
+                      <pre style={{ whiteSpace: "pre-wrap", fontFamily: "var(--font-sans)", fontSize: 12, background: "var(--paper-2)", padding: 8, borderRadius: "var(--radius-md)" }}>{r.body}</pre>
                     </details>
                   )}
                 </td>
                 <td style={{ ...TD, textAlign: "right", fontFamily: "var(--font-num)", fontWeight: 600 }}>{r.elo}</td>
-                <td style={{ ...TD, textAlign: "right", fontFamily: "var(--font-num)", color: "var(--ink-600)" }}>{r.wins}-{r.losses}-{r.ties}</td>
+                <td style={{ ...TD, textAlign: "right", fontFamily: "var(--font-num)", color: "var(--ink-600)" }}>{r.wins} · {r.losses} · {r.ties}</td>
                 <td style={{ ...TD, textAlign: "right", fontFamily: "var(--font-num)" }}>
                   {formatRunCost(r.cost?.usd_per_run)}
-                  <div style={{ fontSize: "var(--fs-micro)", color: "var(--ink-400)", fontFamily: "var(--font-sans)" }}>measured</div>
+                  <div style={{ fontSize: "var(--fs-micro)", color: "var(--ink-400)", fontFamily: "var(--font-sans)" }}>from real answers</div>
                 </td>
                 <td style={TD}><DangerBadge danger={r.danger} size={30} /></td>
               </tr>

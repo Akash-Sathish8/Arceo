@@ -24,24 +24,66 @@ export function rowBasis(row: Pick<CostRow, "basis" | "is_floor" | "output_basis
   return row.basis ?? "heuristic"
 }
 
-// Plain words for how sure a cost figure is. Founders don't think in tokens.
+// Plain words for how sure a cost figure is. The audience doesn't think in
+// tokens, tokenizers or "input vs output": only "how sure is this number".
 export const BASIS_LABEL: Record<CostBasis | "floor", string> = {
   floor: "at least this",
-  measured: "measured from real runs",
-  exact: "exact count",
-  declared: "based on your length",
-  heuristic: "estimated",
-  unavailable: "add an output length",
+  measured: "from real tests",
+  exact: "exact",
+  declared: "based on your answer length",
+  heuristic: "estimate",
+  unavailable: "pick an answer length",
 }
 
 export const BASIS_HELP: Record<CostBasis | "floor", string> = {
-  floor: "At least this much: a variable has no sample or expected length yet, so its tokens aren't counted.",
-  measured: "Output length measured from QA runs of this prompt.",
-  exact: "Counted with the provider's own tokenizer.",
-  declared: "Uses the output length you declared. Run QA to measure it.",
-  heuristic: "Input estimated at ~4 characters per token. Exact counts need the provider tokenizer.",
-  unavailable: "No output length yet, so this is the input cost only. Declare an expected output length or run QA.",
+  floor: "At least this much. A blank has no example text yet, so its length isn't counted.",
+  measured: "Based on real answers from testing this prompt.",
+  exact: "Counted exactly, the same way the AI company bills it.",
+  declared: "Based on the answer length you picked. Test the prompt to get a real figure.",
+  heuristic: "A close estimate from the length of the prompt.",
+  unavailable: "This only counts the prompt, not the answer. Pick how long answers are, or test the prompt.",
 }
+
+// Display names for AI models. The catalog keys ("claude-haiku-4-5") are IDs,
+// not names; people know these as "Claude Haiku 4.5" or "GPT-4o mini".
+const MODEL_NAMES: Record<string, string> = {
+  "claude-sonnet-4-6": "Claude Sonnet 4.6",
+  "claude-haiku-4-5": "Claude Haiku 4.5",
+  "gpt-5": "GPT-5",
+  "gpt-5-mini": "GPT-5 mini",
+  "gpt-4o-mini": "GPT-4o mini",
+  "gemini-2-5-pro": "Gemini 2.5 Pro",
+  "gemini-2-5-flash": "Gemini 2.5 Flash",
+}
+
+const BRAND: Record<string, string> = { claude: "Claude", gpt: "GPT", gemini: "Gemini", grok: "Grok", deepseek: "DeepSeek", llama: "Llama", mistral: "Mistral" }
+
+/** "claude-haiku-4-5" → "Claude Haiku 4.5". Unknown keys get the same treatment
+ *  (brand capitalised, version digits joined with dots) rather than showing the ID. */
+export function modelName(key: string | null | undefined): string {
+  if (!key) return "AI model"
+  if (MODEL_NAMES[key]) return MODEL_NAMES[key]
+  const parts = key.split(/[-_]/).filter(Boolean)
+  const out: string[] = []
+  for (const p of parts) {
+    const prev = out[out.length - 1]
+    if (/^\d+$/.test(p) && prev && /\d$/.test(prev) && !/\./.test(prev.split(/[\s-]/).pop() ?? "")) {
+      out[out.length - 1] = `${prev}.${p}`                 // 4-5 → 4.5
+    } else if (prev === "GPT" && /^\d/.test(p)) {
+      out[out.length - 1] = `GPT-${p}`                     // gpt-5 → GPT-5
+    } else if (BRAND[p.toLowerCase()]) {
+      out.push(BRAND[p.toLowerCase()])
+    } else if (/^\d/.test(p) || out.length === 0) {
+      out.push(/^\d/.test(p) ? p : p[0].toUpperCase() + p.slice(1))
+    } else {
+      out.push(prev?.startsWith("GPT") ? p : p[0].toUpperCase() + p.slice(1))  // GPT-5 mini, Claude Opus
+    }
+  }
+  return out.join(" ")
+}
+
+/** A blank's name as people read it: "customer_email" → "customer email". */
+export const blankName = (name: string): string => name.replace(/_/g, " ")
 
 /** The headline cost for a prompt: the author's own model if priced, else the cheapest. */
 export function headlineCost(cost: CostSummary | null | undefined, preferred?: string | null): CostRow | null {

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { API_URL, APP_URL, BAND, type Band } from "../lib/prompts";
+import { API_URL, APP_URL, BAND, modelName, type Band } from "../lib/prompts";
 
 /* The live demand test on /prompts: paste a prompt, see its danger and monthly
    cost in a second. Calls the app's anonymous, IP-rate-limited score endpoint
@@ -25,7 +25,7 @@ export default function PromptScoreBox() {
   const [err, setErr] = useState<string | null>(null);
 
   async function score() {
-    if (!API_URL) { setErr("Scoring isn't available on this preview."); return; }
+    if (!API_URL) { setErr("Checking isn't available on this preview."); return; }
     setBusy(true); setErr(null);
     try {
       const r = await fetch(`${API_URL}/api/public/prompts/score`, {
@@ -33,10 +33,10 @@ export default function PromptScoreBox() {
         body: JSON.stringify({ body, runs_per_day: perDay }),
       });
       const data = await r.json().catch(() => ({}));
-      if (!r.ok) throw new Error(typeof data.detail === "string" ? data.detail : "Couldn't score that prompt.");
+      if (!r.ok) throw new Error(typeof data.detail === "string" ? data.detail : "Couldn't check that prompt.");
       setRes(data as Result);
     } catch (e) {
-      setErr(e instanceof Error ? e.message : "Couldn't score that prompt.");
+      setErr(e instanceof Error ? e.message : "Couldn't check that prompt.");
     } finally {
       setBusy(false);
     }
@@ -46,18 +46,18 @@ export default function PromptScoreBox() {
   return (
     <div style={{ background: "var(--paper)", borderRadius: "var(--r-lg)", padding: 22, boxShadow: "0 1px 4px rgba(0,0,0,0.05)" }}>
       <label htmlFor="score-box" style={{ fontSize: 11, fontWeight: 700, color: "var(--muted-2)", textTransform: "uppercase", letterSpacing: "0.08em" }}>
-        Paste a prompt you use
+        Paste in something you ask AI to do
       </label>
       <textarea id="score-box" value={body} onChange={(e) => setBody(e.target.value.slice(0, 8000))} rows={6}
-        style={{ width: "100%", boxSizing: "border-box", marginTop: 8, padding: 12, borderRadius: "var(--r-md)", border: "1px solid var(--rule)", fontFamily: "var(--font-mono, ui-monospace, monospace)", fontSize: 13, lineHeight: 1.55, color: "var(--ink)", background: "var(--ground)", resize: "vertical" }} />
+        style={{ width: "100%", boxSizing: "border-box", marginTop: 8, padding: 12, borderRadius: "var(--r-md)", border: "1px solid var(--rule)", fontFamily: "inherit", fontSize: 14, lineHeight: 1.55, color: "var(--ink)", background: "var(--ground)", resize: "vertical" }} />
       <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap", marginTop: 10 }}>
         <label style={{ fontSize: 13, color: "var(--muted)", display: "flex", alignItems: "center", gap: 6 }}>
-          Runs a day
+          Times used a day
           <input type="number" min={1} value={perDay} onChange={(e) => setPerDay(Math.max(1, Number(e.target.value) || 1))}
             style={{ width: 80, padding: "6px 8px", borderRadius: "var(--r-md)", border: "1px solid var(--rule)", fontSize: 13 }} />
         </label>
         <button type="button" onClick={() => void score()} disabled={busy || !body.trim()} className="btn-black" style={{ border: 0, cursor: "pointer", opacity: busy ? 0.6 : 1 }}>
-          {busy ? "Scoring…" : "Score it"}
+          {busy ? "Checking…" : "Check it"}
         </button>
       </div>
       {err && <p role="alert" style={{ fontSize: 13, color: "var(--risk-critical)", marginTop: 10 }}>{err}</p>}
@@ -77,7 +77,7 @@ export default function PromptScoreBox() {
             <tbody>
               {res.cost.models.filter((m) => m.available).map((m) => (
                 <tr key={m.model_key ?? ""}>
-                  <td style={{ padding: "6px 0", borderBottom: "1px solid var(--rule)", color: "var(--ink)" }}>{m.model_key}</td>
+                  <td style={{ padding: "6px 0", borderBottom: "1px solid var(--rule)", color: "var(--ink)" }}>{modelName(m.model_key)}</td>
                   <td style={{ padding: "6px 0", borderBottom: "1px solid var(--rule)", textAlign: "right", fontVariantNumeric: "tabular-nums", color: "var(--ink)" }}>
                     {m.usd_per_month != null ? `$${m.usd_per_month.toFixed(2)}/mo` : "n/a"}
                   </td>
@@ -86,7 +86,7 @@ export default function PromptScoreBox() {
             </tbody>
           </table>
           <p style={{ fontSize: 12, color: "var(--muted-2)", marginTop: 8 }}>
-            Estimated at {res.runs_per_day} runs a day and ~225-word answers. Sign up to measure it for real, fix it in one click, and attack-test it.
+            An estimate for {res.runs_per_day} uses a day with medium-length answers (about 225 words). Sign up free to test it for real and make it safer in one click.
           </p>
           {APP_URL && <a href={`${APP_URL}/login?for=prompts`} className="btn-black" style={{ display: "inline-block", marginTop: 6 }}>Fix it for free</a>}
         </div>

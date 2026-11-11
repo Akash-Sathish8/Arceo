@@ -2200,40 +2200,25 @@ def list_agents(user: dict = Depends(get_current_user)):
     return {"agents": results}
 
 
-@app.get("/api/authority/agent/{agent_id}")
-def get_agent_detail(agent_id: str, user: dict = Depends(get_current_user)):
-    with get_db() as conn:
-        agent = get_agent_from_db(conn, agent_id, org_id=_org(user))
-        if not agent:
-            raise HTTPException(status_code=404, detail=f"Agent '{agent_id}' not found")
+def _agent_risk_snapshot(conn, agent: dict, org_id: str, *, only_actions: set | None = None) -> dict:
+    """The agent-detail blast-radius recipe: chains + residual/evidence/magnitude
+    radius for one agent. Shared with the prompt library's "try on my agent".
 
-        # No audit write here: the agent-detail page polls this endpoint, so a
-        # VIEW_AGENT row per poll made a read contend for WAL's writer slot.
-
-        # Get policies for this agent
-        policies = conn.execute(
-            "SELECT * FROM policies WHERE agent_id = %s ORDER BY created_at DESC", (agent_id,)
-        ).fetchall()
-
-        # Get execution logs for this agent
-        executions = conn.execute(
-            "SELECT * FROM execution_log WHERE agent_id = %s AND org_id = %s ORDER BY timestamp DESC LIMIT 50", (agent_id, _org(user))
-        ).fetchall()
-
-        # Signals for the residual/evidence/magnitude blast model (need the conn).
-        sev_overrides = _fetch_breach_overrides(conn, _org(user))
-        sim_evidence = _latest_sim_evidence(conn, agent_id, _org(user))
-
-        # Same verdict the fleet list renders, so the two screens can never
-        # disagree about whether this agent is in production.
-        detail_calls_7d = _live_calls_7d(conn, agent_id, _org(user))
-        detail_state, detail_mismatch = _deployment_state(
-            agent, executions[0]["timestamp"] if executions else None, detail_calls_7d
-        )
-
+    `only_actions` ({(tool, action)}) scores the agent as if those were its only
+    actions: the part of its blast radius one prompt can actually reach."""
+    if only_actions is not None:
+        agent = {**agent, "tools": [
+            {**t, "actions": [a for a in t["actions"] if (t["name"], a["action"]) in only_actions]}
+            for t in agent["tools"]
+        ]}
+        agent["tools"] = [t for t in agent["tools"] if t["actions"]]
+    policies = conn.execute(
+        "SELECT * FROM policies WHERE agent_id = %s ORDER BY created_at DESC", (agent["id"],)
+    ).fetchall()
+    sev_overrides = _fetch_breach_overrides(conn, org_id)
+    sim_evidence = _latest_sim_evidence(conn, agent["id"], org_id)
     config = _db_agent_to_config(agent)
     catalog = _db_agent_to_action_catalog(agent)
-    graph = build_agent_graph(config, action_overrides=catalog)
     chain_result = _detect_chains(config, action_overrides=catalog)
     from analysis.cost_model import raw_action_magnitudes
     radius = calculate_blast_radius(
@@ -2244,6 +2229,38 @@ def get_agent_detail(agent_id: str, user: dict = Depends(get_current_user)):
         sim_evidence=sim_evidence,
         exposure_context=_exposure_context(agent),
     )
+    return {"config": config, "catalog": catalog, "chain_result": chain_result, "radius": radius,
+            "policies": policies, "sim_evidence": sim_evidence}
+
+
+@app.get("/api/authority/agent/{agent_id}")
+def get_agent_detail(agent_id: str, user: dict = Depends(get_current_user)):
+    with get_db() as conn:
+        agent = get_agent_from_db(conn, agent_id, org_id=_org(user))
+        if not agent:
+            raise HTTPException(status_code=404, detail=f"Agent '{agent_id}' not found")
+
+        # No audit write here: the agent-detail page polls this endpoint, so a
+        # VIEW_AGENT row per poll made a read contend for WAL's writer slot.
+
+        # Get execution logs for this agent
+        executions = conn.execute(
+            "SELECT * FROM execution_log WHERE agent_id = %s AND org_id = %s ORDER BY timestamp DESC LIMIT 50", (agent_id, _org(user))
+        ).fetchall()
+
+        risk = _agent_risk_snapshot(conn, agent, _org(user))
+        policies, sim_evidence = risk["policies"], risk["sim_evidence"]
+
+        # Same verdict the fleet list renders, so the two screens can never
+        # disagree about whether this agent is in production.
+        detail_calls_7d = _live_calls_7d(conn, agent_id, _org(user))
+        detail_state, detail_mismatch = _deployment_state(
+            agent, executions[0]["timestamp"] if executions else None, detail_calls_7d
+        )
+
+    config, catalog = risk["config"], risk["catalog"]
+    chain_result, radius = risk["chain_result"], risk["radius"]
+    graph = build_agent_graph(config, action_overrides=catalog)
 
     # Which chains the latest sandbox run actually fired (id → data_linked).
     demonstrated_chains = (sim_evidence or {}).get("demonstrated_chains", {})

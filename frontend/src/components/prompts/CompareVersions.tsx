@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/Button"
 import { toast } from "@/components/shared/Toast"
 import DangerBadge from "@/components/prompts/DangerBadge"
 import { CARD, EYEBROW, FIELD, Label } from "@/components/prompts/ui"
-import { compareVersions, fixPrompt, formatMonthly, formatRunCost, monthlyCost, type CompareResult, type Prompt } from "@/lib/promptsApi"
+import { compareVersions, fixPrompt, formatMonthly, formatRunCost, modelName, monthlyCost, type CompareResult, type Prompt } from "@/lib/promptsApi"
 
 const MODELS = ["claude-haiku-4-5", "claude-sonnet-4-6", "gpt-5-mini", "gpt-4o-mini"]
 
@@ -30,7 +30,7 @@ export default function CompareVersions({ prompt, onAdopt, onClose }: {
   async function prefillFixed(i: number) {
     try {
       const f = await fixPrompt({ body: prompt.body, variables: prompt.variables ?? {}, tools: prompt.tools ?? [] })
-      setVariants((v) => v.map((x, j) => (j === i ? { ...x, body: f.body, label: "Fixed" } : x)))
+      setVariants((v) => v.map((x, j) => (j === i ? { ...x, body: f.body, label: "Safer" } : x)))
     } catch (e) { toast((e as Error).message, "error") }
   }
 
@@ -49,7 +49,7 @@ export default function CompareVersions({ prompt, onAdopt, onClose }: {
         <button type="button" aria-label="Close compare" onClick={onClose} style={{ border: 0, background: "none", cursor: "pointer", color: "var(--ink-400)" }}><X size={16} /></button>
       </div>
       <p style={{ fontSize: "var(--fs-small)", color: "var(--ink-500)", marginTop: 6 }}>
-        Same inputs, same model, side by side. Private to you. Uses one run.
+        Try two or three wordings on the same examples and the same AI, and see the answers side by side. Only you see this. Uses one free test.
       </p>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 10, marginTop: 12 }}>
         {variants.map((v, i) => (
@@ -60,13 +60,13 @@ export default function CompareVersions({ prompt, onAdopt, onClose }: {
               {i >= 2 && <button type="button" aria-label="Remove version" onClick={() => setVariants((x) => x.filter((_, j) => j !== i))}
                 style={{ border: 0, background: "none", cursor: "pointer", color: "var(--ink-400)" }}><X size={14} /></button>}
             </div>
-            <textarea aria-label={`${v.label} text`} rows={7} style={{ ...FIELD, fontFamily: "var(--font-code)", resize: "vertical" }} value={v.body}
-              placeholder="Paste or write another version of the prompt"
+            <textarea aria-label={`${v.label} text`} rows={7} style={{ ...FIELD, resize: "vertical" }} value={v.body}
+              placeholder="Paste or write another way of asking"
               onChange={(e) => setVariants((x) => x.map((y, j) => (j === i ? { ...y, body: e.target.value } : y)))} />
             {i > 0 && !v.body && (
               <button type="button" onClick={() => void prefillFixed(i)}
                 style={{ border: 0, background: "none", padding: 0, marginTop: 4, color: "var(--accent)", fontSize: "var(--fs-small)", cursor: "pointer" }}>
-                Start from the fixed version
+                Start from the safer version
               </button>
             )}
           </div>
@@ -78,12 +78,12 @@ export default function CompareVersions({ prompt, onAdopt, onClose }: {
         )}
         <div style={{ flex: 1 }} />
         <div>
-          <Label htmlFor="cmp-model">Model</Label>
+          <Label htmlFor="cmp-model">AI model</Label>
           <select id="cmp-model" style={{ ...FIELD, width: 180 }} value={model} onChange={(e) => setModel(e.target.value)}>
-            {MODELS.map((m) => <option key={m}>{m}</option>)}
+            {MODELS.map((m) => <option key={m} value={m}>{modelName(m)}</option>)}
           </select>
         </div>
-        <Button icon={<Play size={13} />} loading={busy} onClick={() => void run()}>Run comparison</Button>
+        <Button icon={<Play size={13} />} loading={busy} onClick={() => void run()}>Compare</Button>
       </div>
 
       {result && (
@@ -95,12 +95,12 @@ export default function CompareVersions({ prompt, onAdopt, onClose }: {
                 <div style={{ fontWeight: 600 }}>{v.label}</div>
                 <DangerBadge danger={v.danger} size={34} />
                 <div style={{ fontFamily: "var(--font-num)", fontWeight: 600 }}>
-                  {m != null ? formatMonthly(m) : `${formatRunCost(v.cost.usd_per_run)} a run`}
-                  <span style={{ fontSize: "var(--fs-micro)", color: "var(--ink-500)", fontWeight: 400 }}> · measured</span>
+                  {m != null ? formatMonthly(m) : `${formatRunCost(v.cost.usd_per_run)} each time`}
+                  <span style={{ fontSize: "var(--fs-micro)", color: "var(--ink-500)", fontWeight: 400 }}> · from real answers</span>
                 </div>
                 {v.outputs.map((o, k) => (
                   <details key={k} open={k === 0}>
-                    <summary style={{ cursor: "pointer", fontSize: "var(--fs-micro)", color: "var(--ink-500)" }}>{result.cases[k]?.label ?? `input ${k + 1}`}</summary>
+                    <summary style={{ cursor: "pointer", fontSize: "var(--fs-micro)", color: "var(--ink-500)" }}>{result.cases[k]?.label ?? `example ${k + 1}`}</summary>
                     <pre style={{ whiteSpace: "pre-wrap", fontFamily: "var(--font-sans)", fontSize: "var(--fs-small)", color: "var(--ink-800)", margin: "6px 0 0", maxHeight: 220, overflow: "auto" }}>{o}</pre>
                   </details>
                 ))}

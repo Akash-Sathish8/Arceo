@@ -71,17 +71,52 @@ export function monthly(usd: number | null | undefined, perDay: number | null | 
   return `$${m.toLocaleString("en-US", { minimumFractionDigits: m < 100 ? 2 : 0, maximumFractionDigits: m < 100 ? 2 : 0 })}/mo`;
 }
 
+// Display names for AI models (same table as the app's lib/promptFormat.ts).
+// Catalog keys are IDs; people know these as "Claude Haiku 4.5", "GPT-4o mini".
+const MODEL_NAMES: Record<string, string> = {
+  "claude-sonnet-4-6": "Claude Sonnet 4.6", "claude-haiku-4-5": "Claude Haiku 4.5",
+  "gpt-5": "GPT-5", "gpt-5-mini": "GPT-5 mini", "gpt-4o-mini": "GPT-4o mini",
+  "gemini-2-5-pro": "Gemini 2.5 Pro", "gemini-2-5-flash": "Gemini 2.5 Flash",
+};
+
+const BRAND: Record<string, string> = { claude: "Claude", gpt: "GPT", gemini: "Gemini", grok: "Grok", deepseek: "DeepSeek", llama: "Llama", mistral: "Mistral" }
+
+/** "claude-haiku-4-5" → "Claude Haiku 4.5". Unknown keys get the same treatment
+ *  (brand capitalised, version digits joined with dots) rather than showing the ID. */
+export function modelName(key: string | null | undefined): string {
+  if (!key) return "AI model"
+  if (MODEL_NAMES[key]) return MODEL_NAMES[key]
+  const parts = key.split(/[-_]/).filter(Boolean)
+  const out: string[] = []
+  for (const p of parts) {
+    const prev = out[out.length - 1]
+    if (/^\d+$/.test(p) && prev && /\d$/.test(prev) && !/\./.test(prev.split(/[\s-]/).pop() ?? "")) {
+      out[out.length - 1] = `${prev}.${p}`                 // 4-5 → 4.5
+    } else if (prev === "GPT" && /^\d/.test(p)) {
+      out[out.length - 1] = `GPT-${p}`                     // gpt-5 → GPT-5
+    } else if (BRAND[p.toLowerCase()]) {
+      out.push(BRAND[p.toLowerCase()])
+    } else if (/^\d/.test(p) || out.length === 0) {
+      out.push(/^\d/.test(p) ? p : p[0].toUpperCase() + p.slice(1))
+    } else {
+      out.push(prev?.startsWith("GPT") ? p : p[0].toUpperCase() + p.slice(1))  // GPT-5 mini, Claude Opus
+    }
+  }
+  return out.join(" ")
+}
+
+
 /** The headline cost: the author's model if priced, else the cheapest. */
 export function headline(p: PublicPrompt): { model: string; perRun: number; perMonth: string | null } | null {
   const priced = (p.cost_summary?.models ?? []).filter((m) => m.available && m.usd_per_run != null);
   const row = priced.find((m) => m.model_key === p.model) ?? priced.find((m) => m.model_key === p.cost_summary?.cheapest_model) ?? priced[0];
   if (!row || row.usd_per_run == null) return null;
-  return { model: row.model_key ?? row.model, perRun: row.usd_per_run, perMonth: monthly(row.usd_per_run, p.runs_per_day) };
+  return { model: modelName(row.model_key ?? row.model), perRun: row.usd_per_run, perMonth: monthly(row.usd_per_run, p.runs_per_day) };
 }
 
 export function summaryLine(p: PublicPrompt): string {
   const h = headline(p);
   const band = p.danger_summary ? `${BAND[p.danger_summary.band].label} danger` : null;
-  const cost = h ? (h.perMonth ? `${h.perMonth} at ${p.runs_per_day}/day on ${h.model}` : `${runCost(h.perRun)} a run on ${h.model}`) : null;
+  const cost = h ? (h.perMonth ? `${h.perMonth} at ${p.runs_per_day}× a day on ${h.model}` : `${runCost(h.perRun)} each time on ${h.model}`) : null;
   return [band, cost, p.author_name ? `by ${p.author_name}` : null].filter(Boolean).join(" · ");
 }

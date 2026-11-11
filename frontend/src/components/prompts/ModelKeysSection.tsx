@@ -13,8 +13,8 @@ import { apiFetch } from "@/lib/api"
 import { getQaBudget, type QaBudget } from "@/lib/promptsApi"
 
 const PROVIDERS = [
-  { id: "llm_anthropic", name: "Anthropic", placeholder: "sk-ant-…", help: "console.anthropic.com → API keys" },
-  { id: "llm_openai", name: "OpenAI", placeholder: "sk-…", help: "platform.openai.com → API keys" },
+  { id: "llm_anthropic", name: "Anthropic (Claude)", placeholder: "Starts with sk-ant-", help: "console.anthropic.com, under API keys" },
+  { id: "llm_openai", name: "OpenAI (GPT)", placeholder: "Starts with sk-", help: "platform.openai.com, under API keys" },
 ] as const
 
 export default function ModelKeysSection() {
@@ -40,7 +40,7 @@ export default function ModelKeysSection() {
     try {
       await apiFetch(`/api/credentials/${id}`, { method: "PUT", body: JSON.stringify({ secret }) })
       setDrafts((d) => ({ ...d, [id]: "" }))
-      toast("Key saved. Runs now use your own key.")
+      toast("Connected. Tests now run on your own account.")
       load()
     } catch (e) { toast((e as Error).message, "error") } finally { setBusy(null) }
   }
@@ -49,29 +49,30 @@ export default function ModelKeysSection() {
     setBusy(id)
     try {
       await apiFetch(`/api/credentials/${id}`, { method: "DELETE" })
-      toast("Key removed.")
+      toast("Disconnected.")
       load()
     } catch (e) { toast((e as Error).message, "error") } finally { setBusy(null) }
   }
 
   return (
     <div id="model-keys">
-      <h2 style={{ fontSize: "var(--fs-title)", fontWeight: 600, color: "var(--ink-900)" }}>Model keys</h2>
+      <h2 style={{ fontSize: "var(--fs-title)", fontWeight: 600, color: "var(--ink-900)" }}>Your AI accounts</h2>
       <p style={{ fontSize: "var(--fs-small)", color: "var(--ink-500)", marginTop: 4, maxWidth: 560, lineHeight: 1.5 }}>
-        Add your own key to run prompt QA, comparisons and workflows on your account, with no monthly limit from us.
-        Keys are encrypted and never shown again.
+        Optional. Tests, comparisons and workflows run free up to a monthly limit. To go past it, connect your own
+        Anthropic or OpenAI account: their websites give you an API key (a long code that starts with “sk-”), and you paste it here.
+        Usage is then billed to that account. Keys are stored encrypted and never shown again.
         {budget && !budget.own_keys.anthropic && !budget.own_keys.openai && budget.free_providers.length > 0 &&
-          ` Without one you get ${budget.free_runs} free runs a month (${budget.remaining} left).`}
+          ` You have ${budget.remaining} of ${budget.free_runs} free tests left this month.`}
       </p>
-      {forbidden && <p style={{ fontSize: "var(--fs-small)", color: "var(--ink-700)", marginTop: 12 }}>Only an admin on your team can add model keys.</p>}
+      {forbidden && <p style={{ fontSize: "var(--fs-small)", color: "var(--ink-700)", marginTop: 12 }}>Only an admin on your team can connect AI accounts.</p>}
       {!forbidden && (
         <div style={{ display: "flex", flexDirection: "column", gap: 16, marginTop: 16, maxWidth: 560 }}>
           {PROVIDERS.map((p) => (
             <div key={p.id}>
-              <Label htmlFor={`key-${p.id}`}>{p.name} key</Label>
+              <Label htmlFor={`key-${p.id}`}>{p.name} API key</Label>
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                 <input id={`key-${p.id}`} type="password" autoComplete="off" style={{ ...FIELD, flex: "1 1 240px" }}
-                  placeholder={stored[p.id] !== undefined ? "Saved. Paste a new key to replace it." : p.placeholder}
+                  placeholder={stored[p.id] !== undefined ? "Connected. Paste a new key to replace it." : p.placeholder}
                   value={drafts[p.id] ?? ""} onChange={(e) => setDrafts((d) => ({ ...d, [p.id]: e.target.value }))} />
                 <Button size="sm" loading={busy === p.id} disabled={!(drafts[p.id] ?? "").trim()} onClick={() => void save(p.id)}>Save</Button>
                 {stored[p.id] !== undefined && (
@@ -79,7 +80,7 @@ export default function ModelKeysSection() {
                 )}
               </div>
               <div style={{ fontSize: "var(--fs-micro)", color: "var(--ink-400)", marginTop: 4 }}>
-                {stored[p.id] !== undefined ? "Saved" : "Not set"} · get one at {p.help}
+                {stored[p.id] !== undefined ? "Connected" : "Not connected"} · get a key at {p.help}
               </div>
             </div>
           ))}

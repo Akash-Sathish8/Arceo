@@ -9,7 +9,7 @@ import { Copy, ExternalLink, X } from "lucide-react"
 import { Button } from "@/components/ui/Button"
 import { toast } from "@/components/shared/Toast"
 import { EYEBROW, FIELD, Label } from "@/components/prompts/ui"
-import { recordUse, type VariableSpec } from "@/lib/promptsApi"
+import { blankName, recordUse, type VariableSpec } from "@/lib/promptsApi"
 import { fillPrompt } from "@/lib/promptFormat"
 
 const VAR_RE = /\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}\}/g
@@ -79,12 +79,12 @@ export default function UseModal({ promptId, title, body, variables, signedIn, o
           <button type="button" aria-label="Close" onClick={onClose} style={{ border: 0, background: "none", cursor: "pointer", color: "var(--ink-400)" }}><X size={18} /></button>
         </div>
         <p style={{ fontSize: "var(--fs-small)", color: "var(--ink-500)", marginTop: 4 }}>
-          Fill in the blanks. Your text stays in your browser.
+          Fill in the blanks, then copy it or open it in your AI app. What you type stays on your computer.
         </p>
         <div style={{ display: "flex", flexDirection: "column", gap: 12, marginTop: 14 }}>
           {names.map((n) => (
             <div key={n}>
-              <Label htmlFor={`use-${n}`}>{n.replace(/_/g, " ")}</Label>
+              <Label htmlFor={`use-${n}`}>{blankName(n)}</Label>
               <textarea id={`use-${n}`} rows={n.length > 0 && /email|message|transcript|notes|document|article|page|review|ticket|post|resume/i.test(n) ? 5 : 2}
                 style={{ ...FIELD, resize: "vertical" }} value={values[n]}
                 placeholder={variables?.[n]?.sample ? `e.g. ${variables[n].sample!.slice(0, 120)}` : undefined}
@@ -92,13 +92,13 @@ export default function UseModal({ promptId, title, body, variables, signedIn, o
             </div>
           ))}
         </div>
-        <div style={{ ...EYEBROW, marginTop: 16 }}>Preview</div>
-        <pre style={{ whiteSpace: "pre-wrap", fontFamily: "var(--font-code)", fontSize: 12.5, lineHeight: 1.55, background: "var(--paper-2)", padding: 12, borderRadius: "var(--radius-md)", marginTop: 6, maxHeight: 220, overflow: "auto", color: "var(--ink-800)" }}>
+        <div style={{ ...EYEBROW, marginTop: 16 }}>What the AI will get</div>
+        <pre style={{ whiteSpace: "pre-wrap", fontFamily: "var(--font-sans)", fontSize: "var(--fs-small)", lineHeight: 1.55, background: "var(--paper-2)", padding: 12, borderRadius: "var(--radius-md)", marginTop: 6, maxHeight: 220, overflow: "auto", color: "var(--ink-800)" }}>
           {filled}
         </pre>
         {empty.length > 0 && (
           <p style={{ fontSize: "var(--fs-micro)", color: "var(--ink-500)", marginTop: 6 }}>
-            Still blank: {empty.map((n) => n.replace(/_/g, " ")).join(", ")}.
+            Still blank: {empty.map(blankName).join(", ")}.
           </p>
         )}
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 14 }}>
@@ -106,7 +106,7 @@ export default function UseModal({ promptId, title, body, variables, signedIn, o
           <Button variant="secondary" icon={<ExternalLink size={14} />} disabled={tooLong} onClick={() => open("chatgpt")}>Open in ChatGPT</Button>
           <Button variant="secondary" icon={<ExternalLink size={14} />} disabled={tooLong} onClick={() => open("claude")}>Open in Claude</Button>
         </div>
-        {tooLong && <p style={{ fontSize: "var(--fs-micro)", color: "var(--ink-500)", marginTop: 6 }}>Too long to open directly. Copy it instead.</p>}
+        {tooLong && <p style={{ fontSize: "var(--fs-micro)", color: "var(--ink-500)", marginTop: 6 }}>Too long to open directly. Copy it and paste it into the app instead.</p>}
       </div>
     </div>
   )

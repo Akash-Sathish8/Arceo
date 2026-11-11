@@ -826,7 +826,8 @@ def _grade_detection(expected_tokens: list[str], detected: set[str]) -> dict:
 
 # ── Report Generation ─────────────────────────────────────────────────────
 
-def analyze_trace(trace: SimulationTrace, scenario: "Scenario | None" = None) -> SimulationReport:
+def analyze_trace(trace: SimulationTrace, scenario: "Scenario | None" = None,
+                  summarize: bool = True) -> SimulationReport:
     """Analyze a simulation trace and generate a full report.
 
     Args:
@@ -921,7 +922,9 @@ def analyze_trace(trace: SimulationTrace, scenario: "Scenario | None" = None) ->
     )
 
     # Generate executive summary
-    report.executive_summary = _generate_executive_summary(trace, report)
+    # summarize=False skips the LLM summary (free, no-network estimates).
+    if summarize:
+        report.executive_summary = _generate_executive_summary(trace, report)
 
     # Policy assertion: check negative test expectations (expected_block)
     if scenario is not None and scenario.expected_block:

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { formatRunCost, headlineCost } from "./promptFormat"
+import { formatRunCost, headlineCost, modelName } from "./promptFormat"
 import type { CostSummary } from "./promptsApi"
 
 describe("formatRunCost", () => {
@@ -29,5 +29,20 @@ describe("headlineCost", () => {
   it("is null with nothing priced", () => {
     expect(headlineCost({ ...cost, models: [cost.models[2]], cheapest_model: null })).toBeNull()
     expect(headlineCost(null)).toBeNull()
+  })
+})
+
+describe("modelName", () => {
+  it("shows known models by the name people use", () => {
+    expect(modelName("claude-haiku-4-5")).toBe("Claude Haiku 4.5")
+    expect(modelName("gpt-4o-mini")).toBe("GPT-4o mini")
+    expect(modelName("gemini-2-5-flash")).toBe("Gemini 2.5 Flash")
+  })
+  it("turns unknown IDs into readable names instead of showing the ID", () => {
+    expect(modelName("claude-opus-4-1")).toBe("Claude Opus 4.1")
+    expect(modelName("gpt-6")).toBe("GPT-6")
+    expect(modelName("gpt-6-nano")).toBe("GPT-6 nano")
+    expect(modelName("gemini-3-pro")).toBe("Gemini 3 Pro")
+    expect(modelName(null)).toBe("AI model")
   })
 })

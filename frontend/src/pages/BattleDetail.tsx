@@ -14,7 +14,7 @@ import Leaderboard from "@/components/prompts/Leaderboard"
 import { CARD, EYEBROW, FIELD, Label, PAGE_PAD, Pill } from "@/components/prompts/ui"
 import { shareUrl } from "@/lib/shareUrl"
 import {
-  castVote, closeBattle, enterBattle, getBattle, getMatchup,
+  castVote, closeBattle, enterBattle, getBattle, getMatchup, modelName,
   type Battle, type BattleSort, type Matchup,
 } from "@/lib/promptsApi"
 
@@ -59,7 +59,7 @@ export default function BattleDetail() {
 
   async function submitEntry() {
     setEntering(true)
-    try { await enterBattle(battleId!, entry); toast("Entered. Your prompt ran on every input."); setEntry(""); load(); nextMatchup() }
+    try { await enterBattle(battleId!, entry); toast("You're in. Your prompt ran on every example."); setEntry(""); load(); nextMatchup() }
     catch (e) { toast((e as Error).message, "error") } finally { setEntering(false) }
   }
 
@@ -75,7 +75,7 @@ export default function BattleDetail() {
       <PageHeader
         back={{ to: "/prompt-compare", label: "Compare" }}
         title={b.title}
-        description={`${b.task} · runs on ${b.model} · ${b.entry_count} entries · ${b.vote_count} votes`}
+        description={`${b.task} · runs on ${modelName(b.model)} · ${b.entry_count} entries · ${b.vote_count} votes`}
         actions={<>
           <Pill tone={open ? "accent" : "neutral"}>{open ? "Open" : "Closed"}</Pill>
           {b.is_creator && open && <Button variant="secondary" size="sm" onClick={() => closeBattle(b.id).then(setB)}>Close comparison</Button>}
@@ -88,12 +88,12 @@ export default function BattleDetail() {
               <div style={EYEBROW}>Vote</div>
               {m === undefined ? <div className="skeleton" style={{ height: 80, marginTop: 10 }} /> : m === null ? (
                 <p style={{ fontSize: "var(--fs-small)", color: "var(--ink-500)", marginTop: 8 }}>
-                  {b.entry_count < 2 ? "Voting starts once there are two entries." : "You've judged every matchup. Check back as entries come in."}
+                  {b.entry_count < 2 ? "Voting starts once there are two entries." : "You've voted on every pair so far. Check back as more entries come in."}
                 </p>
               ) : (
                 <>
                   <p style={{ fontSize: "var(--fs-small)", color: "var(--ink-600)", marginTop: 8 }}>
-                    Input: <span style={{ color: "var(--ink-900)" }}>{Object.values(m.input.values).join(" · ")}</span>
+                    Example: <span style={{ color: "var(--ink-900)" }}>{Object.values(m.input.values).join(" · ")}</span>
                   </p>
                   <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 10, marginTop: 10 }}>
                     <Output label="A" text={m.left.output} disabled={voting} onPick={() => vote(m.left.id)} />
@@ -108,9 +108,9 @@ export default function BattleDetail() {
             <div style={CARD}>
               <Label htmlFor="b-entry">Your entry</Label>
               <p style={{ fontSize: "var(--fs-small)", color: "var(--ink-500)", marginBottom: 8 }}>
-                Use {b.variables.map((v) => `{{${v}}}`).join(", ")} where the hidden input goes. It runs on {b.model} for every input.
+                Write your prompt and type {b.variables.map((v) => `{{${v}}}`).join(", ")} where the secret example should go. It runs on {modelName(b.model)} for every example.
               </p>
-              <textarea id="b-entry" rows={6} style={{ ...FIELD, fontFamily: "var(--font-code)", resize: "vertical" }} value={entry}
+              <textarea id="b-entry" rows={6} style={{ ...FIELD, resize: "vertical" }} value={entry}
                 placeholder={`Write a punchy opener for {{${b.variables[0] ?? "input"}}}…`} onChange={(e) => setEntry(e.target.value)} />
               <div style={{ marginTop: 8 }}><Button loading={entering} disabled={!entry.trim()} onClick={() => void submitEntry()}>Submit entry</Button></div>
             </div>

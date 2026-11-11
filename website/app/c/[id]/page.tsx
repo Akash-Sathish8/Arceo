@@ -45,7 +45,7 @@ export default async function ComparisonPage({ params }: Props) {
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14, minWidth: 480 }}>
               <thead>
                 <tr style={{ color: "var(--muted-2)", textAlign: "left" }}>
-                  {["#", "Creator", "Rating", "W-L-T", "Per run", "Danger"].map((h) => (
+                  {["Rank", "By", "Score", "Won · lost · tied", "Each time", "Danger"].map((h) => (
                     <th key={h} style={{ padding: "8px 6px", fontWeight: 600, borderBottom: "1px solid var(--rule)" }}>{h}</th>
                   ))}
                 </tr>
@@ -56,7 +56,7 @@ export default async function ComparisonPage({ params }: Props) {
                     <td style={{ padding: "9px 6px", borderBottom: "1px solid var(--rule)" }}>{r.rank}</td>
                     <td style={{ padding: "9px 6px", borderBottom: "1px solid var(--rule)", color: "var(--ink)" }}>{r.author_name ?? "creator"}</td>
                     <td style={{ padding: "9px 6px", borderBottom: "1px solid var(--rule)", fontWeight: 700 }}>{r.elo}</td>
-                    <td style={{ padding: "9px 6px", borderBottom: "1px solid var(--rule)", color: "var(--muted)" }}>{r.wins}-{r.losses}-{r.ties}</td>
+                    <td style={{ padding: "9px 6px", borderBottom: "1px solid var(--rule)", color: "var(--muted)" }}>{r.wins} · {r.losses} · {r.ties}</td>
                     <td style={{ padding: "9px 6px", borderBottom: "1px solid var(--rule)", fontVariantNumeric: "tabular-nums" }}>{runCost(r.cost?.usd_per_run)}</td>
                     <td style={{ padding: "9px 6px", borderBottom: "1px solid var(--rule)", fontWeight: 700, color: r.danger ? BAND[r.danger.band].ink : "var(--muted)" }}>
                       {r.danger ? `${BAND[r.danger.band].label}` : "n/a"}

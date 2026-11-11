@@ -241,7 +241,7 @@ def test_run_qa_with_no_setup_generates_and_saves_tests(client, org, fake):
     p = _mk(client, org)
     r = client.post(f"/api/prompts/{p['id']}/qa", headers=org["headers"]).json()
     assert r["generated_suite"]["cases"][0]["label"] == "late shipment"
-    assert r["summary"].startswith("Worked 3 of 3 times")
+    assert r["summary"].startswith("Did the job 3 of 3 times")
     saved = client.get(f"/api/prompts/{p['id']}", headers=org["headers"]).json()["tests"]
     assert len(saved["cases"]) == 3 and saved["checks"][0]["type"] == "judge"
 
@@ -249,7 +249,7 @@ def test_run_qa_with_no_setup_generates_and_saves_tests(client, org, fake):
 def test_zero_setup_falls_back_when_generation_fails(client, org, fake):
     p = _mk(client, org)
     r = client.post(f"/api/prompts/{p['id']}/qa", headers=org["headers"]).json()
-    assert r["generated_suite"] is None and r["summary"].startswith("Worked 1 of 1 times")
+    assert r["generated_suite"] is None and r["summary"].startswith("Did the job 1 of 1 times")
 
 
 # ── #11 private compare ──────────────────────────────────────────────────

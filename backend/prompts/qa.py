@@ -139,19 +139,19 @@ class Keys:
         self.org_id, self.keys, self.uses_server = org_id, {}, False
         for p in providers:
             if p not in _VAULT_NAME:
-                raise QaError(400, "Runs support Anthropic and OpenAI models for now. Pick one of those.")
+                raise QaError(400, "Tests work with Claude (Anthropic) and GPT (OpenAI) models for now. Pick one of those.")
             own = _org_key(org_id, p)
             if own:
                 self.keys[p] = own
                 continue
             server = os.getenv(_SERVER_ENV[p])
             if not server:
-                raise QaError(400, f"To run {p} models, add your {p} API key in Settings, then Model keys.")
+                raise QaError(400, f"To test on {p} models, connect your {p} account in Settings, under Your AI accounts.")
             self.keys[p] = server
             self.uses_server = True
         if self.uses_server and runs_used(org_id) >= FREE_RUNS:
-            raise QaError(429, f"You've used your {FREE_RUNS} free runs this month. Add your own Anthropic or "
-                               "OpenAI key in Settings, then Model keys, to keep going.")
+            raise QaError(429, f"You've used your {FREE_RUNS} free tests this month. To keep going, connect your own "
+                               "Anthropic or OpenAI key in Settings, under Your AI accounts.")
 
     def key_for(self, provider: Optional[str]) -> str:
         return self.keys[provider]
@@ -180,7 +180,7 @@ def call_model(model_key: str, provider: Optional[str], system: Optional[str], u
     server_key = os.getenv(_SERVER_ENV.get(provider or "", ""), "")
     key = api_key or server_key
     if not key:
-        raise QaError(400, f"To run {provider or 'this'} models, add your API key in Settings, then Model keys.")
+        raise QaError(400, f"To test on {provider or 'these'} models, connect your account in Settings, under Your AI accounts.")
     started = time.monotonic()
     if provider == "Anthropic":
         from llm_models import anthropic_client
@@ -308,11 +308,11 @@ def check_caps(estimate: float, keys: "Keys", org_id: Optional[str]) -> None:
     """Per-run cap always; the monthly dollar backstop only for Arceo's key."""
     import cogs
     if estimate > RUN_CAP_USD:
-        raise QaError(400, f"This run could cost up to ${estimate:.2f}, over the ${RUN_CAP_USD:.2f} per-run limit. "
-                           "Use fewer test cases or models, or a cheaper model.")
+        raise QaError(400, f"This test could cost up to ${estimate:.2f}, over the ${RUN_CAP_USD:.2f} per-run limit. "
+                           "Use fewer examples, test on fewer AI models, or pick a cheaper one.")
     if keys.uses_server and (cogs.total(org_id) or 0.0) + estimate > MONTHLY_CAP_USD:
-        raise QaError(429, "Your team has reached this month's free usage. Add your own Anthropic or OpenAI key "
-                           "in Settings, then Model keys, to keep going.")
+        raise QaError(429, "Your team has used this month's free testing. To keep going, connect your own Anthropic "
+                           "or OpenAI key in Settings, under Your AI accounts.")
 
 
 def _estimate(prompt: dict, suite: QaSuite, cases: list[QaCase], n_probes: int, org_id: Optional[str]) -> float:
@@ -378,10 +378,10 @@ def summarize(reliability: Optional[float], n_tests: int, probe: Optional[dict])
     """The QA result in one plain sentence."""
     parts = []
     if n_tests:
-        parts.append(f"Worked {round((reliability or 0) * n_tests)} of {n_tests} times")
+        parts.append(f"Did the job {round((reliability or 0) * n_tests)} of {n_tests} times")
     if probe and probe.get("attempted"):
         resisted = probe["attempted"] - probe.get("succeeded", 0)
-        parts.append(f"resisted {resisted} of {probe['attempted']} attacks")
+        parts.append(f"blocked {resisted} of {probe['attempted']} tricks")
     return " · ".join(parts) or "Nothing to test yet"
 
 

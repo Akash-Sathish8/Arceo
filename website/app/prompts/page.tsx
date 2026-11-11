@@ -5,9 +5,9 @@ import Navbar from "../../components/Navbar";
 import Footer from "../../components/Footer";
 import PromptScoreBox from "../../components/PromptScoreBox";
 
-/* Prompt library landing. Same shell, tokens and voice as /pricing: one
-   message, what a prompt costs to run and how it can be abused, shown on a
-   worked example rather than claimed. */
+/* Prompt library landing, written for people who use AI at work but don't
+   build software: no tokens, models-as-IDs or security jargon. Same shell
+   and tokens as /pricing; the claim is shown on a worked example. */
 
 const APP_URL =
   process.env.NEXT_PUBLIC_APP_URL ??
@@ -17,20 +17,20 @@ const START_HREF = APP_URL ? `${APP_URL}/login?for=prompts` : "/book-demo";
 
 const POINTS = [
   {
-    title: "What it costs a month, on every model",
-    body: "Paste a prompt and see what it costs a month at your volume on Claude, GPT and Gemini, and what switching models would save. Run QA and the answer length is measured, not guessed.",
+    title: "Know what it costs before the bill comes",
+    body: "Paste in something you ask ChatGPT or Claude to do. See what it costs a month at the rate you use it, on Claude, GPT and Gemini, and how much a cheaper AI would save you.",
   },
   {
-    title: "How it can be abused, and the fix",
-    body: "A 0-100 danger score with the reason behind every point: pasted keys or personal data, blanks where an email can rewrite your instructions, steps that act on what they read. Fix it for me rewrites the prompt safely in one click.",
+    title: "Spot what could go wrong, in plain English",
+    body: "Every prompt gets a safety rating with the reason behind it: a password left in by mistake, a customer's personal details, or a spot where a stranger's email could trick the AI. Fix it for me makes it safer in one click.",
   },
   {
-    title: "Attacked before you share it",
-    body: "QA runs your prompt on real models, then tries to inject instructions, leak a planted secret and hijack the output. You see which attacks worked.",
+    title: "Tested before you share it",
+    body: "We run your prompt on a real AI to check it does the job, then try to trick it the way a scammer would. You see what held up and what didn't.",
   },
   {
-    title: "Compare prompts on cost and safety",
-    body: "Same task, same hidden inputs, blind votes. The leaderboard sorts by best, by the cheapest prompt that's still good, or by the safest.",
+    title: "Find the best prompt for the job",
+    body: "Ask your team or the community to write a prompt for the same task. People vote on the answers without knowing whose is whose, and you see which is best, which is cheapest and which is safest.",
   },
 ];
 
@@ -46,13 +46,13 @@ export default function PromptsPage() {
               textTransform: "uppercase", letterSpacing: "0.12em", marginBottom: 16,
             }}>Prompt library</span>
             <h1 style={{ fontSize: "clamp(34px, 9vw, 52px)", fontWeight: 700, letterSpacing: "-0.02em", color: "var(--ink)", marginBottom: 16 }}>
-              Know what a prompt costs and how it can be abused, before you ship it
+              AI prompts your team can trust, with the price on the label
             </h1>
             <p style={{ fontSize: 16, color: "var(--muted)", lineHeight: 1.7, maxWidth: 560, margin: "0 auto 28px" }}>
-              A shared library for the prompts your team runs every week. Every prompt carries its monthly cost and a danger score you can read, and fixes itself in one click.
+              One shared place for the things your team asks AI to do every week. Every prompt shows what it costs a month and whether it's safe to use, and you can make it safer in one click.
             </p>
             <p style={{ fontSize: 13, color: "var(--muted-2)", margin: "0 auto 24px" }}>
-              Free during beta: unlimited scoring and fixes, 10 test runs a month on us, or unlimited with your own model key.
+              Free during beta: unlimited checks and fixes, plus 10 free tests a month. No setup and no technical knowledge needed.
             </p>
             <div style={{ display: "flex", gap: 12, justifyContent: "center", flexWrap: "wrap" }}>
               <a href={START_HREF} className="btn-black">Start free</a>
