@@ -1,0 +1,522 @@
+# Held-out prompt-match set, round 3, half 1 (sealed3_1).
+# Corpus = every prompt in prompts/seed/*.yaml, sorted by title (case-insensitive).
+# Half 1 = the first len(corpus)//2 titles. Targets are every 3rd title in that
+# half starting at offset 1, with the kind rotating paraphrase -> extended ->
+# trimmed -> hard_negative. Eight novel cases (target null) close the file.
+# Written blind: without looking at the matcher, its lexicon, its weights or the
+# other eval files. Queries are typed the way real people type: short, messy,
+# out of order, with real content pasted in where a blank would be.
+#
+#   paraphrase    -> expect same   (same job, different words)
+#   extended      -> expect close  (same job plus 1-2 genuinely new asks)
+#   trimmed       -> expect close  (same job minus one important ask or output)
+#   hard_negative -> expect none   for that target (same area, different job,
+#                                  and no corpus prompt does this job)
+#   novel         -> expect none   (no corpus prompt does this job)
+cases:
+# ── offset 1: A practice copy to try changes safely ─────────────────────────
+- id: y1-practice-copy-para
+  target: A practice copy to try changes safely
+  kind: paraphrase
+  expect: same
+  query:
+    title: test version of my site
+    body: |
+      im scared to touch my live site (its on netlify). can you make me a second copy of it thats private, where i can mess around and try stuff before real people see it? use fake info not my actual customers details, and make sure nothing i do in there sends real emails or charges anyone. explain how a change gets from the test one over to the real one, and how i undo it if it goes bad. show me the plan before setting anything up pls
+# ── 4: Add a dark mode switch ───────────────────────────────────────────────
+- id: y1-dark-mode-ext
+  target: Add a dark mode switch
+  kind: extended
+  expect: close
+  query:
+    body: |
+      can we get a dark mode on my plant care app? start with whatever their phone/computer is set to, put a little toggle up by the profile icon, and remember what they chose. dont just make it all black, keep it feeling like our green brand, and fix the logo + any pics with white backgrounds so they dont look weird on dark. leave the light version alone. ALSO add a third "high contrast" choice for people with bad eyesight (my dad keeps asking), and if theyre logged in save their choice to their account so it follows them to their other devices. list the colors u picked and tell me which screens to check in each mode
+# ── 7: Add Google or Apple sign-in ──────────────────────────────────────────
+- id: y1-google-signin-trim
+  target: Add Google or Apple sign-in
+  kind: trimmed
+  expect: close
+  query:
+    body: |
+      right now my app just has normal email + password login. add a "Continue with Google" button to the sign up and log in pages. walk me through what i have to set up on googles side step by step, and keep the secret stuff in private settings. dont mess up the current login. how do i test it with my own account?
+# ── 10: Angry customer de-escalation ────────────────────────────────────────
+- id: y1-angry-customer-hn-staff-checkin
+  target: Angry customer de-escalation
+  kind: hard_negative
+  expect: none
+  query:
+    body: |
+      a customer yelled at one of my front desk staff (Jess) today over a late refund. she stayed calm and handled it really well but she was pretty shaken after. write me a short text to send her tonight saying she did great, that she never has to put up with being yelled at and can pass those calls to me next time, and that she can take tomorrow morning off, paid. warm but not cheesy
+# ── 13: Announcement bar across the top ─────────────────────────────────────
+- id: y1-announcement-bar-para-pasted
+  target: Announcement bar across the top
+  kind: paraphrase
+  expect: same
+  query:
+    title: top banner thing
+    body: |
+      put a skinny strip across the very top of every page that says "Closed Mon Jan 1, back Tuesday! Gift cards available online." and make "Gift cards" a link to the gift card page. people should be able to X it out and it stays gone for them until i change the message. one line on desktop, 2 max on phones. i want one spot where i can edit it or turn it off. dont touch anything else and tell me where i edit it
+# ── 16: Appointment booking ─────────────────────────────────────────────────
+- id: y1-booking-ext
+  target: Appointment booking
+  kind: extended
+  expect: close
+  query:
+    body: |
+      i want students to book guitar lessons with me on my website. 30 min is $35, 60 min is $60, im free mon-thu 3 to 8pm. first tell me if something like calendly stuck on my page is good enough or if its worth building it into the site, and just pick one for me. either way they choose the lesson length, only see open times, put their name and phone or email, and see a confirmation. no two people can ever grab the same slot. on top of that they need to pay a $10 deposit when they book, and get a reminder text the day before. wait till i decide before building, then walk me thru a test booking
+# ── 19: Ask a former boss to be a reference ─────────────────────────────────
+- id: y1-reference-ask-trim
+  target: Ask a former boss to be a reference
+  kind: trimmed
+  expect: close
+  query:
+    body: |
+      applying for a receptionist job at a dental office and want to ask my old supervisor Mark from the hardware store (we worked together 2019-2023) to be a reference. short email asking if hed be ok with it, remind him of a couple things i did there: trained new cashiers, ran the monthly inventory counts, covered the returns desk. offer to send him my resume and thank him either way. under 160 words, friendly, kinda casual
+# ── 22: Ask happy customers for a review ────────────────────────────────────
+- id: y1-review-ask-hn-referral
+  target: Ask happy customers for a review
+  kind: hard_negative
+  expect: none
+  query:
+    body: |
+      write a quick text my salon can send happy clients after their appointment asking them to refer a friend. friend gets $15 off their first visit and the client gets $15 credit once the friend comes in. under 60 words, warm, make it easy, leave a spot for their personal code. plus a short nudge to send 2 weeks later if nobody's used the code yet
+# ── 25: Ask my manager to approve a purchase ────────────────────────────────
+- id: y1-purchase-approval-para-pasted
+  target: Ask my manager to approve a purchase
+  kind: paraphrase
+  expect: same
+  query:
+    body: |
+      need to ask my boss to buy me a standing desk converter, its $280 on amazon. my back has been killing me after full days at the desk and i missed 2 days last month because of it. i looked at a $150 one but the reviews say it wobbles, and a whole new desk is like $600. if we dont get it ill probably keep having to call out. need an answer by the 30th because thats when the sale ends. keep it around 150 words, just the facts, no begging, and end by asking yes or no
+# ── 28: Automatic emails from my app ────────────────────────────────────────
+- id: y1-app-emails-ext
+  target: Automatic emails from my app
+  kind: extended
+  expect: close
+  query:
+    body: |
+      i want my app to send emails on its own: a welcome email when someone signs up and a receipt when they buy a class pass. recommend one simple email service and tell me in normal words what i have to set up myself (like the prove-you-own-your-domain thing). write the emails too, short and friendly, from "Coach Dee at Iron Oak Gym", with plain text versions. secret keys go in private settings not in the code. send me test copies first and nothing to real people until i say go. two more things: if someone picked spanish when they signed up, send theirs in spanish, and give me a page where i can see every email that went out and whether it got delivered. run the plan by me first and list what u changed after
+# ── 31: Blog post outline ───────────────────────────────────────────────────
+- id: y1-blog-outline-trim
+  target: Blog post outline
+  kind: trimmed
+  expect: close
+  query:
+    body: |
+      blog post outline for "what to look for in a dog daycare", going after the search "dog daycare near me". H2 headings with 2-3 points under each
+# ── 34: Borrow the feel of a site I like ────────────────────────────────────
+- id: y1-site-feel-hn-identify-tools
+  target: Borrow the feel of a site I like
+  kind: hard_negative
+  expect: none
+  query:
+    body: |
+      theres a bakery website i keep going back to because i love how it looks. can you figure out what its built on (squarespace? wix? shopify?) and which fonts and colors they use, so i know whether i can get the same things on my plan? just tell me what you find, dont change anything on my site
+# ── 37: Break a long form into steps ────────────────────────────────────────
+- id: y1-long-form-steps-para
+  target: Break a long form into steps
+  kind: paraphrase
+  expect: same
+  query:
+    body: |
+      our volunteer sign up form is waaay too long and people quit halfway thru. chop it into 3 pages: contact info / when youre free / skills + emergency contact. progress bar at the top, a back button that doesnt wipe their answers, and if they close the tab and come back later their stuff should still be there. nothing gets sent until the very end. dont change any of the questions or how theyre worded. show me how you grouped it before you build and tell me how to click all the way through it
+# ── 40: Budget variance explainer ───────────────────────────────────────────
+- id: y1-budget-variance-ext
+  target: Budget variance explainer
+  kind: extended
+  expect: close
+  query:
+    body: |
+      can you explain this budget vs actual to me, im not a numbers person. top 3 biggest gaps, why they probably happened, and what to watch next month. also flag every line thats more than 20% over, and write a 3 line slack message i can send my cofounder about it.
+      Ads: budget 5,000 / actual 8,200
+      Contractors: 12,000 / 11,500
+      Software: 900 / 1,450
+      Rent: 3,000 / 3,000
+# ── 43: Call summary for the CRM ────────────────────────────────────────────
+- id: y1-crm-note-trim
+  target: Call summary for the CRM
+  kind: trimmed
+  expect: close
+  query:
+    body: |
+      turn my notes from this sales call into a note for salesforce: their pain, budget, who makes the call, and timeline. if somethings missing just put unknown.
+      notes: talked to Priya, ops manager at a dental group w/ 12 locations. scheduling is a mess, theyre on spreadsheets. said budget is "maybe 2k a month". CFO signs off. wants something live before January
+# ── 46: Candidate resume screen ─────────────────────────────────────────────
+- id: y1-resume-screen-hn-tailor-mine
+  target: Candidate resume screen
+  kind: hard_negative
+  expect: none
+  query:
+    body: |
+      im applying for a marketing coordinator job. below is the posting and my resume. rewrite my bullet points so they line up with what theyre asking for, using their words where its honest, but dont make anything up. keep it to one page.
+      posting: coordinate social calendar, run email campaigns in Mailchimp, track results in Google Analytics, 1-2 yrs experience
+      my resume: Front desk lead, Riverside Climbing Gym 2022-now. made the monthly class schedule. posted on the gym instagram. sent the member newsletter
+# ── 49: Case study outline ──────────────────────────────────────────────────
+- id: y1-case-study-para
+  target: Case study outline
+  kind: paraphrase
+  expect: same
+  query:
+    body: |
+      need an outline for a case study on Brightwater Dental. they started using our scheduling software and no-shows dropped 35%. sections: the problem they had, why they went with us, how setting it up went, results with real numbers, and a spot for a quote from them
+# ── 52: Changes don't save ──────────────────────────────────────────────────
+- id: y1-changes-dont-save-ext
+  target: Changes don't save
+  kind: extended
+  expect: close
+  query:
+    title: prices keep reverting
+    body: |
+      when i change a product price on my admin page and refresh, it goes right back to the old price. it needs to actually save so customers see the new price. find where the saving breaks and fix it. test with made up products, dont touch my real stuff. while youre in there, show a little "Saved" message when it really saves, and if it fails show me an error on the screen instead of acting like it worked. tell me in plain english what was wrong and how i check its fixed
+# ── 55: Check the claims in a piece of writing ──────────────────────────────
+- id: y1-check-claims-trim
+  target: Check the claims in a piece of writing
+  kind: trimmed
+  expect: close
+  query:
+    body: |
+      go through this and pull out every fact type claim: numbers, dates, quotes, "research says" stuff, anything said like its just true. for each one tell me if it sounds solid, sketchy, or cant tell without a source, and what kind of source would back it up. if you dont know say so, dont guess.
+      "Honey never spoils: archaeologists found 3,000 year old honey that was still edible. Bees visit 2 million flowers to make one pound. A Harvard study showed a spoon of honey before bed cures insomnia in 80% of people."
+# ── 58: Checkout isn't working ──────────────────────────────────────────────
+- id: y1-checkout-hn-chargeback
+  target: Checkout isn't working
+  kind: hard_negative
+  expect: none
+  query:
+    body: |
+      got an email from stripe that a customer disputed a $140 order as "product not received", but i have tracking that shows it was delivered and signed for. help me write my response to the dispute and tell me what proof to attach (tracking? receipt? our emails?). nothing is broken on the site and checkout works fine, i just dont want to lose the money
+# ── 61: Client email to 3 bullets ───────────────────────────────────────────
+- id: y1-client-email-bullets-para-pasted
+  target: Client email to 3 bullets
+  kind: paraphrase
+  expect: same
+  query:
+    body: |
+      can u boil this client email down to 3 bullets for Marcus (he runs the account): what they want, when they need it, and whats risky
+      ---
+      Hey all, quick one. We'd like to add the Spanish version of the brochure to the print run, ideally before the 22nd since that's when the trade show stuff ships. Our printer said anything after the 18th is rush pricing, which we didn't budget for. Also our CEO hasn't signed off on the new logo yet.
+      ---
+# ── 64: Cold email opener from a LinkedIn post ──────────────────────────────
+- id: y1-cold-opener-ext
+  target: Cold email opener from a LinkedIn post
+  kind: extended
+  expect: close
+  query:
+    body: |
+      write a 2 sentence opener for a cold email to Marco at Fieldstone Roofing that brings up his linkedin post below and connects it to our tool that sends automatic follow ups on quotes. dont butter him up. give me 3 different versions, and a subject line for each one under 6 words.
+      his post: "We lost 4 jobs last month because nobody followed up on quotes. Brutal lesson."
+# ── 67: Competitor positioning ──────────────────────────────────────────────
+- id: y1-competitor-trim
+  target: Competitor positioning
+  kind: trimmed
+  expect: close
+  query:
+    body: |
+      compare our booking app vs Mindbody for small yoga studios. give me 3 honest reasons a studio would pick us and 1 reason theyd go with them instead
+# ── 70: Contact form that emails me ─────────────────────────────────────────
+- id: y1-contact-form-hn-whatsapp
+  target: Contact form that emails me
+  kind: hard_negative
+  expect: none
+  query:
+    body: |
+      add a little green whatsapp button in the bottom corner of every page so visitors can message me straight from my site. when they tap it, whatsapp should open with "Hi! I have a question about..." already typed in. put my phone number in a setting somewhere, not stuck in the code. no forms, i just want the button
+# ── 73: Creative brief from a client call ───────────────────────────────────
+- id: y1-creative-brief-para-pasted
+  target: Creative brief from a client call
+  kind: paraphrase
+  expect: same
+  query:
+    body: |
+      call notes from today with the client are below, turn them into a one page creative brief. need: objective, who its for, the main message, must-haves, what were delivering, timeline.
+      notes: Oakline Coffee, opening 2nd location in Durham in March. want locals + college students to know about it. vibe = cozy study spot, not corporate. must use their hand drawn mug logo + "est. 2019". want 4 IG posts, 1 window poster, 1 short reel. everything ready by Feb 20
+# ── 76: Dates and times are off ─────────────────────────────────────────────
+- id: y1-dates-times-ext
+  target: Dates and times are off
+  kind: extended
+  expect: close
+  query:
+    body: |
+      times are wrong in my app. an event i set for 7pm shows up as 3am for some people. im in Los Angeles and my members are all over the US. figure out why and fix it so everyone sees the right date and time for where they are. ask me before changing any times that are already saved. also put the time zone next to every time (like 7:00 PM PT), and make the reminder emails use each person's own time zone too. tell me how to check it
+# ── 79: Describe my ideal customer ──────────────────────────────────────────
+- id: y1-ideal-customer-trim
+  target: Describe my ideal customer
+  kind: trimmed
+  expect: close
+  query:
+    body: |
+      help me figure out who my ideal customer is. i run a mobile bike repair van in Austin. right now most of my customers are commuters in their 30s, plus a lot of parents getting their kids bikes fixed. write a one page profile: who they are, what theyre trying to get done, what makes them hesitate before booking, the words theyd use for the problem, and where they hang out online and off. mark which parts are guesses
+# ── 82: Email newsletter draft ──────────────────────────────────────────────
+- id: y1-newsletter-hn-spam-check
+  target: Email newsletter draft
+  kind: hard_negative
+  expect: none
+  query:
+    body: |
+      before i hit send on my newsletter, can you check this draft for stuff that might land it in peoples spam folder? like certain words, ALL CAPS, too many links or exclamation points. point out each one and suggest a safer swap, but dont rewrite the rest, its already written.
+      Subject: FREE CLASS THIS WEEK!!! Don't miss out!!!
+      Preview: Act now, limited spots
+      Hey friends! We're giving away a 100% FREE trial class, click here, click here to book, and click here to share with a friend!!! Guaranteed results or your money back!
+# ── 85: Emails from my app never arrive ─────────────────────────────────────
+- id: y1-emails-never-arrive-para
+  target: Emails from my app never arrive
+  kind: paraphrase
+  expect: same
+  query:
+    body: |
+      my app is supposed to send a receipt email after someone pays but nobody is getting them. i already looked in spam and did a test purchase myself. can you figure out where its breaking: the app, the email service settings, or is it going to junk? explain it simply. only test with an email address i give you, never real customers, and dont show me any passwords or keys. fix what you can and tell me what i have to change in my accounts myself
+# ── 88: Explain a topic like I'm new to it ──────────────────────────────────
+- id: y1-explain-topic-ext
+  target: Explain a topic like I'm new to it
+  kind: extended
+  expect: close
+  query:
+    body: |
+      explain how solar panels and home batteries work like im smart but know nothing about it. 2 sentence version first, then the real explanation in under 250 words with an everyday comparison. 3 things people usually get wrong, and finish with 3 questions i could ask an installer to show i get the basics. explain any jargon right where you use it. also do a rough example with numbers for a normal 3 bedroom house, and point me to 2 free videos or articles to go deeper
+# ── 91: Explain what this file does ─────────────────────────────────────────
+- id: y1-explain-file-trim
+  target: Explain what this file does
+  kind: trimmed
+  expect: close
+  query:
+    body: |
+      what does checkout.js do in my project? explain it like i dont code. one sentence on its job, what would break if it was gone, and what other parts rely on it. keep it short and dont edit it
+# ── 94: FAQ section with expandable answers ─────────────────────────────────
+- id: y1-faq-hn-product-tabs
+  target: FAQ section with expandable answers
+  kind: hard_negative
+  expect: none
+  query:
+    body: |
+      my product pages are super long. put the Description, Ingredients, How to Use and Shipping parts into tabs right under the photo, so you click a tab to see that part. first tab open by default. has to work on phones and with a keyboard. keep all my wording exactly the same and dont change anything else on the page
+# ── 97: File uploads fail ───────────────────────────────────────────────────
+- id: y1-uploads-fail-para
+  target: File uploads fail
+  kind: paraphrase
+  expect: same
+  query:
+    body: |
+      people trying to upload a PDF of their insurance card on the New Patient page just get a spinning wheel forever and then nothing happens. figure out why (file too big? wrong kind of file?) and fix it. if theres a size limit, tell them what it is clearly instead of it just hanging. test with a fake file and explain what you changed and how i can try it
+# ── 100: Find what looks inconsistent ───────────────────────────────────────
+- id: y1-inconsistent-look-ext
+  target: Find what looks inconsistent
+  kind: extended
+  expect: close
+  query:
+    body: |
+      go thru every page on my site and make a list of anything that looks inconsistent: colors that should match but dont, fonts and sizes all over the place, uneven spacing, buttons and cards that look different, icons that dont match, photos with different corners. group it by type, say which pages, and pick the one style we should stick with. easy wins first. also do the phone version as its own separate pass, and include a screenshot of each problem. dont fix anything yet, ill choose
+# ── 103: Fix this error message ─────────────────────────────────────────────
+- id: y1-error-message-trim
+  target: Fix this error message
+  kind: trimmed
+  expect: close
+  query:
+    body: |
+      getting this error when i click Publish on a new blog post. fix it with the smallest change that works and dont touch unrelated stuff. if it needs a bigger fix tell me the plan and wait for me. after, tell me what you changed and how i check its fixed.
+      Unhandled Runtime Error: ReferenceError: slugify is not defined at createPost (posts.js:42)
+# ── 106: Forgot password link ───────────────────────────────────────────────
+- id: y1-forgot-password-hn-two-step
+  target: Forgot password link
+  kind: hard_negative
+  expect: none
+  query:
+    body: |
+      i want my login to be more secure. after someone types their email and password, make them also enter a 6 digit code we text them or one from an authenticator app. let them skip that step for 30 days on a device they mark as trusted. keep the rest of the log in screen the same and tell me how to test it from start to finish
+# ── 109: Friendly page-not-found screen ─────────────────────────────────────
+- id: y1-not-found-page-para
+  target: Friendly page-not-found screen
+  kind: paraphrase
+  expect: same
+  query:
+    title: nicer 404
+    body: |
+      when someone types a wrong address on my site they just get an ugly error page. make a nicer "page not found" page that looks like the rest of my site: a short kind message, a little playful, links to the shop, the FAQ and contact, and a big button back home. keep my normal header and footer on it. google should still know the page doesnt exist. how do i see it, just type a fake url?
+# ── 112: Get ready for a one-on-one with my manager ─────────────────────────
+- id: y1-one-on-one-ext
+  target: Get ready for a one-on-one with my manager
+  kind: extended
+  expect: close
+  query:
+    body: |
+      got a 30 min 1:1 with my manager tomorrow. from my notes below pull together what i want to bring up, in order: 1-2 wins, stuff im stuck on and the help i need, decisions i need from her, and one question about moving into a team lead role. short bullets, most important first, skip anything that could just be a slack message. also put roughly how many minutes each part should take so it fits, and write a 2 line message i can send her tonight with the topics.
+      notes: closed the Hendricks account; still blocked on access to the billing tool, asked IT twice; need her to decide if i keep doing both the monday and wednesday reports; want to take the excel course ($180)
+# ── 115: Give my pages room to breathe ──────────────────────────────────────
+- id: y1-spacing-trim
+  target: Give my pages room to breathe
+  kind: trimmed
+  expect: close
+  query:
+    body: |
+      everything on my site feels squished and uneven, especially the testimonials where the boxes basically touch, and the contact section. pick a few spacing sizes and use them everywhere: between sections, inside boxes, around buttons, under headings. line stuff up on the same edges. dont change any words, pictures or colors. give me a short list of what you changed at the end
+# ── 118: Goals for the next three months ────────────────────────────────────
+- id: y1-quarter-goals-hn-bonus
+  target: Goals for the next three months
+  kind: hard_negative
+  expect: none
+  query:
+    body: |
+      i want to set up a bonus for my 4 bakery staff for the next three months, tied to how the shop does. we have about $3,000 to put toward it. how should i set it up so its fair to the part timers too, what should it be based on (sales? less waste? good reviews?), and how do i explain it to them in a 5 minute huddle
+# ── 121: Help center article ────────────────────────────────────────────────
+- id: y1-help-article-para
+  target: Help center article
+  kind: paraphrase
+  expect: same
+  query:
+    body: |
+      need a help article for our users on connecting their google calendar. say who its for, numbered headings for each step, an "if something goes wrong" part, and placeholders for links to related articles
+# ── 124: Hiring scorecard ───────────────────────────────────────────────────
+- id: y1-hiring-scorecard-ext
+  target: Hiring scorecard
+  kind: extended
+  expect: close
+  query:
+    body: |
+      make a hiring scorecard for a part time bookkeeper. the mission of the role, 3-5 things they should get done in their first year, and 5 skills or traits with what good looks like for each. also add 2 interview questions for each skill and a few red flags to watch out for
+# ── 127: How big is this change? ────────────────────────────────────────────
+- id: y1-change-size-trim
+  target: How big is this change?
+  kind: trimmed
+  expect: close
+  query:
+    body: |
+      before we start anything: how big of a job is adding gift cards to my shop? look at the project and tell me small, medium or large and why, about how many steps, which parts of the app it touches, and what could slow it down. dont change anything yet
+# ── 130: Images not showing ─────────────────────────────────────────────────
+- id: y1-images-hn-sideways-photos
+  target: Images not showing
+  kind: hard_negative
+  expect: none
+  query:
+    body: |
+      the photos on my site do show up, but a bunch of the ones i took on my iphone are sideways or upside down on the Our Work page, even though they look normal on my phone. figure out why and fix it so they show the right way up. ask me before you replace or re-save any of my original pictures
+# ── 133: Invite teammates ───────────────────────────────────────────────────
+- id: y1-invite-teammates-para
+  target: Invite teammates
+  kind: paraphrase
+  expect: same
+  query:
+    body: |
+      let whoever owns a "studio" in my app invite other people by email. the invite link should expire after 3 days. clicking it lets them join (making an account first if they dont have one) and drops them into the right studio. the owner can see who hasnt accepted yet, cancel an invite, and choose if each person is Admin, Staff or Read-only. people should only ever see their own studio. explain the plan in plain english first, keep it focused, and tell me how to test it by inviting myself from another account
+# ── 136: Is my project on track? ────────────────────────────────────────────
+- id: y1-project-on-track-ext
+  target: Is my project on track?
+  kind: extended
+  expect: close
+  query:
+    body: |
+      heres our original plan and where we actually are. tell me which parts are on time, which are behind and by how much, and what a delay in one thing pushes back. then 3 things i can do THIS week to catch up, including what to cut or push. be blunt, under 250 words. after that give me an updated timeline as a table, and a short message i can post to the team.
+      plan: wk1 finalize menu, wk2 order equipment, wk3-4 hire 3 staff, wk5 soft open, wk6 grand opening
+      now: its wk4. menu got done in wk2 (late). equipment ordered but the oven is backordered 2 weeks. hired 1 of 3
+# ── 139: Job post ───────────────────────────────────────────────────────────
+- id: y1-job-post-trim
+  target: Job post
+  kind: trimmed
+  expect: close
+  query:
+    body: |
+      job post for a part time social media manager at Moss & Stone (small plant shop, open 2 years). include what theyll do day to day, what theyll own after 6 months, and pay is $22-25/hr
+# ── 142: Key ideas from a book ──────────────────────────────────────────────
+- id: y1-book-ideas-hn-book-club
+  target: Key ideas from a book
+  kind: hard_negative
+  expect: none
+  query:
+    body: |
+      im hosting book club next thursday, we read Lessons in Chemistry. give me 10 discussion questions that actually get people talking, nothing yes/no, and a couple about the ending since everyones finished it. plus a fun icebreaker to start the night
+# ── 145: Landing page hero options ──────────────────────────────────────────
+- id: y1-hero-options-para
+  target: Landing page hero options
+  kind: paraphrase
+  expect: same
+  query:
+    body: |
+      give me 5 headline + subheadline combos for the top of my website. its meal prep delivery for busy nurses. headlines under 8 words, subheads under 20, lead with what they get out of it
+# ── 148: Learn a work skill in short daily sessions ─────────────────────────
+- id: y1-learn-skill-ext
+  target: Learn a work skill in short daily sessions
+  kind: extended
+  expect: close
+  query:
+    body: |
+      i want to get good enough at Canva to make our weekly flyers and instagram posts myself instead of paying a freelancer. i have like 15 min each weekday. make me a 4 week plan: what to focus on each week, a small practice task every day using our real stuff where possible, free places to learn each part, and a quick way to check myself at the end of each week. also add a final project for week 4, and give me a printable checklist to tick off each day
+# ── 151: Let people add my app to their home screen ─────────────────────────
+- id: y1-home-screen-trim
+  target: Let people add my app to their home screen
+  kind: trimmed
+  expect: close
+  query:
+    body: |
+      want people to be able to add my habit tracker to their phone home screen and open it full screen like a real app. set up whatever it needs: the name "Streaks" under the icon, icons in the right sizes made from my logo, a theme color that matches the site. nothing should change for people just using it in a browser. tell me how to add it on an iphone and on android so i can try
+# ── 154: Links lead to a missing page ───────────────────────────────────────
+- id: y1-broken-links-hn-anchor-under-header
+  target: Links lead to a missing page
+  kind: hard_negative
+  expect: none
+  query:
+    body: |
+      when i click "Menu" or "Hours" in my top nav it jumps down the home page, but the section title ends up hidden under the header bar that stays stuck at the top. fix it so it lands with the heading showing, and make the scroll smooth instead of jumping. the links all go to the right places, nothing is broken, it just lands wrong
+# ── 157: Macro for a common question ────────────────────────────────────────
+- id: y1-support-macro-para-pasted
+  target: Macro for a common question
+  kind: paraphrase
+  expect: same
+  query:
+    body: |
+      write a canned reply for when people ask "can i pause my subscription instead of canceling?". friendly, under 90 words, with a spot for the customer's first name
+# ── Novel: no corpus prompt does any of these ───────────────────────────────
+- id: y1-novel-bedtime-story
+  target: null
+  kind: novel
+  expect: none
+  query:
+    body: |
+      make up a bedtime story for my 5 year old about a little dragon whos scared of the dark. about 5 minutes to read out loud, gentle happy ending. her name is Maya so put her in it as the dragons friend
+- id: y1-novel-tomato-leaves
+  target: null
+  kind: novel
+  expect: none
+  query:
+    body: |
+      my tomato plants leaves are turning yellow from the bottom up and getting brown spots. its been raining a ton. whats probably wrong and what should i do this week to save them
+- id: y1-novel-sheets-formula
+  target: null
+  kind: novel
+  expect: none
+  query:
+    title: sheets formula help
+    body: |
+      need a google sheets formula. column B has dates, column C has amounts. i want the total of C but only for rows where the date is in the current month. tell me exactly which cell to paste it in and what each part does
+- id: y1-novel-wedding-seating
+  target: null
+  kind: novel
+  expect: none
+  query:
+    body: |
+      help me do the seating chart for my wedding. 84 guests, 10 tables of 8 plus a head table. my parents are divorced and cant be at the same table, my college friends should all sit together, and keep the families with little kids near the exit. ask me for the guest list first
+- id: y1-novel-chore-chart
+  target: null
+  kind: novel
+  expect: none
+  query:
+    body: |
+      make a weekly chore chart for my 3 kids (6, 9 and 13). age appropriate jobs, rotating each week so its fair, and how much allowance each chore is worth. something i can print and stick on the fridge
+- id: y1-novel-party-trivia
+  target: null
+  kind: novel
+  expect: none
+  query:
+    body: |
+      need 20 trivia questions for our office holiday party. mix of 90s music, movies and general knowledge, on the easy side so nobody feels dumb. put the answers on a separate list at the end
+- id: y1-novel-car-noise
+  target: null
+  kind: novel
+  expect: none
+  query:
+    body: |
+      my car makes a high squealing noise when i first start it on cold mornings, goes away after a few minutes. 2015 honda civic. what could it be, is it ok to keep driving, and roughly what would fixing it cost
+- id: y1-novel-scale-recipe
+  target: null
+  kind: novel
+  expect: none
+  query:
+    body: |
+      i have a lasagna recipe that feeds 6 and i need to make it for 20 people at a church dinner. scale everything up, round it to amounts i can actually buy at the store, and tell me how many pans i need and how the baking time changes

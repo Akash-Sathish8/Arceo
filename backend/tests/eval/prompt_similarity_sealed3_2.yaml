@@ -1,0 +1,616 @@
+# Sealed held-out set, round 3, half 2 (written without looking at the
+# matcher, its lexicon/weights, or any other eval file).
+# Corpus = every prompt in prompts/seed/*.yaml sorted by title (case-insensitive);
+# this file covers the second half (index n//2 onward), every 3rd prompt
+# starting at offset 2, one case each, kinds rotating
+# paraphrase -> extended -> trimmed -> hard_negative. Plus 8 novel jobs.
+#   paraphrase    expect same   (same job, different words; ~1 in 3 pastes real content)
+#   extended      expect close  (1-2 genuinely new requirements)
+#   trimmed       expect close  (one important requirement / output element dropped)
+#   hard_negative expect none   for that target (same category, overlapping words,
+#                               different job that no corpus prompt does)
+#   novel         target null, expect none (no corpus prompt does it)
+cases:
+
+# ── 0 paraphrase ───────────────────────────────────────────────────────────
+- id: y2-phone-pass-every-page
+  target: Make every page feel good on a phone
+  kind: paraphrase
+  expect: same
+  query:
+    title: site on phones
+    body: |
+      pretty much everyone visits my candle shop site on their phone and honestly its kind of painful. can you go thru all the pages like you're holding a small phone and fix it - words are too tiny without zooming, buttons + links are hard to hit with your thumb, things that sit side by side should stack, and it scrolls left/right which drives me nuts. also when you type a phone number it should pop up the number pad and the email box should get the email keyboard. dont mess with how it looks on a computer. give me a list per page of what you changed and tell me how i can see the phone size view on my laptop
+
+# ── 1 extended ─────────────────────────────────────────────────────────────
+- id: y2-pitch-four-day-week
+  target: Make my case in a meeting
+  kind: extended
+  expect: close
+  query:
+    body: |
+      thursday i'm pitching the two managers on letting our support team do 4 day weeks over the summer. what they care about most is phones still getting answered and overtime costs. i need: how to open, 3 points in the order i should say them each backed by a number from here (we trialed it 2 weeks last august, calls answered within 2 min stayed at 94%, overtime went DOWN $1,100), the 2 hardest questions they'll probably ask with short honest answers, and exactly what to ask for at the end. quick notes i can glance at, not a speech.
+      ALSO: write a one page handout i can leave on the table after, and give me a smaller fallback ask (like just fridays in july) in case they say no to the whole thing
+
+# ── 2 trimmed ──────────────────────────────────────────────────────────────
+- id: y2-team-photos-same-shape
+  target: Make my photos look consistent
+  kind: trimmed
+  expect: close
+  query:
+    body: |
+      The photos on our Meet the Team page are all different sizes and shapes so it looks messy. Can you make them consistent - all circles - cropped so peoples faces stay in the shot, same rounded edges and even spacing between them. Keep them sharp but dont slow the page down. Don't touch the original photo files, and if one just won't work as a circle ask me what to do. Tell me what you changed when you're done.
+
+# ── 3 hard_negative ────────────────────────────────────────────────────────
+- id: y2-hn-contents-box-long-guides
+  target: Make my text easier to scan
+  kind: hard_negative
+  expect: none
+  query:
+    body: |
+      my care guides are super long walls of text with like 10 headings each. can you add a little "on this page" contents box at the top that lists the section headings and jumps down to each one when you click it, plus a back to top button at the bottom. dont change any of my wording or how big the headings are, i like them
+
+# ── 4 paraphrase ───────────────────────────────────────────────────────────
+- id: y2-studio-backups-check
+  target: Make sure my data is backed up
+  kind: paraphrase
+  expect: same
+  query:
+    body: |
+      my app keeps all our yoga class signups, member waivers and payment history. if that got wiped i'd be completely screwed. can you check where that stuff actually lives and whether anything is backing it up already - how often and how long the backups stick around? if there's nothing, set up the simplest thing that backs it up automatically every day and tell me if it costs anything. then walk me thru how i'd get it back if something got deleted by mistake, and lets do a practice restore into a separate copy, NOT on top of the real data. please don't change or move anything until i say ok to the plan
+
+# ── 5 extended ─────────────────────────────────────────────────────────────
+- id: y2-action-items-plus-nudges
+  target: Meeting notes to action items
+  kind: extended
+  expect: close
+  query:
+    body: |
+      pull the action items out of this call - who, what, by when (say "no date" if nobody gave one). only things someone actually agreed to do, not wishful stuff. then group them by person and write a 2 line reminder message for each person i can paste into slack.
+
+      Dana: ok so the vendor contract, Mike can you get legal to look at it?
+      Mike: yeah I'll send it over by Wednesday
+      Dana: great. we also still need the Q3 numbers
+      Tasha: I can pull those, end of next week probably
+      Dana: someone should update the wiki at some point
+      Mike: lol not me
+
+# ── 6 trimmed ──────────────────────────────────────────────────────────────
+- id: y2-pta-minutes-no-motions
+  target: Minutes for a committee or club meeting
+  kind: trimmed
+  expect: close
+  query:
+    body: |
+      can you turn my scribbles into proper minutes for the PTA meeting on Oct 3. sections: who was there and apologies, approving last month's minutes, a sentence or two on each thing we talked about, actions with who's doing them, and the next meeting date. keep it neutral and factual, and if something isn't in my notes write [not recorded].
+
+      there - Carla (chair), Jen, Omar, Beth. sorry from Tom. last mins approved. fall fundraiser - bake sale vs fun run, leaning fun run, Omar to price t-shirts. playground mulch still not delivered, Beth to call district office. next mtg nov 7
+
+# ── 7 hard_negative ────────────────────────────────────────────────────────
+- id: y2-hn-switch-web-host
+  target: Move from my old site without losing visitors
+  kind: hard_negative
+  expect: none
+  query:
+    body: |
+      we're leaving our current web host because it got way too expensive. i want to move the exact same site over to a cheaper host - same pages, same web address, nothing about the site itself changes. it can't go down for visitors while we switch, and the contact form messages saved on the old host need to come with us. tell me the order to do things in so nothing gets lost
+
+# ── 8 paraphrase ───────────────────────────────────────────────────────────
+- id: y2-link-preview-gray-box
+  target: Nice previews when my link is shared
+  kind: paraphrase
+  expect: same
+  query:
+    body: |
+      when i text someone my website or post it on facebook it just shows a gray box or some random image from the page. can every page get a proper preview - a title, a short one-line description and a picture that's the right size for imessage, facebook, linkedin etc. the home page should use the banner photo thats already in the files, and the other pages can use their own main photo or fall back to the banner. you write the titles and descriptions but show me before you put them in. also is there a free site where i can check what the preview will look like before i post
+
+# ── 9 extended ─────────────────────────────────────────────────────────────
+- id: y2-forward-note-plus-subject
+  target: Note to add when forwarding an email
+  kind: extended
+  expect: close
+  query:
+    body: |
+      forwarding this to Rosa who does our books. need a short note on top: one line on why she's getting it, what i need from her (figure out if we already paid this and tell me by friday) and which part she can ignore. friendly, 3 sentences max. also give me a better subject line for the forward, and a one-line version i can text her so she knows to look.
+
+      ---------- Forwarded message ---------
+      From: Accounts Receivable <ar@brightlinesupply.com>
+      Subject: FINAL NOTICE - Invoice 20931
+      Our records show invoice 20931 for $1,284.50 (dated Aug 14) remains unpaid. Please remit within 10 days to avoid a late fee. If you have already paid, please disregard. We have also updated our remittance address, see attached.
+
+# ── 10 trimmed ─────────────────────────────────────────────────────────────
+- id: y2-objection-price-double
+  target: Objection handler
+  kind: trimmed
+  expect: close
+  query:
+    body: |
+      prospects keep telling me "you're twice what our current cleaner charges" for our commercial window cleaning contracts. give me 3 ways to answer that, each under 40 words
+
+# ── 11 hard_negative ───────────────────────────────────────────────────────
+- id: y2-hn-accept-coworker-apology
+  target: Own up to a mistake I made
+  kind: hard_negative
+  expect: none
+  query:
+    body: |
+      my coworker messed up and sent the client the wrong quote, then sent me a really long apology email about it. i'm not mad, it got sorted. write me a short reply that accepts the apology warmly and moves on so they don't feel worse, no lecture about what went wrong
+
+# ── 12 paraphrase (pasted content) ─────────────────────────────────────────
+- id: y2-about-page-white-screen
+  target: Page shows up blank
+  kind: paraphrase
+  expect: same
+  query:
+    title: about page is just white
+    body: |
+      my About page is just a white screen now, nothing on it at all. it started right after you added the instagram feed this morning. figure out why (check the hidden browser errors too, i found this one in the console thing):
+      Uncaught TypeError: Cannot read properties of undefined (reading 'map')
+          at InstaFeed (InstaFeed.jsx:14:22)
+      explain what it is in normal words, then do the smallest fix that brings the page back without changing anything else on the site, and tell me how to check it on my screen
+
+# ── 13 extended ────────────────────────────────────────────────────────────
+- id: y2-gallery-with-filters-captions
+  target: Photo gallery
+  kind: extended
+  expect: close
+  query:
+    body: |
+      add a photo gallery to our Projects page with about 40 pics of decks and fences we've built. tidy grid, more per row on a computer and fewer on a phone. tap a photo and it opens big with arrows (and swipe on phones) and an easy way to close. keep it fast - shrink giant images and only load the ones further down when people scroll. put all the photos in one clearly named folder and tell me how to add more later. ask before replacing any pics already on the site.
+      new stuff: buttons at the top to filter by Decks / Fences / Pergolas, and a short caption under each photo with the town it's in
+
+# ── 14 trimmed ─────────────────────────────────────────────────────────────
+- id: y2-brainstorm-no-loud-rules
+  target: Plan a brainstorm that actually produces ideas
+  kind: trimmed
+  expect: close
+  query:
+    body: |
+      I need to run a 1 hour brainstorm with 6 people on "how do we get more repeat customers at the farm stand". Lay it out step by step with minutes for each part: quick warm-up, a few minutes where everyone writes ideas on their own before anyone talks, sharing and grouping similar ones, a simple vote, then pick the top 2 to actually try with someone owning each. And tell me what supplies i need in the room.
+
+# ── 15 hard_negative ───────────────────────────────────────────────────────
+- id: y2-hn-split-team-dinner-bill
+  target: Plan a team event
+  kind: hard_negative
+  expect: none
+  query:
+    body: |
+      we had our team dinner last night, 9 people, the bill came to $612 including tip. 3 people didn't drink (drinks were $138 of that) and the company covers $40 per person. work out what each person owes so it's fair, and give me a short message to send the group with the amounts
+
+# ── 16 paraphrase ──────────────────────────────────────────────────────────
+- id: y2-research-plan-solar
+  target: Plan my research on a topic
+  kind: paraphrase
+  expect: same
+  query:
+    body: |
+      i want to figure out if solar panels make sense for my house so i can decide before summer whether to get quotes. i've got maybe a couple weekends to look into it. what are the 5-7 main questions i actually need answered and in what order? for each one tell me what kind of sources i can trust vs which to be careful with, and give me 2 or 3 things to google. and how do i know when i've read enough to decide
+
+# ── 17 extended ────────────────────────────────────────────────────────────
+- id: y2-event-posts-plus-email
+  target: Posts to promote an event
+  kind: extended
+  expect: close
+  query:
+    body: |
+      need 5 posts to promote our Harvest Night fundraiser, Friday Oct 17, 6-9pm at Willow Creek Barn. first one announces it with the details, middle ones give reasons to come (silent auction, bluegrass band, local food, kids get in free), last one a friendly last call the day before. for each post say when to share it and what photo or video to use. ALSO write a short email version for our mailing list and give me 5 or 6 hashtags people around here actually use
+
+# ── 18 trimmed ─────────────────────────────────────────────────────────────
+- id: y2-press-release-no-pitch-note
+  target: Press release for local news
+  kind: trimmed
+  expect: close
+  query:
+    body: |
+      write a press release about Hollow Tree Books (in Asheville) turning 25 this year and throwing a free block party on June 8. clear headline, first paragraph that covers who what when where why, one short quote from the owner that i can change, and a closing paragraph about the store. under 350 words and none of that "game-changing" hype stuff
+
+# ── 19 hard_negative ───────────────────────────────────────────────────────
+- id: y2-hn-discount-codes-on-plans
+  target: Pricing page with plans
+  kind: hard_negative
+  expect: none
+  query:
+    body: |
+      my pricing page and plans are already done. now i want people to be able to type a discount code when they pick a plan, like SPRING20 = 20% off the first 3 months. i need a simple way to make new codes, set when they expire, and limit how many times each one can be used. show the discounted price before they pay
+
+# ── 20 paraphrase (pasted content) ─────────────────────────────────────────
+- id: y2-candle-listing-description
+  target: Product description for my shop
+  kind: paraphrase
+  expect: same
+  query:
+    body: |
+      need a description for the listing on our online store for our candle "Cedar & Smoke". here's all the info: 8oz amber glass jar, 45-50 hour burn, cotton wick, scent is cedarwood + vetiver + a little smoked birch, hand poured soy wax in small batches in Vermont, trim the wick to 1/4 inch before each burn.
+      start with a line or two about what it feels like to have it burning, then 4-5 short bullets on size, what it's made of, care, and anything buyers would ask before ordering. under 120 words, warm and earthy vibe. don't make up anything i didn't tell you
+
+# ── 21 extended ────────────────────────────────────────────────────────────
+- id: y2-project-plan-with-costs
+  target: Project plan with milestones
+  kind: extended
+  expect: close
+  query:
+    body: |
+      project: launch our new online ordering for the restaurant by May 15. people on it: me, Luis (kitchen manager), Ana (front of house) and our web guy Chris. break it into 3-5 phases that each end in a milestone you can clearly check off, list the main tasks under each with who owns it and a date, and mark tasks that can't start until another one's done. one page, simple table, then the 2 or 3 things most likely to make us late.
+      two more things: add what each phase will cost out of our $12,000 budget, and write a one-paragraph summary i can email to the owners
+
+# ── 22 trimmed ─────────────────────────────────────────────────────────────
+- id: y2-release-no-rollback-note
+  target: Publish an update safely
+  kind: trimmed
+  expect: close
+  query:
+    body: |
+      ok the new gift card feature is done and i want customers to have it. before it goes out try it in the preview and click through buying a gift card, redeeming one and normal checkout to make sure nothing else broke, tell me anything that looks weird. when i say go, release it and do the same click through on the real site. if something breaks tell me right away
+
+# ── 23 hard_negative ───────────────────────────────────────────────────────
+- id: y2-hn-temporary-back-soon-page
+  target: Put my site online for the first time
+  kind: hard_negative
+  expect: none
+  query:
+    body: |
+      my site is already online but i need to take it offline for about a week while i redo the menu and prices. put up a simple "back soon" page for visitors but i still need to be able to see the real site myself while i work on it. then tell me how to switch everything back on when i'm done
+
+# ── 24 paraphrase ──────────────────────────────────────────────────────────
+- id: y2-industry-overview-taprooms
+  target: Quick overview of an industry
+  kind: paraphrase
+  expect: same
+  query:
+    body: |
+      thinking about getting into craft beer, specifically small town taprooms. give me a starter overview: how these businesses actually make money, the main kinds of players and a few names i'd recognize, what customers care about most, and 3 trends shaping things right now. under 400 words. some of this might be outdated so flag any numbers that could be old and tell me what to double check with current info
+
+# ── 25 extended ────────────────────────────────────────────────────────────
+- id: y2-reference-letter-plus-linkedin
+  target: Reference letter for a past employee
+  kind: extended
+  expect: close
+  query:
+    body: |
+      Can you write a reference letter for Tasha, she was our front desk coordinator at the clinic for 3 years. Real examples: she rebuilt our scheduling so no-shows dropped by about a third, handled the angriest patients better than anyone, and trained 5 new hires. Specific and honest, about 250 words, don't claim anything I didn't say. End offering to answer questions and leave [my phone/email] as a placeholder.
+      Also write a much shorter version (under 80 words) I can post as a LinkedIn recommendation, and mention in the letter that I'd hire her again without hesitation.
+
+# ── 26 trimmed ─────────────────────────────────────────────────────────────
+- id: y2-broken-mug-reply-no-photo-ask
+  target: Reply to a broken delivery
+  kind: trimmed
+  expect: close
+  query:
+    body: |
+      customer got a damaged order, need a reply. say sorry without making a big thing of it, let them pick a replacement shipped this week or a full refund, and tell them they can just toss the broken one, no need to send it back. warm, short, under 130 words. i'll read it before sending
+
+      "hi, my set of 4 mugs came today and two of them were smashed in the box. pretty disappointed, they were for my mom's birthday on sunday"
+
+# ── 27 hard_negative ───────────────────────────────────────────────────────
+- id: y2-hn-posts-into-one-article
+  target: Repurpose an article into posts
+  kind: hard_negative
+  expect: none
+  query:
+    body: |
+      i wrote 6 linkedin posts about hiring for small teams over the past month (pasted below). stitch them together into ONE proper article for our company blog, around 800 words, with a real beginning, middle and end so it doesn't read like 6 posts glued together. don't repeat the same points twice.
+
+      1) Stop writing job posts like wish lists. Nobody has 12 "must-haves".
+      2) We hired our best ops person from a coffee shop. Look at how people handle chaos, not titles.
+      3) Your interview should feel like a day on the job. Give a real small task, pay for their time.
+      4) Reply to every applicant. Even a no. Your reputation is built in the rejections.
+      5) References are useless if you ask "were they good?" Ask "what would you not hand them?"
+      6) Week one matters more than the offer letter. Have their laptop, their buddy and their first task ready.
+
+# ── 28 paraphrase (pasted content) ─────────────────────────────────────────
+- id: y2-nurse-notes-for-families
+  target: Rewrite for readers outside my field
+  kind: paraphrase
+  expect: same
+  query:
+    body: |
+      i wrote this for the other nurses but now it's going in the newsletter for patients' families. rewrite it so regular people get it the first time they read it - swap the jargon for normal words, or if a word has to stay explain it quickly the first time. keep every fact and number and about the same length. after, list the words you changed so i can make sure the meaning didn't change.
+
+      Pts on the unit are now on q4h vitals post-op x 24h, then q8h if HDS. Visitors must don PPE before entering contact-precaution rooms. NPO after midnight applies to all scheduled procedures; clear liquids may be ordered per anesthesia.
+
+# ── 29 extended ────────────────────────────────────────────────────────────
+- id: y2-scope-creep-plus-timeline
+  target: Scope creep reply
+  kind: extended
+  expect: close
+  query:
+    body: |
+      client just sent this and it's way outside what we signed (logo + business cards only):
+      "Love the logo!! Could you also do our website while you're at it? Shouldn't take long since you already know the brand :)"
+      draft a warm reply that says thanks, explains it's outside what we agreed, and offers a small change order with a rough price range. also say how it would push back the business card delivery date if we did both at once, and offer to start the website as a separate project after the cards are done
+
+# ── 30 trimmed ─────────────────────────────────────────────────────────────
+- id: y2-search-sizes-no-before-after
+  target: Search shows the wrong results
+  kind: trimmed
+  expect: close
+  query:
+    body: |
+      search on my shop is broken. when i type "kids rain boots" i get nothing, but we literally sell Kids' Rain Boots and Toddler Rainboots. figure out why and fix it so it finds what people mean, even with different capital letters, extra spaces or small typos if that's easy. tell me in plain words what you changed
+
+# ── 31 hard_negative ───────────────────────────────────────────────────────
+- id: y2-hn-sheet-drives-schedule-page
+  target: Send form answers to a Google Sheet
+  kind: hard_negative
+  expect: none
+  query:
+    body: |
+      our class schedule lives in a google sheet that 3 of us edit. i want the Schedule page on the website to always show whatever is in that sheet, so when someone changes a row the site updates by itself, no copying. people on the site should only be able to look at it, not change the sheet
+
+# ── 32 paraphrase ──────────────────────────────────────────────────────────
+- id: y2-run-club-private-testers
+  target: Share an early version with a few people
+  kind: paraphrase
+  expect: same
+  query:
+    body: |
+      before we go public i want about 8 people from my running club to test the app. how do i share it privately - like a separate test link with one shared password so google and random people can't find it? add a feedback button so all their comments come to me in one place, and use fake data not real people's info. write a quick friendly note for the testers telling them what to try: signing up, logging a run, and joining a group challenge. and tell me how to take the password off when we actually launch
+
+# ── 33 extended ────────────────────────────────────────────────────────────
+- id: y2-checkin-remote-and-template
+  target: Short weekly team check-in
+  kind: extended
+  expect: close
+  query:
+    body: |
+      want a 15 min weekly check-in for my 7 person crew that does installs for a solar company. give me the 3 questions everyone answers, what order we go in, how long each person gets, and what we do when something needs a longer talk (park it, deal with it after). plus a short thing i can read out the first time explaining how it works, and one sign it's stopped being useful.
+      extra: half of them call in from job sites, so how do we run it when people are on the phone not in the room, and give me a simple shared form they fill in before so we're not waiting on people to think
+
+# ── 34 trimmed ─────────────────────────────────────────────────────────────
+- id: y2-accounts-no-protected-redirect
+  target: Sign up and log in
+  kind: trimmed
+  expect: close
+  query:
+    body: |
+      add accounts to my app so people can sign up, log in and log out with email + password. use a well known sign-in service or whatever's built into the tools i'm already using, don't build the password stuff from scratch, and tell me which one you picked and why in a sentence. friendly clear messages for mistakes like a wrong password. explain the plan before you start, keep the public pages looking the same, and tell me how to make a test account at the end
+
+# ── 35 hard_negative ───────────────────────────────────────────────────────
+- id: y2-hn-quiz-on-opening-procedure
+  target: SOP writer
+  kind: hard_negative
+  expect: none
+  query:
+    body: |
+      here's our opening procedure for the cafe. write an 8 question multiple choice quiz to check new hires actually learned it, with an answer key at the bottom.
+
+      1. unlock back door, disarm alarm (code on the card in the office)
+      2. turn on espresso machine, it needs 25 min to heat
+      3. check fridge temps and write them on the log, must be under 41F
+      4. set out pastries from the 6am delivery, check the count against the slip
+      5. count the till, $150 float
+      6. flip sign to open at 7
+
+# ── 36 paraphrase ──────────────────────────────────────────────────────────
+- id: y2-dog-walker-marketing-split
+  target: Spend a small marketing budget
+  kind: paraphrase
+  expect: same
+  query:
+    body: |
+      i do dog walking in denver, can put about $200 a month into marketing and maybe 2 hrs a week of my own time. goal is 10 new regular clients over the next 3 months. where should the money and time go? no more than 3 places, a short why for each, and what to skip for now. for each one give me the one number to check every week and when to give up on it if it's not working. i do literally everything myself so keep it doable
+
+# ── 37 extended ────────────────────────────────────────────────────────────
+- id: y2-newsletter-story-plus-quote
+  target: Story for the staff newsletter
+  kind: extended
+  expect: close
+  query:
+    body: |
+      write a ~200 word story for our staff newsletter about the night shift nurses on 4 West cutting patient falls. open with a moment or detail, not "we are pleased to announce". name the people: Keisha, Bram and the whole night crew. say in plain words why it matters to everyone else, and end with something readers can try on their own unit. only use these facts: falls went from 11 in the spring to 3 over the summer; they started hourly rounding and put bed alarms on every high-risk patient. give me 3 headline options.
+      also pull out one short quote we can put in big letters, and suggest a caption for the team photo
+
+# ── 38 trimmed ─────────────────────────────────────────────────────────────
+- id: y2-color-schemes-no-preview
+  target: Suggest a color scheme for my brand
+  kind: trimmed
+  expect: close
+  query:
+    body: |
+      i don't have brand colors yet. i'm a mobile dog groomer and i want people to feel calm, clean and like their dog is in good hands. suggest 3 color schemes, each with a main color, an accent, a background and a text color, plus a sentence on why it fits. once i pick one, put it everywhere on the site and tell me how i'd switch back if i change my mind
+
+# ── 39 hard_negative ───────────────────────────────────────────────────────
+- id: y2-hn-close-the-survey
+  target: Survey with a results summary
+  kind: hard_negative
+  expect: none
+  query:
+    body: |
+      the member survey on our site has been up for 3 weeks and we're done with it. make it stop taking new answers after sunday midnight and show a "thanks, this survey is closed" message instead of the questions. keep all the answers that are already saved, don't delete anything
+
+# ── 40 paraphrase (pasted content) ─────────────────────────────────────────
+- id: y2-roofing-quote-cards
+  target: Testimonials section from real reviews
+  kind: paraphrase
+  expect: same
+  query:
+    body: |
+      can you add a section on the home page right above the footer with these customer quotes as cards - 3 across on a computer, one at a time you can swipe through on a phone. first name and town under each one. use the quotes exactly as written, you can shorten one if you need to but don't add words or make up new ones. don't touch the rest of the page and tell me how to swap in new quotes later.
+
+      "Showed up when they said, finished a day early, and the crew cleaned up every nail." - Brenda, Raleigh
+      "They talked me OUT of a full replacement and just fixed the flashing. Who does that?" - Marcus, Wake Forest
+      "Price on the invoice matched the quote to the dollar." - Lin, Garner
+
+# ── 41 extended ────────────────────────────────────────────────────────────
+- id: y2-ticket-triage-plus-reply
+  target: Ticket triage
+  kind: extended
+  expect: close
+  query:
+    body: |
+      sort this ticket: category (billing, bug, how-to, feature request), urgency (low/normal/urgent), and which team owns it, one line each. then also write a 2-sentence first reply to the customer, and tell me how upset they sound (calm, annoyed, angry).
+
+      "I was charged twice for my March subscription and now my card is overdrawn. I need this refunded TODAY, this is the second time this has happened."
+
+# ── 42 trimmed ─────────────────────────────────────────────────────────────
+- id: y2-timeline-no-conflicts
+  target: Timeline from scattered notes
+  kind: trimmed
+  expect: close
+  query:
+    body: |
+      put this stuff into a timeline, oldest first. for each thing: the date (or a best guess marked "about"), what happened and who was involved. at the end list any gaps where it's not clear what happened.
+
+      text from landlord Jun 2: plumber coming thursday
+      my note: ceiling stain in bathroom, noticed sometime late May
+      email Jun 9: plumber says pipe fixed, drywall guy needed
+      photo dated Jun 20: stain is back and bigger
+      voicemail from landlord (no date, maybe late June): drywall guy booked for July
+
+# ── 43 hard_negative ───────────────────────────────────────────────────────
+- id: y2-hn-just-cancel-friday-meeting
+  target: Turn a meeting into a written update
+  kind: hard_negative
+  expect: none
+  query:
+    body: |
+      this friday's volunteer coordinators meeting is off, half of us are at the regional conference. write a 2 line message for the group chat saying it's cancelled, there's no update or anything to read this time, and we'll just see everyone at the usual time on the 14th
+
+# ── 44 paraphrase ──────────────────────────────────────────────────────────
+- id: y2-undo-sticky-menu
+  target: Undo the last change safely
+  kind: paraphrase
+  expect: same
+  query:
+    body: |
+      ugh the thing you just did (making the top menu stick when you scroll) made it worse, now the menu covers the top of every page on phones. undo just that one change and put it back how it was right before. don't lose anything else i've done, and if undoing it would take other stuff with it stop and ask me first. then tell me in plain words what's back to normal and how i can check
+
+# ── 45 extended ────────────────────────────────────────────────────────────
+- id: y2-domain-email-plus-alias
+  target: Use my domain for email
+  kind: extended
+  expect: close
+  query:
+    body: |
+      i want an email at my own domain, oakandiron-woodworks.com, that i can read in outlook on my laptop. compare 2 or 3 normal ways to do it with what they cost per month and pick one. then give me the exact settings to add where my domain is managed, one at a time, what each one does, including the ones that keep my emails out of spam. make sure none of them mess with the settings that keep my website up and warn me before anything that replaces an existing one. this is a guide for me to follow, don't change anything in my accounts yourself.
+      also: i want a second address, orders@, that just lands in the same inbox, and a simple matching signature with my logo for both
+
+# ── 46 trimmed ─────────────────────────────────────────────────────────────
+- id: y2-client-update-no-asks
+  target: Weekly client status update
+  kind: trimmed
+  expect: close
+  query:
+    body: |
+      weekly status update for Harbor Dental from my notes. two sections: Done and Next. under 150 words, confident, plain.
+      notes: new booking page live, fixed the broken map, google reviews widget 80% done, next is the insurance page and the spanish version
+
+# ── 47 hard_negative ───────────────────────────────────────────────────────
+- id: y2-hn-refer-a-friend-link
+  target: Welcome steps for new users
+  kind: hard_negative
+  expect: none
+  query:
+    body: |
+      i want users of my budgeting app to be able to invite friends. give every user their own invite link, and when a friend signs up with it they both get a free month. show each user how many friends have joined through their link so far
+
+# ── 48 paraphrase ──────────────────────────────────────────────────────────
+- id: y2-what-is-api-endpoint
+  target: What does this tech word mean?
+  kind: paraphrase
+  expect: same
+  query:
+    body: |
+      the agent keeps saying "API endpoint" and i have no clue what that is. explain it in 2-3 normal sentences with a real life comparison, then what it has to do with MY app and whether i need to do anything about it. don't change any code
+
+# ── 49 extended ────────────────────────────────────────────────────────────
+- id: y2-where-delivery-fee-plus-flow
+  target: Where does this happen in my project?
+  kind: extended
+  expect: close
+  query:
+    body: |
+      where in my project does the delivery fee at checkout get worked out? point me to the files or parts involved, explain in plain words what each one does for it, and tell me how to describe a change to it so you know exactly what i mean next time. just look and explain, don't edit anything.
+      also: if it's worked out in more than one place tell me which one actually wins, and draw me a really simple step-by-step picture of how the fee goes from the cart to the receipt
+
+# ── 50 trimmed ─────────────────────────────────────────────────────────────
+- id: y2-group-card-no-tone-mix
+  target: Words for a group card
+  kind: trimmed
+  expect: close
+  query:
+    body: |
+      signing a group card for Maria from payroll, she's leaving after 9 years to move closer to her grandkids. give me 5 short options i can write by hand, 2 or 3 sentences each, that sound like a real person and not a hallmark card. work this in if it fits: she always had candy on her desk and remembered everyone's kids' names
+
+# ── 51 hard_negative ───────────────────────────────────────────────────────
+- id: y2-hn-working-days-until-date
+  target: Work back from a date that can't move
+  kind: hard_negative
+  expect: none
+  query:
+    body: |
+      the deadline is April 6 and it can't move. today is Feb 23. how many working days is that if you skip weekends plus Good Friday and the Monday we're closed for inventory? and if the job takes about 120 hours, how many hours a day do i need to put in
+
+# ── 52 paraphrase ──────────────────────────────────────────────────────────
+- id: y2-agent-notes-file-tutoring
+  target: Write a guide to my project for next time
+  kind: paraphrase
+  expect: same
+  query:
+    body: |
+      can you make a short notes file the coding agent reads every time we start a new session? put in what the app is and who it's for (a tutoring company, parents book sessions for high schoolers), how the project is organized, how to preview it, the fragile parts that break easily, and my rules: tell me the plan in plain words first, keep every change small, ask before deleting anything. under a page, show it to me before you save it, and don't touch any other files
+
+# ── novel ──────────────────────────────────────────────────────────────────
+- id: y2-novel-meal-prep-groceries
+  target: null
+  kind: novel
+  expect: none
+  query:
+    body: |
+      family of 4, two picky kids, one of us is vegetarian. plan dinners for mon-fri that i can mostly prep on sunday in about 2 hours, and give me one grocery list grouped by store section. budget around $120
+
+- id: y2-novel-eulogy-grandpa
+  target: null
+  kind: novel
+  expect: none
+  query:
+    body: |
+      i have to give the eulogy at my grandpa's funeral saturday. he was a mailman for 34 years, fixed every bike on the street, terrible jokes, married to grandma 61 years. about 4 minutes when spoken, it's ok to have one light funny moment but mostly warm. i'm not a good public speaker so keep sentences short
+
+- id: y2-novel-leaky-faucet
+  target: null
+  kind: novel
+  expect: none
+  query:
+    body: |
+      my kitchen faucet drips nonstop even when it's turned all the way off. it's a single handle moen, maybe 10 years old. what do i need to buy and how do i fix it myself step by step? i've never done plumbing
+
+- id: y2-novel-houseplant-schedule
+  target: null
+  kind: novel
+  expect: none
+  query:
+    body: |
+      i keep killing my plants lol. i have a pothos, snake plant, fiddle leaf fig, 2 succulents and a peace lily, apartment faces north. make me a simple weekly watering and care schedule i can stick on the fridge
+
+- id: y2-novel-chore-chart-kids
+  target: null
+  kind: novel
+  expect: none
+  query:
+    body: |
+      make a chore chart for my kids, ages 6, 9 and 13. age appropriate jobs, rotate the gross ones weekly so nobody complains it's unfair, and some kind of points they can trade for screen time
+
+- id: y2-novel-bedtime-story
+  target: null
+  kind: novel
+  expect: none
+  query:
+    body: |
+      write a short bedtime story for my 5 year old about a little dinosaur who's scared of the dark and learns the night isn't so bad. about 5 minutes to read out loud, gentle ending, her name is Pip so make the dinosaur's friend called Pip
+
+- id: y2-novel-puppy-names
+  target: null
+  kind: novel
+  expect: none
+  query:
+    body: |
+      we're getting a golden retriever puppy next week and cannot agree on a name. give me 20 ideas, mix of classic and funny, ones that are easy to yell at a dog park. we like food names and old people names
+
+- id: y2-novel-anniversary-poem
+  target: null
+  kind: novel
+  expect: none
+  query:
+    body: |
+      10 year wedding anniversary coming up. write a short poem for my wife, not too cheesy, rhymes are fine. we met at a laundromat, have 2 boys, and she still steals my hoodies
