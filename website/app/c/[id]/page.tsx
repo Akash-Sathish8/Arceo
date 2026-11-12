@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
-import Navbar from "../../../components/Navbar";
+import Navbar from "@/components/Navbar";
+import { Button } from "@/components/ui/button";
 import Footer from "../../../components/Footer";
 import { APP_URL, fetchComparison, modelName, runCost } from "../../../lib/prompts";
 
@@ -35,24 +36,24 @@ export default async function ComparisonPage({ params }: Props) {
   return (
     <>
       <Navbar />
-      <main style={{ background: "var(--ground)", minHeight: "calc(100vh - 64px)" }}>
-        <section className="container" style={{ padding: "56px 24px 80px", maxWidth: 960 }}>
-          <span style={{ fontSize: 11, fontWeight: 700, color: "var(--muted-2)", textTransform: "uppercase", letterSpacing: "0.12em" }}>
-            Prompts for the same job
-          </span>
-          <h1 style={{ fontSize: "clamp(28px, 6vw, 40px)", fontWeight: 700, letterSpacing: "-0.02em", color: "var(--ink)", margin: "10px 0 8px", overflowWrap: "anywhere" }}>{c.title}</h1>
-          <p style={{ fontSize: 15, color: "var(--muted)", maxWidth: 640, lineHeight: 1.6, overflowWrap: "anywhere" }}>{c.task}</p>
-          <p style={{ fontSize: 13, color: "var(--muted-2)", marginTop: 6 }}>
+      <main className="min-h-[calc(100vh-64px)]">
+        <section className="container-site max-w-[960px] pt-12 pb-20 sm:pt-16">
+          <div className="text-[13px] text-ink-3">Prompts for the same job</div>
+          <h1 className="mt-2 text-[30px] font-semibold leading-tight tracking-[-0.025em] text-ink [overflow-wrap:anywhere] sm:text-[40px]">{c.title}</h1>
+          <p className="mt-2 max-w-[640px] text-[15px] leading-relaxed text-ink-2 [overflow-wrap:anywhere]">{c.task}</p>
+          <p className="mt-1.5 text-[13px] text-ink-3">
             {c.entry_count} {c.entry_count === 1 ? "prompt" : "prompts"} · on {modelName(c.model)}
           </p>
-          {open && <div style={{ margin: "20px 0 28px" }}><a href={open} className="btn-black">Open in Arceo</a></div>}
+          {open && (
+            <Button asChild className="mt-6 h-10 px-4 text-[14px]"><a href={open}>Open in Arceo</a></Button>
+          )}
           {entries.length > 0 && (
-            <ul style={{ listStyle: "none", padding: 0, margin: open ? 0 : "24px 0 0", background: "var(--paper)", borderRadius: "var(--r-lg)", boxShadow: "0 1px 4px rgba(0,0,0,0.05)" }}>
-              {entries.map((e, i) => (
-                <li key={e.id} style={{ display: "flex", justifyContent: "space-between", gap: 16, padding: "14px 20px", borderTop: i ? "1px solid var(--rule)" : "none", fontSize: 14 }}>
-                  <span style={{ color: "var(--ink)", minWidth: 0, overflowWrap: "anywhere" }}>{e.author_name ? `By ${e.author_name}` : "A creator"}</span>
+            <ul className="mt-6 divide-y rounded-lg border bg-white shadow-xs">
+              {entries.map((e) => (
+                <li key={e.id} className="flex justify-between gap-4 px-5 py-3.5 text-[14px]">
+                  <span className="min-w-0 text-ink [overflow-wrap:anywhere]">{e.author_name ? `By ${e.author_name}` : "A creator"}</span>
                   {e.cost?.usd_per_run != null && (
-                    <span style={{ color: "var(--muted)", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>{runCost(e.cost.usd_per_run)} each time</span>
+                    <span className="num whitespace-nowrap text-ink-3">{runCost(e.cost.usd_per_run)} each time</span>
                   )}
                 </li>
               ))}

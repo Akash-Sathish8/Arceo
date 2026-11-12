@@ -1,8 +1,17 @@
 "use client";
 
 import { useState } from "react";
-import Navbar from "../../components/Navbar";
-import Footer from "../../components/Footer";
+import Link from "next/link";
+import Navbar from "@/components/Navbar";
+import Footer from "@/components/Footer";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+
+/* Demo request. Posts to /api/demo-request, which records the lead and only
+   reports success once it is stored somewhere we control. On failure the
+   visitor gets a prefilled email instead of a false confirmation. */
 
 const FALLBACK_EMAIL = "akakash.sathish@gmail.com";
 
@@ -17,14 +26,13 @@ export default function BookDemoPage() {
     company: "",
     role: "",
     message: "",
-    website: "", // honeypot — hidden from humans, bots fill it in
+    website: "", // honeypot: hidden from people, bots fill it in
   });
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setStatus("submitting");
     setError("");
-
     try {
       const res = await fetch("/api/demo-request", {
         method: "POST",
@@ -32,7 +40,6 @@ export default function BookDemoPage() {
         body: JSON.stringify(form),
       });
       const data = await res.json().catch(() => ({}));
-
       if (!res.ok || !data.ok) {
         setError(data.error || "We couldn't send that just now.");
         setStatus("error");
@@ -43,7 +50,7 @@ export default function BookDemoPage() {
       setError("We couldn't reach the server.");
       setStatus("error");
     }
-  };
+  }
 
   const update = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
     setForm({ ...form, [k]: e.target.value });
@@ -60,188 +67,93 @@ export default function BookDemoPage() {
         "",
         "Message:",
         form.message || "(none)",
-      ].join("\n")
+      ].join("\n"),
     )}`;
 
   return (
     <>
       <Navbar />
-      <section style={{
-        minHeight: "calc(100vh - 64px)",
-        background: "var(--clay-cream)",
-        display: "flex",
-        alignItems: "center",
-        padding: "80px 24px",
-      }}>
-        <div style={{ maxWidth: 560, margin: "0 auto", width: "100%" }}>
-
-          {status !== "success" ? (
-            <>
-              <span className="eyebrow">Design partner pilot</span>
-              <h1 style={{
-                fontSize: "clamp(32px, 9vw, 44px)",
-                fontWeight: 700,
-                lineHeight: 1.15,
-                letterSpacing: "-0.02em",
-                color: "var(--clay-heading)",
-                margin: "8px 0 12px",
-              }}>
-                Book a demo
-              </h1>
-              <p style={{
-                fontSize: 16,
-                color: "var(--clay-body)",
-                lineHeight: 1.6,
-                marginBottom: 40,
-              }}>
-                Bring one real agent. We&apos;ll put a cost figure and a worst-case number on it
-                with you, on a live walkthrough.
-              </p>
-
-              <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 18 }}>
-                <Field label="Full name" required>
-                  <input type="text" required value={form.name} onChange={update("name")} style={inputStyle} />
-                </Field>
-
-                <Field label="Work email" required>
-                  <input type="email" required value={form.email} onChange={update("email")} style={inputStyle} />
-                </Field>
-
-                <Field label="Company">
-                  <input type="text" value={form.company} onChange={update("company")} style={inputStyle} />
-                </Field>
-
-                <Field label="Role">
-                  <input
-                    type="text"
-                    placeholder="CIO, CFO, Platform Lead, Engineer..."
-                    value={form.role}
-                    onChange={update("role")}
-                    style={inputStyle}
-                  />
-                </Field>
-
-                <Field label="What brings you to Arceo?">
-                  <textarea
-                    rows={4}
-                    value={form.message}
-                    onChange={update("message")}
-                    style={{ ...inputStyle, resize: "vertical", fontFamily: "inherit" }}
-                  />
-                </Field>
-
-                {/* Honeypot — visually hidden, never announced to screen readers */}
-                <input
-                  type="text"
-                  tabIndex={-1}
-                  autoComplete="off"
-                  aria-hidden="true"
-                  value={form.website}
-                  onChange={update("website")}
-                  style={{ position: "absolute", left: "-9999px", width: 1, height: 1, opacity: 0 }}
-                />
-
-                {status === "error" && (
-                  <div role="alert" style={{
-                    background: "var(--risk-critical-fill)",
-                    border: "1px solid var(--risk-critical-border)",
-                    borderRadius: 12,
-                    padding: "12px 14px",
-                    fontSize: 14,
-                    color: "#991b1b",
-                    lineHeight: 1.55,
-                  }}>
-                    {error}{" "}
-                    <a href={mailtoFallback} style={{ color: "#991b1b", fontWeight: 600, textDecoration: "underline" }}>
-                      Email us directly instead
-                    </a>{" "}
-                    and we&apos;ll pick it up from there.
-                  </div>
-                )}
-
-                <button
-                  type="submit"
-                  className="btn-black"
-                  disabled={status === "submitting"}
-                  style={{
-                    marginTop: 12,
-                    fontSize: 14,
-                    padding: "12px 22px",
-                    justifyContent: "center",
-                    cursor: status === "submitting" ? "wait" : "pointer",
-                    border: "none",
-                    opacity: status === "submitting" ? 0.65 : 1,
-                  }}
-                >
-                  {status === "submitting" ? "Sending..." : "Request a walkthrough"}
-                  {status !== "submitting" && (
-                    <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M2.5 6.5h8M7 3l3.5 3.5L7 10" />
-                    </svg>
-                  )}
-                </button>
-
-                <p style={{ fontSize: 12.5, color: "var(--clay-body-subtle)", textAlign: "center", lineHeight: 1.6 }}>
-                  We use this only to get back to you about a pilot. No newsletter, no reselling.
-                </p>
-              </form>
-            </>
-          ) : (
-            <div style={{ textAlign: "center", padding: "40px 0" }}>
-              <div style={{
-                width: 56, height: 56, borderRadius: "50%",
-                background: "var(--clay-brand)", color: "#fff",
-                display: "inline-flex", alignItems: "center", justifyContent: "center",
-                marginBottom: 24,
-                boxShadow: "var(--shadow-sm)",
-              }}>
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                  <polyline points="20 6 9 17 4 12" />
-                </svg>
-              </div>
-              <h1 style={{
-                fontSize: 36,
-                fontWeight: 700,
-                color: "var(--clay-heading)",
-                marginBottom: 12,
-                letterSpacing: "-0.02em",
-              }}>
-                Thanks, {form.name.split(" ")[0] || "we got it"}
-              </h1>
-              <p style={{ fontSize: 16, color: "var(--clay-body)", lineHeight: 1.6 }}>
-                Your request is in. We&apos;ll reach out to{" "}
-                <strong style={{ color: "var(--clay-heading)" }}>{form.email}</strong> to find a time.
-              </p>
-            </div>
-          )}
-
+      <main className="container-site grid gap-12 pt-14 pb-20 sm:pt-20 lg:grid-cols-[minmax(0,1fr)_minmax(0,520px)] lg:gap-20">
+        <div>
+          <h1 className="text-[40px] font-semibold leading-[1.05] tracking-[-0.035em] text-ink sm:text-[52px]">Book a demo</h1>
+          <p className="mt-5 max-w-[460px] text-[17px] leading-relaxed text-ink-2">
+            Thirty minutes on a call. Bring a prompt your team uses or an agent you are building, and we will run it
+            through Arceo with you.
+          </p>
+          <ul className="mt-8 flex max-w-[460px] flex-col gap-3 border-t pt-6 text-[14.5px] leading-relaxed text-ink-2">
+            <li>We show what it could break and which warnings it trips.</li>
+            <li>You leave with a monthly cost forecast and its range.</li>
+          </ul>
         </div>
-      </section>
+
+        <div className="rounded-xl border bg-white p-6 shadow-sm sm:p-8">
+          {status === "success" ? (
+            <div role="status">
+              <h2 className="text-[22px] font-semibold tracking-[-0.02em] text-ink">Thanks, we have it.</h2>
+              <p className="mt-2 text-[15px] leading-relaxed text-ink-2">
+                We will email {form.email || "you"} to find a time.
+              </p>
+              <Button asChild variant="outline" className="mt-6 h-10 bg-white px-4 text-[14px]">
+                <Link href="/">Back to the homepage</Link>
+              </Button>
+            </div>
+          ) : (
+            <form onSubmit={handleSubmit} className="flex flex-col gap-5">
+              <Field id="name" label="Full name" required>
+                <Input id="name" required autoComplete="name" value={form.name} onChange={update("name")} className="h-10 text-[15px]" />
+              </Field>
+              <Field id="email" label="Work email" required>
+                <Input id="email" type="email" required autoComplete="email" value={form.email} onChange={update("email")} className="h-10 text-[15px]" />
+              </Field>
+              <div className="grid gap-5 sm:grid-cols-2">
+                <Field id="company" label="Company">
+                  <Input id="company" autoComplete="organization" value={form.company} onChange={update("company")} className="h-10 text-[15px]" />
+                </Field>
+                <Field id="role" label="Role">
+                  <Input id="role" autoComplete="organization-title" value={form.role} onChange={update("role")} className="h-10 text-[15px]" />
+                </Field>
+              </div>
+              <Field id="message" label="What would you like to see?">
+                <Textarea id="message" rows={4} value={form.message} onChange={update("message")} className="text-[15px]" />
+              </Field>
+
+              <input
+                type="text"
+                tabIndex={-1}
+                autoComplete="off"
+                aria-hidden="true"
+                value={form.website}
+                onChange={update("website")}
+                className="absolute -left-[9999px] h-px w-px opacity-0"
+              />
+
+              {status === "error" && (
+                <div role="alert" className="rounded-md border border-critical-line bg-critical-bg p-3 text-[14px] leading-relaxed text-critical">
+                  {error}{" "}
+                  <a href={mailtoFallback} className="font-medium underline underline-offset-2">Email us instead</a>.
+                </div>
+              )}
+
+              <Button type="submit" disabled={status === "submitting"} className="h-11 text-[15px]">
+                {status === "submitting" ? "Sending…" : "Request a demo"}
+              </Button>
+            </form>
+          )}
+        </div>
+      </main>
       <Footer />
     </>
   );
 }
 
-function Field({ label, required, children }: { label: string; required?: boolean; children: React.ReactNode }) {
+function Field({ id, label, required, children }: { id: string; label: string; required?: boolean; children: React.ReactNode }) {
   return (
-    <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-      <span style={{ fontSize: 13, fontWeight: 600, color: "var(--clay-heading)" }}>
-        {label}{required && <span style={{ color: "var(--risk-critical)", marginLeft: 4 }}>*</span>}
-      </span>
+    <div className="flex flex-col gap-2">
+      <Label htmlFor={id} className="text-[13.5px] text-ink">
+        {label}
+        {required && <span className="text-ink-4"> (required)</span>}
+      </Label>
       {children}
-    </label>
+    </div>
   );
 }
-
-const inputStyle: React.CSSProperties = {
-  fontSize: 15,
-  padding: "11px 14px",
-  border: "1px solid var(--clay-border)",
-  borderRadius: 12,
-  background: "#fff",
-  color: "var(--clay-heading)",
-  outline: "none",
-  fontFamily: "inherit",
-  width: "100%",
-  boxSizing: "border-box",
-};

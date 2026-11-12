@@ -1,7 +1,11 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { API_URL, SEND_TARGETS, TARGET_GROUPS, blankName, fillBlanks, wellFormed, type SendTarget } from "../lib/prompts";
+import { API_URL, SEND_TARGETS, TARGET_GROUPS, blankName, fillBlanks, wellFormed, type SendTarget } from "@/lib/prompts";
+import { buttonVariants, Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
+import { cn } from "@/lib/utils";
 
 /* "Send it to your agent": one button per agent, grouped the way the app's
    Send dialog groups them. Each button is a real link that opens the agent
@@ -12,12 +16,6 @@ import { API_URL, SEND_TARGETS, TARGET_GROUPS, blankName, fillBlanks, wellFormed
 
 type Status = { tone: "ok" | "error"; text: string; help?: string } | null;
 
-const label: React.CSSProperties = {
-  fontSize: 11, fontWeight: 700, color: "var(--muted-2)", textTransform: "uppercase", letterSpacing: "0.08em",
-};
-const button: React.CSSProperties = {
-  justifyContent: "center", padding: "8px 14px", fontSize: 14, width: "100%", minHeight: 40,
-};
 
 function pasteKey(): string {
   if (typeof navigator === "undefined") return "Ctrl+V";
@@ -48,11 +46,6 @@ async function copyText(text: string): Promise<boolean> {
     return false;
   }
 }
-
-const field: React.CSSProperties = {
-  width: "100%", boxSizing: "border-box", padding: "8px 10px", fontSize: 14, lineHeight: 1.5, fontFamily: "inherit",
-  color: "var(--ink)", background: "var(--paper)", border: "1px solid var(--rule)", borderRadius: "var(--r-md)", resize: "vertical",
-};
 
 // Blanks that usually hold a paragraph or more get a taller box (same rule as the app).
 const LONG_BLANK = /email|message|transcript|notes|document|article|page|review|ticket|post|resume|text|error|code|draft|content|thread/i;
@@ -120,32 +113,33 @@ export default function SendPrompt({ text: body, promptId, blanks }: { text: str
       : { tone: "error", text: "Couldn't copy it. Select the prompt text and copy it yourself." });
   }
 
+  const targetClass = cn(buttonVariants({ variant: "outline" }), "h-10 w-full justify-center bg-white text-[14px]");
+
   return (
-    <div style={{ background: "var(--paper)", borderRadius: "var(--r-lg)", padding: 20, boxShadow: "0 1px 4px rgba(0,0,0,0.05)" }}>
-      <div style={label}>Send it to your agent</div>
-      <p style={{ fontSize: 14, color: "var(--muted)", lineHeight: 1.55, margin: "8px 0 0" }}>
+    <div className="rounded-lg border bg-white p-5 shadow-xs">
+      <h2 className="text-[15px] font-semibold text-ink">Send it to your agent</h2>
+      <p className="mt-1 text-[14px] leading-relaxed text-ink-3">
         One click opens it with the prompt already typed in. Check it, then press Enter.
       </p>
 
       {blanks.length > 0 && (
-        <div style={{ marginTop: 14, padding: "12px 12px 14px", borderRadius: "var(--r-md)", background: "var(--ground-2)" }}>
-          <div style={{ fontSize: 14, fontWeight: 600, color: "var(--ink)" }}>Add your own details</div>
-          <p style={{ fontSize: 13, color: "var(--muted)", lineHeight: 1.55, margin: "4px 0 10px" }}>
+        <div className="mt-4 rounded-md bg-page p-3 ring-1 ring-border">
+          <div className="text-[14px] font-semibold text-ink">Add your own details</div>
+          <p className="mb-3 mt-1 text-[13px] leading-relaxed text-ink-3">
             They go into the prompt before it&apos;s sent. Leave one empty and it arrives as [its name], for you to fill in there.
           </p>
-          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <div className="flex flex-col gap-3">
             {blanks.map((b) => (
-              <div key={b}>
-                <label htmlFor={`blank-${b}`} style={{ display: "block", fontSize: 13, fontWeight: 600, color: "var(--ink)", marginBottom: 4, overflowWrap: "anywhere" }}>
-                  {blankName(b)}
-                </label>
-                <textarea id={`blank-${b}`} rows={LONG_BLANK.test(b) ? 4 : 1} style={field} value={values[b] ?? ""}
+              <div key={b} className="flex flex-col gap-1.5">
+                <Label htmlFor={`blank-${b}`} className="text-[13px] [overflow-wrap:anywhere]">{blankName(b)}</Label>
+                <Textarea id={`blank-${b}`} rows={LONG_BLANK.test(b) ? 4 : 1} value={values[b] ?? ""}
+                  className="min-h-9 bg-white text-[14px]"
                   onChange={(e) => setValues((cur) => ({ ...cur, [b]: e.target.value }))} />
               </div>
             ))}
           </div>
           {empty.length > 0 && empty.length < blanks.length && (
-            <p style={{ fontSize: 12, color: "var(--muted)", lineHeight: 1.5, margin: "8px 0 0" }}>
+            <p className="mt-2 text-[12px] leading-relaxed text-ink-3">
               Still empty: {empty.map((b) => `[${blankName(b)}]`).join(", ")}.
             </p>
           )}
@@ -155,19 +149,19 @@ export default function SendPrompt({ text: body, promptId, blanks }: { text: str
       {TARGET_GROUPS.map((g) => {
         const targets = SEND_TARGETS.filter((t) => t.group === g);
         return (
-          <div key={g} style={{ marginTop: 16 }}>
-            <div style={{ fontSize: 12, fontWeight: 600, color: "var(--muted)", marginBottom: 8 }}>{g}</div>
-            <div className="send-grid">
+          <div key={g} className="mt-4">
+            <div className="mb-2 text-[12.5px] font-medium text-ink-3">{g}</div>
+            <div className="grid grid-cols-1 gap-2 min-[380px]:grid-cols-2">
               {targets.map((t) => t.fits(text)
                 ? (
-                  <a key={t.id} href={t.build(text)} className="btn-outline" style={button}
+                  <a key={t.id} href={t.build(text)} className={targetClass}
                     {...(t.app ? {} : { target: "_blank", rel: "noopener noreferrer" })}
                     onClick={() => opened(t)}>
                     {t.name}
                   </a>
                 )
                 : (
-                  <button key={t.id} type="button" className="btn-outline" style={button} onClick={() => void copyOpen(t)}>
+                  <button key={t.id} type="button" className={targetClass} onClick={() => void copyOpen(t)}>
                     {t.name}
                   </button>
                 ))}
@@ -176,28 +170,23 @@ export default function SendPrompt({ text: body, promptId, blanks }: { text: str
         );
       })}
 
-      <div style={{ marginTop: 16, borderTop: "1px solid var(--rule)", paddingTop: 16 }}>
-        <button type="button" className="btn-black" style={{ ...button, border: 0 }} onClick={() => void copyOnly()}>
+      <div className="mt-4 border-t pt-4">
+        <Button type="button" className="h-10 w-full text-[14px]" onClick={() => void copyOnly()}>
           Copy prompt
-        </button>
+        </Button>
       </div>
 
-      <div aria-live="polite" style={{ minHeight: 0 }}>
+      <div aria-live="polite">
         {status && (
-          <div style={{ marginTop: 12 }}>
+          <div className="mt-3">
             <p role={status.tone === "error" ? "alert" : undefined}
-              style={{ fontSize: 13, lineHeight: 1.5, color: status.tone === "error" ? "var(--risk-critical)" : "var(--ink)" }}>
+              className={cn("text-[13px] leading-relaxed", status.tone === "error" ? "text-critical" : "text-ink")}>
               {status.text}
             </p>
-            {status.help && <p style={{ fontSize: 13, lineHeight: 1.5, color: "var(--muted)", marginTop: 2 }}>{status.help}</p>}
+            {status.help && <p className="mt-0.5 text-[13px] leading-relaxed text-ink-3">{status.help}</p>}
           </div>
         )}
       </div>
-
-      <style>{`
-        .send-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
-        @media (max-width: 360px) { .send-grid { grid-template-columns: 1fr; } }
-      `}</style>
     </div>
   );
 }

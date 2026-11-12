@@ -1,12 +1,13 @@
 import { ImageResponse } from "next/og";
+import { AGENTS, FORECAST, PROMPT_COUNT } from "@/lib/demo";
 
-// Social preview card. Without this, sharing arceo.io on LinkedIn or Slack
-// renders a bare text link with no image.
+// Social preview card. The figures come from lib/demo.ts, the same ones the
+// homepage's product window shows.
 //
 // The wordmark is the real vector artwork, the same paths components/Logo.tsx
 // draws, so the card that lands in someone's Slack is the official mark rather
 // than a font approximation.
-export const alt = "Arceo — cost and risk forecasting for AI agents";
+export const alt = "Arceo: safe, fast AI for every team";
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
 
@@ -41,41 +42,29 @@ export default function OpengraphImage() {
 
         {/* Headline */}
         <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-          <div
-            style={{
-              fontSize: 68,
-              fontWeight: 700,
-              color: "#1F2937",
-              lineHeight: 1.08,
-              letterSpacing: "-2.5px",
-              maxWidth: 900,
-            }}
-          >
-            What your AI agent could break, and cost to run.
+          <div style={{ display: "flex", fontSize: 76, fontWeight: 700, color: "#09090B", lineHeight: 1.04, letterSpacing: "-3px", maxWidth: 900 }}>
+            Safe, fast AI for every team.
           </div>
-          <div style={{ fontSize: 30, color: "#6B6966", lineHeight: 1.4, maxWidth: 860 }}>
-            Cost and risk in one report, before you put it in production.
+          <div style={{ display: "flex", fontSize: 30, color: "#52525B", lineHeight: 1.4, maxWidth: 900 }}>
+            Warnings before a prompt or agent does something risky, prompts that already work, and what each one costs.
           </div>
         </div>
 
-        {/* Proof strip. The middle figure used to read "$50k worst case if a
-            chain fires" — Arceo does not produce a worst-case DOLLAR number,
-            and the landing page stopped claiming one for exactly that reason.
-            The blast-radius score is the figure the engine actually emits. */}
+        {/* Figures from lib/demo.ts and the starter library */}
         <div style={{ display: "flex", alignItems: "center", gap: 40 }}>
           <div style={{ display: "flex", flexDirection: "column" }}>
-            <div style={{ fontSize: 34, fontWeight: 700, color: "#0E3C90" }}>$20/mo</div>
-            <div style={{ fontSize: 20, color: "#9B9A97" }}>forecast, ±15%</div>
+            <div style={{ display: "flex", fontSize: 34, fontWeight: 700, color: "#C2410C" }}>{`${AGENTS[1].score} / 100`}</div>
+            <div style={{ display: "flex", fontSize: 20, color: "#71717A" }}>{`risk score, ${AGENTS[1].name}`}</div>
           </div>
-          <div style={{ width: 1, height: 52, background: "#E9E9E7" }} />
+          <div style={{ display: "flex", width: 1, height: 52, background: "#E4E4E7" }} />
           <div style={{ display: "flex", flexDirection: "column" }}>
-            <div style={{ fontSize: 34, fontWeight: 700, color: "#C2410C" }}>67 / 100</div>
-            <div style={{ fontSize: 20, color: "#9B9A97" }}>blast radius, before launch</div>
+            <div style={{ display: "flex", fontSize: 34, fontWeight: 700, color: "#09090B" }}>{PROMPT_COUNT}</div>
+            <div style={{ display: "flex", fontSize: 20, color: "#71717A" }}>ready-made prompts</div>
           </div>
-          <div style={{ width: 1, height: 52, background: "#E9E9E7" }} />
+          <div style={{ display: "flex", width: 1, height: 52, background: "#E4E4E7" }} />
           <div style={{ display: "flex", flexDirection: "column" }}>
-            <div style={{ fontSize: 34, fontWeight: 700, color: "#0B7F66" }}>32</div>
-            <div style={{ fontSize: 20, color: "#9B9A97" }}>risk-chain rules</div>
+            <div style={{ display: "flex", fontSize: 34, fontWeight: 700, color: "#09090B" }}>{`${FORECAST.point} / mo`}</div>
+            <div style={{ display: "flex", fontSize: 20, color: "#71717A" }}>{`${FORECAST.low}–${FORECAST.high} forecast`}</div>
           </div>
         </div>
       </div>

@@ -1,66 +1,62 @@
+import Link from "next/link";
+import { Button } from "@/components/ui/button";
 import Navbar from "@/components/Navbar";
-import Hero from "@/components/Hero";
-import IntegrationBelt from "@/components/IntegrationBelt";
-import ProblemStatement from "@/components/ProblemStatement";
-import BlastRadius from "@/components/BlastRadius";
-import HowItWorks from "@/components/HowItWorks";
-import CrossAgent from "@/components/CrossAgent";
-import FeatureRows from "@/components/FeatureRows";
-import PullRequest from "@/components/PullRequest";
-import Positioning from "@/components/Positioning";
-import Proof from "@/components/Proof";
-import CTABanner from "@/components/CTABanner";
 import Footer from "@/components/Footer";
-import ChapterFit from "@/components/ChapterFit";
+import ProductWindow from "@/components/product/ProductWindow";
+import { APP_URL } from "@/lib/site";
 
-/* Section rhythm is deliberate, and it alternates rather than running one tone
-   the whole way down:
+/* The whole homepage is the hero: a headline, one sentence, and the product
+   itself in a window with three tabs. Then a short close. */
 
-     hero        light, ruled      the tape — a call stream, live
-     belt        light band        the supported agents and tools, named
-     problem     light paper       the ledger — cost beside blast weight
-     blast       light ground      the bench — how a score is built
-     how         DARK act          the graph as subject, timeline
-     cross       light ground      two agents, one chain across the handoff
-     features    light paper       bands, sensitivity, the matrix
-     pr          light ground      the CI check, on a dark panel
-     positioning light paper       what Arceo is, and is not
-     proof       light ground      backtest, framework mapping, audit
-     cta         DARK              high contrast, close
-
-   No two graphics share a family: a stream, a list, a mechanism, a network, a
-   handoff, a band chart, a bar chart, a matrix and a checks list. Dark is a
-   chapter here, never an accident — and the page darkens toward the close.
-
-   The pull-request section sits late on purpose. It is the surface the person
-   who has to ADOPT Arceo meets first, so it earns a place; but Arceo is a
-   runtime product, and opening on a CI check would tell a CIO they are buying
-   a linter. Everything above says what the product knows. This says where it
-   shows up.
-
-   Positioning and Proof are kept from the previous design and left last, where
-   a reader who is already convinced goes looking for the receipts. Proof in
-   particular carries figures nothing else on the page does — the 829-call
-   backtest and the audit result. */
+const WORKS_WITH = ["Claude Code", "ChatGPT", "Cursor", "Lovable", "Anthropic", "OpenAI", "MCP", "GitHub"];
 
 export default function Home() {
   return (
     <>
       <a href="#main" className="skip-link">Skip to content</a>
       <Navbar />
-      <ChapterFit />
-      <main id="main" data-chapters style={{ overflowX: "clip", width: "100%" }}>
-        <Hero />
-        <IntegrationBelt />
-        <ProblemStatement />
-        <BlastRadius />
-        <HowItWorks />
-        <CrossAgent />
-        <FeatureRows />
-        <PullRequest />
-        <Positioning />
-        <Proof />
-        <CTABanner />
+      <main id="main">
+        <section className="container-site pt-14 pb-16 sm:pt-20 sm:pb-24">
+          <h1 className="text-[44px] font-semibold leading-[1.02] tracking-[-0.04em] text-ink sm:text-[64px] lg:text-[84px]">
+            Safe, fast AI for every team.
+          </h1>
+          <div className="mt-6 flex flex-col gap-8 lg:mt-8 lg:flex-row lg:items-end lg:justify-between">
+            <p className="max-w-[600px] text-[17px] leading-relaxed text-ink-2 sm:text-[19px]">
+              Arceo warns you before a prompt or an AI agent does something risky. It gives every team prompts that
+              already work, and shows what each one costs.
+            </p>
+            <div className="flex shrink-0 flex-wrap gap-3">
+              <Button asChild className="h-11 px-5 text-[15px]">
+                <Link href="/book-demo">Book a demo</Link>
+              </Button>
+              {APP_URL && (
+                <Button asChild variant="outline" className="h-11 bg-white px-5 text-[15px]">
+                  <a href={`${APP_URL}/login`}>Sign in</a>
+                </Button>
+              )}
+            </div>
+          </div>
+
+          <div className="mt-14 sm:mt-16">
+            <ProductWindow />
+          </div>
+        </section>
+
+        <section className="border-t bg-white">
+          <div className="container-site flex flex-col gap-8 py-14 sm:py-16 md:flex-row md:items-end md:justify-between">
+            <div className="max-w-[620px]">
+              <h2 className="text-[26px] font-semibold leading-tight tracking-[-0.02em] text-ink sm:text-[32px]">
+                See it on your own prompts and agents.
+              </h2>
+              <p className="mt-3 text-[15px] leading-relaxed text-ink-3">
+                Works with {WORKS_WITH.slice(0, -1).join(", ")} and {WORKS_WITH.at(-1)}.
+              </p>
+            </div>
+            <Button asChild className="h-11 w-fit px-5 text-[15px]">
+              <Link href="/book-demo">Book a demo</Link>
+            </Button>
+          </div>
+        </section>
       </main>
       <Footer />
     </>
