@@ -34,6 +34,12 @@ ENCRYPTED_COLUMNS = [
     ("execution_log", "id", "params", "params_enc"),
     ("audit_log", "id", "detail", "detail_enc"),
     ("llm_captures", "id", "content", "content_enc"),
+    # QA outputs can echo a customer's pasted content back (0016).
+    ("qa_runs", "id", "output", "output_enc"),
+    ("prompt_workflows", "id", "last_run", "last_run_enc"),
+    # A prompt sent to someone's coding agent is the FILLED text, so it can carry
+    # their pasted content (0018).
+    ("prompt_sends", "id", "text", "text_enc"),
     # MED-014: a Slack incoming-webhook URL is a bearer credential in a URL. Keyed
     # on `id` (the SERIAL PK) like every entry above — backfill/rotation paginate
     # with ORDER BY <id_col> ... WHERE <id_col> = %s, so this must be the real PK,

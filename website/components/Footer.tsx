@@ -40,6 +40,7 @@ export default function Footer() {
 
         {/* Footer links */}
         <div style={{ display: "flex", alignItems: "center", gap: 20, flexWrap: "wrap", justifyContent: "center" }}>
+          <Link href="/prompts" style={{ fontSize: 12, color: "var(--muted-2)", textDecoration: "none" }}>Prompts</Link>
           <Link href="/pricing" style={{ fontSize: 12, color: "var(--muted-2)", textDecoration: "none" }}>Pricing</Link>
           <Link href="/security" style={{ fontSize: 12, color: "var(--muted-2)", textDecoration: "none" }}>Security</Link>
           <Link href="/book-demo" style={{ fontSize: 12, color: "var(--muted-2)", textDecoration: "none" }}>Book a demo</Link>

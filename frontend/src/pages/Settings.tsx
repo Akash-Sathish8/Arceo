@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
-import { Eye, EyeOff, Copy, Check, Users, KeyRound, UserCircle, Banknote, Bell, X } from "lucide-react";
+import { Eye, EyeOff, Copy, Check, Users, KeyRound, UserCircle, Banknote, Bell, X, Cpu } from "lucide-react";
+import ModelKeysSection from "@/components/prompts/ModelKeysSection";
 import { apiFetch, getUser, getToken } from "@/lib/api";
 import { timeAgo } from "@/lib/utils";
 import { Button } from "@/components/ui/Button";
@@ -848,7 +849,9 @@ export default function Settings() {
     setKeyCreating(false);
   };
 
-  const [activeSection, setActiveSection] = useState("api");
+  // A deep link like /settings#model-keys (from the QA panel) opens that section.
+  const [activeSection, setActiveSection] = useState(() =>
+    typeof window !== "undefined" && window.location.hash === "#model-keys" ? "model-keys" : "api");
   const [firstAgentId, setFirstAgentId] = useState("your-agent-id");
 
   useEffect(() => {
@@ -971,6 +974,7 @@ if (await enforce("Stripe", "create_refund", { amount: 500 })) {
   const sections: NavSection[] = [
     { id: "api",     label: "API & Integration", icon: <KeyRound size={15} /> },
     { id: "cost",    label: "Cost model",        icon: <Banknote size={15} /> },
+    { id: "model-keys", label: "Model keys",     icon: <Cpu size={15} /> },
     { id: "notifications", label: "Notifications", icon: <Bell size={15} /> },
     { id: "team",    label: "Team",              icon: <Users size={15} /> },
     { id: "account", label: "Account",           icon: <UserCircle size={15} /> },
@@ -1377,6 +1381,7 @@ if (await enforce("Stripe", "create_refund", { amount: 500 })) {
 
           {/* ── Cost model ── */}
           {activeSection === "cost" && <CostOverridesSection inputStyle={inputStyle} />}
+          {activeSection === "model-keys" && <ModelKeysSection />}
 
           {/* ── Notifications ── */}
           {activeSection === "notifications" && <NotificationsSection inputStyle={inputStyle} />}

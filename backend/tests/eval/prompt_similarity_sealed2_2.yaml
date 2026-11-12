@@ -1,0 +1,595 @@
+# Sealed held-out set for prompt matching, round 2, half 2 of the library
+# (prompts sorted by title, case-insensitive; this file covers the second half).
+# Written without looking at the matcher, its word lists, its weights or the
+# earlier eval sets. Queries are written the way non-technical people type:
+# typos, run-ons, very short asks, rambling asks, the job described indirectly,
+# real content pasted in, British spellings, requirements in a different order.
+#
+# kind/expect:
+#   paraphrase    -> same   (same job, reworded)
+#   extended      -> close  (same job plus 1-2 genuinely new requirements)
+#   trimmed       -> close  (same job with one important requirement dropped)
+#   hard_negative -> none   (same area and overlapping words, different job;
+#                            checked that no other library prompt does that job)
+#   novel         -> none   (target null; no library prompt does that job)
+cases:
+
+# ── Look & feel ───────────────────────────────────────────────────────────
+- id: z2-print-recipe-pages
+  target: "Make a page print nicely"
+  kind: paraphrase
+  expect: same
+  query:
+    body: |
+      when ppl print our recipe pages they come out with the menu bar and buttons all over them and half the text chopped off at the edge. can you add a print version that hides all the nav stuff and the footer, plain black on white, keeps the ingredients and the method together on one page if poss, with our logo and website address at the top. the normal on screen version shouldnt change at all. and tell me how i see the print preview in chrome to check
+
+- id: z2-charts-no-colour-ask
+  target: "Make my charts easy to read"
+  kind: trimmed
+  expect: close
+  query:
+    title: "Tidy up dashboard charts"
+    body: |
+      The charts on our sales dashboard are a mess. Give each one a plain title saying what it shows, label both axes with units, light grid lines, and show the exact value when you hover or tap. Get rid of the heavy borders and the 3D stuff. Don't touch the numbers or how they're calculated. Do one chart first so I can have a look, then the rest, and tell me what you changed.
+
+- id: z2-back-to-top-button
+  target: "Make my site easier for everyone to use"
+  kind: hard_negative
+  expect: none
+  query:
+    title: "Make long pages easier for everyone"
+    body: |
+      Our site has some really long pages (the FAQ and the full menu) and people on phones have to scroll forever to get back up. Add a small "back to top" button that appears in the bottom corner once you've scrolled down a bit and takes you smoothly back to the top. It should match our colours, not cover any other buttons, and work with the keyboard too. Leave everything else on the page exactly as it is.
+
+- id: z2-fonts-just-pick-one
+  target: "Pick fonts that fit my brand"
+  kind: trimmed
+  expect: close
+  query:
+    body: |
+      suggest 2 or 3 font combos (one for headings one for the body text) that suit our yoga studio, we want calm but not sleepy. free ones that load fast and handle spanish accents. then just pick the best one yourself and put it across the whole site with comfy sizes on mobile and desktop, only remove the old fonts once nothing is using them, and tell me what changed and which pages to look at
+
+- id: z2-loading-no-button-spinner
+  target: "Show progress while things load"
+  kind: trimmed
+  expect: close
+  query:
+    body: |
+      When my app is loading the order history page it just sits there blank and then everything jumps around when it finally appears. Add grey placeholder shapes where the content will go and stop the layout jumping when the real stuff arrives. If it's taking more than a few seconds show a short reassuring message. Only change what people see while they wait, not how things actually load. Tell me how to slow it down on my laptop so I can see it.
+
+- id: z2-hero-no-options-first
+  target: "Stronger top section on my home page"
+  kind: trimmed
+  expect: close
+  query:
+    title: "Home page top bit is boring"
+    body: |
+      The top of my home page is boring and nobody notices the button. We help busy parents plan a week of dinners in five minutes. Redo just that top bit: a clear headline, one supporting line, one main button to start a free trial, and an image of what we offer, all visible without scrolling on a phone and a laptop. Leave the rest of the page as it is, and tell me how to swap in my own photo afterwards.
+
+- id: z2-banner-text-monthly-photos
+  target: "Text over photos that's easy to read"
+  kind: extended
+  expect: close
+  query:
+    title: "Can't read the words on my banner"
+    body: |
+      On the home page banner and the Events header the writing sits on a photo and in some spots you literally can't read it. Fix it whichever way looks best, a dark or light tint over the photo, a soft shadow behind the text, or moving the text to a calmer part of the picture, and tell me which you picked and why. Has to work on phones too where the photo gets cropped differently. Don't change or edit the photos themselves. Two more things: I swap these photos every month, so the fix has to work for whatever new photo I upload without anyone redoing it, and put the same fix on the Gallery page header as well. Tell me how to check it at a few screen sizes.
+
+# ── Forms, data & accounts ────────────────────────────────────────────────
+- id: z2-journal-forgets-offline
+  target: "Make my app remember things"
+  kind: extended
+  expect: close
+  query:
+    title: "Stop my app forgetting stuff"
+    body: |
+      My habit journal app loses everything people write the second they close the tab. Make it save properly so it's still there on their phone and their laptop whenever they sign in. Before you do anything, explain in normal words where it'll be stored and why that's a good choice, then wait for me. Each person's entries stay private to them. Don't delete or mess up anything that's already saved. Also two extra things: if someone loses signal halfway through writing, keep what they typed and save it once they're back online, and show a small "Saved" note so they know it worked. Finish by telling me how to check it, like add an entry, refresh, see it again.
+
+- id: z2-members-only-no-url-lock
+  target: "Members-only pages"
+  kind: trimmed
+  expect: close
+  query:
+    body: |
+      Make the Recipe Vault and Video Lessons pages members only. If you're not logged in you just see a short preview and buttons to sign up or log in, and after logging in you land back on the page you were trying to get to. Everything else on the site stays public. Tell me which pages are locked now and how to test it in a private window.
+
+- id: z2-club-roles-with-log
+  target: "Roles for admins and members"
+  kind: extended
+  expect: close
+  query:
+    title: "Different access levels for my running club app"
+    body: |
+      My running club app needs different levels of access. Admin manages everything and everyone, Coach can see and edit the training plans of their own athletes only, Member sees only their own plan. Enforce it properly where the data's stored, not just by hiding buttons, so nobody gets in by guessing a URL. New sign-ups start as Member and only an admin can change someone's level. Show me a simple who-can-do-what table first and wait for my OK. Also: keep a record of every time someone's level is changed (who did it, when, from what to what) that admins can look at, and let admins temporarily pause someone's account without deleting it. Afterwards give me steps to test as each type of user.
+
+# ── Writing & editing ─────────────────────────────────────────────────────
+- id: z2-skim-office-move-email
+  target: "Make my writing easy to skim"
+  kind: paraphrase
+  expect: same
+  query:
+    body: |
+      can you rearrange this so people actually see the important bit. the main thing they need to do should be right at the top, then the rest under little bold headings or bullets, make the dates jump out. dont cut anything or change my words, its just the order and layout. only send back the new version
+
+      Hi team, hope everyone had a good weekend. Quick one from me about the office move. As you know we've been talking about it for ages and it's finally happening, the movers come on Friday 14th from 8am so everything needs to be packed by Thursday 5pm. Crates will be dropped off on Monday and there are labels in the kitchen, please put your name and new desk number on each one. IT will disconnect monitors on Thursday afternoon so save your work. The new building is 22 Harbour Street, parking passes can be collected from Jo from Wednesday. Can you each confirm by Tuesday that you've got enough crates.
+
+- id: z2-kitchen-sign-rota-polish
+  target: "Polite sign for a shared space"
+  kind: extended
+  expect: close
+  query:
+    title: "Sign for the staff kitchen"
+    body: |
+      need a sign for the staff kitchen because people keep leaving dirty mugs in the sink and nobody ever empties the dishwasher. friendly headline, max 3 simple asks, a bit of humour is fine but nothing passive aggressive and no pointing fingers, under 40 words so you can read it from across the room. give me 2 options. also add a little rota underneath with a box for each weekday so people can put their name down to empty the dishwasher, and do a Polish version of each option because half the warehouse team speak Polish
+
+- id: z2-rota-staff-survey
+  target: "Questions for a staff survey"
+  kind: paraphrase
+  expect: same
+  query:
+    title: "Rota feedback survey"
+    body: |
+      Write a survey for our 25 kitchen and front of house staff about how the new four-day rota is going. 8 to 10 questions, done in under five minutes, mostly 1-5 scales plus two open ones, no leading questions and nothing that asks two things at once. Put them under two or three plain headings, add a one-line intro saying it's anonymous and we only ever see totals, and tell me if there's a question I should probably cut.
+
+- id: z2-hybrid-policy-faq-noticeboard
+  target: "Staff FAQ for a new policy"
+  kind: extended
+  expect: close
+  query:
+    body: |
+      We're bringing in a new hybrid working policy (pasted below). Turn it into an FAQ for our 30 shop and warehouse staff: the 6-8 questions they'll really ask, each answered in two or three plain sentences using only what's in the policy. If an obvious question isn't covered, put it under "Still to decide" rather than guessing. Also add a 3-line summary at the top we can pin on the staff noticeboard, and a short "What managers need to do" section at the end.
+
+      Policy: From 1 April, staff may work from home up to two days a week where their role allows. Shop floor and warehouse roles are excluded. Home days must be agreed with your line manager a week in advance and put on the team calendar. Core hours are 10am-3pm. Laptops and headsets can be borrowed from IT on request.
+
+- id: z2-voice-note-no-check-marks
+  target: "Tidy up a voice note"
+  kind: trimmed
+  expect: close
+  query:
+    body: |
+      Here's a rough transcript of me rambling about ideas for our clinic's reception desk. Turn it into a tidy list of ideas, one line each, in a sensible order, take out the repeats and the ums and false starts, and keep my wording where it works.
+
+      ok so um first thing, people walk up and nobody looks up so maybe whoever's nearest just says hi even if they're on the phone. and uh the sign in sheet is confusing, people don't know where the time goes. oh and coffee, we should offer coffee if they're waiting more than ten minutes. and, what was it, the chairs, the ones facing the wall are weird, turn them round
+
+# ── Build something ───────────────────────────────────────────────────────
+- id: z2-mobile-menu-reordered
+  target: "Navigation menu that works on phones"
+  kind: paraphrase
+  expect: same
+  query:
+    title: "Fix my site menu for mobile"
+    body: |
+      On phones my top menu is a squashed mess. I want it to collapse into one of those menu buttons that opens a full-screen list and closes again when you tap a link. On a laptop keep the links across the top with the logo on the left, and make Book a Trial look like a button. Links in this order: Home, Classes, Timetable, Prices, About, Book a Trial. The page you're on should look highlighted, and it needs to work with just a keyboard. Only touch the menu. Run your plan by me first, then tell me what you changed and how to check it on my phone.
+
+- id: z2-cleaning-profit-tracker
+  target: "Price estimate calculator"
+  kind: hard_negative
+  expect: none
+  query:
+    title: "Track my profit per cleaning job"
+    body: |
+      I run a house cleaning business and my site already has a price calculator for customers, that part's fine. I need something different, just for me: a private page where after each job I log the address, number of bedrooms and bathrooms, what I charged, hours spent and what I spent on supplies, and it works out my profit per job and per month. Only I should be able to see it.
+
+- id: z2-coffee-quiz-email-results
+  target: "Quiz that recommends a product"
+  kind: extended
+  expect: close
+  query:
+    title: "coffee quiz"
+    body: |
+      build a little quiz on our site to help people choose the right coffee subscription. one question per screen with big tap friendly answers: how do you brew (drip / espresso / french press), how strong (mild / medium / bold), milk or no milk. rules: espresso or bold = Dark Roast Club, mild + milk = Morning Blend, everyone else = Single Origin Explorer. result screen shows the pick, one line on why, and a button to start that subscription. let them go back a step or start over. before building explain how youll turn my rules into results so i can check it. after, tell me how to try it. NEW BITS: add an optional box on the result screen where they can get their result emailed with a 10% off code, and give me a simple count of how many people got each result each week
+
+- id: z2-currency-switcher
+  target: "Second language for my site"
+  kind: hard_negative
+  expect: none
+  query:
+    title: "Show prices in other currencies"
+    body: |
+      Lots of our shop visitors are in the UK and Europe. Add a small switcher in the menu so people can see prices in pounds, euros or dollars, and remember each visitor's choice for next time. Rates should update daily and prices should round nicely (no £23.47). Checkout still charges in dollars, so add a short note saying that.
+
+- id: z2-my-bookings-page
+  target: "Simple dashboard with charts"
+  kind: hard_negative
+  expect: none
+  query:
+    body: |
+      Add a "My bookings" page for customers once they're logged in: their upcoming bookings at the top with a cancel button, then their past bookings from the last 30 days (with a switch to show the whole year), and the total they've spent with us this year. Each customer must only ever see their own bookings.
+
+- id: z2-pub-events-weekly-quiz
+  target: "Upcoming events page"
+  kind: extended
+  expect: close
+  query:
+    body: |
+      add an events page to our pub site listing upcoming live music nights and quiz nights, soonest first. each one shows date, time, where, short description, a reserve a table button and an add to calendar link. past ones should disappear on their own. keep the events somewhere easy for me to update and put in 3 sample ones so i can see it. dont touch other pages except adding Events to the menu, and show me exactly how to add a real one. ALSO our quiz is every Tuesday so i want to set it up once as weekly instead of typing it in every week, and add buttons at the top to filter Music / Quiz
+
+# ── Understand & plan ─────────────────────────────────────────────────────
+- id: z2-app-map-flowchart
+  target: "Map every screen in my app"
+  kind: extended
+  expect: close
+  query:
+    title: "Sitemap of my app"
+    body: |
+      I've lost track of what's in my app. Can you go through it and list every screen or page, one plain sentence on what each is for and who can see it (anyone, logged-in users, or just me as the owner). Show how people get from one screen to another starting from the very first page someone lands on, as an indented list. Point out pages nothing links to or that look half finished. Also make a simple flowchart version of the same map I can paste into a Google Doc to show my cofounder, and next to each screen note roughly when it was last changed. Don't edit any files.
+
+- id: z2-waitlist-feature-name
+  target: "Plan a feature before building it"
+  kind: hard_negative
+  expect: none
+  query:
+    body: |
+      Planning to add a feature to my class booking app that pings people when a fully booked class gets a free spot. Before we build it I need a name for it that fits on a button and sounds friendly, not techy. Give me 10 options and say which 2 you'd go with.
+
+- id: z2-messy-code-indirect
+  target: "Plan a tidy-up of my project"
+  kind: paraphrase
+  expect: same
+  query:
+    body: |
+      Every time I ask for a small change to my app something totally unrelated breaks. I think the code has got really messy from months of quick fixes. Can you have a look and tell me in plain terms which bits are messy or copied in several places, and what problems that could cause down the line? Then give me a clean-up plan in small steps, most useful first, where after each step the app still works exactly the same for the people using it. Don't touch anything until I choose which steps to do.
+
+- id: z2-tool-lending-todo
+  target: "Turn my app idea into a to-do list"
+  kind: paraphrase
+  expect: same
+  query:
+    title: "break my app idea into steps"
+    body: |
+      So my idea is an app where neighbours can lend and borrow tools, with photos of each tool, a basic calendar of who has what when, and reminders to give stuff back. I'm not ready to build yet. Can you turn it into a to-do list I can feed to a coding agent one item at a time? Group it into 3 or 4 milestones that each end with something I can try out myself, write each item as something a person would notice (like "Visitors can see the menu and prices"), in the order to do them, and flag anything that needs a paid service or an account I'll have to set up, plus anything I need to decide before that item can start.
+
+- id: z2-personal-data-where-stored
+  target: "What my app stores about people"
+  kind: extended
+  expect: close
+  query:
+    body: |
+      What personal info does my app actually keep about people? Names, emails, payment stuff, uploads, activity, whatever. For each one tell me plainly why we keep it, for how long, and whether we even need it. Then give me a few plain sentences I can start my privacy policy with. Don't use any real users' details in your answer and don't change anything. On top of that, tell me which country or region each kind of info is stored in, and whether someone could currently download or delete their own info if they asked us to.
+
+# ── Fix & debug ───────────────────────────────────────────────────────────
+- id: z2-popup-form-wrong-keep-old
+  target: "Not what I asked for"
+  kind: extended
+  expect: close
+  query:
+    body: |
+      thats not what i wanted at all. you made the sign up form pop up in a window, i wanted it just sitting at the bottom of the home page, no pop up. before you change anything tell me back in your own words what you think i want so we agree. once i say yes only change what you need to and keep the bits that were already right. also save what we agreed in a short notes file in the project so next time you work on this you check it first, and keep the pop up version somewhere i can bring back later instead of binning it. after, tell me in plain english whats different and how to see it
+
+- id: z2-shop-page-slow
+  target: "Page is slow to load"
+  kind: paraphrase
+  expect: same
+  query:
+    body: |
+      our shop page takes like 6 secs to load on my phone and customers keep saying its slow. figure out whats slowing it down (massive photos? stuff loading that it doesnt need?) and list the reasons from biggest to smallest in normal words. fix the worst one or two without changing how the page looks or works. if fixing it means taking something off like the video or the chat bubble ask me first. then tell me how much quicker it should be and how i can check
+
+- id: z2-calendar-broke-console-error
+  target: "Worked yesterday, broken today"
+  kind: paraphrase
+  expect: same
+  query:
+    title: "booking calendar broke overnight"
+    body: |
+      The booking calendar was fine on Monday but since yesterday every single day shows as fully booked, even days with nothing on. Something that got changed since Monday must have done it. Can you go through what's changed, find the one change that caused this, explain in normal words what it did and why it broke the calendar, and suggest the smallest fix that keeps the newer stuff. Wait for me to say OK before fixing anything.
+
+      This is what shows up in the browser console:
+      TypeError: Cannot read properties of undefined (reading 'slots')
+          at isDayFull (calendar.js:88:21)
+          at renderMonth (calendar.js:142:9)
+
+# ── Running the business / planning ───────────────────────────────────────
+- id: z2-runway-months-left
+  target: "Monthly investor update"
+  kind: hard_negative
+  expect: none
+  query:
+    title: "How long will our money last"
+    body: |
+      Our numbers this month: MRR 42k, growing about 8% a month, burn 60k a month, 510k in the bank, and we just hired 1 engineer which adds about 12k a month from next month. Work out how many months of cash we've got left if growth keeps going vs if it flattens out, and which month we'd need to start raising so we're not running on fumes. Show the maths in a simple table. This is just for me, not something to send our investors.
+
+- id: z2-new-starter-first-two-weeks
+  target: "Onboarding email sequence"
+  kind: hard_negative
+  expect: none
+  query:
+    title: "New starter onboarding plan"
+    body: |
+      We've got a new support hire starting Monday at our habit tracker company. Write her first-two-weeks onboarding plan: what she does on day 1, day 2, day 3, end of week 1 and end of week 2, who she shadows, which tools she needs access to, and what "doing well" looks like by day 14. Keep it to one page.
+
+- id: z2-prd-no-success-metric
+  target: "PRD from a one-liner"
+  kind: trimmed
+  expect: close
+  query:
+    body: |
+      write a lean PRD for "let customers schedule reports to be emailed to them": problem, who has it, scope in/out, open questions, risks
+
+- id: z2-exec-summary-short-ask
+  target: "Proposal executive summary"
+  kind: trimmed
+  expect: close
+  query:
+    title: "exec summary"
+    body: |
+      exec summary for our proposal to Acme Dental (healthcare). 150 words max, no jargon or buzzwords.
+
+- id: z2-release-notes-no-groups
+  target: "Release notes"
+  kind: trimmed
+  expect: close
+  query:
+    body: |
+      turn this changelog into release notes our customers will actually understand, lead with what's in it for them: added single sign-on, dashboard loads faster, fixed the timezone bug in reports
+
+- id: z2-meta-descriptions-short
+  target: "SEO meta descriptions"
+  kind: paraphrase
+  expect: same
+  query:
+    body: |
+      meta descriptions pls for these pages: Pricing, Integrations, About us. each one under 155 characters, mention the main benefit and use an action word
+
+- id: z2-user-stories-bare
+  target: "User story writer"
+  kind: trimmed
+  expect: close
+  query:
+    body: |
+      3 user stories for "invite teammates by email"
+
+- id: z2-catalogue-raci-no-callouts
+  target: "Who does what on a project"
+  kind: trimmed
+  expect: close
+  query:
+    body: |
+      things keep falling through the cracks on our spring catalogue because nobody knows who owns what. people: Maya (marketing), Leo (buying), Sam (photos), Ana (owner). tasks: pick products, set prices, photo shoot, write descriptions, print the catalogue, email customers. make a table, one row per task: who does it, who has the final say, who should be asked for input, who just needs telling afterwards. one final decider per task.
+
+- id: z2-yearly-target-two-shops
+  target: "Yearly target split into months"
+  kind: extended
+  expect: close
+  query:
+    title: "Monthly targets for this year"
+    body: |
+      Goal this year is £480k in sales. Last year month by month: Jan 22k, Feb 24k, Mar 30k, Apr 34k, May 38k, Jun 36k, Jul 30k, Aug 29k, Sep 33k, Oct 37k, Nov 45k, Dec 52k. Break the target into monthly targets that follow our usual busy and quiet seasons, not just equal chunks. Then 3-5 realistic places the extra sales could come from, with a rough share of the gap for each. Months in a table, the rest under 150 words. Also split each month's target between our two shops (Bath does about 60%, Frome 40%), and add a column for how much that is per trading day assuming we're open 6 days a week.
+
+# ── Personal / email ──────────────────────────────────────────────────────
+- id: z2-teacher-note-no-ask
+  target: "Note to my child's teacher"
+  kind: trimmed
+  expect: close
+  query:
+    title: "email to teacher"
+    body: |
+      Write a short email to my son's teacher Mr Hughes letting him know Leo will be off on Thursday and Friday for his grandad's 80th in Scotland. Get to the point quickly, friendly, under 100 words, and thank him.
+
+# ── Customer support ──────────────────────────────────────────────────────
+- id: z2-broadband-script-spanish
+  target: "Phone script for support calls"
+  kind: extended
+  expect: close
+  query:
+    title: "Call script for our helpline"
+    body: |
+      Our phone team at a small broadband company keeps getting calls about the wifi cutting out in the evenings. Write them a script: hello, how to check who's calling without asking for card numbers or passwords, 3-4 questions to figure out the problem, the usual fix in simple steps, and a wrap-up confirming what happens next. Lines for an angry caller, for when we can't sort it on the call, and for "can I speak to a manager". It has to sound natural out loud. Extra: also give me a Spanish version of the whole script, and a 20-second voicemail message for when someone rings after hours.
+
+- id: z2-public-feature-page
+  target: "Reply to a feature idea"
+  kind: hard_negative
+  expect: none
+  query:
+    body: |
+      We get loads of feature requests from customers and I'm tired of answering each one separately. Write the text for a public "What we're working on" page on our site. Put each idea under one of three headings with a one-line plain description: Planned (shared shopping lists, later this year), Thinking about it (recipe import), Done (dark mode, last month). Add a short intro saying dates can change and explaining how people can send us new ideas.
+
+- id: z2-trainers-exchange-email
+  target: "Return or exchange steps"
+  kind: paraphrase
+  expect: same
+  query:
+    body: |
+      Customer email below wants to swap her trainers for half a size bigger, she's within 30 days. Our process: we email a free returns label, she drops it at any post office within 14 days, and the new pair goes out the day the old ones arrive. Write her a reply with numbered steps: how to pack them, where to drop them off, what to put in the box, and when she'll get the new pair. Friendly, under 150 words, no unnecessary small print.
+
+      Customer's email:
+      Hi there, I ordered the Cloudrun trainers in a 6 last week (order #44817) and they're lovely but a bit snug at the toes. Can I swap for a 6.5? I've still got the box. Thanks, Priya
+
+- id: z2-handover-with-ooo
+  target: "Shift handover for the support inbox"
+  kind: extended
+  expect: close
+  query:
+    title: "handover notes for Jamie"
+    body: |
+      I'm off next week and Jamie's covering the support inbox. Turn my scribbled notes on the open conversations into handover notes Jamie can read in 2 mins: one line per customer with what they need, what's been done, anything we promised and by when, and the next step. Urgent or due-today stuff at the top, leave out anything already sorted. Two extras: at the bottom add the 3 replies Jamie is most likely to need, with ready-to-paste wording, and write me an out-of-office message pointing people to Jamie.
+
+      Notes:
+      Lena - sent wrong size, replacement went out Tue, said I'd send tracking by Thu
+      Omar - wants invoice in his company name, still waiting for the address
+      Grace - sorted, said thanks
+      Pete - can't log in, sent reset link twice, he says it never comes, haven't tried the spam folder idea yet
+      Nadia - asked about a bulk discount for 50 units, said I'd get back to her by Wednesday
+
+- id: z2-support-inbox-rota
+  target: "Weekly round-up of what customers asked"
+  kind: hard_negative
+  expect: none
+  query:
+    title: "Support inbox rota"
+    body: |
+      We had about 40 support conversations last week and it keeps going up. There are 4 of us (Sam, Ade, Priya, Tom) and we want to share the inbox fairly. Make a weekly rota, Monday to Saturday, morning and afternoon slots, nobody doing more than 3 slots, Tom can't do Saturdays and Priya only does mornings. Put it in a table.
+
+# ── Research & summaries ──────────────────────────────────────────────────
+- id: z2-handbook-quiz
+  target: "Pull key facts from a document"
+  kind: hard_negative
+  expect: none
+  query:
+    title: "Quiz from the staff handbook"
+    body: |
+      Below is the bit of our staff handbook about holidays and sick pay. Make 10 multiple-choice questions from it so I can check new starters have actually read it, with the right answer marked and a one-line explanation for each.
+
+      Holiday year runs 1 January to 31 December. Full-time staff get 25 days plus bank holidays; part-time is pro rata. Up to 5 days can be carried over and must be used by 31 March. Book holiday at least 2 weeks ahead through the rota app. Sick days: call your manager before 9am on the first day. Self-certify for up to 7 days; after that a fit note is needed. Statutory sick pay starts on day 4.
+
+- id: z2-letter-to-editor-bike-lanes
+  target: "Summarize an article"
+  kind: hard_negative
+  expect: none
+  query:
+    body: |
+      Read the article below about the bike lanes and help me write a letter to the editor of our local paper arguing the council should vote yes on the three new streets. Under 250 words, polite but firm, using the numbers from the article.
+
+      A new city report finds the protected bike lanes added downtown in 2023 cut car crashes on Elm Street by 18% in their first year. Shop owners had warned the lanes would hurt sales, but card spending on the street rose 6%, in line with the rest of the city. Parking complaints doubled. The council votes next month on adding lanes to three more streets.
+
+- id: z2-gym-terms-old-new
+  target: "What changed between two versions"
+  kind: paraphrase
+  expect: same
+  query:
+    title: "what's different in the new gym terms"
+    body: |
+      my gym just sent new membership terms, can you compare the old and new versions and tell me every change that matters, whether stuff was added, removed or reworded. ignore tiny wording or formatting changes unless they change the meaning. put the ones that affect me as a monthly member at the top and say why each one matters, then anything that's now unclear or contradicts itself.
+
+      OLD: Members can cancel any time with 7 days' notice. Fees are taken on the 1st of each month. 2 guest passes a month are included. The pool is open 6am-10pm.
+
+      NEW: Members can cancel with 30 days' written notice. Fees are taken on the 1st of each month and are non-refundable. 1 guest pass a month is included; extra passes cost $10 each. The pool is open 6am-10pm, except during swim lessons.
+
+# ── Launch & share ────────────────────────────────────────────────────────
+- id: z2-grooming-privacy-terms
+  target: "Privacy policy and terms pages"
+  kind: paraphrase
+  expect: same
+  query:
+    title: "privacy + terms pages"
+    body: |
+      I need a privacy policy and terms and conditions for my dog grooming site (Bright Paws, we're in North Carolina). First go through the site and tell me what it actually collects about visitors and what outside services it uses, so the privacy one is accurate. Write both in friendly plain language, don't promise things the site doesn't do, and label them as drafts so a lawyer can check them. Link them in the footer with a last updated date. Then tell me what I should double check myself.
+
+# ── Meetings & notes ──────────────────────────────────────────────────────
+- id: z2-allstaff-slides-notes
+  target: "Speaker notes for my slides"
+  kind: paraphrase
+  expect: same
+  query:
+    title: "what do I say on each slide"
+    body: |
+      I've got 10 mins at our monthly all-staff meeting to present these slides. For each one give me a few short bullet points of what to actually say, in normal spoken language, and a one-liner to move on to the next slide. Tell me roughly how long to spend on each so it fits in 10 mins, and flag any slide that's got too much on it.
+
+      Slide 1 - Spring at a glance: covers up 9%, 3 new chefs
+      Slide 2 - Wins: Sunday roast relaunch, 4.7 on Google
+      Slide 3 - Problems: no-shows up to 12%, dishwasher broke twice, staff turnover in the bar
+      Slide 4 - Summer plan: deposit for groups of 6+, garden terrace opens 1 June, new cocktail list, rota app
+      Slide 5 - Any questions
+
+# ── Marketing & social ────────────────────────────────────────────────────
+- id: z2-insta-bio-name-line
+  target: "Profile bio for social media"
+  kind: extended
+  expect: close
+  query:
+    body: |
+      Need a new Insta bio for Tidewater Dog Walking, we walk dogs and run little puppy playgroups around Norfolk. 4 options, each under 150 characters including spaces, saying what we do, who it's for and why follow us, ending with a nudge to the link in bio. Max two emojis each and show the character count. Also suggest 3 options for the bold name line above the bio that include "dog walker Norfolk" so people find us when they search, and write short cover titles for our story highlights: Prices, Reviews and Book.
+
+- id: z2-trimmed-video-no-hook
+  target: "Script for a short video"
+  kind: trimmed
+  expect: close
+  query:
+    body: |
+      can u write a script for a 30 sec tiktok for my bike repair shop (Spoke & Wheel) showing how we bring a rusty old bike back to life in an afternoon. split it into numbered shots, for each one what to film, what to say and any text on screen. needs to be doable on just my phone no crew, end with one simple thing for people to do
+
+- id: z2-van-slogan-indirect
+  target: "Tagline and slogan ideas"
+  kind: paraphrase
+  expect: same
+  query:
+    body: |
+      We need a catchy short line to go under our logo on the van and the website. We're Greenline Landscaping, we design and look after gardens that don't need much water, for homeowners in hot dry towns. Give me about a dozen ideas, split into three styles: straightforward, warm, and bold or playful, max 7 words each, nothing cheesy like "your one-stop shop". Then tell me your favourite two and why, a sentence each.
+
+- id: z2-youtube-subtitles
+  target: "Title and description for a video"
+  kind: hard_negative
+  expect: none
+  query:
+    title: "Subtitles for my YouTube video"
+    body: |
+      I've got the transcript of my YouTube video about repotting a fiddle leaf fig, with timestamps. Break it into subtitle lines, max two short lines each, about 2-3 seconds per line, with start and end times, in the file format YouTube accepts for uploading captions. Don't change any of my words.
+
+- id: z2-dentist-referral-scheme
+  target: "Words people search for"
+  kind: hard_negative
+  expect: none
+  query:
+    body: |
+      We're a family dentist in Raleigh that takes walk-ins. Most new patients find us by searching on Google, but the ones who stick around come from friends telling friends. Help me set up a referral scheme: what to offer a patient who refers someone (something that's allowed for a dental practice), how we keep track of who referred who at the front desk, and the wording for a small card we hand out after appointments.
+
+# ── Novel: no library prompt does these jobs ──────────────────────────────
+- id: z2-novel-bedtime-story
+  target: null
+  kind: novel
+  expect: none
+  query:
+    body: |
+      make up a bedtime story for my 5 year old about a dragon who is scared of the dark, about 5 mins to read out loud, gentle ending, her name is Isla so put her in it as the dragons friend
+
+- id: z2-novel-scale-recipe
+  target: null
+  kind: novel
+  expect: none
+  query:
+    title: "Scale up my recipe"
+    body: |
+      This recipe serves 4 and I need it for 10 people on Saturday. Can you scale it up and convert everything into grams and millilitres, and tell me if the oven time changes for a bigger tray.
+
+      Lasagne (serves 4): 1 lb ground beef, 1 onion, 2 cloves garlic, 1 can (14 oz) crushed tomatoes, 2 tbsp tomato paste, 9 lasagne sheets, 2 cups ricotta, 1 egg, 2 cups shredded mozzarella, 1/2 cup parmesan. Bake at 375F for 45 mins covered, then 15 uncovered.
+
+- id: z2-novel-parking-fine-appeal
+  target: null
+  kind: novel
+  expect: none
+  query:
+    body: |
+      i got a parking fine yesterday but the sign was completely covered by a hedge and i've got photos. help me write the appeal to the council, firm but polite, and tell me what evidence to attach. here's what the ticket says:
+
+      Penalty Charge Notice PCN No. WK40917733. Contravention code 01: Parked in a restricted street during prescribed hours. Location: Elm Grove, Kingston. Date 3/11, 14:52. Amount £70, reduced to £35 if paid within 14 days. Representations may be made in writing to the address overleaf.
+
+- id: z2-novel-pub-quiz-questions
+  target: null
+  kind: novel
+  expect: none
+  query:
+    title: "Questions for our pub quiz"
+    body: |
+      I'm running the pub quiz on Tuesday and I've run out of ideas. Write me 4 rounds of 10 questions (general knowledge, music, sport, and a picture-free food round), not too hard, answers listed separately at the end so I don't read them out by accident.
+
+- id: z2-novel-wedding-seating
+  target: null
+  kind: novel
+  expect: none
+  query:
+    body: |
+      Help me do the seating plan for our wedding reception. 80 guests, 10 round tables of 8. My parents are divorced and can't be on the same table, the uni friends want to be together, two kids tables are fine, my nan needs to be near the toilets and away from the speakers. I'll paste the guest list after but first suggest how to group people.
+
+- id: z2-novel-puppy-names
+  target: null
+  kind: novel
+  expect: none
+  query:
+    body: |
+      puppy names?? shes a tiny black cockapoo, we like food names
+
+- id: z2-novel-car-warning-light
+  target: null
+  kind: novel
+  expect: none
+  query:
+    title: "orange light on my dashboard"
+    body: |
+      An orange light that looks like a little engine just came on in my car on the motorway and it's still on. The car seems to drive normally. What does it mean, is it safe to keep driving to work, and what should I tell the garage when I ring them?
+
+- id: z2-novel-living-room-paint
+  target: null
+  kind: novel
+  expect: none
+  query:
+    body: |
+      Can you suggest a colour scheme for our living room? It's north facing so quite dark, we've got a grey sofa and oak floors, and we want it to feel warm and cosy but not like a cave. Give me 3 options with a wall colour, an accent colour for cushions and curtains, and which wall to paint if we only do one.

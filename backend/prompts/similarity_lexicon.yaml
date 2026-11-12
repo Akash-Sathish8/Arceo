@@ -1,0 +1,1089 @@
+# Prompt-match lexicon (plan section 1, Stage 1). Data, not code.
+#
+# Each group lists words and phrases people use for the SAME thing when they
+# write a prompt. Matching runs on stemmed words, longest phrase first, so
+# "bullet points" wins over "bullet" and plurals/verb forms come for free.
+# `label` is the plain-language name shown to people ("Both: summarize ·
+# email · bullets"), so it must read naturally to someone who doesn't code.
+# `shape` marks output formats the shape channel tracks ("3 bullets" vs "5").
+#
+# Rules for growing this file:
+#   - only genuine, general synonyms or plain rewordings of one idea;
+#   - never a phrase that exists only to make one eval case pass;
+#   - a term may appear in exactly one group (loading fails otherwise).
+#
+# `spelling` folds British spellings into American before stemming.
+# `stem_overrides` keeps words apart that the stemmer would merge
+# ("customers" and "custom" both stem to "custom").
+# `stop_phrases` are filler removed before matching.
+
+stem_overrides:
+  # a promotion at work isn't marketing; one sales "lead" isn't "lead with", "account lead" or "team lead"
+  promotion: promotion
+  promotions: promotion
+  publicize: publicize
+  publicise: publicize
+  publicizing: publicize
+  publicising: publicize
+  leads: leads
+  customer: customer
+  customers: customer
+  universe: universe
+  university: university
+  universities: university
+  new: new
+  news: news
+  general: general
+  generally: generally
+  organ: organ
+  organs: organ
+  ideas: ideas
+  hosting: hosting
+  notes: notes
+  settings: settings
+  setting: setting
+  accounting: accounting
+  spacing: spacing
+  accessible: accessible
+  accessibility: accessibility
+  inaccessible: inaccessible
+  staging: staging
+  important: important
+  importance: importance
+  unimportant: unimportant
+  excellent: excellent
+  excellence: excellence
+  consistent: consistent
+  consistency: consistent
+  consistently: consistent
+  inconsistent: inconsistent
+  inconsistency: inconsistent
+  inconsistencies: inconsistent
+  responsive: responsive
+  responsiveness: responsive
+  detailed: detailed
+  friendly: friendly
+  friendlier: friendly
+  heading: heading
+  headings: heading
+  wording: wording
+  phrasing: phrasing
+  texting: texting
+  documentation: documentation
+  meeting: meeting
+  meetings: meeting
+  booking: booking
+  bookings: booking
+  objective: objective
+  objectives: objective
+  objection: objection
+  objections: objection
+  requirement: requirement
+  requirements: requirement
+  manager: manager
+  managers: manager
+  developer: developer
+  developers: developer
+  influencer: influencer
+  influencers: influencer
+  presentation: presentation
+  presentations: presentation
+  rating: rating
+  ratings: rating
+  reference: reference
+  references: reference
+  calculator: calculator
+  calculators: calculator
+
+spelling:
+  colour: color
+  colours: colors
+  coloured: colored
+  colourful: colorful
+  favourite: favorite
+  favourites: favorites
+  behaviour: behavior
+  behaviours: behaviors
+  centre: center
+  centres: centers
+  catalogue: catalog
+  catalogues: catalogs
+  licence: license
+  enquiry: inquiry
+  enquiries: inquiries
+  programme: program
+  programmes: programs
+  judgement: judgment
+  cancelled: canceled
+  cancelling: canceling
+  travelling: traveling
+  labelled: labeled
+  labelling: labeling
+  modelling: modeling
+  grey: gray
+  cheque: check
+  cheques: checks
+  analyse: analyze
+  analysed: analyzed
+  analysing: analyzing
+  aluminium: aluminum
+  defence: defense
+  offence: offense
+  practise: practice
+  storey: story
+
+stop_phrases:
+  - you are a helpful assistant
+  - you're a helpful assistant
+  - act as an expert
+  - act as a professional
+  - you are an expert
+  - as an expert
+  - please
+  - thank you in advance
+  - thanks in advance
+  - can you please
+  - could you please
+  - i would like you to
+  - i'd like you to
+  - i want you to
+  - i need you to
+  - in order to
+
+# Words that make a clause a REQUIREMENT on the output: its format, length, audience, tone,
+# timing, or one more thing to hand over. A clause one prompt has and the other doesn't
+# ("..., and keep it under 100 words", "also give me a version for kids") makes the two
+# variants ("close"), not the same prompt. Groups with a `shape` or a `role`, and numbers,
+# count as well. Matched like everything else (stemmed, lexicon phrases first).
+requirement_words:
+  # format and structure
+  - format
+  - layout
+  - column
+  - row
+  - section
+  - paragraph
+  - sentence
+  - line
+  - word
+  - character
+  - page
+  - slide
+  - title
+  - markdown
+  - json
+  - csv
+  - spreadsheet
+  - structure
+  - order
+  - sort
+  - group
+  - label
+  - bold
+  - link
+  # length
+  - long
+  - length
+  - limit
+  - max
+  - maximum
+  - minimum
+  - least
+  - exceed
+  - short
+  - detailed
+  # audience
+  - audience
+  - reader
+  - beginner
+  - kid
+  - child
+  - children
+  - student
+  - teenager
+  - parent
+  - boss
+  - manager
+  - executive
+  - investor
+  - expert
+  - plain words
+  # tone
+  - tone
+  - friendly
+  - formal
+  - casual
+  - polite
+  # one more thing to hand over
+  - version
+  - options
+  - examples
+  - tip
+  - recommendation
+  - recommend
+  - extra
+  - bonus
+  - additional
+  - include
+  - add
+  - attach
+  - cite
+  - quote
+  - question
+  - reminder
+  - checklist
+  # timing and language
+  - deadline
+  - minute
+  - hour
+  - day
+  - week
+  - weekly
+  - daily
+  - month
+  - language
+
+# Pairs of groups that point opposite ways. Two prompts whose openings are about opposite ones
+# ("ask happy customers for a review" / "win back unhappy customers") do different jobs, however
+# much else they share; neither may mention both.
+opposites:
+  - [happy, angry]
+
+groups:
+# ── reading and writing ──────────────────────────────────────────────────
+- label: summarize
+  role: action
+  terms: [summarize, summary, sum up, tl;dr, tldr, boil down, recap, short version, gist, nutshell]
+- label: rewrite
+  role: action
+  terms: [rewrite, reword, rephrase, paraphrase, put in other words, redo the wording]
+- label: proofread
+  role: action
+  terms: [proofread, proof read, proofreading, copy edit, copyedit, spell check, spellcheck, grammar check, check spelling, check the spelling, check grammar, check the grammar, fix typos, fix the typos, fix grammar, typo, typos, grammar mistakes, spelling mistakes]
+- label: write
+  terms: [write, draft, compose, put together a draft, write up a draft]
+- label: reply
+  role: action
+  terms: [reply, respond, write back, answer back, responding, a response, write a response, draft a response]
+- label: explain
+  role: action
+  terms: [explain, explanation, clarify, break down, break it down, walk me through, walk through, help me understand, make sense of]
+- label: build
+  role: action
+  terms: [build, builds, building, built, create, creates, creating, created, set up, sets up, setting up]
+- label: plain words
+  terms: [plain words, plain english, plain language, simple words, simple terms, simple language, everyday words, everyday language, layman's terms, laymans terms, lay terms, non technical, nontechnical, without jargon, no jargon, jargon free, like i'm five, eli5, beginner friendly, without technical terms, no technical terms, without tech terms]
+- label: translate
+  role: action
+  terms: [translate, translation, translations, translated, another language, second language, other languages, multiple languages, multilingual]
+- label: brainstorm
+  role: action
+  terms: [brainstorm, brainstorming, come up with, think up, ideate, generate ideas, spitball]
+- label: rate or assess
+  id: evaluate
+  role: action
+  terms: [score, scores, scoring, scored, evaluate, evaluates, evaluating, evaluated, evaluation, assess, assesses, assessing, assessment, rate it, rate this, rate them, rate each, rate the, rate every, grade it, grade this, grade them, grade each, grade the]
+- label: compare
+  role: action
+  terms: [compare, comparison, comparing, side by side, versus, vs, stack up against, weigh up]
+- label: pros and cons
+  role: action
+  terms: [pros and cons, pros cons, pro and con, advantages and disadvantages, upsides and downsides, benefits and drawbacks, trade offs, tradeoffs, tradeoff, trade off]
+- label: prioritize
+  role: action
+  terms: [prioritize, prioritise, prioritization, prioritisation, triage, most important first, order of importance, what matters most]
+- label: checklist
+  role: thing
+  terms: [checklist, check list, checklists, to do list, todo list, task list]
+- label: plan
+  terms: [plan, plans, planning, game plan, roadmap, action plan, plan of action]
+- label: steps
+  shape: steps
+  terms: [step by step, steps, numbered steps, one step at a time, step-by-step instructions]
+- label: bullets
+  shape: bullets
+  terms: [bullet, bullets, bullet points, bullet point, bulleted list, bullet list, key points, dot points, main points, key takeaways, takeaways]
+- label: table
+  shape: table
+  terms: [table, tables, rows and columns, columns and rows, grid of]
+- label: numbered list
+  shape: list
+  terms: [numbered list, numbered lists, ranked list, ranked lists, top list]
+- label: choose
+  terms: [choose, chooses, choosing, chose, chosen, pick, picks, picking, picked, select, selects, selecting, selected]
+- label: small
+  terms: [small, smaller, little, tiny, slight, slightly]
+- label: quick
+  terms: [quick, quickly, fast, speedy, rapid, rapidly]
+- label: flag
+  terms: [flag, flags, flagged, flagging, mark, marks, marked, marking]
+- label: instead
+  terms: [instead, instead of, rather than]
+- label: made up
+  terms: [made up, made-up, fake, dummy]
+- label: replace
+  terms: [replace, replaces, replacing, replaced, replacement, swap, swaps, swapping, swapped, swap out, substitute]
+- label: at the end
+  terms: [at the end, when you finish, when you're finished, when you are finished, when you're done, when you are done, once you're done, once you are done, once done, once finished, when finished, when done, afterwards, afterward, finish by, end by]
+- label: short
+  terms: [short, brief, briefly, concise, succinct, to the point, not too long, short and sweet, compact, punchy]
+- label: detailed
+  terms: [detailed, in depth, in-depth, thorough, comprehensive, deep dive, in detail]
+- label: friendly
+  terms: [friendly, warm, approachable, warmly, upbeat]
+- label: formal
+  terms: [formal, professional, businesslike]
+- label: casual
+  terms: [casual, informal, relaxed, laid back, conversational, chatty]
+- label: polite
+  terms: [polite, politely, courteous, tactful, respectful, diplomatic, gracious]
+- label: apology
+  role: action
+  terms: [apologize, apologise, apology, apologies, sorry, make amends]
+- label: tone
+  terms: [tone, tone of voice, voice]
+- label: headline
+  role: thing
+  terms: [headline, headlines, heading, headings]
+- label: subject line
+  role: thing
+  terms: [subject line, subject lines, email subject, email subjects]
+- label: tagline
+  role: thing
+  terms: [tagline, taglines, slogan, slogans, catchphrase, strapline, motto]
+- label: caption
+  role: thing
+  terms: [caption, captions, photo caption, post caption]
+- label: hashtags
+  role: thing
+  terms: [hashtag, hashtags]
+- label: call to action
+  role: thing
+  terms: [call to action, calls to action, cta, ctas]
+- label: bio
+  role: thing
+  terms: [bio, bios, biography, profile bio, about me section, short bio]
+- label: description
+  role: thing
+  terms: [description, descriptions, blurb, blurbs]
+- label: wording
+  terms: [wording, phrasing, word choice, choice of words]
+- label: common questions
+  id: faq
+  role: thing
+  terms: [faq, faqs, frequently asked questions, common questions, q&a, q and a, questions and answers]
+- label: overview
+  terms: [overview, overviews, basics, the basics, crash course, primer, intro to, introduction to, beginner's guide, beginners guide, 101]
+- label: pain points
+  terms: [pain point, pain points, pain, pains, struggles]
+- label: result
+  terms: [result, results, outcome, outcomes]
+- label: verify
+  terms: [verify, verifying, verified, verification, double check, double-check, cross check, cross-check]
+- label: out of date
+  terms: [out of date, outdated, stale, no longer accurate]
+- label: figures
+  terms: [figures, numbers, stats, statistics]
+- label: shorten
+  terms: [shorten, shortening, cut down, trim down, make shorter, make it shorter, too long, shorter version]
+- label: make longer
+  id: expand
+  terms: [expand, expands, expanding, expanded, lengthen, lengthening, make longer, make it longer, flesh out, too short, longer version]
+- label: cause
+  terms: [cause, causes, causing, caused, reason, reasons, root cause, what's behind]
+- label: find out
+  terms: [find, finds, finding, find out, figure out, work out, track down, pinpoint, identify, identifying]
+- label: change
+  terms: [change, changes, changing, changed, modify, modifies, modifying, modified, modification, alter, adjust, adjusting, tweak, tweaks, tweaking, edit, edits, editing, edited]
+- label: remove
+  terms: [remove, removes, removing, removed, removal, delete, deletes, deleting, deleted, deletion, get rid of, erase, take out, take off, take down]
+- label: depends on
+  terms: [depend, depends, depending, dependency, dependencies, rely, relies, relying, reliant]
+- label: unfinished
+  terms: [unfinished, half done, half-done, incomplete, not finished, partly done, partially done, work in progress]
+- label: leave as is
+  terms: [leave alone, leave it alone, leave as is, leave it as is, leave untouched, untouched, unchanged, as it is, as they are, touch]
+- label: turn on
+  terms: [turn on, turn it on, switch on, switch it on, enable, enables, enabling, enabled]
+- label: turn off
+  terms: [turn off, turn it off, switch off, switch it off, disable, disables, disabling, disabled, shut off]
+- label: on/off switch
+  id: toggle
+  terms: [toggle, toggles, on off switch, switch, switches]
+- label: computer
+  terms: [computer, computers, desktop, desktops, laptop, laptops, pc, pcs, big screen, big screens, large screen, large screens, wide screen, wide screens]
+- label: subheadline
+  terms: [subhead, subheads, subheadline, subheadlines, subheading, subheadings, subtitle, subtitles]
+- label: announcement bar
+  terms: [announcement bar, announcement bars, banner, banners, top banner, notice bar, alert bar, promo bar, notification bar]
+- label: open with
+  terms: [open with, opens with, start with, starts with, begin with, begins with, lead with, leads with]
+- label: contact
+  terms: [contact us, get in touch, in touch, reach us]
+- label: outline
+  role: thing
+  terms: [outline, outlines, rough structure, skeleton outline]
+- label: examples
+  terms: [example, examples, for instance, sample, samples]
+- label: template
+  role: thing
+  terms: [template, templates, reusable format, fill in the blanks]
+- label: emoji
+  terms: [emoji, emojis, emoticon, emoticons]
+- label: article
+  role: thing
+  terms: [article, articles, news article, news story, news stories]
+- label: blog
+  role: thing
+  terms: [blog, blogs, blog post, blog posts, blog article, blogging]
+- label: report
+  role: thing
+  terms: [report, reports, write up, writeup, write-up]
+- label: memo
+  role: thing
+  terms: [memo, memos, memorandum, internal note]
+- label: press release
+  role: thing
+  terms: [press release, press releases, news release, media release, press statement]
+- label: announcement
+  role: action
+  terms: [announce, announcement, announcements, announcing, share the news]
+- label: newsletter
+  role: thing
+  terms: [newsletter, newsletters, news letter, e newsletter, email newsletter, mailing list]
+- label: email campaign
+  role: thing
+  terms: [email campaign, email campaigns, email blast, email blasts, mass email, bulk email]
+- label: email
+  role: thing
+  terms: [email, emails, e mail, e mails, message, messages, dm, dms, direct message, direct messages, inbox]
+- label: text message
+  role: thing
+  terms: [text message, text messages, sms, texting]
+- label: thank-you note
+  role: thing
+  terms: [thank you note, thank you notes, thank you email, thank you message, thank you card, thank-you note, thanks note]
+- label: document
+  terms: [document, documents, doc, docs, paperwork, pdf, pdfs]
+- label: notes
+  terms: [notes, rough notes, jottings, scratch notes, meeting minutes]
+- label: transcript
+  terms: [transcript, transcripts, transcription, call transcript, recording transcript]
+- label: wording of a page
+  terms: [page copy, website copy, site copy, web copy, copywriting]
+
+# ── meetings, time and planning ──────────────────────────────────────────
+- label: meeting
+  terms: [meeting, meetings, sync up, standup, stand up meeting, huddle]
+- label: phone call
+  terms: [phone call, phone calls, video call, video calls, zoom call, client call, client calls, sales call, sales calls, discovery call, discovery calls, intro call, introductory call, first call]
+- label: agenda
+  role: thing
+  terms: [agenda, agendas, run of show, meeting outline]
+- label: action items
+  role: thing
+  terms: [action items, action item, next steps, to dos, todos, to-dos, follow up tasks]
+- label: follow up
+  role: action
+  terms: [follow up, followup, follow-up, follow ups, followups, check in, check-in, nudge, chaser, chase]
+- label: reminder
+  terms: [reminder, reminders, remind]
+- label: deadline
+  terms: [deadline, deadlines, due date, due dates, cutoff date, cut off date, due by]
+- label: schedule
+  terms: [schedule, schedules, scheduling, timetable, rota, roster]
+- label: calendar
+  terms: [calendar, calendars, calender]
+- label: booking
+  role: thing
+  terms: [booking, bookings, appointment, appointments, reservation, reservations, book a time, book an appointment, time slot, time slots, booking page, scheduling page]
+- label: weekly
+  terms: [weekly, every week, each week, once a week, per week, a week]
+- label: daily
+  terms: [daily, every day, each day, per day, a day]
+- label: month
+  terms: [month, months, monthly, 30 days, thirty days, four weeks, 4 weeks, every month, each month, per month]
+- label: year
+  terms: [year, years, yearly, annual, annually, 12 months]
+- label: quarter
+  terms: [quarter, quarters, quarterly]
+- label: goal
+  terms: [goal, goals, objective, objectives, aim, aims]
+- label: decision
+  terms: [decide, decision, decisions, decide between, choose between, make up my mind, which to choose]
+- label: options
+  terms: [options, alternatives, choices, possibilities, ideas, suggestions, variations, variants]
+- label: question
+  terms: [question, questions]
+- label: clarifying questions
+  terms: [clarifying questions, clarifying question, questions first, ask me questions, questions before]
+- label: risks
+  terms: [risk, risks, what could go wrong, pitfalls, pitfall, downsides, downside, gotchas, red flags, warning signs, things that could go wrong, dangers]
+- label: milestones
+  terms: [milestone, milestones, phase, phases]
+- label: requirements
+  terms: [requirements, requirement, specs, spec, must haves, must-haves]
+- label: strengths and weaknesses
+  role: thing
+  terms: [swot, swot analysis, strengths and weaknesses]
+- label: process
+  terms: [process, processes, procedure, procedures, sop, sops, standard operating procedure, playbook, playbooks]
+- label: training
+  terms: [training, tutorial, tutorials, lesson, lessons]
+- label: brief
+  role: thing
+  terms: [creative brief, design brief, project brief, brief document]
+- label: out of scope
+  role: thing
+  terms: [scope creep, out of scope, outside the scope, outside scope, outside our scope, change order, change orders, change request]
+- label: kickoff
+  role: thing
+  terms: [kickoff, kick off, kick-off, kickoff meeting, kick off meeting]
+- label: performance review
+  role: thing
+  terms: [performance review, performance reviews, employee review, appraisal, appraisals, performance feedback]
+
+# ── people ───────────────────────────────────────────────────────────────
+- label: customer
+  terms: [customer, customers, client, clients, buyer, buyers, shopper, shoppers, patron, patrons, consumer, consumers]
+- label: visitor
+  terms: [visitor, visitors, site visitor, site visitors, end user, end users, user, users]
+- label: member
+  terms: [member, members, membership, memberships]
+- label: subscriber
+  terms: [subscriber, subscribers]
+- label: lead
+  terms: [leads, sales lead, prospect, prospects, potential customer, potential customers, potential client, potential clients, sales leads]
+- label: team
+  terms: [team, teams, teammate, teammates, team member, team members, staff, employee, employees, colleague, colleagues, coworker, coworkers, co-worker, co-workers, crew]
+- label: manager
+  terms: [manager, managers, boss, supervisor, line manager]
+- label: hiring
+  role: action
+  terms: [hire, hiring, recruit, recruiting, recruitment]
+- label: job posting
+  role: thing
+  terms: [job post, job posts, job posting, job postings, job ad, job ads, job advert, job listing, job listings, job description, job descriptions, vacancy, vacancies]
+- label: candidate
+  terms: [candidate, candidates, applicant, applicants, job seeker, job seekers]
+- label: interview
+  role: thing
+  terms: [interview, interviews, interviewing]
+- label: developer
+  terms: [developer, developers, dev, devs, programmer, programmers, engineer, engineers, coder, coders]
+- label: agent
+  terms: [coding agent, coding agents, ai agent, ai agents, coding assistant, ai coder, your agent, my agent, ai helper, ai coding helper, coding helper, ai coding assistant, ai coding tool]
+- label: audience
+  terms: [audience, audiences, target audience, target market, ideal customer, ideal customers, customer persona, buyer persona, persona, personas]
+- label: competitors
+  terms: [competitor, competitors, rival, rivals, the competition]
+- label: creator
+  terms: [influencer, influencers, content creator, content creators, creator, creators]
+- label: collaboration
+  terms: [collaborate, collaboration, collab, collabs, partnership, partnerships, team up, partner up]
+
+# ── business and money ───────────────────────────────────────────────────
+- label: business
+  terms: [business, businesses, company, companies, shop, shops, firm, small business, small businesses]
+- label: online shop
+  terms: [online shop, online store, web shop, webshop, ecommerce, e commerce, e-commerce, storefront, store front]
+- label: brand
+  terms: [brand, branding, brand identity]
+- label: product
+  terms: [product, products, merchandise, merch]
+- label: service
+  terms: [service, services]
+- label: catalog
+  role: thing
+  terms: [catalog, catalogs, product catalog, product list, product listings, product listing]
+- label: inventory
+  terms: [inventory, stock level, stock levels, stock count, in stock, out of stock]
+- label: shipping
+  terms: [shipping, delivery, deliveries, dispatch, postage, courier]
+- label: return policy
+  terms: [return policy, returns policy, refund policy, returns and exchanges]
+- label: price
+  terms: [price, prices, pricing, priced, rate card, fee, fees]
+- label: cost
+  terms: [cost, costs, expense, expenses, spending, spend, outgoings]
+- label: budget
+  role: thing
+  terms: [budget, budgets, budgeting, spending plan]
+- label: revenue
+  terms: [revenue, income, earnings, turnover, make money, earn money, making money]
+- label: profit
+  terms: [profit, profits, profitability, profit margin, profit margins, net income, bottom line]
+- label: cash flow
+  role: thing
+  terms: [cash flow, cashflow, cash-flow]
+- label: forecast
+  role: thing
+  terms: [forecast, forecasts, forecasting]
+- label: break even
+  role: thing
+  terms: [break even, breakeven, break-even]
+- label: tax
+  role: thing
+  terms: [tax, taxes, vat, sales tax, gst]
+- label: invoice
+  role: thing
+  terms: [invoice, invoices, invoicing, bill, bills, billing]
+- label: receipt
+  role: thing
+  terms: [receipt, receipts]
+- label: overdue payment
+  terms: [overdue, past due, late payment, late payments, unpaid, outstanding balance, outstanding invoice, outstanding invoices]
+- label: payment
+  terms: [payment, payments, pay online, pay by card, pay with card, pay a deposit, transaction, transactions]
+- label: checkout
+  role: thing
+  terms: [checkout, checkouts, check out page, shopping cart, cart, basket]
+- label: order
+  terms: [order, orders, purchase, purchases]
+- label: refund
+  terms: [refund, refunds, refunded, money back, reimburse, reimbursement, reimbursements]
+- label: discount
+  terms: [discount, discounts, coupon, coupons, promo code, promo codes, coupon code, coupon codes, voucher, vouchers, percent off]
+- label: promote
+  role: action
+  terms: [promote, promoting, promo, promos, publicize, publicise]
+- label: ad
+  terms: [ad, ads, advert, adverts, advertisement, advertisements, advertise, advertising, paid ad, paid ads, sponsored post]
+- label: proposal
+  role: thing
+  terms: [proposal, proposals, bid, bids, tender]
+- label: estimate
+  role: thing
+  terms: [estimate, estimates, quotation, quotations, ballpark, ballpark figure, rough estimate, price estimate]
+- label: pitch
+  role: thing
+  terms: [pitch, pitches, sales pitch, elevator pitch]
+- label: presentation
+  role: thing
+  terms: [presentation, presentations, slides, slide deck, deck, decks, powerpoint]
+- label: contract
+  role: thing
+  terms: [contract, contracts, agreement, agreements]
+- label: fine print
+  role: thing
+  terms: [fine print, small print, terms and conditions, terms of service, terms of use, legalese, t&c, t cs]
+- label: policy
+  role: thing
+  terms: [policy, policies]
+- label: complaint
+  terms: [complaint, complaints, grievance, grievances]
+- label: angry
+  terms: [angry, angrier, furious, irate, livid, outraged, fuming, enraged, upset, frustrated, annoyed, unhappy, mad at, dissatisfied, unsatisfied, disappointed, displeased]
+- label: reference letter
+  role: thing
+  terms: [reference letter, reference letters, letter of reference, recommendation letter, recommendation letters, letter of recommendation, letters of recommendation, character reference]
+- label: happy
+  terms: [happy, happier, satisfied, pleased, delighted, thrilled]
+- label: calm things down
+  role: action
+  terms: [de escalate, deescalate, de-escalate, de escalation, de-escalation, defuse, smooth things over, calm things down]
+- label: review
+  terms: [review, reviews, customer review, customer reviews, online review, online reviews, rating, ratings, star rating, star ratings, google review, google reviews, yelp review]
+- label: testimonial
+  role: thing
+  terms: [testimonial, testimonials, customer quote, customer quotes, endorsement, endorsements]
+- label: feedback
+  terms: [feedback, critique, critiques, constructive criticism]
+- label: objection
+  terms: [objection, objections, pushback, push back]
+- label: outreach
+  role: action
+  terms: [outreach, cold email, cold emails, cold outreach, reach out, reaching out, cold message, cold messages, cold dm]
+- label: negotiate
+  role: action
+  terms: [negotiate, negotiation, negotiating, haggle, bargain, counter offer, counteroffer]
+- label: upsell
+  role: action
+  terms: [upsell, upselling, cross sell, cross-sell, cross selling]
+- label: win back
+  role: action
+  terms: [win back, winback, re engage, re-engage, reengage, lapsed customers, past customers, former customers, inactive customers]
+- label: loyalty
+  role: thing
+  terms: [loyalty, loyalty program, rewards program, points program, punch card]
+- label: referral
+  role: thing
+  terms: [referral, referrals, refer a friend, referral program]
+- label: gift card
+  role: thing
+  terms: [gift card, gift cards, gift certificate, gift certificates]
+- label: event
+  terms: [event, events, meetup, meetups, meet up]
+- label: giveaway
+  role: thing
+  terms: [giveaway, giveaways, contest, contests, sweepstakes, raffle, prize draw]
+- label: holiday
+  terms: [holiday, holidays, holiday season, festive season, black friday, christmas]
+- label: case study
+  role: thing
+  terms: [case study, case studies, success story, success stories, customer story, customer stories]
+- label: values
+  terms: [core values, our values, mission, mission statement, what we stand for, what we care about]
+- label: opening hours
+  terms: [opening hours, business hours, open hours, hours of operation, store hours]
+- label: industry
+  terms: [industry, industries, sector, sectors, niche]
+- label: trends
+  role: thing
+  terms: [trend, trends, trending]
+
+# ── marketing and getting found ──────────────────────────────────────────
+- label: social media
+  terms: [social media, social, socials, instagram, insta, facebook, tiktok, linkedin, twitter, pinterest, snapchat, threads app]
+- label: social post
+  role: thing
+  terms: [social post, social posts, social media post, social media posts]
+- label: video
+  role: thing
+  terms: [video, videos, clip, clips, reel, reels]
+- label: youtube
+  terms: [youtube, you tube]
+- label: flyer
+  role: thing
+  terms: [flyer, flyers, flier, fliers, poster, posters, leaflet, leaflets, brochure, brochures, handout, handouts, pamphlet]
+- label: keywords
+  role: thing
+  terms: [keyword, keywords, search terms, search phrases]
+- label: google search
+  role: thing
+  terms: [seo, search engine, search engines, search engine optimization, search engine optimisation, google search, show up on google, found on google, rank on google, google ranking, google rankings, search ranking, search rankings]
+- label: google maps listing
+  role: thing
+  terms: [google business profile, google maps, google my business, maps listing, business listing]
+- label: share preview
+  role: thing
+  terms: [link preview, link previews, share preview, share previews, social preview, preview card, share card, og image, open graph]
+- label: analytics
+  role: thing
+  terms: [analytics, visitor stats, visitor numbers, site stats, page views, pageviews, web traffic, website traffic, site traffic]
+
+# ── research ─────────────────────────────────────────────────────────────
+- label: research
+  role: action
+  terms: [research, researching, look into, dig into, investigate, investigating]
+- label: sources
+  role: thing
+  terms: [source, sources, reference, references, citation, citations, cite]
+- label: fact check
+  role: action
+  terms: [fact check, fact-check, fact checking, check the facts, verify the facts, check the claims, verify claims, verify the claims]
+- label: timeline
+  role: thing
+  terms: [timeline, timelines, chronology, sequence of events]
+- label: key facts
+  role: thing
+  terms: [key facts, main facts, key details, important details, key info, key information]
+- label: extract
+  role: action
+  terms: [extract, extracting, extraction, pull out, pick out, parse, parsing]
+- label: categorize
+  role: action
+  terms: [categorize, categorise, categorization, categorisation, classify, classification, sort into categories, group into categories]
+- label: tech words
+  terms: [jargon, technical term, technical terms, tech word, tech words, buzzword, buzzwords, acronym, acronyms]
+
+# ── building apps and websites ───────────────────────────────────────────
+- label: website
+  terms: [website, websites, web site, site, sites]
+- label: page
+  terms: [page, pages, screen, screens, webpage, webpages, web page]
+- label: app
+  terms: [app, apps, web app, mobile app, iphone app, android app]
+- label: landing page
+  role: thing
+  terms: [landing page, landing pages, one page site, one page website, single page site, single page website, one-pager]
+- label: homepage
+  role: thing
+  terms: [homepage, home page, front page, main page]
+- label: top section
+  role: thing
+  terms: [hero section, hero, hero banner, above the fold, top section]
+- label: button
+  terms: [button, buttons]
+- label: link
+  terms: [link, links, url, urls, web address, hyperlink, hyperlinks]
+- label: navigation menu
+  role: thing
+  terms: [navigation, nav, nav bar, navbar, menu bar, main menu, site menu, top menu, hamburger menu, navigation menu]
+- label: footer
+  role: thing
+  terms: [footer, footers, site footer, page footer]
+- label: header
+  role: thing
+  terms: [header, headers, site header, page header, top bar]
+- label: form
+  role: thing
+  terms: [form, forms, web form, online form]
+- label: contact form
+  role: thing
+  terms: [contact form, contact forms, contact us form, get in touch form, enquiry form, inquiry form]
+- label: sign up
+  role: thing
+  terms: [sign up, signup, sign-up, signups, sign ups, register, registration, create account, create an account, make an account, creating an account]
+- label: log in
+  role: thing
+  terms: [log in, login, logins, sign in, signin, logging in, log on, logon, signing in]
+- label: log out
+  terms: [log out, logout, sign out]
+- label: password
+  terms: [password, passwords, passcode, passcodes]
+- label: forgot password
+  role: thing
+  terms: [forgot password, forgot my password, forgotten password, reset password, reset my password, password reset, password resets, recover account, account recovery]
+- label: account
+  terms: [account, accounts, user account, user accounts]
+- label: two-step verification
+  role: thing
+  terms: [two factor, two-factor, 2fa, two step verification, two-step verification, two step login, two-step login, two step log in, authenticator, authenticator app, verification code, verification codes, one time code, one-time code, one time codes]
+- label: saved reply
+  id: canned_reply
+  role: thing
+  terms: [macro, macros, canned response, canned responses, canned reply, canned replies, saved reply, saved replies, saved response, saved responses]
+- label: profile
+  role: thing
+  terms: [profile, profiles, profile page, account page, my account page]
+- label: close account
+  role: thing
+  terms: [close my account, close account, close their account, delete account, delete my account, delete their account, deactivate account, deactivate my account, cancel account]
+- label: cancel
+  terms: [cancel, cancellation, cancellations, canceling, canceled]
+- label: invite
+  role: action
+  terms: [invite, invites, invitation, invitations, inviting]
+- label: roles
+  role: thing
+  terms: [role, roles, permission, permissions, access level, access levels, user roles, who can see what, who can do what, access rights]
+- label: members-only
+  role: thing
+  terms: [members only, member only, members-only, login required, logged in only, gated content, paywall, behind a login, private pages, locked pages]
+- label: admin
+  role: thing
+  terms: [admin, admins, administrator, administrators, admin panel, admin area, admin page, back office, control panel, admin dashboard]
+- label: dashboard
+  role: thing
+  terms: [dashboard, dashboards]
+- label: chart
+  role: thing
+  terms: [chart, charts, graph, graphs, visualization, visualizations, visualisation, visualisations]
+- label: upload
+  role: action
+  terms: [upload, uploads, uploading, uploaded, attach a file, attach files, file attachment, file attachments, file upload, file uploads]
+- label: file
+  terms: [file, files]
+- label: photo
+  terms: [photo, photos, image, images, picture, pictures, pic, pics, photograph, photographs, imagery, thumbnail, thumbnails]
+- label: gallery
+  role: thing
+  terms: [gallery, galleries, photo gallery, image gallery, slideshow, slideshows, carousel, lightbox]
+- label: portfolio
+  role: thing
+  terms: [portfolio, portfolios, past work, work samples]
+- label: logo
+  role: thing
+  terms: [logo, logos, wordmark, brand mark]
+- label: icon
+  terms: [icon, icons]
+- label: browser tab icon
+  role: thing
+  terms: [favicon, favicons, tab icon, browser tab icon, site icon]
+- label: font
+  role: thing
+  terms: [font, fonts, typeface, typefaces, typography, lettering]
+- label: text size
+  terms: [text size, font size, font sizes, bigger text, larger text, text bigger, text larger]
+- label: color
+  terms: [color, colors, color scheme, color schemes, palette, palettes, color palette, color palettes, brand colors, brand color]
+- label: layout
+  terms: [layout, layouts, page layout, arrangement]
+- label: spacing
+  terms: [spacing, padding, whitespace, white space, breathing room]
+- label: mobile
+  terms: [mobile, phone, phones, smartphone, smartphones, cell phone, cellphone, iphone, iphones, android, responsive, mobile friendly, mobile-friendly, small screen, small screens, phone screen, phone screens, mobile screen, mobile screens]
+- label: phone number
+  terms: [phone number, phone numbers, telephone number, mobile number, cell number]
+- label: dark mode
+  role: thing
+  terms: [dark mode, dark theme, night mode, night theme, dark version, dark colors]
+- label: accessibility
+  terms: [accessibility, accessible, a11y, wcag, screen reader, screen readers, ada compliance]
+- label: contrast
+  terms: [contrast, color contrast]
+- label: readable
+  terms: [readable, legible, readability, legibility, easy to read]
+- label: hard to read
+  id: unreadable
+  terms: [hard to read, unreadable, illegible, difficult to read]
+- label: speed
+  terms: [slow, slowly, sluggish, laggy, lag, lags, load time, load times, page speed, loading speed, slow to load, slow loading, takes forever, load faster, loads faster, loading faster, speed up, speeds up, faster]
+- label: crash
+  terms: [crash, crashes, crashing, crashed, freeze, freezes, freezing, frozen, hangs, not responding, stops responding, unresponsive, locks up]
+- label: error
+  terms: [error, errors, error message, error messages, exception, exceptions, stack trace, traceback, error code, error codes]
+- label: fix
+  role: action
+  terms: [fix, fixes, fixing, fixed, debug, debugging, resolve, resolving, troubleshoot, troubleshooting, repair, broken, not working, doesn't work, does not work, isn't working, is not working, stopped working, stop working, stops working, won't work, glitch, glitches, glitchy, buggy, bug, bugs, breaks, broke, would break]
+- label: blank screen
+  terms: [blank page, blank screen, white screen, empty page, empty screen, white page, blank white screen]
+- label: page not found
+  terms: [404, page not found, not found page, missing page, dead link, dead links, broken link, broken links]
+- label: duplicate
+  terms: [duplicate, duplicates, duplicated, duplication, shows up twice, appears twice, show up twice, appear twice]
+- label: search
+  role: thing
+  terms: [search, searches, searching, search box, search bar, search field, look up, lookup]
+- label: filter
+  terms: [filter, filters, filtering, narrow down]
+- label: notification
+  role: thing
+  terms: [notification, notifications, alert, alerts, notify, notifies, push notification, push notifications]
+- label: unsubscribe
+  role: thing
+  terms: [unsubscribe, unsubscribes, opt out, opt-out, email preferences, stop emails]
+- label: personal info
+  terms: [personal info, personal information, personal data, personal details, private info, private information, pii]
+- label: privacy policy
+  role: thing
+  terms: [privacy policy, privacy policies, privacy notice, privacy page, privacy statement]
+- label: cookie notice
+  role: thing
+  terms: [cookie banner, cookie banners, cookie notice, cookie consent, cookie popup, cookies banner, cookie message]
+- label: secret keys
+  terms: [api key, api keys, secret key, secret keys, secrets, credentials, access key, access keys, private key, private keys]
+- label: backup
+  role: action
+  terms: [backup, backups, back up my, back up the, back up your, back up our, back up all, back it up]
+- label: undo
+  role: action
+  terms: [undo, revert, reverting, roll back, rollback, roll it back]
+- label: go live
+  terms: [go live, goes live, going live, went live, put online, put it online, make it live, deploy, deploys, deployed, deploying, deployment, launch, launches, launching, launched, publish, publishing, published, release, releases, releasing, released]
+- label: domain
+  role: thing
+  terms: [domain, domains, domain name, domain names, custom domain, own domain]
+- label: hosting
+  terms: [hosting, web host, web hosting, hosting provider, hosting company]
+- label: email at your domain
+  role: thing
+  terms: [email at my domain, email at your domain, custom email, business email, professional email address, work email address]
+- label: home screen
+  role: thing
+  terms: [add to home screen, home screen, pwa, progressive web app]
+- label: downtime
+  role: thing
+  terms: [uptime, downtime, site down, site is down, outage, outages, goes down]
+- label: test
+  terms: [test, tests, testing, tested, try out, trial run]
+- label: try two versions
+  id: a_b_test
+  role: thing
+  terms: [a b test, ab test, a b tests, ab tests, split test, split tests, a/b test, a/b tests, a b testing]
+- label: practice copy
+  role: thing
+  terms: [staging, staging site, staging version, staging environment, test site, test version, test copy, practice copy, practice site, sandbox]
+- label: code
+  terms: [code, codebase, code base, source code, snippet, snippets]
+- label: feature
+  terms: [feature, features, functionality, capability, capabilities]
+- label: first version
+  terms: [first version, mvp, minimum viable product, v1, prototype, prototypes, basic version, starter version]
+- label: tidy up
+  role: action
+  terms: [tidy up, tidy, clean up, cleanup, clean-up, refactor, refactoring, reorganize, reorganise, restructure, declutter]
+- label: guide
+  role: thing
+  terms: [guide, guides, documentation, readme, read me, handbook, user guide]
+- label: handover
+  role: thing
+  terms: [handover, hand over, handoff, hand off, hand-off, handing over]
+- label: outside services
+  terms: [third party, third-party, outside service, outside services, external service, external services, integration, integrations, connected services]
+- label: chatbot
+  role: thing
+  terms: [chatbot, chatbots, chat bot, chat bots, chat helper, chat assistant, ai assistant, ai chat, support bot, virtual assistant]
+- label: onboarding
+  role: thing
+  terms: [onboarding, welcome steps, welcome flow, welcome screens, first run, getting started, product tour, welcome tour]
+- label: quiz
+  role: thing
+  terms: [quiz, quizzes, product quiz, product finder]
+- label: survey
+  role: thing
+  terms: [survey, surveys, questionnaire, questionnaires, poll, polls]
+- label: calculator
+  role: thing
+  terms: [calculator, calculators, price calculator, quote calculator, cost calculator]
+- label: countdown
+  role: thing
+  terms: [countdown, countdowns, countdown timer, count down]
+- label: map
+  role: thing
+  terms: [get directions, directions to, how to find us, location map]
+- label: careers page
+  role: thing
+  terms: [careers, careers page, career page, jobs page, join our team]
+- label: spam
+  role: thing
+  terms: [spam, spammers, captcha, recaptcha, spam protection, bot signups, junk submissions, fake signups]
+- label: form checks
+  role: thing
+  terms: [validation, validate, validating, form checks, field checks, input checks]
+- label: multi-step form
+  role: thing
+  terms: [multi step form, multistep form, multi-step form, step by step form, wizard]
+- label: settings
+  role: thing
+  terms: [settings, preferences, prefs]
+- label: import
+  role: action
+  terms: [import, imports, importing, imported]
+- label: export
+  role: action
+  terms: [export, exports, exporting, exported, download as]
+- label: spreadsheet
+  terms: [spreadsheet, spreadsheets, excel, google sheets, google sheet, csv, csvs, xlsx]
+- label: calculation
+  terms: [calculation, calculations, calculate, calculating, calculated, math, maths, arithmetic, totals]
+- label: time zone
+  terms: [time zone, time zones, timezone, timezones]
+- label: redesign
+  role: thing
+  terms: [redesign, redesigns, refresh, facelift, revamp, makeover, overhaul, modernize, modernise, fresh look, update the look]
+- label: style guide
+  role: thing
+  terms: [style guide, style guides, design system, brand guidelines, brand guide, styleguide]
+- label: motion
+  role: thing
+  terms: [animation, animations, animate, animated, motion, transitions, transition effects]
+- label: loading indicator
+  role: thing
+  terms: [skeleton screen, skeleton screens, loading placeholder, loading placeholders, loading state, loading states, spinner, spinners, loading indicator, loading indicators]
+- label: empty state
+  role: thing
+  terms: [empty state, empty states, nothing here yet, no results screen]
+- label: confirmation message
+  role: thing
+  terms: [success message, success messages, confirmation message, confirmation messages, confirmation screen, thank you page]
+- label: print
+  role: thing
+  terms: [print, printing, printable, print friendly, printer friendly, print-friendly]
+- label: overlay
+  terms: [overlay, overlays, text overlay, text on top of]
+- label: consistent
+  terms: [consistent, consistency, consistently, uniform, cohesive]
+- label: inconsistent
+  terms: [inconsistent, inconsistency, inconsistencies, mismatched]
+
+# ── how a coding agent should work (shared wording, folded so it reads alike) ─
+- label: check with me first
+  terms: [wait for my ok, wait for my okay, wait for my go ahead, wait for my approval, check with me first, check with me, ask me first, ask first, ask before, ask me before, get my approval, my approval, my ok, my okay, run it by me, run the plan by me, confirm with me, my go ahead, my go-ahead, my sign off, my sign-off, until i say yes, until i approve]
+- label: keep the change small
+  terms: [smallest change, smallest changes, small change, minimal change, minimal changes, smallest fix, small fix, minimal fix, keep the change small, keep changes small, keep the fix small, as small as possible, as little as possible]
+- label: what changed
+  terms: [what you changed, what changed, what you did, list of changes, summary of changes, what was changed, list what you changed]
+- label: how to check
+  terms: [how to check, how i can check, how to test it, how to try it, how to see it, steps to confirm, how to confirm, how i can test, how i can try, how i can see]

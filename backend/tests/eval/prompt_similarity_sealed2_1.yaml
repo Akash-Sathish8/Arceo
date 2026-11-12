@@ -1,0 +1,653 @@
+# Held-out ("sealed") test set for the prompt-match algorithm, half 1 of 2.
+#
+# Written without looking at the matcher, its word lists, its weights or any
+# earlier test set. Queries are typed the way real non-technical people type:
+# typos, run-ons, very short asks, long rambling asks, British spellings,
+# requirements in a different order, and real content pasted in instead of a
+# blank to fill in.
+#
+# Corpus: every prompt in backend/prompts/seed/*.yaml, sorted by title
+# (case-insensitive). This file covers the first half (integer math) and takes
+# roughly every third prompt from it, rotating the case kind:
+#   paraphrase    -> expect same   (same job, reworded)
+#   extended      -> expect close  (same job plus 1-2 genuinely new requirements)
+#   trimmed       -> expect close  (same job with one important requirement dropped)
+#   hard_negative -> expect none   (same area and overlapping words, clearly a
+#                                   different job; checked that no corpus prompt
+#                                   does that job)
+#   novel         -> expect none   (target null; checked that no corpus prompt
+#                                   does that job)
+cases:
+
+# --- [0] A month of social post ideas --------------------------------------
+- id: z1-month-social-posts
+  target: A month of social post ideas
+  kind: paraphrase
+  expect: same
+  query:
+    title: insta posts for the month
+    body: |-
+      can u come up with a months worth of instagram posts for my bakery, we post like 3x a week. dont want it to be all "buy our stuff", maybe one salesy post out of every 4 tops, the rest can be behind the scenes, tips, customer stories, the odd fun one etc. put it in a table week by week w the day, the idea, first line of the caption and what pic or video to use. we have a sourdough class starting on the 14th and our 2nd birthday on the 28th so work those in
+
+# --- [3] Ad copy variations ------------------------------------------------
+- id: z1-ad-copy-extended
+  target: Ad copy variations
+  kind: extended
+  expect: close
+  query:
+    body: |-
+      Write 6 Facebook/Instagram ads for our meal-prep delivery. 3 should lead with the pain (no time to cook, takeaway every night), 3 with the benefit. Headlines under 30 characters, main text under 90. Also give each one a button label (Order now, See the menu etc) and say which kind of person each ad is best aimed at, like busy parents or gym-goers.
+
+# --- [6] Add gentle motion -------------------------------------------------
+- id: z1-gentle-motion-trimmed
+  target: Add gentle motion
+  kind: trimmed
+  expect: close
+  query:
+    title: subtle animations
+    body: |-
+      Add a bit of subtle animation to my site so it feels more polished: sections fade in as you scroll down, buttons lift a little when you hover over them, and the phone menu slides open. Keep them quick and gentle, nothing bouncy or spinning, don't make anything slower to load and don't animate stuff I didn't list. Let me know where you added each one so I can see it.
+
+# --- [9] Admin page to manage my content -----------------------------------
+- id: z1-staff-rota-hardneg
+  target: Admin page to manage my content
+  kind: hard_negative
+  expect: none
+  query:
+    title: Staff shift schedule page
+    body: |-
+      Build a private page for my café where only I can sign in and set who works which shift each week. I want to add staff, put them into morning and afternoon slots, and edit a shift if someone calls in sick. Each staff member should get their own read-only link to see their shifts and ask to swap with someone. People who aren't us shouldn't be able to open it even if they guess the address. Tell me the plan in plain words first.
+
+# --- [12] Announce my launch -----------------------------------------------
+- id: z1-launch-kit-paraphrase
+  target: Announce my launch
+  kind: paraphrase
+  expect: same
+  query:
+    body: |-
+      ok so my app Pantry Pal goes live june 3!! it takes whatever u have in ur fridge and gives u a weeks worth of dinner ideas, its for busy families. need help announcing it - a short post for insta + facebook, an email to friends and old customers, a 2 sentence blurb for those listing/directory sites, and a few ideas for a first week offer. excited but not cheesy or hypey pls and dont make up claims, ill post everything myself
+
+# --- [15] App freezes or crashes -------------------------------------------
+- id: z1-app-crash-extended
+  target: App freezes or crashes
+  kind: extended
+  expect: close
+  query:
+    title: app keeps crashing in the gallery
+    body: |-
+      My app freezes for a few seconds and then closes whenever I open the photo gallery and scroll fast to the bottom. Make it happen yourself, find out what's causing it and explain it without jargon. Fix the actual cause, not just the symptom, and keep the change small; if it's bigger than that, give me the plan and ask first. If something can still go wrong there, show a friendly message instead of freezing. Then give me steps to check it's fixed. Also please test it on an older, slower Android phone as well as an iPhone, because a lot of my customers have cheap phones, and write two lines I can put in the app's update notes telling people it's fixed.
+
+# --- [18] Ask a creator to work with us ------------------------------------
+- id: z1-creator-dm-trimmed
+  target: Ask a creator to work with us
+  kind: trimmed
+  expect: close
+  query:
+    body: |-
+      Write a DM from Saltgrass Hot Sauce to @trailtablekitchen, who does easy camping recipes, asking if they'd want to collab. Say something specific about one of their videos, tell them what we're offering (a bottle of every flavour plus $150 for one video) and what we'd like from them in return. Under 90 words, sound human, no gushing. I'll check it before I send it.
+
+# --- [21] Ask for the details I need ---------------------------------------
+- id: z1-holiday-autoreply-hardneg
+  target: Ask for the details I need
+  kind: hard_negative
+  expect: none
+  query:
+    title: Holiday auto-reply for support
+    body: |-
+      We're closed from 24 to 26 December. Write the automatic reply customers get if they email our support inbox in that time: say we're away, the date we'll be back and answering, and where to find our help articles in the meantime. Friendly and short, and don't promise we'll have anything fixed by a set date.
+
+# --- [24] Ask my manager for an exception (pasted content) -----------------
+- id: z1-manager-exception-paraphrase
+  target: Ask my manager for an exception
+  kind: paraphrase
+  expect: same
+  query:
+    title: need my managers ok for a return outside policy
+    body: |-
+      Can you write a quick note to my manager asking him to let this one through. Customer has been with us 6 years and her last two orders both showed up late. Now she wants to return a sofa 45 days after delivery and our window is 30 days. Here's her email:
+
+      Hi, I know I'm past the return window but honestly after the last two deliveries were late I just haven't had the energy to deal with this. The sofa is the wrong shade of grey compared to the photos and it's still in perfect condition. I've been buying from you since 2019. Is there anything you can do? - Margaret
+
+      I think we should say yes. Keep it short (under 150 words), calm and factual: her history with us, what went wrong, what she's asking for, what it'll cost us (the sofa was $1,240), what I recommend, and a backup option if he says no.
+
+# --- [27] Ask the right questions about a vague request --------------------
+- id: z1-vague-request-extended
+  target: Ask the right questions about a vague request
+  kind: extended
+  expect: close
+  query:
+    body: |-
+      My director sent me this: "Hey, can you pull together something on how the spring fundraiser went? Need it for the board soon. Thanks!" Way too vague. Write a reply with up to 5 questions I need answered first (deadline, who it's for, how detailed), each with my best guess next to it so she can just say yes. Helpful tone, not like I'm pushing back. Two extra things: suggest a realistic date I could have it ready by, and offer to send a one-paragraph preview by Friday so she can tell me if I'm on the right track.
+
+# --- [30] Bio for an event or website --------------------------------------
+- id: z1-speaker-bio-trimmed
+  target: Bio for an event or website
+  kind: trimmed
+  expect: close
+  query:
+    title: Speaker bio
+    body: |-
+      Write a bio of Grace Okafor for the speaker list at a regional small business conference. Third person, warm, plain. Use only these facts: runs a 12-person bookkeeping firm in Columbus that she started in 2014 after nine years at a regional bank, works mostly with restaurants and family-owned shops, volunteers teaching money basics at the public library. Lead with what she does and who she helps. No "passionate about" or "thought leader" stuff.
+
+# --- [33] Board meeting agenda ---------------------------------------------
+- id: z1-advisory-board-invite-hardneg
+  target: Board meeting agenda
+  kind: hard_negative
+  expect: none
+  query:
+    title: Invite someone onto our advisory board
+    body: |-
+      We're a Series A startup and I'd like to ask Dana, one of our very first customers, to join our advisory board. Write the email asking her: what the role involves (four board meetings a year, about an hour each, plus the odd phone call), what we'd offer in return (a small amount of equity), and why we thought of her specifically. Warm and brief, no pressure.
+
+# --- [36] Break a big goal into weekly steps -------------------------------
+- id: z1-weekly-goal-steps-paraphrase
+  target: Break a big goal into weekly steps
+  kind: paraphrase
+  expect: same
+  query:
+    body: |-
+      i want to get my bookkeeping certificate by the end of september. i work full time so realistically 4 hrs a week max. can you split it into week by week chunks from now til then that i can actually finish each week, put a check in at the end of each month so i know if im keeping up, and tell me what i can skip if i fall behind. just a numbered list of weeks, 1-2 lines each
+
+# --- [39] Broke after going live -------------------------------------------
+- id: z1-broke-live-extended
+  target: Broke after going live
+  kind: extended
+  expect: close
+  query:
+    title: map broken on the live site only
+    body: |-
+      Everything works when I preview my site, but on the live version the map on the Contact page is just grey and says it can't load. Compare the preview and live setups and find what's different (a missing setting, a different web address, whatever it is). Explain it simply, and don't show me any passwords or secret keys, just tell me the name of the setting I need to add and where. Fix what you can and tell me how to check the live site. Two more things: if the map ever fails to load again, show our address and an "Open in Google Maps" link instead of a grey box, and check whether any other page relies on the same missing setting so it doesn't break too.
+
+# --- [42] Button does nothing ----------------------------------------------
+- id: z1-add-to-order-button-trimmed
+  target: Button does nothing
+  kind: trimmed
+  expect: close
+  query:
+    body: |-
+      the "Add to order" button on my Menu page doesnt do anything when i click it. its supposed to add the dish to the order summary on the right and update the total. find out why and fix just that button, dont change how it looks
+
+# --- [45] Cancel a service in writing --------------------------------------
+- id: z1-dispute-double-charge-hardneg
+  target: Cancel a service in writing
+  kind: hard_negative
+  expect: none
+  query:
+    title: Email about being charged twice
+    body: |-
+      Write an email to BrightWave Office Supplies about our water cooler rental (customer number 40-1187). They charged us twice for May. We want to keep the service, we just need the extra charge refunded. Ask them to confirm in writing when the refund will go through and to send a corrected invoice. Polite, short and firm.
+
+# --- [48] Careers page with open roles -------------------------------------
+- id: z1-careers-page-paraphrase
+  target: Careers page with open roles
+  kind: paraphrase
+  expect: same
+  query:
+    body: |-
+      We're hiring at Harbor Health Clinic and I need a jobs page on the website. Short bit at the top about what it's like to work here, then the open positions. Right now that's Front Desk Coordinator (full time, $21-24/hr) and Physical Therapist (full time, $85-98k). Clicking a job should open its own page with what the job is, what we're looking for, pay and location, and an Apply button that opens a short form (name, link to their resume, a few sentences on why they want it). I need to be able to add jobs and mark them filled easily, and if there's nothing open it should say something nice instead of looking empty. Don't add extra stuff, and explain how to add a new job when you're done.
+
+# --- [51] Catch up on a meeting I missed (pasted content) ------------------
+- id: z1-missed-meeting-extended
+  target: Catch up on a meeting I missed
+  kind: extended
+  expect: close
+  query:
+    title: what did i miss
+    body: |-
+      I missed this morning's meeting, transcript below. I run the warehouse, so pull out only what matters to me: decisions that affect us, anything we've been asked to do, anything that changed (last I heard the new line was launching in April), and anything I need to reply to. Quote the exact words where it matters. Then also draft a short Slack message back to Mia and Raj confirming what the warehouse is taking on, and list any dates as reminders I can add to my calendar.
+
+      Mia: Quick update, the new line is moving to May because the labels are late.
+      Raj: Does the warehouse know? We'll need shelf space cleared by May 1.
+      Mia: Not yet, can someone tell them?
+      Raj: Also we're switching couriers next month.
+      Mia: Right, the warehouse will need the new pickup times.
+
+# --- [54] Check the agent's plan before I say yes --------------------------
+- id: z1-agent-plan-trimmed
+  target: Check the agent's plan before I say yes
+  kind: trimmed
+  expect: close
+  query:
+    body: |-
+      My coding agent wants to do this:
+      1. Move bookings from the Google Sheet into a proper database.
+      2. Replace the booking form with a new multi-step form.
+      3. Remove the old /book-old page.
+      4. Add a nightly job to email reminders.
+      Can you explain in normal words what this changes, what I'll notice when I use the app, what it removes or replaces, and what could go wrong?
+
+# --- [57] Checklist to test my app -----------------------------------------
+- id: z1-pretend-data-hardneg
+  target: Checklist to test my app
+  kind: hard_negative
+  expect: none
+  query:
+    title: Fill my app with pretend bookings
+    body: |-
+      My app is a booking site for my dog-grooming business with sign-up, booking and reminders, but it's completely empty so it looks dead when I show it to people. Fill it with realistic pretend customers, dogs and bookings for the next few weeks so I can show it off. Don't use any real people's names or emails, make it easy to wipe all the pretend stuff in one go before I launch, and don't send reminder emails for any of the pretend bookings.
+
+# --- [60] Clear messages after people do something -------------------------
+- id: z1-clear-messages-paraphrase
+  target: Clear messages after people do something
+  kind: paraphrase
+  expect: same
+  query:
+    body: |-
+      when someone saves their profile or uploads a photo or cancels a booking in my app theres no way to tell if it actually worked. can we have one consistent kind of message for that: green = it worked, amber = warning, red = error, plus an icon on each so its not just the colour. short normal wording like "Saved" or "That didn't work, please try again". the success ones can disappear on their own but errors should stay until you close them and say what to do next. dont change what the buttons actually do, and tell me how to make each one show up so i can look at them
+
+# --- [63] Close a solved case ----------------------------------------------
+- id: z1-close-case-extended
+  target: Close a solved case
+  kind: extended
+  expect: close
+  query:
+    body: |-
+      Theo's issue is sorted: we refunded the duplicate monthly charge and removed the extra subscription. Write him a short closing message with one sentence on what we did, a tip so it doesn't happen again (sign in with the same email each time so he doesn't end up with a second account), and exactly how to reach us if it comes back. Warm, under 80 words, no survey request. Also include a 10% off code, THANKS10, as a thank-you for his patience, and sign it from me, Dana, not "the team".
+
+# --- [66] Compare two ways to do it ----------------------------------------
+- id: z1-compare-two-ways-trimmed
+  target: Compare two ways to do it
+  kind: trimmed
+  expect: close
+  query:
+    title: Calendly or build our own?
+    body: |-
+      I want people to be able to book appointments with me on my website. Option A: put a ready-made booking tool like Calendly on the site. Option B: build our own booking page into the app. Compare them for someone who doesn't code, in a short table: cost, how long each takes, how hard it is to change later, and what could go wrong.
+
+# --- [69] Connect my own domain --------------------------------------------
+- id: z1-domain-transfer-hardneg
+  target: Connect my own domain
+  kind: hard_negative
+  expect: none
+  query:
+    body: |-
+      I bought fernandfig.com through Namecheap a few years ago and my site already opens there fine. Now I want to move the domain itself over to Cloudflare so I'm only paying one company for it. Walk me through the transfer in order, what it costs, how long it takes, and what could stop it going through. My site and email have to keep working the whole time.
+
+# --- [72] Countdown to a launch date ---------------------------------------
+- id: z1-countdown-paraphrase
+  target: Countdown to a launch date
+  kind: paraphrase
+  expect: same
+  query:
+    title: Opening day countdown
+    body: |-
+      Put a countdown clock at the top of my homepage counting down days, hours, minutes and seconds to when we open, June 6 at 9am Eastern. It needs to be right for people in any time zone. When it hits zero swap it for "We're open! Come say hi." and a button to see the opening-day schedule. The numbers shouldn't jump around as they tick over and it has to fit on small phones. Don't touch anything else on the page, and tell me how I'd change the date later.
+
+# --- [75] Cut a budget by a set amount (pasted content) --------------------
+- id: z1-budget-cut-extended
+  target: Cut a budget by a set amount
+  kind: extended
+  expect: close
+  query:
+    body: |-
+      We need to save $2,000 a month starting next quarter. Here's what we spend each month:
+      Rent $4,500
+      Wages $18,000
+      Ads $2,200
+      Software subscriptions $900
+      Cleaning service $800
+      Coffee and snacks $350
+      Trade magazine and memberships $400
+      Delivery van lease $750
+      Wages and rent are off limits. Suggest cuts that add up to at least $2k, least painful for customers and staff first, with the saving, what we lose and whether it's easy to undo. Finish with one cut you'd only make as a last resort. Also show what the new monthly total would be after your cuts, and flag any that probably come with a contract or notice period we'd need to check first.
+
+# --- [78] Decision memo ----------------------------------------------------
+- id: z1-decision-memo-trimmed
+  target: Decision memo
+  kind: trimmed
+  expect: close
+  query:
+    body: |-
+      Write a one page memo on whether we should raise prices 20% for new customers. Give the background, your recommendation and what would make us change our minds.
+
+# --- [81] Download records as a spreadsheet --------------------------------
+- id: z1-pdf-receipt-hardneg
+  target: Download records as a spreadsheet
+  kind: hard_negative
+  expect: none
+  query:
+    title: Let customers download a receipt
+    body: |-
+      On each order in the customer's account page, add a "Download receipt" button that gives them a PDF receipt with our logo, the order number, date, items, total and how they paid. Customers should only ever be able to get receipts for their own orders. Make sure names with accents come through properly. Don't change anything else and tell me how to try it.
+
+# --- [84] Email subject lines that get opened (pasted content) -------------
+- id: z1-subject-lines-paraphrase
+  target: Email subject lines that get opened
+  kind: paraphrase
+  expect: same
+  query:
+    body: |-
+      Need subject lines for this email going out to our past customers. Can you give me 10 different ones? Mix it up: a couple plain, a question, one with a number, one that makes people curious, one that feels personal. Under 45 characters each, plus the little preview line that shows under it (under 80). No ALL CAPS or spammy "FREE!!!" stuff, and don't promise anything the email doesn't say.
+
+      Here's the email:
+      Hi there,
+      Spring is nearly here and our calendar for deep cleans is filling up fast. Last year we were fully booked by mid-April. If you'd like your home done top to bottom (inside cupboards, behind appliances, windows inside and out) reply to this email or book online and we'll hold your spot. Same team, same prices as last year.
+      Thanks,
+      Sparkle & Co Home Cleaning
+
+# --- [87] Explain a research study in plain words --------------------------
+- id: z1-coffee-study-extended
+  target: Explain a research study in plain words
+  kind: extended
+  expect: close
+  query:
+    title: is this coffee study legit
+    body: |-
+      Saw a headline saying "Coffee prevents heart disease, scientists say". Here's the summary of the actual study: "We followed 1,200 adults aged 40 to 65 for six years. Participants who reported drinking 2 to 3 cups of coffee a day had 12% lower rates of heart disease than non-drinkers, after adjusting for age and smoking. Diet and exercise were self-reported." Explain in plain English what they asked, who they studied and how many, what they found, what it doesn't prove (does coffee cause it or do they just go together), how much to trust it, and whether the headline goes too far. Also suggest two questions I could ask the researchers, and give me a one-line version I can post in our family group chat.
+
+# --- [90] Explain the fine print (pasted content) --------------------------
+- id: z1-fine-print-trimmed
+  target: Explain the fine print
+  kind: trimmed
+  expect: close
+  query:
+    body: |-
+      about to sign this for an equipment lease at work, can you tell me what it actually means like youd explain it to a friend. what am i agreeing to, what does it cost and when, how do i get out of it, what happens if somethings damaged. (i know its not legal advice) tell me if anything looks bad enough that i should talk to a lawyer
+
+      This agreement renews automatically for further 12-month terms unless cancelled in writing at least 60 days before renewal. Early termination fee: all remaining monthly payments. Provider may change pricing with 30 days' notice. Customer is responsible for any damage to equipment, including normal wear and tear.
+
+# --- [93] Factual write-up of what happened --------------------------------
+- id: z1-driver-quiz-hardneg
+  target: Factual write-up of what happened
+  kind: hard_negative
+  expect: none
+  query:
+    title: Training quiz for new drivers
+    body: |-
+      Using what happened with Saturday's catering order as the example (40 lunches for Hill & Co, the driver went to their old office on Main St because the address on the order form was out of date, and it arrived over an hour late), write a 6-question multiple-choice quiz for new delivery drivers on checking addresses before they set off. Include the right answer and a one-line explanation for each question. Keep it friendly, not a telling-off.
+
+# --- [96] Feedback on a coworker's draft (pasted content) ------------------
+- id: z1-coworker-draft-paraphrase
+  target: Feedback on a coworker's draft
+  kind: paraphrase
+  expect: same
+  query:
+    body: |-
+      my coworker sent me her draft and asked what i think. its supposed to get the directors to pay for a 2nd delivery van and theyll mostly read it on their phones. give me a couple things that work, the 3 changes that would help most with a quick example of each, and anything that would confuse them. keep it nice + specific, under 250 words, so i can just send it back to her. dont rewrite the whole thing
+
+      As many of you know deliveries have been a challenge lately. There are many reasons for this. Our one van is often fully booked and drivers are working late. Customers have said they would like more delivery slots. A second van would cost around $38,000 plus running costs. I think this would really help us and our customers going forward.
+
+# --- [99] Find out why something happens -----------------------------------
+- id: z1-signup-delay-extended
+  target: Find out why something happens
+  kind: extended
+  expect: close
+  query:
+    body: |-
+      New sign-ups only appear on my dashboard about an hour after they happen and I don't get why. Look into it and explain the reason like I've never coded. Don't change anything yet. Tell me if it's a mistake or meant to work that way, and if it's a mistake, what fix you'd suggest and how big a job it is. Also check whether the same delay happens in the phone app, and whether the welcome emails we send new sign-ups are being held up by it too.
+
+# --- [102] Fix a bug a user reported (pasted content) ----------------------
+- id: z1-user-bug-trimmed
+  target: Fix a bug a user reported
+  kind: trimmed
+  expect: close
+  query:
+    title: booking keeps going back to thursday
+    body: |-
+      One of my customers sent this:
+      "I tried to change my booking to Friday three times and it keeps putting me back on Thursday. Really frustrating, please fix."
+      Figure out what they were trying to do and make it happen yourself. If you can, fix it with the smallest change possible and tell me how to check. If you can't make it happen, tell me what to ask them.
+
+# --- [105] Follow-up after no reply ----------------------------------------
+- id: z1-referral-ask-hardneg
+  target: Follow-up after no reply
+  kind: hard_negative
+  expect: none
+  query:
+    body: |-
+      Write a short, non-pushy note to Marco, a client who just renewed with us after we cut his onboarding time in half. Thank him, and ask whether he knows one or two other people who might want the same help, with a two-line blurb he can forward to them. No "just checking in" and nothing that feels like a sales pitch.
+
+# --- [108] Friendly note to a neighbor -------------------------------------
+- id: z1-neighbour-note-paraphrase
+  target: Friendly note to a neighbor
+  kind: paraphrase
+  expect: same
+  query:
+    body: |-
+      how do i nicely tell my neighbour their dog barks for ages in the garden on weekday mornings when im working from home? i dont want to start a feud, they probably dont even realise. maybe a short note, friendly opening, say how it affects me in a sentence, suggest they bring him in before 9 on weekdays and offer to have a chat in person. under 100 words and nothing that sounds like a formal complaint or a threat
+
+# --- [111] Get ready for a job interview -----------------------------------
+- id: z1-interview-prep-extended
+  target: Get ready for a job interview
+  kind: extended
+  expect: close
+  query:
+    title: Interview prep, office manager role
+    body: |-
+      I've got an interview for an office manager job at a 40-person architecture firm. Background: five years running the front desk and scheduling at a busy dental practice, moved us from paper files to online booking, trained three new receptionists, handled supply ordering. Give me the 8 questions I'm most likely to get, each with a short answer outline using a real example from that (the situation, what I did, how it turned out), and three questions I can ask them at the end. Don't make up experience I don't have; where I'm thin, say so and how to answer honestly. Also write me a 60-second "tell me about yourself" answer, and tell me what to bring with me on the day.
+
+# --- [114] Gift ideas for a coworker ---------------------------------------
+- id: z1-gift-ideas-trimmed
+  target: Gift ideas for a coworker
+  kind: trimmed
+  expect: close
+  query:
+    body: |-
+      Our team of six wants to get Ana something for her last day, she's moving to Denver. She runs every weekend, loves hot sauce and always has a plant on her desk. Give me 8 ideas, mix of practical and fun, nothing too personal for work, one line each on why it suits her and a rough price. Best two first.
+
+# --- [117] Giveaway post with simple rules ---------------------------------
+- id: z1-giveaway-winner-hardneg
+  target: Giveaway post with simple rules
+  kind: hard_negative
+  expect: none
+  query:
+    title: Announce our giveaway winner
+    body: |-
+      Our Instagram candle giveaway closed on Sunday and we've already picked the winner, @maya.reads. Write the post announcing the winner and thanking everyone who entered, plus a private message to Maya congratulating her and asking for her postal address so we can send the six candles. Keep both short and fun.
+
+# --- [120] Hard questions about my plan (pasted content) -------------------
+- id: z1-hard-questions-paraphrase
+  target: Hard questions about my plan
+  kind: paraphrase
+  expect: same
+  query:
+    body: |-
+      On Thursday I'm pitching this to the owners at the leadership meeting:
+
+      Open on Sundays from 10 to 4 starting in May. Staff it with two part-timers we'd hire in April. We expect Sunday sales of about $2,500, based on how busy Saturdays are.
+
+      Play devil's advocate, fair but tough. What are the 8 hardest questions they'll throw at me, most likely first? For each one, what would a convincing answer need, and does my plan already cover it? End with the one weak spot I should fix before Thursday.
+
+# --- [123] Helpful checks on my forms --------------------------------------
+- id: z1-form-checks-extended
+  target: Helpful checks on my forms
+  kind: extended
+  expect: close
+  query:
+    body: |-
+      Improve the checks on our event booking form. Catch mistakes while people are filling it in, not just when they hit the button: required fields, phone numbers need 10 digits, the event date has to be in the future, guest count between 1 and 200. Show each problem right under its field in kind, plain words ("Please add a phone number", not "Invalid"), jump to the first problem when they press the button, and never wipe what they've typed. Check the same rules again when the form arrives so nobody can get round them. Only change this form and tell me how to try each rule. Also: let people type phone numbers with spaces, dashes or brackets and tidy them up automatically, and show the messages in Spanish too for people on the Spanish version of the site.
+
+# --- [126] Holiday and seasonal promotion ideas ----------------------------
+- id: z1-valentines-promos-trimmed
+  target: Holiday and seasonal promotion ideas
+  kind: trimmed
+  expect: close
+  query:
+    title: Valentine's promo ideas
+    body: |-
+      Give me 8 Valentine's Day promotion ideas for Pages & Pour, a bookshop with a little coffee bar. No boring straight discounts unless there's a twist to it. One line pitch for each, and star the two you'd do first and say why.
+
+# --- [129] Icon for browser tabs and home screens --------------------------
+- id: z1-qr-code-hardneg
+  target: Icon for browser tabs and home screens
+  kind: hard_negative
+  expect: none
+  query:
+    body: |-
+      Make a QR code that opens my site, with juniper-bakery-logo.png in the middle, that I can print on our paper bags and menus. It needs to scan easily on both iPhones and Android phones, even printed small. Give me a high quality file for printing and tell me how to test it before I order 2,000 bags.
+
+# --- [132] Invite a candidate to an interview ------------------------------
+- id: z1-interview-invite-paraphrase
+  target: Invite a candidate to an interview
+  kind: paraphrase
+  expect: same
+  query:
+    body: |-
+      need an email to Andre inviting him in for an interview for our part time bookkeeper position. times he can pick from: tues 10am, tues 2pm or thurs 11am, ask him to reply with which one. include where it is / how to join, how long itll take roughly, who hes meeting, and to bring photo ID plus an example of a monthly report hes put together. end w who to contact if none of those work. friendly but organised, under 170 words
+
+# --- [135] Is my app safe for its users? -----------------------------------
+- id: z1-app-safety-extended
+  target: Is my app safe for its users?
+  kind: extended
+  expect: close
+  query:
+    title: is my app secure
+    body: |-
+      Can you check my app for weak spots and explain it for someone who doesn't code? Things like: can one person see someone else's account or data, are passwords and secret keys hidden from visitors, are there pages that should need sign-in but don't, could the forms get flooded with spam. Most urgent first, what each could lead to, and the fix you'd suggest. Don't change anything yet and never print a real key or password. Also check whether any of the outside add-ons the app is built on are out of date and have known problems, and finish with a short paragraph I can forward to my business partner.
+
+# --- [138] Items show up twice ---------------------------------------------
+- id: z1-duplicate-orders-trimmed
+  target: Items show up twice
+  kind: trimmed
+  expect: close
+  query:
+    body: |-
+      orders are showing up twice in my app, e.g. order 1042 is on the orders page twice with the same time and amount. find out if its actually saved twice or just displayed twice and tell me which. then fix it so new orders dont double up
+
+# --- [141] Keep my styles in one place -------------------------------------
+- id: z1-brand-guide-hardneg
+  target: Keep my styles in one place
+  kind: hard_negative
+  expect: none
+  query:
+    title: One-page brand guide
+    body: |-
+      My printer and the freelancer who does our signs keep getting my colours and fonts slightly wrong. Make me a one-page brand guide I can email them: my main and accent colours with their codes, the heading and body fonts and sizes, how much space to leave around the logo, and a couple of do's and don'ts. Take the details from what's on my site now.
+
+# --- [144] Landing page for my idea ----------------------------------------
+- id: z1-landing-page-paraphrase
+  target: Landing page for my idea
+  kind: paraphrase
+  expect: same
+  query:
+    body: |-
+      So I've got this idea called Fern & Fig, basically we'd deliver herb gardens that are ready to plant to people in city apartments who don't have a garden, and I want to see whether anyone actually wants it before I spend real money, so I need a simple one page website. At the top a headline and one button to order a starter kit, then like three short reasons it's great, then how it works in three steps, a few common questions, and another order button at the bottom. Can you write the words too, warm and plain, nothing too long, people should be able to skim it. Most people will see it on their phone so do phone first but it should look fine on a laptop too. Show me what sections you're planning before you build it, and after, tell me how to open it and where to change the text.
+
+# --- [147] Lead reply classifier (pasted content) --------------------------
+- id: z1-lead-replies-extended
+  target: Lead reply classifier
+  kind: extended
+  expect: close
+  query:
+    body: |-
+      Sort these replies from prospects into Hot, Warm, Cold or Not a fit, with one sentence on why and the best next step for each. Put it in a table. Then also draft a short reply I could send back to each one.
+
+      1. "Interesting, can you send pricing? We're reviewing tools next quarter."
+      2. "Please remove me from your list."
+      3. "Yes, can we talk Thursday? Our current vendor contract ends this month."
+
+# --- [150] Lessons from a finished project (pasted content) ----------------
+- id: z1-open-house-lookback-trimmed
+  target: Lessons from a finished project
+  kind: trimmed
+  expect: close
+  query:
+    title: Open house look-back
+    body: |-
+      We just finished our holiday open house. From the notes below, write a short look-back in three parts: what went well, what didn't, what we'll do differently next time. Keep it blame-free, describe what happened not whose fault it was, one line per point.
+
+      turnout was great, about 200 people; ran out of cups by 3pm; the printer delivered signs a day late; volunteers liked the shift sign-up sheet; nobody was in charge of cleanup
+
+# --- [153] Link-in-bio page ------------------------------------------------
+- id: z1-email-signature-hardneg
+  target: Link-in-bio page
+  kind: hard_negative
+  expect: none
+  query:
+    body: |-
+      Make me an email signature for Packed by Priya: my logo, my name, the line "Travel light, see more.", and small icons linking to my Instagram, TikTok and YouTube, in my brand colours (deep green and cream). It has to look right in Gmail and on phones, and tell me how to paste it into my Gmail settings.
+
+# --- [156] Locked out of their account (pasted content) --------------------
+- id: z1-locked-out-paraphrase
+  target: Locked out of their account
+  kind: paraphrase
+  expect: same
+  query:
+    title: customer cant get into account
+    body: |-
+      Customer emailed us this:
+
+      "hi I cant log in anymore, my account is under my old work email and I left that job so I dont have it. can you just change it to jen.morales88@gmail.com so I can get back in?? I have orders on there"
+
+      Draft a warm reply. We can't just swap the email: first we need to confirm it's really her, using the last 4 digits of the card on file and the date of her most recent order. Explain that, say what happens next and how long it takes. Don't reveal anything about the account in the reply and don't change anything until she's confirmed. Someone will check the draft before it goes out.
+
+# --- Novel jobs: nothing in the corpus does these --------------------------
+- id: z1-novel-family-meal-plan
+  target: null
+  kind: novel
+  expect: none
+  query:
+    body: |-
+      can u make a dinner plan for the week for a family of 4, two kids who hate anything green lol, about $120 for groceries, and give me the shopping list grouped by aisle so im not running round the shop
+
+- id: z1-novel-best-man-speech
+  target: null
+  kind: novel
+  expect: none
+  query:
+    title: Best man speech
+    body: |-
+      My brother is getting married in June and I'm the best man. Help me write a 3 to 4 minute speech. A couple of funny stories (he once got us lost for six hours on a "shortcut" in Wales), something sincere about his fiancée Priya, and it has to finish with a toast. Nothing that would embarrass him in front of his grandma.
+
+- id: z1-novel-road-trip
+  target: null
+  kind: novel
+  expect: none
+  query:
+    body: |-
+      planning a 5 day road trip from Denver to Moab and back with my partner in early October, we like hiking but nothing crazy, dont want more than 4 hrs driving a day. where should we stop each night and whats worth seeing on the way?
+
+- id: z1-novel-cover-letter
+  target: null
+  kind: novel
+  expect: none
+  query:
+    title: Cover letter for this job
+    body: |-
+      Write a cover letter for me for the job below. I've been a teaching assistant for 4 years, I ran the after-school reading club and I'm good with parents. Keep it to one page and don't make it sound like a robot wrote it.
+
+      Job: Library Assistant, Westbrook Public Library. Part time, 25 hours a week. You will help visitors find books and use the computers, run weekly story time for under-5s, and keep the children's section tidy. Experience working with children is essential. Apply with a CV and a cover letter by 30 November.
+
+- id: z1-novel-sheets-formula
+  target: null
+  kind: novel
+  expect: none
+  query:
+    body: |-
+      in google sheets i have dates in column A and sales amounts in column B (about 900 rows). on another tab i want the total for each month in a little table. what formula do i put in and where exactly? i'm not a spreadsheet person so step by step pls
+
+- id: z1-novel-home-workout
+  target: null
+  kind: novel
+  expect: none
+  query:
+    title: beginner workouts at home
+    body: |-
+      I'm 52, haven't exercised in years and have a dodgy left knee. Can you give me a gentle 3 days a week workout plan I can do at home with no equipment, about 20 minutes each, building up slowly over 6 weeks?
+
+- id: z1-novel-bedtime-story
+  target: null
+  kind: novel
+  expect: none
+  query:
+    body: |-
+      write a short bedtime story for my 5 year old about a little dragon whos scared of the dark. put her name Lily in it and her cat Biscuit. about 5 minutes to read out loud, calm ending so she actually falls asleep
+
+- id: z1-novel-scale-recipe
+  target: null
+  kind: novel
+  expect: none
+  query:
+    title: Make this recipe for 18 people
+    body: |-
+      This recipe serves 4 and I need it for 18 at a party on Saturday. Can you scale it up, change everything to grams and ml, and tell me if the cooking time changes with a bigger pot?
+
+      Chicken curry (serves 4)
+      2 tbsp oil
+      1 large onion, chopped
+      3 cloves garlic
+      1 tbsp curry powder
+      500g chicken thighs
+      1 can (400ml) coconut milk
+      1 cup chopped tomatoes
+      Simmer 25 minutes.

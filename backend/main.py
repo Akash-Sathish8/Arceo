@@ -14,7 +14,7 @@ import anyio
 import anyio.to_thread
 from dataclasses import asdict
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Literal, Optional
 import logging
 logger = logging.getLogger(__name__)
 
@@ -104,7 +104,12 @@ async def lifespan(app: FastAPI):
     if not _snapshot_scheduler_disabled():
         import threading
         threading.Thread(target=_snapshot_scheduler_loop, daemon=True, name="snapshot-scheduler").start()
-    yield
+    # The prompts MCP server (/mcp) runs its session manager for the app's
+    # lifetime. Imported here, not at module top, because the prompt routers
+    # are imported further down this file.
+    from prompts.mcp_server import mcp_lifespan
+    async with mcp_lifespan():
+        yield
     # Shutdown: the scheduler is a daemon thread; it exits with the process.
 
 
@@ -129,7 +134,9 @@ async def _tenant_context(request: Request, call_next):
                 org = row.get("org_id") or "system"
         else:
             auth = request.headers.get("Authorization", "")
-            if auth.lower().startswith("bearer "):
+            # An Arceo Prompts agent connection key ("ap_...", /mcp) is not a JWT: the MCP
+            # endpoint checks it and sets the org itself, so it isn't a resolution failure.
+            if auth.lower().startswith("bearer ") and not auth[7:].strip().startswith("ap_"):
                 from auth import verify_token
                 payload = verify_token(auth[7:])
                 org = payload.get("org_id") or "system"
@@ -167,6 +174,14 @@ _RBAC_ADMIN_PREFIXES = (
 # routes carry an X-API-Key, not a bearer JWT, so they're skipped automatically.
 _RBAC_EXEMPT_PREFIXES = ("/api/auth/",)
 _MUTATING_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+# Writes anyone signed in may make to their OWN things, whatever their role: turning off
+# one of your own agent connections (the endpoint only ever touches the caller's own key,
+# and a viewer's key keeps working for reading until they turn it off).
+_RBAC_SELF_SERVICE = ((("DELETE",), re.compile(r"^/api/prompts/agent-tokens/[^/]+$")),)
+
+
+def _rbac_self_service(method: str, path: str) -> bool:
+    return any(method in methods and rx.match(path) for methods, rx in _RBAC_SELF_SERVICE)
 
 
 @app.middleware("http")
@@ -177,7 +192,7 @@ async def _rbac(request: Request, call_next):
     enforcement means no per-route miss — 'one miss is a hole'."""
     path = request.url.path
     if (request.method in _MUTATING_METHODS and path.startswith("/api/")
-            and not path.startswith(_RBAC_EXEMPT_PREFIXES)):
+            and not path.startswith(_RBAC_EXEMPT_PREFIXES) and not _rbac_self_service(request.method, path)):
         auth = request.headers.get("Authorization", "")
         # Agent auth takes precedence, exactly as every endpoint does
         # (verify_api_key FIRST, then bearer). A valid X-API-Key means this is a
@@ -790,6 +805,16 @@ def _snapshot_scheduler_loop():
                             f"{p['retention_days']}d")
         except Exception as e:  # noqa: BLE001 — scheduler must never die
             logger.warning(f"capture retention run failed: {e}")
+        try:
+            # Prompts sent to a coding agent (prompts/sends.py) can carry pasted customer
+            # content: they go KEEP_DAYS after they expire, whether or not anyone sends again.
+            from prompts.sends import purge_expired as _purge_prompt_sends
+            with get_db() as conn:
+                n = _purge_prompt_sends(conn)
+            if n:
+                logger.info(f"purged {n} expired prompt send(s)")
+        except Exception as e:  # noqa: BLE001 — scheduler must never die
+            logger.warning(f"prompt send retention run failed: {e}")
         time.sleep(_SNAPSHOT_POLL_SECONDS)
 
 
@@ -830,8 +855,12 @@ def cron_weekly_digest(request: Request):
 def cron_purge_llm_captures(request: Request):
     _require_cron_auth(request)
     from jobs.purge_llm_captures import purge_expired_captures
+    from prompts.sends import purge_expired as purge_prompt_sends
     with get_db() as conn:
-        return purge_expired_captures(conn)
+        out = purge_expired_captures(conn)
+        # The same daily retention sweep also drops expired prompt sends (prompts/sends.py).
+        out["prompt_sends_purged"] = purge_prompt_sends(conn)
+        return out
 
 
 @app.get("/api/internal/cron/purge-demo-orgs")
@@ -1825,6 +1854,9 @@ class SignupRequest(BaseModel):
     email: str
     password: str
     name: str = ""
+    # Which product the signup came for: a founder arriving from the prompts
+    # page gets a prompts workspace (Prompts-first sidebar and landing).
+    workspace: Literal["agents", "prompts"] = "agents"
 
 
 @app.post("/api/auth/signup")
@@ -1873,8 +1905,8 @@ def signup(req: SignupRequest, request: Request):
         # Each new account gets its own organization — the tenant boundary every
         # other query scopes by. (The seeded demo admin stays in DEFAULT_ORG_ID.)
         conn.execute(
-            "INSERT INTO organizations (id, name, created_at) VALUES (%s, %s, %s)",
-            (org_id, org_name, now),
+            "INSERT INTO organizations (id, name, created_at, workspace) VALUES (%s, %s, %s, %s)",
+            (org_id, org_name, now, req.workspace),
         )
         conn.execute(
             "INSERT INTO users (id, email, password_hash, name, role, org_id, created_at) VALUES (%s, %s, %s, %s, %s, %s, %s)",
@@ -1885,7 +1917,7 @@ def signup(req: SignupRequest, request: Request):
     token = create_token(user_id, req.email, "admin", org_id=org_id)
     return {
         "token": token,
-        "user": {"id": user_id, "email": req.email, "name": name, "role": "admin"},
+        "user": {"id": user_id, "email": req.email, "name": name, "role": "admin", "workspace": req.workspace},
     }
 
 
@@ -2222,40 +2254,25 @@ def list_agents(user: dict = Depends(get_current_user)):
     return {"agents": results}
 
 
-@app.get("/api/authority/agent/{agent_id}")
-def get_agent_detail(agent_id: str, user: dict = Depends(get_current_user)):
-    with get_db() as conn:
-        agent = get_agent_from_db(conn, agent_id, org_id=_org(user))
-        if not agent:
-            raise HTTPException(status_code=404, detail=f"Agent '{agent_id}' not found")
+def _agent_risk_snapshot(conn, agent: dict, org_id: str, *, only_actions: set | None = None) -> dict:
+    """The agent-detail blast-radius recipe: chains + residual/evidence/magnitude
+    radius for one agent. Shared with the prompt library's "try on my agent".
 
-        # No audit write here: the agent-detail page polls this endpoint, so a
-        # VIEW_AGENT row per poll made a read contend for WAL's writer slot.
-
-        # Get policies for this agent
-        policies = conn.execute(
-            "SELECT * FROM policies WHERE agent_id = %s ORDER BY created_at DESC", (agent_id,)
-        ).fetchall()
-
-        # Get execution logs for this agent
-        executions = conn.execute(
-            "SELECT * FROM execution_log WHERE agent_id = %s AND org_id = %s ORDER BY timestamp DESC LIMIT 50", (agent_id, _org(user))
-        ).fetchall()
-
-        # Signals for the residual/evidence/magnitude blast model (need the conn).
-        sev_overrides = _fetch_breach_overrides(conn, _org(user))
-        sim_evidence = _latest_sim_evidence(conn, agent_id, _org(user))
-
-        # Same verdict the fleet list renders, so the two screens can never
-        # disagree about whether this agent is in production.
-        detail_calls_7d = _live_calls_7d(conn, agent_id, _org(user))
-        detail_state, detail_mismatch = _deployment_state(
-            agent, executions[0]["timestamp"] if executions else None, detail_calls_7d
-        )
-
+    `only_actions` ({(tool, action)}) scores the agent as if those were its only
+    actions: the part of its blast radius one prompt can actually reach."""
+    if only_actions is not None:
+        agent = {**agent, "tools": [
+            {**t, "actions": [a for a in t["actions"] if (t["name"], a["action"]) in only_actions]}
+            for t in agent["tools"]
+        ]}
+        agent["tools"] = [t for t in agent["tools"] if t["actions"]]
+    policies = conn.execute(
+        "SELECT * FROM policies WHERE agent_id = %s ORDER BY created_at DESC", (agent["id"],)
+    ).fetchall()
+    sev_overrides = _fetch_breach_overrides(conn, org_id)
+    sim_evidence = _latest_sim_evidence(conn, agent["id"], org_id)
     config = _db_agent_to_config(agent)
     catalog = _db_agent_to_action_catalog(agent)
-    graph = build_agent_graph(config, action_overrides=catalog)
     chain_result = _detect_chains(config, action_overrides=catalog)
     from analysis.cost_model import raw_action_magnitudes
     radius = calculate_blast_radius(
@@ -2266,6 +2283,38 @@ def get_agent_detail(agent_id: str, user: dict = Depends(get_current_user)):
         sim_evidence=sim_evidence,
         exposure_context=_exposure_context(agent),
     )
+    return {"config": config, "catalog": catalog, "chain_result": chain_result, "radius": radius,
+            "policies": policies, "sim_evidence": sim_evidence}
+
+
+@app.get("/api/authority/agent/{agent_id}")
+def get_agent_detail(agent_id: str, user: dict = Depends(get_current_user)):
+    with get_db() as conn:
+        agent = get_agent_from_db(conn, agent_id, org_id=_org(user))
+        if not agent:
+            raise HTTPException(status_code=404, detail=f"Agent '{agent_id}' not found")
+
+        # No audit write here: the agent-detail page polls this endpoint, so a
+        # VIEW_AGENT row per poll made a read contend for WAL's writer slot.
+
+        # Get execution logs for this agent
+        executions = conn.execute(
+            "SELECT * FROM execution_log WHERE agent_id = %s AND org_id = %s ORDER BY timestamp DESC LIMIT 50", (agent_id, _org(user))
+        ).fetchall()
+
+        risk = _agent_risk_snapshot(conn, agent, _org(user))
+        policies, sim_evidence = risk["policies"], risk["sim_evidence"]
+
+        # Same verdict the fleet list renders, so the two screens can never
+        # disagree about whether this agent is in production.
+        detail_calls_7d = _live_calls_7d(conn, agent_id, _org(user))
+        detail_state, detail_mismatch = _deployment_state(
+            agent, executions[0]["timestamp"] if executions else None, detail_calls_7d
+        )
+
+    config, catalog = risk["config"], risk["catalog"]
+    chain_result, radius = risk["chain_result"], risk["radius"]
+    graph = build_agent_graph(config, action_overrides=catalog)
 
     # Which chains the latest sandbox run actually fired (id → data_linked).
     demonstrated_chains = (sim_evidence or {}).get("demonstrated_chains", {})
@@ -4696,7 +4745,11 @@ def send_test_digest(user: dict = Depends(get_current_user)):
 #: force_push, merge_pull_request and delete_branch — so reusing it for repo
 #: READS would mean every scan runs with a production write credential. Two
 #: purposes, two secrets, and a customer can grant the scan one read-only scope.
-VAULT_SUPPORTED_PROVIDERS = {"stripe", "github", "github_scan", "sendgrid", "zendesk", "salesforce"}
+# llm_anthropic / llm_openai: a customer's own model key for prompt QA, compare
+# and workflow runs (prompts/qa.py). Named apart from the proxy's service names
+# so storing one never changes how /proxy forwards.
+VAULT_SUPPORTED_PROVIDERS = {"stripe", "github", "github_scan", "sendgrid", "zendesk", "salesforce",
+                             "llm_anthropic", "llm_openai"}
 
 
 def _github_scan_token(org_id: str) -> tuple[str | None, str]:
@@ -8358,6 +8411,36 @@ def readiness(response: Response):
     if not ok:
         response.status_code = 503
     return {"status": "ready" if ok else "not ready", "detail": detail}
+
+
+# ── Prompt library (HackThePrompt) ────────────────────────────────────────
+# Mounted before the SPA catch-all below so /api/prompts/* never falls through.
+from prompts.router import public_router as _prompts_public_router  # noqa: E402
+from prompts.router import router as _prompts_router  # noqa: E402
+from prompts.workflow_router import router as _prompt_workflows_router  # noqa: E402
+from prompts.battle_router import public_router as _battles_public_router  # noqa: E402
+from prompts.battle_router import router as _battles_router  # noqa: E402
+from prompts.workspace_router import router as _workspace_router  # noqa: E402
+from prompts.similar_router import router as _prompts_similar_router  # noqa: E402
+from prompts.similar_router import public_router as _prompts_similar_public_router  # noqa: E402
+from prompts.agent_router import router as _prompts_agent_router  # noqa: E402
+from prompts.mcp_server import mount_mcp as _mount_prompts_mcp  # noqa: E402
+
+# ⚠️ ORDER: these fixed paths (/api/prompts/similar, /agent-tokens, /sends) must
+# be registered BEFORE _prompts_router, whose GET/PUT/DELETE /api/prompts/{prompt_id}
+# would otherwise read "agent-tokens" or "sends" as a prompt id.
+app.include_router(_prompts_similar_router)
+app.include_router(_prompts_similar_public_router)
+app.include_router(_prompts_agent_router)
+app.include_router(_prompts_router)
+app.include_router(_prompts_public_router)
+app.include_router(_prompt_workflows_router)
+app.include_router(_battles_router)
+app.include_router(_battles_public_router)
+app.include_router(_workspace_router)
+# The agent-facing MCP endpoint, <api origin>/mcp. Registered here so it sits
+# before the SPA catch-all, which would otherwise answer GET /mcp with index.html.
+_mount_prompts_mcp(app)
 
 
 

@@ -15,7 +15,7 @@
  */
 
 import { useEffect, useState } from "react";
-import { NavLink } from "react-router-dom";
+import { NavLink, useLocation } from "react-router-dom";
 import {
   LayoutGrid,
   ShieldCheck,
@@ -28,12 +28,17 @@ import {
   LogOut,
   PanelLeftClose,
   PanelLeftOpen,
+  ScrollText,
+  ArrowLeftRight,
+  Layers,
+  Plug,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import LogoMark, { ArceoWordmark } from "@/components/shared/LogoMark";
 import { apiFetch, isLoggedIn, getUser, logout } from "@/lib/api";
 import { deriveOrgName } from "@/lib/orgName";
 import { useSidebarStore } from "@/store/sidebar";
+import { useWorkspaceStore } from "@/store/workspace";
 
 interface NavItem {
   id: string;
@@ -47,10 +52,19 @@ interface NavItem {
 // deriveOrgName (with its demo-session / consumer-domain rules) lives in
 // @/lib/orgName so the CFO PDF exports print the same org name as the chrome.
 
-export default function Sidebar(): React.ReactElement {
+export default function Sidebar({ drawer = false }: { drawer?: boolean }): React.ReactElement {
   const [pendingCount, setPendingCount] = useState(0);
-  const collapsed = useSidebarStore((s) => s.collapsed);
+  const { pathname } = useLocation();
+  // In the phone drawer the rail is always full width: collapsing makes no sense there.
+  const storedCollapsed = useSidebarStore((s) => s.collapsed);
+  const collapsed = drawer ? false : storedCollapsed;
   const toggle = useSidebarStore((s) => s.toggle);
+  const setMobileOpen = useSidebarStore((s) => s.setMobileOpen);
+  const workspace = useWorkspaceStore((s) => s.workspace);
+  const loadWorkspace = useWorkspaceStore((s) => s.load);
+  const setWorkspace = useWorkspaceStore((s) => s.set);
+
+  useEffect(() => { void loadWorkspace(); }, [loadWorkspace]);
 
   const user = getUser() as { email?: string } | null;
   const orgName = deriveOrgName(user?.email);
@@ -86,15 +100,23 @@ export default function Sidebar(): React.ReactElement {
     };
   }, []);
 
-  const navItems: NavItem[] = [
+  const promptItems: NavItem[] = [
+    { id: "prompts",   label: "Library",   to: "/prompts",   Icon: ScrollText,   group: "Prompts" },
+    { id: "prompt-connect", label: "Connect your agent", to: "/prompts/connect", Icon: Plug, group: "Prompts" },
+    { id: "prompt-workflows", label: "Prompt workflows", to: "/prompt-workflows", Icon: Layers, group: "Prompts" },
+  ];
+  const agentItems: NavItem[] = [
     { id: "agents",    label: "Agents",    to: "/",          Icon: LayoutGrid,   group: null },
     { id: "approvals", label: "Approvals", to: "/approvals", Icon: ShieldCheck,  group: "Monitor", badge: pendingCount > 0 ? pendingCount : undefined },
     { id: "history",   label: "History",   to: "/history",   Icon: Clock,        group: "Monitor" },
     { id: "spend",     label: "Spend",     to: "/spend",     Icon: Banknote,     group: "Monitor" },
     { id: "sandbox",   label: "Sandbox",   to: "/sandbox",   Icon: FlaskConical, group: "Tools" },
     { id: "workflows", label: "Workflows", to: "/workflows", Icon: GitBranch,    group: "Tools" },
-    { id: "compare",   label: "Compare",   to: "/compare",   Icon: GitCompare,   group: "Tools" },
+    { id: "compare",   label: "Policy diff", to: "/compare", Icon: GitCompare,  group: "Tools" },
   ];
+  // A prompts workspace (founders and agencies) sees only the prompt library;
+  // the agent-governance tools are one click away, not in their face.
+  const navItems: NavItem[] = workspace === "prompts" ? promptItems : [...agentItems, ...promptItems];
 
   const groups: { name: string | null; items: NavItem[] }[] = [];
   for (const item of navItems) {
@@ -126,8 +148,10 @@ export default function Sidebar(): React.ReactElement {
 
   return (
     <aside
+      // In the phone drawer, any link tap closes it, including the page you're already on.
+      onClickCapture={drawer ? (e) => { if ((e.target as HTMLElement).closest("a")) setMobileOpen(false); } : undefined}
       className="shrink-0 h-screen flex flex-col bg-neutral-sunken font-body transition-[width] duration-200"
-      style={{ width: collapsed ? 72 : 240 }}
+      style={{ width: drawer ? "min(280px, 85vw)" : collapsed ? 72 : 240, height: drawer ? "100%" : undefined }}
     >
       {/* Brand */}
       <div className={`flex items-center gap-2 ${collapsed ? "px-3 justify-center" : "px-5"} pt-6 pb-5`}>
@@ -136,7 +160,7 @@ export default function Sidebar(): React.ReactElement {
           <>
             <ArceoWordmark height={13} />
             <div className="flex-1" />
-            {toggleBtn}
+            {!drawer && toggleBtn}
           </>
         )}
       </div>
@@ -157,7 +181,8 @@ export default function Sidebar(): React.ReactElement {
                 key={item.id}
                 to={item.to}
                 end={item.to === "/"}
-                className={linkClass}
+                // /prompts/connect is its own item: don't also light up Library there.
+                className={({ isActive }) => linkClass({ isActive: isActive && !(item.id === "prompts" && pathname.startsWith("/prompts/connect")) })}
                 title={collapsed ? item.label : undefined}
               >
                 <span className={`relative flex ${collapsed ? "" : "mr-3"}`}>
@@ -178,6 +203,28 @@ export default function Sidebar(): React.ReactElement {
         ))}
 
         <div className="mt-8 pt-4 border-t border-neutral-border">
+          {/* Workspace switch: a real button (bordered card, icon, two lines) so
+              it doesn't read as a nav link or a caption. Icon-only when collapsed. */}
+          <button
+            type="button"
+            onClick={() => void setWorkspace(workspace === "prompts" ? "agents" : "prompts")}
+            title={collapsed ? (workspace === "prompts" ? "Show agent governance tools" : "Switch to prompts only") : undefined}
+            aria-label={workspace === "prompts" ? "Show agent governance tools" : "Switch to prompts only"}
+            className={`w-full flex items-center gap-3 mb-3 rounded-lg cursor-pointer transition-colors hover:border-rail-active ${collapsed ? "justify-center px-0 py-2.5" : "px-3 py-2.5 text-left"}`}
+            style={{ background: "var(--card)", border: "1px solid var(--line)", boxShadow: "var(--shadow-card-new)" }}
+          >
+            <ArrowLeftRight size={18} strokeWidth={1.8} className="text-rail-primary shrink-0" />
+            {!collapsed && (
+              <span className="flex flex-col min-w-0">
+                <span className="text-body font-semibold text-rail-primary">
+                  {workspace === "prompts" ? "Show agent tools" : "Prompts only"}
+                </span>
+                <span className="text-meta text-rail-secondary">
+                  {workspace === "prompts" ? "Agents, approvals, spend" : "Hide the agent tools"}
+                </span>
+              </span>
+            )}
+          </button>
           <NavLink
             to="/settings"
             className={linkClass}

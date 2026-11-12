@@ -17,6 +17,7 @@
     { "source": "/ws/(.*)", "destination": { "service": "backend" } },
     { "source": "/proxy/(.*)", "destination": { "service": "backend" } },
     { "source": "/mock/(.*)", "destination": { "service": "backend" } },
+    { "source": "/mcp", "destination": { "service": "backend" } },
     { "source": "/(.*)", "destination": { "service": "frontend" } }
   ],
   "crons": [
