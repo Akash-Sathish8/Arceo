@@ -3,12 +3,6 @@ import type { User } from "./types";
 const API_BASE: string =
   (import.meta as ImportMeta & { env: Record<string, string> }).env.VITE_API_URL ?? "";
 
-/** Where the backend lives: VITE_API_URL when set (no trailing slash), else ""
- *  meaning same origin as the app (production on Vercel, and the Vite dev proxy). */
-export function apiBase(): string {
-  return API_BASE.replace(/\/+$/, "");
-}
-
 // LOW-005 (accepted risk): the JWT is kept in localStorage rather than an
 // httpOnly cookie, so an XSS payload could read it. Accepted because a strict CSP
 // (default-src 'self', no inline/eval — see backend security headers) blocks the
@@ -143,60 +137,8 @@ export async function apiFetch<T>(
   return res.json() as Promise<T>;
 }
 
-export class ApiError extends Error {
-  status: number;
-  constructor(message: string, status: number) {
-    super(message);
-    this.status = status;
-  }
-}
-
-/** POST a JSON body and read the response as NDJSON (one JSON object per line),
- *  calling `onEvent` for each as it arrives. Errors before the stream starts
- *  throw an ApiError carrying the backend `detail`, same as apiFetch. */
-export async function streamNdjson<E>(
-  path: string,
-  body: unknown,
-  onEvent: (event: E) => void,
-  signal?: AbortSignal,
-): Promise<void> {
-  const headers: Record<string, string> = { "Content-Type": "application/json", Accept: "application/x-ndjson" };
-  if (authToken) headers["Authorization"] = `Bearer ${authToken}`;
-
-  let res: Response;
-  try {
-    res = await fetch(`${API_BASE}${path}`, { method: "POST", headers, body: JSON.stringify(body), signal });
-  } catch (err) {
-    if (err instanceof DOMException && err.name === "AbortError") throw err;
-    throw new ApiError("We couldn't reach Arceo. Check your connection and try again.", 0);
-  }
-  if (res.status === 401) {
-    logout();
-    throw new ApiError("Your session expired. Please log in again.", 401);
-  }
-  if (!res.ok || !res.body) {
-    let message = `Request failed (${res.status})`;
-    try {
-      const json = await res.json();
-      message = json.detail ?? json.message ?? message;
-    } catch { /* default */ }
-    throw new ApiError(message, res.status);
-  }
-
-  const reader = res.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    let nl: number;
-    while ((nl = buffer.indexOf("\n")) >= 0) {
-      const line = buffer.slice(0, nl).trim();
-      buffer = buffer.slice(nl + 1);
-      if (line) onEvent(JSON.parse(line) as E);
-    }
-  }
-  const tail = (buffer + decoder.decode()).trim();
-  if (tail) onEvent(JSON.parse(tail) as E);
+/** Where the backend lives: VITE_API_URL when set (no trailing slash), else ""
+ *  meaning same origin as the app (production on Vercel, and the Vite dev proxy). */
+export function apiBase(): string {
+  return API_BASE.replace(/\/+$/, "");
 }
