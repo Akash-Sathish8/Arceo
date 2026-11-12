@@ -65,11 +65,11 @@ export default function PromptsAuth() {
           <span style={{ fontSize: "var(--fs-small)", color: "var(--ink-400)", marginLeft: 4 }}>Prompts</span>
         </div>
         <h1 style={{ fontSize: "var(--fs-page)", fontWeight: 600, color: "var(--ink-900)", lineHeight: 1.25 }}>
-          {mode === "signup" ? "Ready-made AI prompts that are safe to use and priced up front" : "Welcome back"}
+          {mode === "signup" ? "Ready-made prompts for your AI, one click away" : "Welcome back"}
         </h1>
         <p style={{ fontSize: "var(--fs-small)", color: "var(--ink-500)", marginTop: 8, lineHeight: 1.5 }}>
           {mode === "signup"
-            ? "Free to start. Paste in something you ask ChatGPT or Claude to do and see what it costs and whether it's safe, in seconds."
+            ? "Free to start. Pick a prompt, fill in the blanks, and send it to Claude Code, Cursor, Lovable, ChatGPT or any AI you use."
             : "Sign in to your prompt library."}
         </p>
         {error && (

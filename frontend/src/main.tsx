@@ -25,6 +25,7 @@ import IncidentReplay from '@/pages/IncidentReplay'
 import NotFound from '@/pages/NotFound'
 import PromptLibrary from '@/pages/PromptLibrary'
 import PromptDetail from '@/pages/PromptDetail'
+import PromptsConnect from '@/pages/PromptsConnect'
 import PublicPrompt from '@/pages/PublicPrompt'
 import PromptWorkflows from '@/pages/PromptWorkflows'
 import PromptWorkflowBuilder from '@/pages/PromptWorkflowBuilder'
@@ -167,6 +168,7 @@ createRoot(document.getElementById('root')!).render(
             <Route path="/prompts" element={<ProtectedRoute><PromptLibrary /></ProtectedRoute>} />
             <Route path="/prompt-workflows" element={<ProtectedRoute><PromptWorkflows /></ProtectedRoute>} />
             <Route path="/prompt-workflows/:workflowId" element={<ProtectedRoute><PromptWorkflowBuilder /></ProtectedRoute>} />
+            <Route path="/prompts/connect" element={<ProtectedRoute><PromptsConnect /></ProtectedRoute>} />
             <Route path="/prompts/:promptId" element={<ProtectedRoute><PromptDetail /></ProtectedRoute>} />
             <Route path="/prompt-compare" element={<ProtectedRoute><Battles /></ProtectedRoute>} />
             <Route path="/prompt-compare/:battleId" element={<ProtectedRoute><BattleDetail /></ProtectedRoute>} />

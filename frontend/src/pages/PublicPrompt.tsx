@@ -1,18 +1,23 @@
 /**
  * Public share page for one published prompt: /p/:promptId. No login, no
- * sidebar. Shows the published version only, with its cost per run and danger
- * breakdown, so a founder can send a teammate or client one link.
+ * sidebar. Shows the published version only: what it does, the text, a Send
+ * button, plain warnings when one applies, what it costs and similar prompts,
+ * so a founder can send a teammate or client one link.
  */
 
 import { useEffect, useState } from "react"
 import { Link, useParams } from "react-router-dom"
-import { GitFork, Play } from "lucide-react"
+import { GitFork, Send } from "lucide-react"
 import LogoMark, { ArceoWordmark } from "@/components/shared/LogoMark"
 import ErrorState from "@/components/shared/ErrorState"
 import { Button } from "@/components/ui/Button"
-import { CostPanel, DangerPanel } from "@/components/prompts/ScorePanels"
-import UseModal from "@/components/prompts/UseModal"
+import { CostPanel } from "@/components/prompts/ScorePanels"
+import SendDialog from "@/components/prompts/SendDialog"
+import SendButton from "@/components/prompts/SendButton"
+import SimilarPrompts from "@/components/prompts/SimilarPrompts"
+import Warnings from "@/components/prompts/Warnings"
 import { CARD, EYEBROW } from "@/components/prompts/ui"
+import PromptText from "@/components/prompts/PromptText"
 import { isLoggedIn } from "@/lib/api"
 import { getPublicPrompt, type Prompt } from "@/lib/promptsApi"
 
@@ -27,10 +32,11 @@ export default function PublicPrompt() {
   }, [promptId])
 
   useEffect(() => {
-    if (p) document.title = `${p.title} · Arceo prompts`
+    if (p) document.title = `${p.title} · Prompts · Arceo`
   }, [p])
 
-  const forkHref = isLoggedIn() ? `/prompts/${promptId}` : "/login"
+  const signedIn = isLoggedIn()
+  const forkHref = signedIn ? `/prompts/${promptId}` : "/login?for=prompts"
 
   return (
     <div style={{ minHeight: "100vh", background: "var(--bg-page)", fontFamily: "var(--font-sans)", color: "var(--ink-900)" }}>
@@ -55,34 +61,38 @@ export default function PublicPrompt() {
                   {p.author_name && p.author_id
                     ? <Link to={`/u/${p.author_id}`} style={{ color: "var(--ink-700)" }}>By {p.author_name}</Link>
                     : p.author_name && `By ${p.author_name}`}
-                  {[p.use_case, `version ${p.published_version}`, p.use_count ? `used ${p.use_count} times` : null].filter(Boolean).map((x) => ` · ${x}`)}
+                  {[p.use_case, p.use_count ? `used ${p.use_count} ${p.use_count === 1 ? "time" : "times"}` : null].filter(Boolean).map((x) => ` · ${x}`)}
                 </p>
                 {p.description && <p style={{ fontSize: "var(--fs-small)", color: "var(--ink-600)", marginTop: 8, maxWidth: 620, lineHeight: 1.5 }}>{p.description}</p>}
               </div>
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                <Button icon={<Play size={14} />} onClick={() => setUsing(true)}>Use this prompt</Button>
+                <Button icon={<Send size={14} />} onClick={() => setUsing(true)}>Send to…</Button>
                 <a href={forkHref} style={{ textDecoration: "none" }}>
                   <Button variant="secondary" icon={<GitFork size={14} />}>Save a copy in Arceo</Button>
                 </a>
               </div>
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 420px), 1fr))", gap: 16, alignItems: "start" }}>
-              <div style={CARD}>
-                <div style={EYEBROW}>Prompt</div>
-                <pre style={{ whiteSpace: "pre-wrap", fontFamily: "var(--font-code)", fontSize: 13, lineHeight: 1.55, color: "var(--ink-800)", marginTop: 10 }}>
-                  {p.body}
-                </pre>
+              <div style={{ display: "flex", flexDirection: "column", gap: 16, minWidth: 0 }}>
+                <Warnings prompt={p} compact />
+                <div style={CARD}>
+                  <div style={{ ...EYEBROW, marginBottom: 10 }}>The prompt</div>
+                  <PromptText body={p.body} />
+                </div>
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 16, minWidth: 0 }}>
-                <DangerPanel danger={p.danger_summary} />
                 <CostPanel cost={p.cost_summary} runsPerDay={p.runs_per_day} preferredModel={p.model} />
               </div>
+            </div>
+            <div style={{ marginTop: 28 }}>
+              <SimilarPrompts promptId={p.id} publicView
+                renderAction={(m) => <SendButton promptId={m.id} title={m.title} compact signedIn={false} />} />
             </div>
           </>
         )}
       </main>
       {using && p && (
-        <UseModal promptId={p.id} title={p.title} body={p.body} variables={p.variables} signedIn={isLoggedIn()} onClose={() => setUsing(false)} />
+        <SendDialog prompt={p} signedIn={signedIn} onClose={() => setUsing(false)} />
       )}
     </div>
   )

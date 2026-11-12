@@ -13,6 +13,7 @@ import { CheckCircle2, Play, Plus, X, XCircle } from "lucide-react"
 import { Button } from "@/components/ui/Button"
 import { toast } from "@/components/shared/Toast"
 import { CARD, EYEBROW, FIELD, Label } from "@/components/prompts/ui"
+import { variablesIn } from "@/lib/promptFormat"
 import {
   blankName, formatRunCost, getQaBudget, getQaHistory, modelName, runQa, saveQaSuite,
   type Prompt, type QaBudget, type QaCheck, type QaHistoryRun, type QaSuite,
@@ -44,14 +45,8 @@ const PROBE_LABEL: Record<string, string> = {
   hijack: "Tried to turn the answer into a scam message",
 }
 
-const VAR_RE = /\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}\}/g
-
 export default function QaPanel({ prompt, onUpdated }: { prompt: Prompt; onUpdated: () => void }) {
-  const names = useMemo(() => {
-    const seen: string[] = []
-    for (const m of prompt.body.matchAll(VAR_RE)) if (!seen.includes(m[1])) seen.push(m[1])
-    return seen
-  }, [prompt.body])
+  const names = useMemo(() => variablesIn(prompt.body), [prompt.body])
 
   const [suite, setSuite] = useState<QaSuite>(() => ({
     cases: [], checks: [], models: ["claude-haiku-4-5"], probes: true, ...(prompt.tests ?? {}),

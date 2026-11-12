@@ -34,11 +34,14 @@ const SECTION: Record<string, string> = {
   prompts: "Prompts",
   "prompt-workflows": "Prompt workflows",
   "prompt-compare": "Compare",
+  p: "Prompts",
   creators: "Creators",
 };
 
 const LEAF: Record<string, string> = {
   spend: "Cost portfolio",
+  connect: "Connect your agent",
+  new: "New prompt",
   policies: "Policies",
 };
 

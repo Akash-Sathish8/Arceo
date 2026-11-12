@@ -10,9 +10,8 @@ import { Button } from "@/components/ui/Button"
 import { toast } from "@/components/shared/Toast"
 import { EYEBROW, FIELD, Label } from "@/components/prompts/ui"
 import { blankName, recordUse, type VariableSpec } from "@/lib/promptsApi"
-import { fillPrompt } from "@/lib/promptFormat"
+import { exampleHint, fillPrompt, variablesIn } from "@/lib/promptFormat"
 
-const VAR_RE = /\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}\}/g
 // Chat apps accept a prefilled prompt in the URL; past this length browsers
 // and the apps start truncating, so the person copies instead.
 const MAX_URL_PROMPT = 6000
@@ -25,11 +24,7 @@ export default function UseModal({ promptId, title, body, variables, signedIn, o
   signedIn: boolean
   onClose: () => void
 }) {
-  const names = useMemo(() => {
-    const seen: string[] = []
-    for (const m of body.matchAll(VAR_RE)) if (!seen.includes(m[1])) seen.push(m[1])
-    return seen
-  }, [body])
+  const names = useMemo(() => variablesIn(body), [body])
   const [values, setValues] = useState<Record<string, string>>(() =>
     Object.fromEntries(names.map((n) => [n, ""])))
   const counted = useRef(false)
@@ -87,7 +82,7 @@ export default function UseModal({ promptId, title, body, variables, signedIn, o
               <Label htmlFor={`use-${n}`}>{blankName(n)}</Label>
               <textarea id={`use-${n}`} rows={n.length > 0 && /email|message|transcript|notes|document|article|page|review|ticket|post|resume/i.test(n) ? 5 : 2}
                 style={{ ...FIELD, resize: "vertical" }} value={values[n]}
-                placeholder={variables?.[n]?.sample ? `e.g. ${variables[n].sample!.slice(0, 120)}` : undefined}
+                placeholder={exampleHint(variables?.[n]?.sample)}
                 onChange={(e) => setValues((v) => ({ ...v, [n]: e.target.value }))} />
             </div>
           ))}

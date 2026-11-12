@@ -3,6 +3,12 @@ import type { User } from "./types";
 const API_BASE: string =
   (import.meta as ImportMeta & { env: Record<string, string> }).env.VITE_API_URL ?? "";
 
+/** Where the backend lives: VITE_API_URL when set (no trailing slash), else ""
+ *  meaning same origin as the app (production on Vercel, and the Vite dev proxy). */
+export function apiBase(): string {
+  return API_BASE.replace(/\/+$/, "");
+}
+
 // LOW-005 (accepted risk): the JWT is kept in localStorage rather than an
 // httpOnly cookie, so an XSS payload could read it. Accepted because a strict CSP
 // (default-src 'self', no inline/eval — see backend security headers) blocks the

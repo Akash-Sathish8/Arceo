@@ -1,17 +1,27 @@
 /**
- * A creator's public page: published prompts, total uses, forks and comparison
- * wins. Agencies use it as a portfolio. In the app at /creators/:id; public and
- * chromeless at /u/:id.
+ * A creator's public page: their shared prompts, how often they're used and
+ * copied, each with a Send button. Agencies use it as a portfolio. In the app
+ * at /creators/:id; public and chromeless at /u/:id.
  */
 
 import { useEffect, useState } from "react"
 import { Link, useNavigate, useParams } from "react-router-dom"
 import LogoMark, { ArceoWordmark } from "@/components/shared/LogoMark"
 import ErrorState from "@/components/shared/ErrorState"
-import DangerBadge from "@/components/prompts/DangerBadge"
-import { CARD, EYEBROW, PAGE_PAD } from "@/components/prompts/ui"
+import SendButton from "@/components/prompts/SendButton"
+import { CARD, EYEBROW, PAGE_PAD, Pill } from "@/components/prompts/ui"
 import { isLoggedIn } from "@/lib/api"
-import { formatMonthly, formatRunCost, getCreator, headlineCost, monthlyCost, type CreatorProfile as Profile } from "@/lib/promptsApi"
+import { formatMonthly, formatRunCost, getCreator, headlineCost, monthlyCost, type CreatorProfile as Profile, type PromptListItem } from "@/lib/promptsApi"
+
+/** The card's cost line, the same words as the library's cards (PromptLibrary cardCost):
+ *  the author's own model when it's priced, else the cheapest. */
+function costLine(x: PromptListItem): string {
+  const row = headlineCost(x.cost_summary, x.model)
+  if (!row || row.usd_per_run == null) return ""
+  const m = monthlyCost(row.usd_per_run, x.runs_per_day)
+  if (m != null) return m < 0.01 ? "Costs under a cent a month" : `About ${formatMonthly(m).replace("/mo", "")} a month`
+  return `${row.is_floor ? "≥ " : ""}${formatRunCost(row.usd_per_run)} each time`
+}
 
 function Stat({ label, value }: { label: string; value: number }) {
   return (
@@ -29,35 +39,48 @@ export default function CreatorProfile({ publicView = false }: { publicView?: bo
   const [error, setError] = useState(false)
 
   useEffect(() => { getCreator(authorId!).then(setP).catch(() => setError(true)) }, [authorId])
-  useEffect(() => { if (p?.author_name) document.title = `${p.author_name} · Arceo prompts` }, [p])
+  useEffect(() => { if (p?.author_name) document.title = `${p.author_name} · Prompts · Arceo` }, [p])
 
-  const open = (id: string) => (publicView || !isLoggedIn() ? navigate(`/p/${id}`) : navigate(`/prompts/${id}`))
+  const hrefFor = (id: string) => (publicView || !isLoggedIn() ? `/p/${id}` : `/prompts/${id}`)
 
   const body = error ? <ErrorState title="Creator not found" message="The link may be wrong." /> : !p ? (
     <div className="skeleton" style={{ height: 30, width: 240 }} aria-busy="true" />
   ) : (
     <>
       <h1 style={{ fontSize: "var(--fs-page)", fontWeight: 600 }}>{p.author_name ?? "Creator"}</h1>
-      <p style={{ fontSize: "var(--fs-small)", color: "var(--ink-500)", marginTop: 4 }}>Published prompts on Arceo</p>
+      <p style={{ fontSize: "var(--fs-small)", color: "var(--ink-500)", marginTop: 4 }}>Prompts they've shared on Arceo</p>
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 16 }}>
         <Stat label="Prompts" value={p.prompts.length} />
         <Stat label="Uses" value={p.total_uses} />
         <Stat label="Copies saved" value={p.total_forks} />
-        <Stat label="Comparison wins" value={p.comparison_wins} />
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(100%, 280px), 1fr))", gap: 12, marginTop: 20 }}>
         {p.prompts.map((x) => {
-          const row = headlineCost(x.cost_summary)
-          const m = row ? monthlyCost(row.usd_per_run, x.runs_per_day) : null
+          const cost = costLine(x)
           return (
-            <div key={x.id} className="ag-card" role="button" tabIndex={0} onClick={() => open(x.id)}
-              onKeyDown={(e) => { if (e.key === "Enter") open(x.id) }}
-              style={{ ...CARD, cursor: "pointer", display: "flex", flexDirection: "column", gap: 10 }}>
-              <div style={{ fontWeight: 600, fontSize: "var(--fs-title)" }}>{x.title}</div>
-              <div style={{ fontSize: "var(--fs-small)", color: "var(--ink-500)" }}>{[x.use_case, x.use_count ? `used ${x.use_count}×` : null].filter(Boolean).join(" · ")}</div>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
-                <DangerBadge danger={x.danger_summary} size={32} />
-                <span style={{ fontFamily: "var(--font-num)", fontWeight: 600 }}>{m != null ? formatMonthly(m) : row ? formatRunCost(row.usd_per_run) : ""}</span>
+            // The title is the real link; a click elsewhere on the card is a mouse
+            // shortcut. No role on the card, so its Send buttons aren't nested in one.
+            <div key={x.id} className="ag-card"
+              onClick={(e) => {
+                if ((e.target as HTMLElement).closest("a, button, input, textarea, select, [role='button']")) return
+                if (window.getSelection?.()?.toString()) return
+                navigate(hrefFor(x.id))
+              }}
+              style={{ ...CARD, cursor: "pointer", display: "flex", flexDirection: "column", gap: 8, minWidth: 0 }}>
+              <Link to={hrefFor(x.id)} style={{ fontWeight: 600, fontSize: "var(--fs-title)", overflowWrap: "anywhere", color: "var(--ink-900)", textDecoration: "none" }}>{x.title}</Link>
+              {x.description && (
+                <p style={{ fontSize: "var(--fs-small)", color: "var(--ink-500)", margin: 0, lineHeight: 1.45,
+                  display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{x.description}</p>
+              )}
+              <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap", fontSize: "var(--fs-micro)", color: "var(--ink-400)" }}>
+                {x.use_case && <Pill>{x.use_case}</Pill>}
+                {x.use_count ? <span>Used {x.use_count} {x.use_count === 1 ? "time" : "times"}</span> : null}
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap", marginTop: "auto" }}>
+                <SendButton promptId={x.id} title={x.title} compact signedIn={!publicView && isLoggedIn()} />
+                {cost && (
+                  <span style={{ fontSize: "var(--fs-micro)", color: "var(--ink-500)", fontFamily: "var(--font-num)" }}>{cost}</span>
+                )}
               </div>
             </div>
           )

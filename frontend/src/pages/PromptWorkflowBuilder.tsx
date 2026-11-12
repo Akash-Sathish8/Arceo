@@ -1,7 +1,7 @@
 /**
  * Workflow builder: pick prompts in order, wire each {{variable}} to a workflow
- * input or an earlier step's output, and watch the combined cost per run and
- * compounded danger update. Sequential only in v1, with no canvas.
+ * input or an earlier step's output, and watch the combined cost each time
+ * update, with plain warnings when a step needs one. Sequential only in v1.
  */
 
 import { useEffect, useMemo, useState } from "react"
@@ -11,18 +11,15 @@ import PageHeader from "@/components/shared/PageHeader"
 import ErrorState from "@/components/shared/ErrorState"
 import { toast } from "@/components/shared/Toast"
 import { Button } from "@/components/ui/Button"
-import DangerBadge from "@/components/prompts/DangerBadge"
+import Warnings from "@/components/prompts/Warnings"
 import { CARD, EYEBROW, FIELD, Label, PAGE_PAD, SegControl, TD, TH } from "@/components/prompts/ui"
 import {
   BASIS_LABEL, blankName, createWorkflow, deleteWorkflow, formatRunCost, getPrompt, getWorkflow, listPrompts, modelName, publishWorkflow,
-  runWorkflow, scoreWorkflow, updateWorkflow,
-  type Prompt, type PromptListItem, type PromptWorkflow, type StepSource, type WorkflowRunResult, type WorkflowScore,
+  runWorkflow, scoreWorkflow, tokensToWords, updateWorkflow, wordsToTokens,
+  type DangerSummary, type Prompt, type PromptListItem, type PromptWorkflow, type StepSource, type WorkflowRunResult, type WorkflowScore,
   type WorkflowSpec,
 } from "@/lib/promptsApi"
-import { scoreBand } from "@/lib/utils"
-
-const VAR_RE = /\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}\}/g
-const varsIn = (body: string) => { const s: string[] = []; for (const m of body.matchAll(VAR_RE)) if (!s.includes(m[1])) s.push(m[1]); return s }
+import { variablesIn } from "@/lib/promptFormat"
 
 /** Drop step i; later steps that read its output lose that wire, and wires to
  *  steps after it shift down by one so they still point at the same prompt. */
@@ -80,7 +77,7 @@ function RunPanel({ wf, spec }: { wf: PromptWorkflow; spec: WorkflowSpec }) {
       {result && (
         <div style={{ marginTop: 14, borderTop: "1px solid var(--line)", paddingTop: 12 }}>
           <div style={{ fontSize: "var(--fs-small)", color: "var(--ink-700)", fontWeight: 600 }}>
-            Last run on {result.model}: {formatRunCost(result.usd_total)} for all {result.steps.length} steps
+            Last run on {modelName(result.model)}: {formatRunCost(result.usd_total)} for all {result.steps.length} steps
           </div>
           {result.steps.map((st) => (
             <details key={st.step} open={st.step === result.steps.length - 1} style={{ marginTop: 8 }}>
@@ -169,11 +166,11 @@ export default function PromptWorkflowBuilder() {
     } catch (e) { toast((e as Error).message, "error") }
   }
 
-  const stepReasons = useMemo(() => {
-    const out: Record<number, number> = {}
-    for (const s of score?.danger.steps ?? []) out[s.step] = s.score
-    return out
-  }, [score])
+  // Plain warnings across all steps, each saying which step it's about.
+  const stepDanger = useMemo(() => score ? {
+    ...score.danger,
+    reasons: score.danger.reasons.map((r) => ({ ...r, id: `${r.step}:${r.id}`, title: `Step ${r.step + 1}: ${r.title}` })),
+  } : null, [score])
 
   if (loadError) return <div style={{ padding: PAGE_PAD }}><ErrorState message={loadError} /></div>
 
@@ -203,12 +200,11 @@ export default function PromptWorkflowBuilder() {
           )}
           {spec.steps.map((s, i) => {
             const p = bodies[s.prompt_id]
-            const vars = p ? varsIn(p.body) : []
-            const stepScore = stepReasons[i]
+            const vars = p ? variablesIn(p.body) : []
             return (
               <div key={i}>
                 {i > 0 && <div style={{ display: "flex", justifyContent: "center", color: "var(--ink-300)" }}><ArrowDown size={16} /></div>}
-                <div style={{ ...CARD, borderLeft: `3px solid ${stepScore != null ? scoreBand(stepScore).ring : "var(--line)"}` }}>
+                <div style={CARD}>
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                     <span style={EYEBROW}>Step {i + 1}</span>
                     <span style={{ fontWeight: 600, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p?.title ?? "…"}</span>
@@ -261,9 +257,9 @@ export default function PromptWorkflowBuilder() {
                     onChange={(e) => setSpec((s) => ({ ...s, inputs: s.inputs.map((x, j) => j === i ? { ...x, untrusted: e.target.value === "auto" ? undefined : e.target.value === "untrusted" } : x) }))}>
                     <option value="auto">Guess for me</option><option value="untrusted">Someone else (emails, web pages, customers)</option><option value="trusted">Me</option>
                   </select>
-                  <input aria-label={`Expected tokens for ${inp.name}`} type="number" min={0} placeholder="~tokens" style={{ ...FIELD, width: 100 }}
-                    value={inp.expected_tokens ?? ""}
-                    onChange={(e) => setSpec((s) => ({ ...s, inputs: s.inputs.map((x, j) => j === i ? { ...x, expected_tokens: e.target.value ? Number(e.target.value) : undefined } : x) }))} />
+                  <input aria-label={`About how many words ${inp.name.replace(/_/g, " ")} usually is`} type="number" min={0} placeholder="~words" style={{ ...FIELD, width: 100 }}
+                    value={inp.expected_tokens != null ? tokensToWords(inp.expected_tokens) : ""}
+                    onChange={(e) => setSpec((s) => ({ ...s, inputs: s.inputs.map((x, j) => j === i ? { ...x, expected_tokens: e.target.value ? wordsToTokens(Number(e.target.value)) : undefined } : x) }))} />
                   <button type="button" aria-label="Remove input" style={{ border: 0, background: "transparent", cursor: "pointer", color: "var(--ink-400)" }}
                     onClick={() => setSpec((s) => ({ inputs: s.inputs.filter((_, j) => j !== i), steps: s.steps.map((st) => ({ ...st, input_map: Object.fromEntries(Object.entries(st.input_map).filter(([, src]) => !(src.from === "input" && src.name === inp.name))) })) }))}>
                     <X size={14} /></button>
@@ -277,28 +273,11 @@ export default function PromptWorkflowBuilder() {
           {scoreError && <div style={{ ...CARD, color: "var(--critical)", fontSize: "var(--fs-small)" }}>{scoreError}</div>}
           {!score ? (
             <div style={{ ...CARD, color: "var(--ink-500)", fontSize: "var(--fs-small)" }}>
-              <Plus size={14} style={{ verticalAlign: -2 }} /> Add a step to see what the whole workflow costs and whether it's safe.
+              <Plus size={14} style={{ verticalAlign: -2 }} /> Add a step to see what the whole workflow costs each time.
             </div>
           ) : (
             <>
-              <div style={CARD}>
-                <div style={EYEBROW}>Is it safe? (all steps)</div>
-                <div style={{ marginTop: 10 }}><DangerBadge danger={score.danger} size={52} /></div>
-                <ul style={{ listStyle: "none", padding: 0, margin: "12px 0 0", display: "flex", flexDirection: "column", gap: 10 }}>
-                  {score.danger.reasons.slice(0, 6).map((r, i) => {
-                    const b = scoreBand(r.points, 0, r.severity)
-                    return (
-                      <li key={i} style={{ borderLeft: `3px solid ${b.ring}`, paddingLeft: 10 }}>
-                        <div style={{ fontSize: "var(--fs-micro)", color: "var(--ink-400)" }}>
-                          <span style={{ fontWeight: 700, textTransform: "uppercase", color: b.color, letterSpacing: 0.5 }}>{b.label}</span> · step {r.step + 1}
-                        </div>
-                        <div style={{ fontSize: "var(--fs-small)", fontWeight: 600, marginTop: 2 }}>{r.title}</div>
-                        <div style={{ fontSize: "var(--fs-small)", color: "var(--ink-600)", marginTop: 2, lineHeight: 1.5 }}>{r.detail}</div>
-                      </li>
-                    )
-                  })}
-                </ul>
-              </div>
+              <Warnings danger={stepDanger as DangerSummary | null} compact />
               <div style={CARD}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
                   <div style={EYEBROW}>Cost each time, all steps</div>
@@ -331,8 +310,8 @@ export default function PromptWorkflowBuilder() {
                   <div style={{ ...EYEBROW, marginBottom: 10 }}>Share</div>
                   <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
                     <SegControl options={[{ value: "public", label: "Everyone" }, { value: "org", label: "Just my team" }] as const} value={visibility} onChange={setVisibility} />
-                    <Button onClick={() => publishWorkflow(wf.id, visibility).then((w) => { setWf(w); toast("Published") }).catch((e: Error) => toast(e.message, "error"))}>
-                      Publish
+                    <Button onClick={() => publishWorkflow(wf.id, visibility).then((w) => { setWf(w); toast("Shared") }).catch((e: Error) => toast(e.message, "error"))}>
+                      Share
                     </Button>
                   </div>
                 </div>

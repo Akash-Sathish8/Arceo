@@ -1,35 +1,23 @@
 /**
- * The two read-outs every prompt carries.
+ * What a prompt costs.
  *
  * CostPanel leads with what a founder budgets in: the monthly cost at their
- * volume on their model, and what switching would save. Per-run and per-1,000
- * figures stay one click down. DangerPanel explains every point, fixes what it
- * can in one click, and lets the author mark judgement calls not applicable.
+ * volume on their model, and what switching would save. Each AI model's figures
+ * sit in a short table below. In a narrow panel (a phone) the "Each time" figure
+ * moves under the monthly one, so the table never scrolls sideways.
  */
 
-import { useState } from "react"
-import { AlertTriangle, Sparkles, Undo2 } from "lucide-react"
-import { Button } from "@/components/ui/Button"
-import DangerBadge from "@/components/prompts/DangerBadge"
+import { useEffect, useRef, useState } from "react"
 import { CARD, EYEBROW, TD, TH } from "@/components/prompts/ui"
 import {
   BASIS_HELP, BASIS_LABEL, blankName, formatMonthly, formatRunCost, modelName, monthlyCost, rowBasis,
-  type CostRow, type CostSummary, type DangerReason, type DangerSummary,
+  type CostRow, type CostSummary,
 } from "@/lib/promptsApi"
-import { scoreBand } from "@/lib/utils"
-
-// Plain names for each kind of risk. No security jargon ("injection",
-// "red team"): say what could actually happen.
-const FACTOR_LABEL: Record<string, string> = {
-  data_exposure: "Private info",
-  injection: "Hidden instructions",
-  jailbreak: "Breaks AI rules",
-  capability: "Takes action",
-  chain: "Could be tricked into acting",
-  probed: "Failed a test",
-}
+import { formatMonthlyFloor } from "@/lib/promptFormat"
 
 const DEFAULT_VISIBLE_MODELS = 3
+/** Below this panel width the table drops its "Each time" column. */
+const NARROW_PX = 500
 
 function pickVisible(cost: CostSummary, preferred: string | null | undefined): CostRow[] {
   const priced = cost.models.filter((m) => m.available)
@@ -41,12 +29,32 @@ function pickVisible(cost: CostSummary, preferred: string | null | undefined): C
   return order
 }
 
-export function CostPanel({ cost, runsPerDay, preferredModel }: {
+/** Whether the element is narrower than `px`. Starts from the window width so a
+ *  phone's first paint is already the narrow layout. */
+function useNarrow(px: number) {
+  const ref = useRef<HTMLDivElement>(null)
+  const [narrow, setNarrow] = useState(() => typeof window !== "undefined" && window.innerWidth < px)
+  useEffect(() => {
+    const el = ref.current
+    if (!el || typeof ResizeObserver === "undefined") return
+    const ro = new ResizeObserver(([e]) => setNarrow(e.contentRect.width < px))
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [px])
+  return { ref, narrow }
+}
+
+const SUB: React.CSSProperties = { fontSize: "var(--fs-micro)", color: "var(--ink-400)", fontFamily: "var(--font-sans)" }
+
+export function CostPanel({ cost, runsPerDay, preferredModel, writing = false }: {
   cost: CostSummary | null
   runsPerDay?: number | null
   preferredModel?: string | null
+  /** The writing view, where the blanks' examples can be filled in. */
+  writing?: boolean
 }) {
   const [showAll, setShowAll] = useState(false)
+  const { ref, narrow } = useNarrow(NARROW_PX)
   if (!cost) return null
   const priced = cost.models.filter((m) => m.available)
   const yours = priced.find((m) => m.model_key === preferredModel || m.model === preferredModel)
@@ -57,9 +65,12 @@ export function CostPanel({ cost, runsPerDay, preferredModel }: {
   const saving = yours && cheapest && yours !== cheapest && monthly != null && cheapMonthly != null ? monthly - cheapMonthly : null
   const rows = showAll ? cost.models : pickVisible(cost, preferredModel)
   const headBasis = headline ? rowBasis(headline) : null
+  const perMonth = !!runsPerDay
+  // Narrow and showing a month: "Each time" goes under the monthly figure.
+  const stack = perMonth && narrow
 
   return (
-    <div style={CARD}>
+    <div style={CARD} ref={ref}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
         <div style={EYEBROW}>What it costs</div>
         <div style={{ fontSize: "var(--fs-micro)", color: "var(--ink-400)" }}>
@@ -72,7 +83,7 @@ export function CostPanel({ cost, runsPerDay, preferredModel }: {
           {monthly != null ? (
             <>
               <div style={{ fontFamily: "var(--font-num)", fontSize: 28, fontWeight: 600, color: "var(--ink-900)", lineHeight: 1.1 }}>
-                {headline.is_floor ? "≥ " : ""}{formatMonthly(monthly)}
+                {formatMonthlyFloor(monthly, headline.is_floor)}
               </div>
               <div style={{ fontSize: "var(--fs-small)", color: "var(--ink-500)", marginTop: 4 }}>
                 Used {runsPerDay} {runsPerDay === 1 ? "time" : "times"} a day on {modelName(headline.model_key)} · {formatRunCost(headline.usd_per_run)} each time
@@ -91,19 +102,19 @@ export function CostPanel({ cost, runsPerDay, preferredModel }: {
           )}
           {saving != null && saving >= 0.01 && cheapest && (
             <div style={{ marginTop: 10, padding: "8px 10px", borderRadius: "var(--radius-md)", background: "var(--accent-soft)", color: "var(--accent-ink)", fontSize: "var(--fs-small)" }}>
-              Switching to <b>{modelName(cheapest.model_key)}</b> would save about <b>{formatMonthly(saving)}</b>. Test the prompt on it first to make sure the answers are still good.
+              Switching to <b>{modelName(cheapest.model_key)}</b> would save about <b>{formatMonthly(saving)}</b>. Its answers can differ, so check a few before you switch.
             </div>
           )}
         </div>
       )}
 
       <div style={{ overflowX: "auto", marginTop: 12 }}>
-        <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 380 }}>
+        <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
             <tr>
               <th style={TH}>AI model</th>
-              {runsPerDay ? <th style={{ ...TH, textAlign: "right" }}>Per month</th> : null}
-              <th style={{ ...TH, textAlign: "right" }}>Each time</th>
+              {perMonth ? <th style={{ ...TH, textAlign: "right" }}>Per month</th> : null}
+              {stack ? null : <th style={{ ...TH, textAlign: "right" }}>Each time</th>}
             </tr>
           </thead>
           <tbody>
@@ -111,27 +122,34 @@ export function CostPanel({ cost, runsPerDay, preferredModel }: {
               const basis = rowBasis(r)
               const tags = [r.model_key === cost.cheapest_model ? "cheapest" : null,
                             r === yours ? "you use this" : null].filter(Boolean).join(" · ")
+              const each = `${r.is_floor ? "≥ " : ""}${formatRunCost(r.usd_per_run)}`
               return (
                 <tr key={r.model}>
                   <td style={TD}>
                     <span style={{ fontWeight: r === yours ? 600 : 400 }}>{modelName(r.model_key ?? r.model)}</span>
-                    {tags && <span style={{ marginLeft: 6, fontSize: "var(--fs-micro)", color: "var(--accent)" }}>{tags}</span>}
+                    {tags && (stack
+                      ? <div style={{ fontSize: "var(--fs-micro)", color: "var(--accent)" }}>{tags}</div>
+                      : <span style={{ marginLeft: 6, fontSize: "var(--fs-micro)", color: "var(--accent)", whiteSpace: "nowrap" }}>{tags}</span>)}
                     {r.provider && <div style={{ fontSize: "var(--fs-micro)", color: "var(--ink-400)" }}>{r.provider}</div>}
                   </td>
                   {r.available ? (
                     <>
-                      {runsPerDay ? (
-                        <td style={{ ...TD, textAlign: "right", fontFamily: "var(--font-num)" }}>
-                          {r.is_floor ? "≥ " : ""}{formatMonthly(monthlyCost(r.usd_per_run, runsPerDay))}
+                      {perMonth ? (
+                        <td style={{ ...TD, textAlign: "right", fontFamily: "var(--font-num)" }}
+                          title={stack ? BASIS_HELP[basis] : undefined}>
+                          <span style={{ whiteSpace: "nowrap" }}>{formatMonthlyFloor(monthlyCost(r.usd_per_run, runsPerDay), r.is_floor)}</span>
+                          {stack && <div style={SUB}><span style={{ whiteSpace: "nowrap" }}>{each} each time</span> · {BASIS_LABEL[basis]}</div>}
                         </td>
                       ) : null}
-                      <td style={{ ...TD, textAlign: "right", fontFamily: "var(--font-num)" }} title={BASIS_HELP[basis]}>
-                        {r.is_floor ? "≥ " : ""}{formatRunCost(r.usd_per_run)}
-                        <div style={{ fontSize: "var(--fs-micro)", color: "var(--ink-400)", fontFamily: "var(--font-sans)" }}>{BASIS_LABEL[basis]}</div>
-                      </td>
+                      {stack ? null : (
+                        <td style={{ ...TD, textAlign: "right", fontFamily: "var(--font-num)", whiteSpace: "nowrap" }} title={BASIS_HELP[basis]}>
+                          {each}
+                          <div style={SUB}>{BASIS_LABEL[basis]}</div>
+                        </td>
+                      )}
                     </>
                   ) : (
-                    <td style={{ ...TD, color: "var(--ink-400)" }} colSpan={runsPerDay ? 2 : 1}>Price not available yet</td>
+                    <td style={{ ...TD, color: "var(--ink-400)", textAlign: "right" }} colSpan={perMonth && !stack ? 2 : 1}>Price not available yet</td>
                   )}
                 </tr>
               )
@@ -142,95 +160,14 @@ export function CostPanel({ cost, runsPerDay, preferredModel }: {
       {cost.models.length > DEFAULT_VISIBLE_MODELS && (
         <button type="button" onClick={() => setShowAll((v) => !v)}
           style={{ marginTop: 8, border: 0, background: "none", padding: 0, color: "var(--accent)", fontSize: "var(--fs-small)", cursor: "pointer" }}>
-          {showAll ? "Show fewer" : `Compare all ${cost.models.length} AI models`}
+          {showAll ? "Show fewer" : `Show all ${cost.models.length} AI models`}
         </button>
       )}
       {cost.unsized_variables.length > 0 && (
         <p style={{ fontSize: "var(--fs-micro)", color: "var(--ink-500)", marginTop: 10 }}>
           The {cost.unsized_variables.map(blankName).join(", ")} {cost.unsized_variables.length === 1 ? "blank has" : "blanks have"} no
-          example text yet, so the real cost will be a bit higher. Add an example below.
+          example text yet, so the real cost will be a bit higher.{writing ? " Add an example below." : ""}
         </p>
-      )}
-    </div>
-  )
-}
-
-/** Kept for callers that only need the plain table (comparisons). */
-export const CostTable = ({ cost }: { cost: CostSummary | null }) => <CostPanel cost={cost} />
-
-const VISIBLE_REASONS = 3
-
-function ReasonItem({ r, onToggle }: { r: DangerReason; onToggle?: (r: DangerReason) => void }) {
-  const b = scoreBand(r.points, 0, r.severity)
-  return (
-    <li style={{ borderLeft: `3px solid ${r.dismissed ? "var(--line)" : b.ring}`, paddingLeft: 10, opacity: r.dismissed ? 0.6 : 1 }}>
-      <div style={{ display: "flex", gap: 8, alignItems: "baseline", flexWrap: "wrap" }}>
-        <span style={{ fontSize: "var(--fs-micro)", fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, color: r.dismissed ? "var(--ink-400)" : b.color }}>
-          {r.dismissed ? "Doesn't apply" : b.label}
-        </span>
-        <span style={{ fontSize: "var(--fs-micro)", color: "var(--ink-400)" }}>{FACTOR_LABEL[r.factor] ?? r.factor}</span>
-        {onToggle && r.dismissable && (
-          <button type="button" onClick={() => onToggle(r)}
-            style={{ marginLeft: "auto", border: 0, background: "none", padding: 0, fontSize: "var(--fs-micro)", color: "var(--ink-500)", textDecoration: "underline", cursor: "pointer" }}>
-            {r.dismissed ? "Count it again" : "Doesn't apply to me"}
-          </button>
-        )}
-      </div>
-      <div style={{ fontSize: "var(--fs-small)", fontWeight: 600, color: "var(--ink-900)", marginTop: 2, textDecoration: r.dismissed ? "line-through" : undefined }}>{r.title}</div>
-      {!r.dismissed && <div style={{ fontSize: "var(--fs-small)", color: "var(--ink-600)", marginTop: 2, lineHeight: 1.5 }}>{r.detail}</div>}
-    </li>
-  )
-}
-
-export function DangerPanel({ danger, onFix, fixing, onUndoFix, onToggleDismiss }: {
-  danger: DangerSummary | null
-  onFix?: () => void
-  fixing?: boolean
-  onUndoFix?: () => void
-  onToggleDismiss?: (r: DangerReason) => void
-}) {
-  const [showAll, setShowAll] = useState(false)
-  if (!danger) return null
-  const live = danger.reasons.filter((r) => !r.dismissed)
-  const fixable = live.some((r) => r.fixable)
-  const shown = showAll ? danger.reasons : danger.reasons.slice(0, VISIBLE_REASONS)
-  const hidden = danger.reasons.length - shown.length
-  return (
-    <div style={CARD}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
-        <div style={EYEBROW}>Is it safe?</div>
-        {danger.ai_checked && <span style={{ fontSize: "var(--fs-micro)", color: "var(--ink-400)" }} title="Checked by our rules and also read by an AI.">Double-checked by AI</span>}
-      </div>
-      <div style={{ marginTop: 10, display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-        <DangerBadge danger={danger} size={52} />
-        <div style={{ flex: 1 }} />
-        {onUndoFix && (
-          <Button variant="ghost" size="sm" icon={<Undo2 size={13} />} onClick={onUndoFix}>Undo fix</Button>
-        )}
-        {onFix && fixable && (
-          <Button size="sm" icon={<Sparkles size={13} />} loading={fixing} onClick={onFix}>Fix it for me</Button>
-        )}
-      </div>
-      {danger.publish_blockers.length > 0 && (
-        <div style={{ display: "flex", gap: 8, marginTop: 12, padding: "8px 10px", borderRadius: "var(--radius-md)", background: "var(--critical-bg)", color: "var(--critical)", fontSize: "var(--fs-small)" }}>
-          <AlertTriangle size={15} style={{ flexShrink: 0, marginTop: 1 }} />
-          This can't be shared until the password, key or personal info is taken out.{onFix ? " Fix it for me does that." : ""}
-        </div>
-      )}
-      {danger.reasons.length === 0 ? (
-        <p style={{ fontSize: "var(--fs-small)", color: "var(--ink-500)", marginTop: 12 }}>
-          Nothing risky found.{danger.status === "static" ? " Test it to be sure." : ""}
-        </p>
-      ) : (
-        <ul style={{ listStyle: "none", padding: 0, margin: "12px 0 0", display: "flex", flexDirection: "column", gap: 10 }}>
-          {shown.map((r) => <ReasonItem key={r.id ?? r.title} r={r} onToggle={onToggleDismiss} />)}
-        </ul>
-      )}
-      {hidden > 0 && (
-        <button type="button" onClick={() => setShowAll(true)}
-          style={{ marginTop: 10, border: 0, background: "none", padding: 0, color: "var(--accent)", fontSize: "var(--fs-small)", cursor: "pointer" }}>
-          +{hidden} more
-        </button>
       )}
     </div>
   )

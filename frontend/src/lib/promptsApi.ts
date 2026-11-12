@@ -103,7 +103,21 @@ export interface Prompt {
   use_count: number
 }
 
-export type PromptListItem = Omit<Prompt, "body" | "variables" | "tools" | "expected_output_tokens" | "tests">
+/** A list row's cost row: what a card's cost line needs, no token counts. */
+export type ListCostRow = Pick<CostRow, "model" | "model_key" | "provider" | "available" | "usd_per_run" | "is_floor" | "basis" | "output_basis">
+
+/** The cost summary on a list row (GET /api/prompts, creator pages). Same shape
+ *  as CostSummary, but `models` holds only the rows a card can pick (the author's
+ *  model and the cheapest), so headlineCost gives the same row as on the full
+ *  table. Open the prompt (getPrompt) for every model. */
+export type ListCostSummary = Omit<CostSummary, "models"> & { models: ListCostRow[] }
+
+export type PromptListItem = Omit<Prompt, "body" | "variables" | "tools" | "expected_output_tokens" | "tests" | "cost_summary"> & {
+  cost_summary: ListCostSummary | null
+  /** Whether the body (as this viewer sees it) has any {{blank}}. Lists don't
+   *  carry the body; this lets a card send a no-blank prompt in one click. */
+  has_blanks?: boolean
+}
 
 export interface PromptDraft {
   title: string
@@ -233,9 +247,10 @@ export const updatePrompt = (id: string, draft: PromptDraft) =>
 export const deletePrompt = (id: string) =>
   apiFetch<{ deleted: string }>(`/api/prompts/${encodeURIComponent(id)}`, { method: "DELETE" })
 
-export const publishPrompt = (id: string, visibility: Prompt["visibility"], acknowledge_risk: boolean) =>
+/** Share a prompt. Only private details in the text stop it (409); nothing else needs accepting. */
+export const publishPrompt = (id: string, visibility: Prompt["visibility"]) =>
   apiFetch<Prompt>(`/api/prompts/${encodeURIComponent(id)}/publish`, {
-    method: "POST", body: JSON.stringify({ visibility, acknowledge_risk }),
+    method: "POST", body: JSON.stringify({ visibility }),
   })
 
 export const unpublishPrompt = (id: string) =>

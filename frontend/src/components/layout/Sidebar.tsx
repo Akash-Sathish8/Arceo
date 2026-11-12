@@ -15,7 +15,7 @@
  */
 
 import { useEffect, useState } from "react";
-import { NavLink } from "react-router-dom";
+import { NavLink, useLocation } from "react-router-dom";
 import {
   LayoutGrid,
   ShieldCheck,
@@ -32,7 +32,7 @@ import {
   ScrollText,
   ArrowLeftRight,
   Layers,
-  Scale,
+  Plug,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import LogoMark, { ArceoWordmark } from "@/components/shared/LogoMark";
@@ -55,6 +55,7 @@ interface NavItem {
 
 export default function Sidebar({ drawer = false }: { drawer?: boolean }): React.ReactElement {
   const [pendingCount, setPendingCount] = useState(0);
+  const { pathname } = useLocation();
   // In the phone drawer the rail is always full width: collapsing makes no sense there.
   const storedCollapsed = useSidebarStore((s) => s.collapsed);
   const collapsed = drawer ? false : storedCollapsed;
@@ -102,8 +103,8 @@ export default function Sidebar({ drawer = false }: { drawer?: boolean }): React
 
   const promptItems: NavItem[] = [
     { id: "prompts",   label: "Library",   to: "/prompts",   Icon: ScrollText,   group: "Prompts" },
+    { id: "prompt-connect", label: "Connect your agent", to: "/prompts/connect", Icon: Plug, group: "Prompts" },
     { id: "prompt-workflows", label: "Prompt workflows", to: "/prompt-workflows", Icon: Layers, group: "Prompts" },
-    { id: "prompt-compare", label: "Compare", to: "/prompt-compare", Icon: Scale, group: "Prompts" },
   ];
   const agentItems: NavItem[] = [
     { id: "agents",    label: "Agents",    to: "/",          Icon: LayoutGrid,   group: null },
@@ -182,7 +183,8 @@ export default function Sidebar({ drawer = false }: { drawer?: boolean }): React
                 key={item.id}
                 to={item.to}
                 end={item.to === "/"}
-                className={linkClass}
+                // /prompts/connect is its own item: don't also light up Library there.
+                className={({ isActive }) => linkClass({ isActive: isActive && !(item.id === "prompts" && pathname.startsWith("/prompts/connect")) })}
                 title={collapsed ? item.label : undefined}
               >
                 <span className={`relative flex ${collapsed ? "" : "mr-3"}`}>
