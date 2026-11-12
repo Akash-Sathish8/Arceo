@@ -34,7 +34,7 @@ const JSON_LD = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" className={`${inter.variable} ${code.variable}`}>
-      <body>
+      <body className="flex min-h-svh flex-col">
         {children}
         <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(JSON_LD) }} />
       </body>

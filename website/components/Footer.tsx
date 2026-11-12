@@ -4,7 +4,7 @@ import { APP_URL } from "@/lib/site";
 
 export default function Footer() {
   return (
-    <footer className="border-t bg-white">
+    <footer className="mt-auto border-t bg-white">
       <div className="container-site flex flex-col gap-6 py-10 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-4">
           <LogoWordmark height={14} title="Arceo" />
