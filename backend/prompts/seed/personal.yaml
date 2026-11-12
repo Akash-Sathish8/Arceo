@@ -1,0 +1,78 @@
+# Starter library, personal: the small life-admin jobs that sit next to work.
+# Gifts and cards for coworkers, notes to a neighbor or a teacher, finding a
+# call time across time zones, getting ready for an interview, taming an inbox,
+# learning a work skill. Nothing medical, legal or money advice.
+#
+# Every job here was checked against the prompt-match eval set
+# (tests/eval/prompt_similarity_cases_*.yaml) so it doesn't take over a job that
+# set uses as "not in the library": no trip plans, meal plans, packing lists,
+# toasts, sympathy notes, cover letters or letters to a landlord.
+#
+# Titles are the idempotency key: never rename one.
+# Check offline:  python -m prompts.seed --check prompts/seed/personal.yaml
+author: Arceo Library
+prompts:
+- title: Gift ideas for a coworker
+  use_case: "Personal"
+  description: |
+    Thoughtful gift ideas for a coworker that fit your budget and what you know they like.
+  out: 400
+  body: |
+    Suggest 8 gift ideas for {{person}} for {{occasion}}, from {{who_is_giving}}, with a budget of {{budget}}. Here's what I know about them: {{what_they_like}}. Mix practical and fun, skip anything too personal for work, and give each idea one line on why it suits them and a rough price. Put your two best picks first.
+  vars: {person: "Ana, a coworker", occasion: "her last day before she moves to another city", who_is_giving: "our team of six", budget: "about $90 in total", what_they_like: "runs every weekend, loves hot sauce, always has a plant on her desk, moving to Denver"}
+- title: Words for a group card
+  use_case: "Personal"
+  description: |
+    A few warm, personal lines to write in a group card for a coworker's birthday, farewell or retirement.
+  out: 300
+  body: |
+    I'm signing a group card for {{person}} for {{occasion}}. Give me five short options I can write by hand, two or three sentences each, that sound like a real person rather than a shop-bought card. Work in this where it fits: {{shared_memory}}. Make one funny, one heartfelt and the rest in between, all right for a workplace.
+  vars: {person: "Raj from accounting", occasion: "his retirement after 22 years", shared_memory: "he brought homemade samosas to every Friday meeting and knew every supplier by name"}
+- title: Friendly note to a neighbor
+  use_case: "Personal"
+  description: |
+    A friendly, low-pressure note to a neighbor about something that's bothering you.
+  out: 200
+  body: |
+    Write a short note to my neighbor about {{issue}}. Assume they don't know it's a problem: open warmly, explain how it affects me in one sentence, suggest one specific fix ({{suggested_fix}}), and offer to chat in person. Under 100 words, neighborly, and nothing that reads like a threat or a formal complaint.
+  vars: {issue: "their dog barking for long stretches in the yard on weekday mornings while I work from home", suggested_fix: "bringing the dog inside before 9am on weekdays"}
+- title: Note to my child's teacher
+  use_case: "Personal"
+  description: |
+    A short, friendly note to your child's teacher to ask a question or let them know something.
+  out: 200
+  body: |
+    Write a short email to {{teacher}}, my child's teacher, about {{topic}}. Say which child is mine, get to the point in the first two sentences, ask {{what_to_ask}}, and thank them for their time. Under 110 words, friendly and respectful, with no long backstory.
+  vars: {teacher: "Ms. Patel", topic: "a family trip that means my daughter Zoe will miss school next Thursday and Friday", what_to_ask: "whether there's any work she can take along so she doesn't fall behind"}
+- title: Find a call time across time zones
+  use_case: "Personal"
+  description: |
+    Call times that work for people in several time zones, with each person's local time shown.
+  out: 300
+  body: |
+    I need a {{length}} call with people in {{locations}}, and everyone is free between {{available_hours}} their own time. Suggest the three best time slots during {{week}}, in a small table showing the local time in each place. Point out who gets an early or late slot so we can take turns next time, and mention it if a clock change that week moves anything.
+  vars: {length: "45-minute", locations: "Chicago, London and Singapore", available_hours: "8am and 7pm", week: "the week of March 9"}
+- title: Get ready for a job interview
+  use_case: "Personal"
+  description: |
+    The questions you're likely to be asked for a role, with answer outlines drawn from your real experience.
+  out: 700
+  body: |
+    I have an interview coming up for {{role}}. Here's what I've done so far: {{experience}}. List the 8 questions I'm most likely to be asked and, for each, a short answer outline that uses a real example from my experience: the situation, what I did, and how it turned out. Then give me three good questions to ask them at the end. Don't invent anything I haven't done; where my experience is thin, say so and suggest how to answer honestly.
+  vars: {role: "an office manager job at a 40-person architecture firm", experience: "five years running the front desk and scheduling at a busy dental practice; moved the practice from paper files to an online booking system; trained three new receptionists; handled ordering for supplies"}
+- title: Tidy up my email inbox
+  use_case: "Personal"
+  description: |
+    A simple folder and filter plan to get your inbox under control, with steps for the email app you use.
+  out: 500
+  body: |
+    My {{inbox_app}} inbox has {{backlog}}, and about {{daily_count}} new emails arrive each day, mostly {{main_kinds}}. Suggest no more than six folders or labels, a few filters that sort mail as it arrives, and a 15-minute daily habit to keep on top of it. Give click-by-click steps for {{inbox_app}}, plus a one-time plan for clearing the backlog without reading every old email.
+  vars: {inbox_app: "Gmail", backlog: "about 4,000 unread emails", daily_count: "80", main_kinds: "supplier invoices, team updates, newsletters and customer questions"}
+- title: Learn a work skill in short daily sessions
+  use_case: "Personal"
+  description: |
+    A four-week plan to pick up a work skill in a few minutes a day, with free resources and small practice tasks.
+  out: 600
+  body: |
+    I want to learn {{skill}} well enough to {{goal}}, and I have about {{time_per_day}} on weekdays. Make me a four-week plan: what to focus on each week, one small practice task per day that uses my own work where possible, and free places to learn each part. Finish each week with a quick way to check I've got it before moving on.
+  vars: {skill: "pivot tables and charts in Excel", goal: "build our monthly sales summary myself instead of waiting for the finance team", time_per_day: "20 minutes a day"}

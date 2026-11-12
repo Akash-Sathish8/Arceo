@@ -1,0 +1,243 @@
+# Starter library, "Look & feel": prompts for people building their own app or
+# website with a coding agent (Claude Code, Cursor, Lovable, Replit, Bolt...)
+# who don't write code themselves. Colors, fonts, spacing, phones, dark mode,
+# accessibility, motion, icons and the small screens people forget (empty,
+# loading, not found). Each prompt describes the look in plain words and asks
+# the agent to agree the direction first, change the look without touching the
+# words or what things do, and finish by saying what changed and how to see it.
+#
+# Anything pasted in from elsewhere is fenced in tags and covered by the data rule.
+# Titles are the idempotency key: never rename one.
+# Check offline:  python -m prompts.seed --check prompts/seed/design.yaml
+author: Arceo Library
+prompts:
+# ── The overall look ──────────────────────────────────────────────────────
+- title: Give my site a fresh, modern look
+  use_case: "Look & feel"
+  description: |
+    A cleaner, up-to-date look for your whole site, with the direction agreed before anything changes.
+  out: 600
+  body: |
+    My site feels dated and I'd like it to look {{look_i_want}}. Look through every page first, then describe two or three design directions in plain words: what would change in each (colors, fonts, spacing, corners, shadows) and which one you'd pick. Wait for me to choose. Restyle a single page in that direction so I can see it before you carry it across the rest. Keep all my words, pictures and links exactly as they are; this is about the look only. At the end, list what changed and tell me how to compare the old and new versions.
+  vars: {look_i_want: "clean and calm, like a modern design studio, with more white space and fewer boxes"}
+- title: Borrow the feel of a site I like
+  use_case: "Look & feel"
+  description: |
+    Bring the spirit of a design you admire to your own site, in your own colors and words, without copying it.
+  out: 500
+  body: |
+    There's a site whose feel I love. What I like about it: {{what_i_like}}. Use those ideas as inspiration for my site, using my own colors, words and pictures. Don't copy its text, images, logo or exact layout. First tell me, in plain words, the three or four changes that would capture that feel, and wait for me to agree. Then make them one at a time and show me a before and after for each.
+  vars: {what_i_like: "lots of white space, huge bold headlines, softly rounded photos and a single bright accent color"}
+- title: Find what looks inconsistent
+  use_case: "Look & feel"
+  description: |
+    A list of the spots where your site's look doesn't match itself, with the one style to settle on for each.
+  out: 600
+  body: |
+    Look through every page of my site and list anything that looks inconsistent: different shades of what should be the same color, mismatched fonts or text sizes, uneven spacing, buttons or cards styled differently, icons from different sets, or pictures with different corner styles. Group the list by type, say which pages each problem is on, and suggest the one style to settle on. Put the quickest wins at the top. Only look and report for now; I'll choose which ones you fix.
+  vars: {}
+- title: Keep my styles in one place
+  use_case: "Look & feel"
+  description: |
+    Gather your colors, fonts and sizes into one shared list so future changes stay consistent everywhere.
+  out: 500
+  body: |
+    My colors, fonts and sizes are typed out separately all over the project, so every change takes ages and things drift apart. Gather them into one shared list of named styles (for example "main color", "heading font", "small gap") and switch the existing pages over to use it, without changing how anything looks. Explain your plan first and work in small steps I can check along the way. When you're done, show me where the list lives and walk me through how I'd change {{example_change}} so it updates everywhere at once.
+  vars: {example_change: "the main green to a slightly darker shade"}
+# ── Color, type and spacing ───────────────────────────────────────────────
+- title: Use my brand colors everywhere
+  use_case: "Look & feel"
+  description: |
+    Your brand colors applied consistently to buttons, links, headings and backgrounds across the whole site.
+  out: 500
+  body: |
+    My brand colors are {{brand_colors}}. Go through the site and use them consistently: one main color for buttons and links, one for highlights, and calm neutrals for backgrounds and regular text. Swap out stray colors that don't belong, but if one looks like it was picked on purpose, ask me before changing it. Check that text on every colored background is still easy to read, and nudge the shade slightly rather than abandon a brand color. Keep the colors defined in one place, and tell me where that is so I can tweak them later.
+  vars: {brand_colors: "forest green #2F5D50, warm sand #E9DCC4 and a coral accent #F27059"}
+- title: Suggest a color scheme for my brand
+  use_case: "Look & feel"
+  description: |
+    Three color schemes that fit your business, previewed on your own home page before you pick one.
+  out: 500
+  body: |
+    I don't have brand colors yet. My business is {{business_description}}, and I want people to feel {{feeling}} when they visit. Suggest three color schemes, each with a main color, an accent, a background and a text color, plus one sentence on why it fits. Show me a quick preview of my home page in each scheme without changing the real site. Once I pick one, apply it everywhere and tell me how I'd switch back if I change my mind.
+  vars: {business_description: "a small bakery that sells sourdough and pastries at a weekend market", feeling: "cozy, welcome and a little bit fancy"}
+- title: Pick fonts that fit my brand
+  use_case: "Look & feel"
+  description: |
+    A heading and body font pairing that suits your brand and reads well on phones and computers.
+  out: 450
+  body: |
+    Suggest two or three font pairings, one font for headings and one for regular text, that suit {{brand_personality}}. Stick to free fonts that load quickly and support {{languages_needed}}. Show me a sample heading and paragraph in each and wait for my pick. Then apply it across the whole site with comfortable sizes on phones and computers, and only clear out the old fonts once nothing uses them. Tell me what changed and which pages are worth a look.
+  vars: {brand_personality: "a friendly local yoga studio that feels calm but not sleepy", languages_needed: "English and Spanish, including accented letters"}
+- title: Make my text easier to scan
+  use_case: "Look & feel"
+  description: |
+    Clear heading sizes, comfortable line lengths and readable text, so people find what they need fast.
+  out: 450
+  body: |
+    My pages read like walls of text. Without rewriting my words, make them easier to scan: a clear size difference between page titles, section headings and regular text, comfortable space between lines, shorter lines on wide screens, and a comfortable reading size on phones. Where a section would really benefit from bullets or an extra subheading, suggest it and wait for my OK instead of editing the wording. Start with {{page_name}}, then tell me what changed so I can decide about the other pages.
+  vars: {page_name: "the Services page"}
+- title: Give my pages room to breathe
+  use_case: "Look & feel"
+  description: |
+    Even, consistent spacing and alignment so your pages look calm and tidy instead of cramped.
+  out: 450
+  body: |
+    My pages feel cramped and uneven, especially {{problem_areas}}. Settle on a small set of spacing sizes and use them everywhere: between sections, inside cards, around buttons, and between a heading and the text under it. Line things up along the same edges. Leave every word, picture and color as it is. Do one page first so I can see the difference, then the rest, and finish with a short list of what you adjusted.
+  vars: {problem_areas: "the services section, where the cards almost touch, and the footer"}
+# ── Phones, dark mode and access for everyone ─────────────────────────────
+- title: Make every page feel good on a phone
+  use_case: "Look & feel"
+  description: |
+    A phone-first pass over your whole site: readable text, easy taps, the right keyboards and nothing spilling sideways.
+  out: 550
+  body: |
+    Most of my visitors are on phones, so go through every page of my {{project_kind}} as if you were holding a small one. Text should be readable without zooming, buttons and links big enough to hit with a thumb, side-by-side content stacked neatly, and nothing should make the page scroll sideways. Forms should bring up the number keyboard for numbers and the email keyboard for email addresses. Leave the computer layout alone. Give me a page-by-page list of what you changed, and tell me how to preview a phone-sized screen on my computer.
+  vars: {project_kind: "online plant shop"}
+- title: Add a dark mode switch
+  use_case: "Look & feel"
+  description: |
+    A dark version of your site that follows each visitor's device setting, with a switch to change it.
+  out: 550
+  body: |
+    Add a dark mode to my {{app_kind}}. It should start out matching the setting on each visitor's phone or computer, offer a small switch in {{switch_location}}, and remember what they picked for next time. Choose dark colors that still feel like my brand rather than turning everything black, and give my logo and any pictures with white edges a version that sits well on a dark background. The current light version stays exactly as it is. List the colors you chose, and give me a short tour of the screens worth looking at in both versions.
+  vars: {app_kind: "recipe-sharing app", switch_location: "the top-right corner next to the menu"}
+- title: Make my site easier for everyone to use
+  use_case: "Look & feel"
+  description: |
+    Accessibility basics, so people who use screen readers, keyboards or larger text can use your site too.
+  out: 650
+  body: |
+    Check my site against the accessibility basics: enough contrast between text and background, a short description on every meaningful picture, a clear label on every form field, buttons that say what they do, and every part reachable with the keyboard alone, with a visible outline showing where you are. It should also hold together when someone turns their text size up. Start with {{where_to_start}}. Before fixing anything, give me a plain list of what you found, most important first. Keep the look as close to today's as you can, and when you're done, tell me two quick ways to test it myself.
+  vars: {where_to_start: "the home page, the booking form and the checkout"}
+- title: Make my tables readable on phones
+  use_case: "Look & feel"
+  description: |
+    Wide tables turned into something easy to read and compare on a small screen.
+  out: 450
+  body: |
+    My {{table_name}} looks fine on a computer, but on a phone it gets squeezed or runs off the side. Make it work on small screens, either by turning each row into a small card or by letting the table slide sideways with the first column staying put, whichever suits it better; explain your choice before you build it. On computers, add light shading on every other row and line numbers up on the right so they're easy to compare. Keep every column and every value. Tell me how to check it at phone size.
+  vars: {table_name: "price comparison table on the Plans page"}
+# ── Buttons, forms and messages ───────────────────────────────────────────
+- title: Make all my buttons match
+  use_case: "Look & feel"
+  description: |
+    One consistent set of button styles, with clear hover, pressed and disabled looks, used across your whole site.
+  out: 550
+  body: |
+    My buttons look different from page to page. Create one small set of styles based on {{main_color}}: a main button for the most important action on a screen, a quieter one for secondary actions, a plain text-style one, and a red one used only for actions that remove something. Each needs clear hover, pressed, disabled and keyboard-focus looks, and should be easy to tap on a phone. Then switch every existing button to the right style without changing what any button says or does. List any button where you weren't sure which style fits, so I can decide.
+  vars: {main_color: "our navy blue, #1E3A5F"}
+- title: Make my forms look clean
+  use_case: "Look & feel"
+  description: |
+    Neater forms with clear labels, roomy fields and an obvious highlight on the field you're typing in.
+  out: 450
+  body: |
+    Restyle {{form_name}} so it looks clean and feels easy to fill in: a label above each field rather than only gray hint text inside it, fields sized to fit what goes in them, even space between them, a clear outline around the field you're typing in, and one obvious button at the end. If most fields are required, mark the optional ones instead. Don't add, remove or rename any fields, and leave what happens after someone presses the button exactly as it is. Tell me what changed and how to try it.
+  vars: {form_name: "the catering request form"}
+- title: Clear messages after people do something
+  use_case: "Look & feel"
+  description: |
+    Consistent success, warning and error messages, so people always know whether something worked.
+  out: 500
+  body: |
+    When people {{actions}} in my app, it isn't clear whether it worked. Add one consistent style of message: green for success, amber for warnings and red for errors, each with an icon so the color isn't the only clue, and short, plain wording such as "Saved" or "That didn't work. Please try again." Success messages can fade away by themselves; error messages should stay until closed and say what to do next. Use the same style everywhere and leave what each action does unchanged. Tell me how to make each kind appear so I can see them.
+  vars: {actions: "save their profile, upload a photo or cancel a booking"}
+- title: Show progress while things load
+  use_case: "Look & feel"
+  description: |
+    Loading placeholders and busy buttons, so your app never looks frozen, blank or jumpy while it works.
+  out: 500
+  body: |
+    When my app is fetching things, like {{slow_places}}, the screen sits blank or jumps around when everything appears. Add gray placeholder shapes where the content will land, show a small spinner on a button while it's working and stop it being pressed twice, and keep the layout steady when the real content arrives. If something takes longer than a few seconds, show a short, reassuring line. This is only about what people see while they wait, so don't change how anything loads. Tell me how to slow things down on my computer to see it.
+  vars: {slow_places: "the order history page and the moment after someone presses Pay"}
+- title: Friendly screens for when there's nothing yet
+  use_case: "Look & feel"
+  description: |
+    Helpful empty screens that explain what will show up there and suggest the first thing to do.
+  out: 450
+  body: |
+    Some screens in my {{app_kind}} look bare or broken when there's nothing to show yet, such as {{empty_screens}}. Design a friendly empty screen for each: a simple picture or icon, one short line saying what will appear here, and a button for the obvious next step. Give them all the same style and match the rest of the app. Only change what appears when there's nothing to show. Tell me how to reach each empty screen so I can check it.
+  vars: {app_kind: "habit tracker app", empty_screens: "the habits list on a brand-new account, the weekly summary and a search with no matches"}
+- title: Friendly page-not-found screen
+  use_case: "Look & feel"
+  description: |
+    A helpful, on-brand screen for wrong addresses that gets lost visitors back on track.
+  out: 400
+  body: |
+    When someone goes to an address that doesn't exist on my site, they get a plain error. Design a friendly not-found page in my site's style: a short, kind message in a {{tone}} voice, links to {{helpful_links}}, and a clear button back to the home page. Keep the usual header and footer so it still feels like my site, and make sure search engines are still told the page is missing. Tell me how to see it by typing a made-up address.
+  vars: {tone: "light-hearted", helpful_links: "our menu, opening hours and the contact page"}
+# ── Pictures, icons and motion ────────────────────────────────────────────
+- title: Stronger top section on my home page
+  use_case: "Look & feel"
+  description: |
+    A redesigned first screen that says what you do in seconds and makes the main button impossible to miss.
+  out: 550
+  body: |
+    The first thing people see on my home page doesn't grab attention. We help {{who_we_help}} {{what_we_do}}. Redesign just that top section: a clear headline, one supporting line, one main button for {{main_action}}, and a picture or simple visual of what we offer, all visible without scrolling on a phone and on a laptop. Describe two layout options in words and let me choose before you build. The rest of the page stays as it is. Afterwards, tell me how to swap in my own picture.
+  vars: {who_we_help: "busy parents", what_we_do: "plan a week of dinners in five minutes", main_action: "starting a free trial"}
+- title: Put my logo in the right places
+  use_case: "Look & feel"
+  description: |
+    Your logo sized and placed properly in the header and footer, sharp on every screen and readable on dark backgrounds.
+  out: 400
+  body: |
+    I've added my logo to the project as {{logo_file_name}}. Put it top-left in the header, linking back to the home page, with a smaller version in the footer. Size it so it's clear but not overpowering on phones and computers, keep it sharp on high-resolution screens, and never stretch or squash it. If it gets lost on dark backgrounds, tell me and suggest a fix rather than editing the logo yourself. Give it a short text description for screen readers, and tell me anywhere else you think it belongs.
+  vars: {logo_file_name: "fern-and-fig-logo.svg"}
+- title: Make my photos look consistent
+  use_case: "Look & feel"
+  description: |
+    Photos that line up, crop neatly and share the same shape and corners across a page.
+  out: 450
+  body: |
+    The photos on {{page_name}} are all different shapes and sizes, so the page looks messy. Make them consistent: {{photo_shape}}, cropped so the important part stays in view, with matching corners and even gaps. Keep them sharp without making the page slower, and make sure they resize nicely on phones. Leave the original photo files untouched; if one simply won't fit the shape, ask me what to do. Tell me what you changed.
+  vars: {page_name: "Our Work", photo_shape: "square tiles in the gallery and wide banners at the top of each section"}
+- title: Text over photos that's easy to read
+  use_case: "Look & feel"
+  description: |
+    Headlines and buttons that stay readable when they sit on top of a busy photo.
+  out: 400
+  body: |
+    On {{photo_section}}, the words sit on top of a photo and are hard to read in places. Fix it with whichever looks best: a subtle dark or light tint over the photo, a soft shadow behind the words, or moving them to a calmer part of the image. Tell me which you chose and why. It has to stay readable on phones too, where the photo is cropped differently. Don't swap or edit the photo itself, and tell me how to check it at a few screen sizes.
+  vars: {photo_section: "the home page banner and the Events header"}
+- title: Add matching icons
+  use_case: "Look & feel"
+  description: |
+    One consistent icon set for your menus, buttons and feature lists, matched to your colors.
+  out: 400
+  body: |
+    Add icons to {{where_icons_go}}, all from one free, well-known icon set so they match in style and line thickness. Size them to sit neatly beside the text next to them and use my existing colors. Icons that are only decoration should be skipped by screen readers, and any button that shows only an icon needs a hidden label saying what it does. If the site already has some icons, ask before swapping them out. Then list where you added icons.
+  vars: {where_icons_go: "the feature list on the home page, the main menu and the contact details in the footer"}
+- title: Add gentle motion
+  use_case: "Look & feel"
+  description: |
+    A few small, tasteful animations that make your site feel polished without slowing anyone down.
+  out: 400
+  body: |
+    Add a few subtle animations to my site: {{where_to_add_motion}}. Keep each one quick, well under half a second, and gentle: no bouncing, spinning or anything that makes people wait before they can read or tap. Switch them off for visitors whose device is set to reduce motion. Don't animate anything beyond what I listed, and don't make pages slower to load. Tell me where you added motion and how to see each one.
+  vars: {where_to_add_motion: "sections fading in softly as you scroll, buttons lifting slightly when you hover, and the menu sliding open on phones"}
+# ── Special cases ─────────────────────────────────────────────────────────
+- title: Make my charts easy to read
+  use_case: "Look & feel"
+  description: |
+    Charts with plain titles, labeled numbers and colors everyone can tell apart, in light and dark mode.
+  out: 450
+  body: |
+    The charts on my {{dashboard_name}} are hard to read. Restyle them: a plain title saying what each chart shows, labeled sides with units, a few clearly different colors that also work for people with color blindness and in dark mode, faint grid lines, and the exact number shown on hover or tap. Remove clutter like heavy borders and 3D effects. Don't change any numbers or how they're worked out. Restyle one chart first for me to look at, then the rest, and tell me what changed.
+  vars: {dashboard_name: "sales dashboard"}
+- title: Make a page print nicely
+  use_case: "Look & feel"
+  description: |
+    A clean printed version of a page, without menus or buttons, that fits neatly on paper.
+  out: 350
+  body: |
+    People often print {{page_name}} from my site, and it comes out with menus, buttons and cut-off text. Add a print-friendly style that hides the menu, buttons and footer, uses black text on white, keeps {{must_keep_together}} on one sheet where possible, and shows my logo and web address at the top. On screen, the page should look exactly the same as before. Tell me how to open the print preview in my browser to check it.
+  vars: {page_name: "a recipe page", must_keep_together: "the ingredient list and the steps"}
+- title: Make my app's emails match my brand
+  use_case: "Look & feel"
+  description: |
+    Your app's automatic emails restyled with your logo and colors, and readable on any phone.
+  out: 500
+  body: |
+    The automatic emails my app sends, such as the {{which_kinds}}, look plain and unbranded. Restyle them with my logo, colors and fonts, one clear button for the main action, and a simple footer. Keep the layout simple so they look right in common email apps, on phones and in dark mode. Don't change who gets them, when they go out or what they say. While testing, use previews only so no real customer receives anything, and tell me how to preview each one.
+  vars: {which_kinds: "welcome, booking confirmation and receipt emails"}
