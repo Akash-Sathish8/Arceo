@@ -24,10 +24,10 @@ Two violations survive on purpose — `secret_access` (high) and `pii_access`
 does not recommend gating them. Narrate that; don't hide it. A second sweep
 after applying offers 0 new recommendations, so don't promise convergence.
 
-**The headline blast-radius number does NOT drop, by design.** `graph.py` defines
-`score` as the inherent capability ceiling; only `residual_score` responds to
-policy. The agent detail page renders the delta as "-41 from gates". The fleet
-card shows inherent, so it stays 95 CRITICAL.
+**The headline score DOES drop once policies are applied.** `graph.py` defines
+`score` as the one combined number (tools, deployment context, policies); the
+tools-only starting point is `inherent_score`. The agent detail page and the
+fleet card both show the combined score, so they move together.
 
 Idempotent: re-running re-registers the agent and DELETES every policy on it, so
 the agent is always returned to the "before" state. Run it before each rehearsal.

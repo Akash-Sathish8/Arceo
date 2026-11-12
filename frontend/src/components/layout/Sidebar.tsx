@@ -24,7 +24,6 @@ import {
   FlaskConical,
   GitBranch,
   GitCompare,
-  Siren,
   Settings as SettingsIcon,
   LogOut,
   PanelLeftClose,
@@ -111,7 +110,6 @@ export default function Sidebar({ drawer = false }: { drawer?: boolean }): React
     { id: "approvals", label: "Approvals", to: "/approvals", Icon: ShieldCheck,  group: "Monitor", badge: pendingCount > 0 ? pendingCount : undefined },
     { id: "history",   label: "History",   to: "/history",   Icon: Clock,        group: "Monitor" },
     { id: "spend",     label: "Spend",     to: "/spend",     Icon: Banknote,     group: "Monitor" },
-    { id: "incident",  label: "Incident replay", to: "/incident", Icon: Siren,     group: "Tools" },
     { id: "sandbox",   label: "Sandbox",   to: "/sandbox",   Icon: FlaskConical, group: "Tools" },
     { id: "workflows", label: "Workflows", to: "/workflows", Icon: GitBranch,    group: "Tools" },
     { id: "compare",   label: "Policy diff", to: "/compare", Icon: GitCompare,  group: "Tools" },
@@ -153,7 +151,7 @@ export default function Sidebar({ drawer = false }: { drawer?: boolean }): React
       // In the phone drawer, any link tap closes it, including the page you're already on.
       onClickCapture={drawer ? (e) => { if ((e.target as HTMLElement).closest("a")) setMobileOpen(false); } : undefined}
       className="shrink-0 h-screen flex flex-col bg-neutral-sunken font-body transition-[width] duration-200"
-      style={{ width: drawer ? "min(280px, 85vw)" : collapsed ? 72 : 256, height: drawer ? "100%" : undefined }}
+      style={{ width: drawer ? "min(280px, 85vw)" : collapsed ? 72 : 240, height: drawer ? "100%" : undefined }}
     >
       {/* Brand */}
       <div className={`flex items-center gap-2 ${collapsed ? "px-3 justify-center" : "px-5"} pt-6 pb-5`}>

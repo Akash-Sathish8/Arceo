@@ -28,7 +28,10 @@ class BlastRadius:
     sends_external: int
     changes_production: int
     irreversible_actions: int
-    score: float  # 0-100 — INHERENT: capability ceiling (what it COULD do)
+    # 0-100 — THE score: what the tools can do, adjusted for deployment context,
+    # reduced by the policies that gate it. With no context and no policies it
+    # equals inherent_score.
+    score: float
     # Enterprise-primitive counts — defaulted so any partial constructor stays
     # valid; always set by calculate_blast_radius. Serialized via asdict().
     changes_access: int = 0
@@ -38,6 +41,7 @@ class BlastRadius:
     executes_code: int = 0
     risk_breakdown: dict = field(default_factory=dict)
     # ── danger model (defaults keep every existing caller backward-compatible) ──
+    inherent_score: float = 0.0      # tools only — the starting point `score` adjusts from
     residual_score: float = 0.0      # after the agent's policies gate actions / break chains
     contextual_score: float = 0.0    # inherent × deployment-context multiplier
     magnitude_usd: float = 0.0       # worst-case per-incident $ across the agent's actions
@@ -457,14 +461,31 @@ def calculate_blast_radius(
         for (a, key, inh, res, usd) in top
     ]
 
+    # One score: policy-gated danger scaled by deployment context. Skip the
+    # re-cap at 1.0 so an above-knee score isn't compressed a second time.
+    combined = residual if ctx_mult == 1.0 else _soft_cap(residual * ctx_mult)
+
     # Band from the ROUNDED score + critical-chain floor. A critical chain forces
     # the band to at least medium even below 40 — so floor the DISPLAYED score to
     # the band minimum too, or a card reads "36 · MEDIUM" (score and band must
-    # agree). Only moves agents the critical-chain override elevated.
-    n_critical = sum(1 for fc in chain_list if fc.chain.severity == "critical")
-    band = score_band(round(inherent), n_critical)
+    # agree). Only moves agents the critical-chain override elevated. Both
+    # scores go through the same floor, so the gap between them is real — it
+    # used to be applied to inherent only, which showed a phantom "-3 after
+    # your policies" on agents with no policies at all.
     _band_floor = {"critical": 80, "high": 60, "medium": 40, "low": 0}
-    display_score = max(round(inherent), _band_floor[band])
+
+    def _display(raw: float, n_crit: int) -> tuple[int, str]:
+        b = score_band(round(raw), n_crit)
+        return max(round(raw), _band_floor[b]), b
+
+    n_critical = sum(1 for fc in chain_list if fc.chain.severity == "critical")
+    # A critical chain that policies have broken no longer props up the band.
+    n_critical_live = sum(
+        1 for fc in chain_list
+        if fc.chain.severity == "critical" and not (policies and _chain_broken(fc, policies))
+    )
+    inherent_display, _ = _display(inherent, n_critical)
+    display_score, band = _display(combined, n_critical_live)
 
     return BlastRadius(
         agent_id=agent.id,
@@ -496,6 +517,7 @@ def calculate_blast_radius(
             "bulk_export": bulk_export,
             "executes_code": executes_code,
         },
+        inherent_score=inherent_display,
         residual_score=round(residual),
         contextual_score=round(contextual),
         band=band,
