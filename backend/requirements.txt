@@ -4,7 +4,8 @@
 fastapi>=0.115.6,<0.116
 starlette>=0.40.0,<0.42.0
 uvicorn[standard]==0.52.1
-pydantic==2.9.2
+# mcp 1.x needs pydantic>=2.11 (2.9.2 was the old pin); full suite re-run clean on this.
+pydantic==2.14.3
 networkx>=3.6.1
 pyjwt>=2.13.0
 python-dotenv>=1.0.0
@@ -30,3 +31,9 @@ greenlet>=3
 redis>=8.1.0
 # Credential vault (Phase 2): AES-256-GCM envelope encryption.
 cryptography>=50.0.0
+# Prompts: the MCP server agents connect to (/mcp). Pinned to the 1.x line on purpose:
+# mcp 2.x renamed FastMCP to MCPServer and pulls httpx2/opentelemetry; 1.30.0 is the
+# newest release with mcp.server.fastmcp and works within fastapi<0.116/starlette<0.42.
+mcp==1.30.0
+# Prompts: Snowball English stemmer for prompt matching (pure Python, no deps).
+snowballstemmer==3.1.1

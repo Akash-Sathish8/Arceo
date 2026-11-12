@@ -104,7 +104,12 @@ async def lifespan(app: FastAPI):
     if not _snapshot_scheduler_disabled():
         import threading
         threading.Thread(target=_snapshot_scheduler_loop, daemon=True, name="snapshot-scheduler").start()
-    yield
+    # The prompts MCP server (/mcp) runs its session manager for the app's
+    # lifetime. Imported here, not at module top, because the prompt routers
+    # are imported further down this file.
+    from prompts.mcp_server import mcp_lifespan
+    async with mcp_lifespan():
+        yield
     # Shutdown: the scheduler is a daemon thread; it exits with the process.
 
 
@@ -129,7 +134,9 @@ async def _tenant_context(request: Request, call_next):
                 org = row.get("org_id") or "system"
         else:
             auth = request.headers.get("Authorization", "")
-            if auth.lower().startswith("bearer "):
+            # An Arceo Prompts agent connection key ("ap_...", /mcp) is not a JWT: the MCP
+            # endpoint checks it and sets the org itself, so it isn't a resolution failure.
+            if auth.lower().startswith("bearer ") and not auth[7:].strip().startswith("ap_"):
                 from auth import verify_token
                 payload = verify_token(auth[7:])
                 org = payload.get("org_id") or "system"
@@ -167,6 +174,14 @@ _RBAC_ADMIN_PREFIXES = (
 # routes carry an X-API-Key, not a bearer JWT, so they're skipped automatically.
 _RBAC_EXEMPT_PREFIXES = ("/api/auth/",)
 _MUTATING_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+# Writes anyone signed in may make to their OWN things, whatever their role: turning off
+# one of your own agent connections (the endpoint only ever touches the caller's own key,
+# and a viewer's key keeps working for reading until they turn it off).
+_RBAC_SELF_SERVICE = ((("DELETE",), re.compile(r"^/api/prompts/agent-tokens/[^/]+$")),)
+
+
+def _rbac_self_service(method: str, path: str) -> bool:
+    return any(method in methods and rx.match(path) for methods, rx in _RBAC_SELF_SERVICE)
 
 
 @app.middleware("http")
@@ -177,7 +192,7 @@ async def _rbac(request: Request, call_next):
     enforcement means no per-route miss — 'one miss is a hole'."""
     path = request.url.path
     if (request.method in _MUTATING_METHODS and path.startswith("/api/")
-            and not path.startswith(_RBAC_EXEMPT_PREFIXES)):
+            and not path.startswith(_RBAC_EXEMPT_PREFIXES) and not _rbac_self_service(request.method, path)):
         auth = request.headers.get("Authorization", "")
         # Agent auth takes precedence, exactly as every endpoint does
         # (verify_api_key FIRST, then bearer). A valid X-API-Key means this is a
@@ -790,6 +805,16 @@ def _snapshot_scheduler_loop():
                             f"{p['retention_days']}d")
         except Exception as e:  # noqa: BLE001 — scheduler must never die
             logger.warning(f"capture retention run failed: {e}")
+        try:
+            # Prompts sent to a coding agent (prompts/sends.py) can carry pasted customer
+            # content: they go KEEP_DAYS after they expire, whether or not anyone sends again.
+            from prompts.sends import purge_expired as _purge_prompt_sends
+            with get_db() as conn:
+                n = _purge_prompt_sends(conn)
+            if n:
+                logger.info(f"purged {n} expired prompt send(s)")
+        except Exception as e:  # noqa: BLE001 — scheduler must never die
+            logger.warning(f"prompt send retention run failed: {e}")
         time.sleep(_SNAPSHOT_POLL_SECONDS)
 
 
@@ -830,8 +855,12 @@ def cron_weekly_digest(request: Request):
 def cron_purge_llm_captures(request: Request):
     _require_cron_auth(request)
     from jobs.purge_llm_captures import purge_expired_captures
+    from prompts.sends import purge_expired as purge_prompt_sends
     with get_db() as conn:
-        return purge_expired_captures(conn)
+        out = purge_expired_captures(conn)
+        # The same daily retention sweep also drops expired prompt sends (prompts/sends.py).
+        out["prompt_sends_purged"] = purge_prompt_sends(conn)
+        return out
 
 
 @app.get("/api/internal/cron/purge-demo-orgs")
@@ -8367,13 +8396,26 @@ from prompts.workflow_router import router as _prompt_workflows_router  # noqa: 
 from prompts.battle_router import public_router as _battles_public_router  # noqa: E402
 from prompts.battle_router import router as _battles_router  # noqa: E402
 from prompts.workspace_router import router as _workspace_router  # noqa: E402
+from prompts.similar_router import router as _prompts_similar_router  # noqa: E402
+from prompts.similar_router import public_router as _prompts_similar_public_router  # noqa: E402
+from prompts.agent_router import router as _prompts_agent_router  # noqa: E402
+from prompts.mcp_server import mount_mcp as _mount_prompts_mcp  # noqa: E402
 
+# ⚠️ ORDER: these fixed paths (/api/prompts/similar, /agent-tokens, /sends) must
+# be registered BEFORE _prompts_router, whose GET/PUT/DELETE /api/prompts/{prompt_id}
+# would otherwise read "agent-tokens" or "sends" as a prompt id.
+app.include_router(_prompts_similar_router)
+app.include_router(_prompts_similar_public_router)
+app.include_router(_prompts_agent_router)
 app.include_router(_prompts_router)
 app.include_router(_prompts_public_router)
 app.include_router(_prompt_workflows_router)
 app.include_router(_battles_router)
 app.include_router(_battles_public_router)
 app.include_router(_workspace_router)
+# The agent-facing MCP endpoint, <api origin>/mcp. Registered here so it sits
+# before the SPA catch-all, which would otherwise answer GET /mcp with index.html.
+_mount_prompts_mcp(app)
 
 
 
