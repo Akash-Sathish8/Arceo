@@ -1,61 +1,34 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import Navbar from "../../components/Navbar";
-import Footer from "../../components/Footer";
-import PromptCards from "../../components/PromptCards";
-import SendPrompt from "../../components/SendPrompt";
-import { APP_URL, SEND_TARGETS, blankName, bodyParts, fetchPopular, variablesIn } from "../../lib/prompts";
+import Navbar from "@/components/Navbar";
+import Footer from "@/components/Footer";
+import PromptCards from "@/components/PromptCards";
+import SendPrompt from "@/components/SendPrompt";
+import { Button } from "@/components/ui/button";
+import { APP_URL, SEND_TARGETS, blankName, bodyParts, fetchPopular, variablesIn } from "@/lib/prompts";
+import { PROMPT_COUNT } from "@/lib/demo";
 
-/* Prompt library landing, written for people who use AI at work but don't
-   build software. The message: pick a ready-made prompt and send it to your
-   agent in one click. Same shell and tokens as /pricing. The example on the
-   right is the real Send box from the prompt pages, not a picture of one. */
+/* Prompt library landing, for people who use AI at work and don't build
+   software. The Send box on the right is the real one from the prompt pages. */
 
 export const metadata: Metadata = {
   title: "Prompts",
-  description: "Hundreds of ready-to-use AI prompts. Pick one and send it to Claude Code, Cursor, Lovable, ChatGPT and more in one click.",
+  description: `${PROMPT_COUNT} ready-made AI prompts for everyday work. Send one to Claude Code, Cursor, Lovable, ChatGPT and more with the text already typed in.`,
   alternates: { canonical: "/prompts" },
-};
-
-const agentPill: React.CSSProperties = {
-  display: "inline-flex", alignItems: "center", fontSize: 13, fontWeight: 500, lineHeight: 1.4, color: "var(--ink)",
-  background: "var(--ground-2)", border: "1px solid var(--rule)", borderRadius: "var(--r-pill)", padding: "4px 12px", whiteSpace: "nowrap",
 };
 
 const START_HREF = APP_URL ? `${APP_URL}/login?for=prompts` : "/book-demo";
 
 const STEPS = [
-  {
-    title: "Find a prompt",
-    body: "Search hundreds of ready-made prompts for everyday work and for building apps: answer an email, sum up a meeting, add a sign-up page, fix something that broke.",
-  },
-  {
-    title: "Fill in the blanks",
-    body: "Add your own details, like the email you got or the name of your business. No blanks? Skip this step.",
-  },
-  {
-    title: "Send to Claude Code, Cursor, Lovable, ChatGPT…",
-    body: "One click opens your agent or AI app with the prompt already typed in. Check it, then press Enter.",
-  },
+  { title: "Find a prompt", body: "Search by what you want done: answer an email, sum up a meeting, add a sign-up page, fix something that broke." },
+  { title: "Fill in the blanks", body: "Add your own details, like the email you got or the name of your business. Some prompts have none." },
+  { title: "Send it", body: "One click opens Claude Code, ChatGPT, Cursor, Lovable or another AI app with the prompt typed in. Check it, then press Enter." },
 ];
 
-const POINTS = [
-  {
-    title: "Not sure if it already exists?",
-    body: "We'll spot similar prompts before you add yours, so you never write the same one twice. If yours is new, it goes straight in.",
-  },
-  {
-    title: "Works with the AI you already use",
-    body: "Coding agents like Claude Code and Cursor, app builders like Lovable and Replit, and chat apps like ChatGPT and Claude. Or copy it and paste it anywhere.",
-  },
-  {
-    title: "Know what it costs",
-    body: "Each prompt shows roughly what it costs each time, and what that adds up to a month at the rate you use it.",
-  },
-  {
-    title: "A heads-up only when it matters",
-    body: "If a prompt could cause trouble, like a password left in by mistake, we tell you in plain words before you send it.",
-  },
+const NOTES = [
+  { title: "Duplicates are caught before you add one", body: "When you save a prompt, Arceo checks the library for one that does the same job and shows it to you first." },
+  { title: "Each prompt shows its cost", body: "Roughly what it costs each time, and what that adds up to in a month at the rate you use it." },
+  { title: "Warnings only when something is wrong", body: "If a prompt would expose a password or tell a coding agent to delete files, Arceo says so in plain words before you send it." },
 ];
 
 const EXAMPLE = {
@@ -70,78 +43,57 @@ export default async function PromptsPage() {
   return (
     <>
       <Navbar />
-      <main style={{ background: "var(--ground)", minHeight: "calc(100vh - 64px)" }}>
-        <section style={{ background: "var(--paper)", borderBottom: "1px solid var(--rule)", padding: "80px 0 64px" }}>
-          <div className="container" style={{ textAlign: "center" }}>
-            <span style={{
-              display: "inline-block", fontSize: 11, fontWeight: 700, color: "var(--ink)",
-              textTransform: "uppercase", letterSpacing: "0.12em", marginBottom: 16,
-            }}>Prompt library</span>
-            <h1 style={{ fontSize: "clamp(34px, 9vw, 52px)", fontWeight: 700, letterSpacing: "-0.02em", color: "var(--ink)", marginBottom: 16 }}>
-              Hundreds of <span style={{ whiteSpace: "nowrap" }}>ready-to-use</span> prompts
-            </h1>
-            <p style={{ fontSize: 18, color: "var(--muted)", lineHeight: 1.6, maxWidth: 560, margin: "0 auto 24px" }}>
-              Pick one, send it to your coding agent or AI app in one click.
-            </p>
-            <div style={{ display: "flex", gap: 12, justifyContent: "center", flexWrap: "wrap" }}>
-              <a href={START_HREF} className="btn-black">Start free</a>
-              <Link href="/book-demo" className="btn-outline">Talk to us</Link>
-            </div>
-            <p style={{ fontSize: 13, color: "var(--muted-2)", margin: "20px auto 0" }}>
-              Free during beta. No setup and no technical knowledge needed.
-            </p>
-            <div aria-label="Works with" style={{ display: "flex", gap: 8, justifyContent: "center", flexWrap: "wrap", marginTop: 28 }}>
-              <span style={{ fontSize: 13, color: "var(--muted)", alignSelf: "center", marginRight: 4 }}>Works with</span>
-              {agents.map((a) => (
-                <span key={a} style={agentPill}>{a}</span>
-              ))}
-              <span style={{ ...agentPill, background: "transparent", border: "1px solid transparent", color: "var(--muted)" }}>and more</span>
-            </div>
+      <main>
+        <section className="container-site pt-14 pb-14 sm:pt-20">
+          <div className="text-[14px] text-ink-3">Arceo Prompts</div>
+          <h1 className="mt-3 max-w-[16ch] text-[40px] font-semibold leading-[1.04] tracking-[-0.035em] text-ink sm:text-[60px]">
+            Prompts that already work, one click from your AI.
+          </h1>
+          <p className="mt-5 max-w-[580px] text-[17px] leading-relaxed text-ink-2">
+            {PROMPT_COUNT} ready-made prompts for email, meetings, support, marketing and building apps. Free while in beta,
+            and no technical knowledge needed.
+          </p>
+          <div className="mt-7 flex flex-wrap gap-3">
+            <Button asChild className="h-11 px-5 text-[15px]"><a href={START_HREF}>Open the library</a></Button>
+            <Button asChild variant="outline" className="h-11 bg-white px-5 text-[15px]"><Link href="/book-demo">Book a demo</Link></Button>
           </div>
+          <p className="mt-6 max-w-[760px] text-[13.5px] leading-relaxed text-ink-3">
+            Sends to {agents.join(", ")}. Or copy it and paste it anywhere.
+          </p>
         </section>
 
-        <section aria-labelledby="how-heading" style={{ padding: "64px 0 0" }}>
-          <div className="container">
-            <h2 id="how-heading" style={{ fontSize: "clamp(24px, 5vw, 30px)", fontWeight: 700, color: "var(--ink)", letterSpacing: "-0.01em", marginBottom: 20 }}>
-              How it works
-            </h2>
-            <ol className="prompts-steps" style={{ listStyle: "none", padding: 0, margin: 0 }}>
-              {STEPS.map((s, i) => (
-                <li key={s.title} style={{ background: "var(--paper)", borderRadius: "var(--r-lg)", padding: 22, boxShadow: "0 1px 4px rgba(0,0,0,0.05)" }}>
-                  <span aria-hidden style={{
-                    display: "inline-flex", alignItems: "center", justifyContent: "center", width: 28, height: 28,
-                    borderRadius: "var(--r-pill)", background: "var(--brand)", color: "#fff", fontSize: 13, fontWeight: 700, marginBottom: 12,
-                  }}>{i + 1}</span>
-                  <h3 style={{ fontSize: 17, fontWeight: 700, color: "var(--ink)", marginBottom: 6, lineHeight: 1.3 }}>{s.title}</h3>
-                  <p style={{ fontSize: 14, color: "var(--muted)", lineHeight: 1.65 }}>{s.body}</p>
-                </li>
-              ))}
-            </ol>
-          </div>
-        </section>
-
-        <section style={{ padding: "64px 0" }}>
-          <div className="container prompts-split" style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)", gap: 32, alignItems: "start" }}>
-            <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
-              {POINTS.map((p) => (
-                <div key={p.title}>
-                  <h2 style={{ fontSize: 18, fontWeight: 700, color: "var(--ink)", marginBottom: 6 }}>{p.title}</h2>
-                  <p style={{ fontSize: 14, color: "var(--muted)", lineHeight: 1.7 }}>{p.body}</p>
-                </div>
-              ))}
+        <section className="border-y bg-white">
+          <div className="container-site grid gap-12 py-14 sm:py-16 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+            <div>
+              <h2 className="text-[24px] font-semibold tracking-[-0.02em] text-ink">How sending works</h2>
+              <ol className="mt-6 flex flex-col gap-5">
+                {STEPS.map((s, i) => (
+                  <li key={s.title} className="flex gap-4">
+                    <span className="num flex size-7 shrink-0 items-center justify-center rounded-md border bg-page text-[13px] font-semibold text-ink">{i + 1}</span>
+                    <div>
+                      <div className="text-[15px] font-semibold text-ink">{s.title}</div>
+                      <p className="mt-1 text-[14px] leading-relaxed text-ink-3">{s.body}</p>
+                    </div>
+                  </li>
+                ))}
+              </ol>
+              <dl className="mt-10 flex flex-col gap-5 border-t pt-8">
+                {NOTES.map((n) => (
+                  <div key={n.title}>
+                    <dt className="text-[15px] font-semibold text-ink">{n.title}</dt>
+                    <dd className="mt-1 text-[14px] leading-relaxed text-ink-3">{n.body}</dd>
+                  </div>
+                ))}
+              </dl>
             </div>
 
-            <div style={{ display: "flex", flexDirection: "column", gap: 16, minWidth: 0 }}>
-              <div style={{ background: "var(--paper)", borderRadius: "var(--r-lg)", padding: 20, boxShadow: "0 1px 4px rgba(0,0,0,0.05)" }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: "var(--muted-2)", textTransform: "uppercase", letterSpacing: "0.08em" }}>Try one</div>
-                <div style={{ fontSize: 17, fontWeight: 700, color: "var(--ink)", marginTop: 8 }}>{EXAMPLE.title}</div>
-                <pre style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere", fontFamily: "inherit", fontSize: 14, lineHeight: 1.6, color: "var(--ink)", margin: "10px 0 0" }}>
+            <div className="flex min-w-0 flex-col gap-4">
+              <div className="rounded-lg border bg-page p-5">
+                <div className="text-[13px] text-ink-3">Try one</div>
+                <div className="mt-1 text-[16px] font-semibold text-ink">{EXAMPLE.title}</div>
+                <pre className="mt-3 whitespace-pre-wrap font-sans text-[14px] leading-relaxed text-ink [overflow-wrap:anywhere]">
                   {bodyParts(EXAMPLE.body).map((part, i) => part.blank
-                    ? (
-                      <mark key={i} style={{ background: "var(--amber-soft)", color: "var(--amber-ink)", border: "1px solid var(--amber-border)", borderRadius: "var(--r-xs)", padding: "0 4px", fontWeight: 600 }}>
-                        [{blankName(part.blank)}]
-                      </mark>
-                    )
+                    ? <mark key={i} className="rounded-sm border border-caution-line bg-caution-bg px-1 font-semibold text-caution">[{blankName(part.blank)}]</mark>
                     : <span key={i}>{part.text}</span>)}
                 </pre>
               </div>
@@ -151,24 +103,13 @@ export default async function PromptsPage() {
         </section>
 
         {popular.length > 0 && (
-          <section aria-labelledby="popular-heading" style={{ padding: "0 0 80px" }}>
-            <div className="container">
-              <h2 id="popular-heading" style={{ fontSize: "clamp(24px, 5vw, 30px)", fontWeight: 700, color: "var(--ink)", letterSpacing: "-0.01em", marginBottom: 20 }}>
-                Popular prompts
-              </h2>
-              <PromptCards prompts={popular} />
-            </div>
+          <section aria-labelledby="popular-heading" className="container-site py-14 sm:py-16">
+            <h2 id="popular-heading" className="mb-5 text-[24px] font-semibold tracking-[-0.02em] text-ink">Popular prompts</h2>
+            <PromptCards prompts={popular} />
           </section>
         )}
       </main>
       <Footer />
-      <style>{`
-        .prompts-steps { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
-        @media (max-width: 860px) {
-          .prompts-split { grid-template-columns: minmax(0, 1fr) !important; }
-          .prompts-steps { grid-template-columns: minmax(0, 1fr); }
-        }
-      `}</style>
     </>
   );
 }

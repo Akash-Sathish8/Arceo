@@ -1,172 +1,76 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import Link from "next/link";
-import { useScroll } from "motion/react";
+import { Menu } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { LogoWordmark } from "./Logo";
-import ScrollRail from "./ScrollRail";
+import { APP_URL } from "@/lib/site";
 
-/* Where "Sign In" points. In dev it falls back to the local Vite app; on a
-   production build with no NEXT_PUBLIC_APP_URL configured the link is hidden
-   entirely — a public site must never ship a localhost link. */
-const APP_URL =
-  process.env.NEXT_PUBLIC_APP_URL ??
-  (process.env.NODE_ENV === "development" ? "http://localhost:5173" : null);
-const BOOK_DEMO_HREF = "/book-demo";
+/* The site's top bar is the product's top bar: 64px, white with a blur,
+   one hairline underneath. */
 
-/* The main links, in the bar on desktop and in the menu on phones. */
-const NAV_LINKS = [
+const LINKS = [
   { href: "/prompts", label: "Prompts" },
-  { href: "/pricing", label: "Pricing" },
   { href: "/security", label: "Security" },
 ] as const;
 
 export default function Navbar() {
-  const [mobileOpen, setMobileOpen] = useState(false);
-  const [scrolled, setScrolled]     = useState(false);
-  const { scrollYProgress }         = useScroll();
-
-  useEffect(() => {
-    const onScroll = () => setScrolled(window.scrollY > 24);
-    window.addEventListener("scroll", onScroll, { passive: true });
-    return () => window.removeEventListener("scroll", onScroll);
-  }, []);
-
+  const [open, setOpen] = useState(false);
   return (
-    <header style={{
-      position: "sticky",
-      top: 0,
-      zIndex: 50,
-      width: "100%",
-      background: "rgba(255,255,255,0.85)",
-      backdropFilter: "blur(12px)",
-      WebkitBackdropFilter: "blur(12px)",
-      borderBottom: "1px solid var(--rule)",
-      boxShadow: scrolled ? "0 4px 18px rgba(17,24,39,0.08)" : "none",
-      transition: "box-shadow 0.3s",
-    }}>
-      {/* How far down a long page you are, drawn as one edge of the
-          authority graph rather than as a graphite bar. */}
-      <ScrollRail progress={scrollYProgress} />
-      <div style={{
-        width: "100%",
-        padding: "0 24px",
-        height: 64,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "space-between",
-        position: "relative",
-      }}>
-
-        {/* Logo */}
-        <a
-          href="/"
-          onClick={(e) => {
-            e.preventDefault();
-            if (window.location.pathname === "/") window.location.reload();
-            else window.location.href = "/";
-          }}
-          style={{ flexShrink: 0, textDecoration: "none", cursor: "pointer" }}
-          aria-label="arceo home"
-        >
-          <LogoWordmark height={26} />
-        </a>
-
-        {/* Center nav links — absolutely centered in the bar */}
-        <nav style={{
-          display: "flex", alignItems: "center", gap: 4,
-          position: "absolute", left: "50%", top: "50%",
-          transform: "translate(-50%, -50%)",
-        }} className="desktop-nav">
-          {NAV_LINKS.map((l) => (
-            <Link key={l.href} href={l.href} className="nav-link">{l.label}</Link>
-          ))}
-        </nav>
-
-        {/* Right actions */}
-        <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }} className="desktop-actions">
-          {APP_URL && (
-            <a href={`${APP_URL}/login`} className="nav-link">Sign In</a>
-          )}
-          <Link href={BOOK_DEMO_HREF} className="nav-cta">
-            Book a demo
+    <header className="sticky top-0 z-50 border-b bg-white/80 backdrop-blur-xl">
+      <div className="container-site flex h-16 items-center justify-between gap-6">
+        <div className="flex items-center gap-8">
+          <Link href="/" aria-label="Arceo home" className="rounded-sm">
+            <LogoWordmark height={17} title="Arceo" />
           </Link>
+          <nav aria-label="Main" className="hidden items-center gap-1 sm:flex">
+            {LINKS.map((l) => (
+              <Link key={l.href} href={l.href} className="rounded-md px-3 py-1.5 text-[14px] text-ink-2 transition-colors hover:bg-line-soft hover:text-ink">
+                {l.label}
+              </Link>
+            ))}
+          </nav>
         </div>
 
-        {/* Hamburger */}
-        <button onClick={() => setMobileOpen(!mobileOpen)}
-          style={{ display: "none", background: "none", border: "none", color: "var(--muted)", cursor: "pointer", padding: 6 }}
-          className="hamburger" aria-label="Menu">
-          <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
-            {mobileOpen ? <><path d="M4 4l12 12M16 4L4 16"/></> : <><path d="M3 6h14M3 10h14M3 14h14"/></>}
-          </svg>
-        </button>
+        <div className="hidden items-center gap-2 sm:flex">
+          {APP_URL && (
+            <Button asChild variant="ghost" className="h-9 px-3 text-[14px] font-normal text-ink-2">
+              <a href={`${APP_URL}/login`}>Sign in</a>
+            </Button>
+          )}
+          <Button asChild className="h-9 px-4 text-[14px]">
+            <Link href="/book-demo">Book a demo</Link>
+          </Button>
+        </div>
+
+        <Sheet open={open} onOpenChange={setOpen}>
+          <SheetTrigger asChild>
+            <Button variant="ghost" size="icon" className="size-9 sm:hidden" aria-label="Open menu">
+              <Menu className="size-5" />
+            </Button>
+          </SheetTrigger>
+          <SheetContent side="right" className="w-[280px] gap-0 p-0">
+            <SheetTitle className="flex h-16 items-center border-b px-5">
+              <LogoWordmark height={15} title="Arceo" />
+            </SheetTitle>
+            <nav aria-label="Mobile" className="flex flex-col p-3">
+              {LINKS.map((l) => (
+                <Link key={l.href} href={l.href} onClick={() => setOpen(false)} className="rounded-md px-3 py-2.5 text-[15px] text-ink hover:bg-line-soft">
+                  {l.label}
+                </Link>
+              ))}
+              {APP_URL && (
+                <a href={`${APP_URL}/login`} className="rounded-md px-3 py-2.5 text-[15px] text-ink hover:bg-line-soft">Sign in</a>
+              )}
+              <Button asChild className="mt-3 h-10 text-[15px]">
+                <Link href="/book-demo" onClick={() => setOpen(false)}>Book a demo</Link>
+              </Button>
+            </nav>
+          </SheetContent>
+        </Sheet>
       </div>
-
-      {/* Mobile menu */}
-      {mobileOpen && (
-        <div style={{
-          borderTop: "1px solid var(--rule)",
-          background: "rgba(255,255,255,0.98)",
-          backdropFilter: "blur(12px)",
-          padding: "12px 24px 20px",
-          display: "flex", flexDirection: "column", gap: 2,
-        }}>
-          {NAV_LINKS.map((l) => (
-            <Link key={l.href} href={l.href} onClick={() => setMobileOpen(false)}
-              style={{ fontSize: 15, fontWeight: 500, color: "var(--ink)", padding: "10px 4px" }}>
-              {l.label}
-            </Link>
-          ))}
-          {APP_URL && (
-            <a href={`${APP_URL}/login`}
-              style={{ fontSize: 15, fontWeight: 500, color: "var(--ink)", padding: "10px 4px" }}>
-              Sign In
-            </a>
-          )}
-          <div style={{ height: 1, background: "var(--rule)", margin: "8px 0" }} />
-          <Link href={BOOK_DEMO_HREF} className="nav-cta" style={{ justifyContent: "center", marginTop: 4 }}>
-            Book a demo
-          </Link>
-        </div>
-      )}
-
-      <style>{`
-        .nav-link {
-          font-size: 14px; font-weight: 500;
-          color: var(--muted);
-          padding: 8px 14px; border-radius: 999px;
-          transition: color 0.12s, background 0.12s;
-          text-decoration: none;
-        }
-        .nav-link:hover {
-          color: var(--ink);
-          background: var(--ground-2);
-        }
-        .nav-cta {
-          display: inline-flex; align-items: center; gap: 6px;
-          font-size: 13px; font-weight: 500;
-          color: #fff; background: var(--brand);
-          padding: 9px 20px; border-radius: 999px;
-          border: 1px solid transparent;
-          /* Was reaching for --color-1-400 / --color-1-700, which this design
-             system has never defined: the whole box-shadow was invalid and the
-             browser dropped it, so the button had no lift at all. */
-          box-shadow: var(--shadow-sm);
-          text-decoration: none; white-space: nowrap;
-          transition: background 0.15s, transform 0.1s, box-shadow 0.15s;
-        }
-        .nav-cta:hover {
-          background: var(--brand-hover);
-          transform: translateY(-1px);
-          box-shadow: var(--shadow-md);
-        }
-        @media (max-width: 768px) {
-          .desktop-actions { display: none !important; }
-          .desktop-nav { display: none !important; }
-          .hamburger { display: flex !important; }
-        }
-      `}</style>
     </header>
   );
 }

@@ -1,54 +1,21 @@
 import Link from "next/link";
 import { LogoWordmark } from "./Logo";
-
-/* Big on a desktop. The wordmark is 4.5x as wide as it is tall, so 96px of
-   height is ~430px of width, wider than a phone; .footer-mark (globals.css)
-   caps it at the container width and lets the height follow. */
-const FOOTER_MARK_HEIGHT = 96;
+import { APP_URL } from "@/lib/site";
 
 export default function Footer() {
   return (
-    <footer style={{ background: "var(--paper)", borderTop: "1px solid var(--rule)", position: "relative" }}>
-      {/* The official wordmark, full size, closing the page. It is the real
-          artwork rather than a font approximation, so the aqua bridge in the
-          E survives at display scale — that bridge is the mark's whole idea. */}
-      <div
-        className="footer-mark"
-        style={{
-          overflow: "hidden",
-          display: "flex",
-          justifyContent: "center",
-          padding: "56px 24px 0",
-          userSelect: "none",
-        }}
-      >
-        <LogoWordmark height={FOOTER_MARK_HEIGHT} title="Arceo" />
-      </div>
-
-      <div className="container" style={{
-        paddingBottom: 28,
-        paddingTop: 20,
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
-        gap: 12,
-      }}>
-        {/* Credibility line */}
-        <p style={{ fontSize: 13, fontWeight: 600, color: "var(--ink)", textAlign: "center", letterSpacing: "0.01em" }}>
-          Cost and risk for AI agents, before they go live · Built for CIOs and CFOs
-        </p>
-
-        {/* Footer links */}
-        <div style={{ display: "flex", alignItems: "center", gap: 20, flexWrap: "wrap", justifyContent: "center" }}>
-          <Link href="/prompts" style={{ fontSize: 12, color: "var(--muted-2)", textDecoration: "none" }}>Prompts</Link>
-          <Link href="/pricing" style={{ fontSize: 12, color: "var(--muted-2)", textDecoration: "none" }}>Pricing</Link>
-          <Link href="/security" style={{ fontSize: 12, color: "var(--muted-2)", textDecoration: "none" }}>Security</Link>
-          <Link href="/book-demo" style={{ fontSize: 12, color: "var(--muted-2)", textDecoration: "none" }}>Book a demo</Link>
+    <footer className="border-t bg-white">
+      <div className="container-site flex flex-col gap-6 py-10 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-4">
+          <LogoWordmark height={14} title="Arceo" />
+          <span className="text-[13px] text-ink-3">© {new Date().getFullYear()} Arceo</span>
         </div>
-
-        <span style={{ fontSize: 12, color: "var(--muted-2)" }}>
-          © {new Date().getFullYear()} Arceo. All rights reserved.
-        </span>
+        <nav aria-label="Footer" className="flex flex-wrap gap-x-6 gap-y-2 text-[14px] text-ink-2">
+          <Link href="/prompts" className="hover:text-ink">Prompts</Link>
+          <Link href="/security" className="hover:text-ink">Security</Link>
+          <Link href="/book-demo" className="hover:text-ink">Book a demo</Link>
+          {APP_URL && <a href={`${APP_URL}/login`} className="hover:text-ink">Sign in</a>}
+        </nav>
       </div>
     </footer>
   );

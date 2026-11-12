@@ -15,7 +15,7 @@ export default async function Image({ params }: { params: Promise<{ id: string }
   return new ImageResponse(
     (
       <div style={{ width: "100%", height: "100%", display: "flex", flexDirection: "column", justifyContent: "space-between", background: C.paper, padding: "64px 72px", fontFamily: "sans-serif" }}>
-        <div style={{ display: "flex", fontSize: 28, fontWeight: 700, color: C.ink, letterSpacing: "4px" }}>ARCEO · PROMPTS</div>
+        <div style={{ display: "flex", fontSize: 28, fontWeight: 700, color: C.ink, letterSpacing: "1px" }}>ARCEO · PROMPTS</div>
         <div style={{ display: "flex", fontSize: 64, fontWeight: 700, color: C.ink, lineHeight: 1.08, letterSpacing: "-2px", maxWidth: 1050 }}>
           {c ? (c.title.length > 80 ? `${c.title.slice(0, 79)}…` : c.title) : "Comparison not found"}
         </div>

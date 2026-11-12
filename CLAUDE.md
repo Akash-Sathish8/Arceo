@@ -340,23 +340,18 @@ Vite v8 + React 19 + TypeScript v6 + Tailwind v4 + React Query (configured but u
 
 Next.js 16 (Turbopack), React 19, TypeScript, Tailwind v4. Marketing site.
 
+Rebuilt 2026-11-12 (see `brain/Decisions/2026-11-12 Website remake (live).md`). shadcn (radix-nova, `components.json`) on the product's own tokens (zinc ink, #FAFAFA page, #2E2E2E primary, 6–8px radii, Inter). Light only, like the app.
+
 ### Routes (`app/`)
-- `page.tsx` — Landing: Navbar + Hero + ProblemStatement + HowItWorks + ProductVisual + FeatureRows + CTABanner + Footer
-- `book-demo/page.tsx` — Demo request form (mailto submit to `akakash.sathish@gmail.com`)
-- `layout.tsx` — Root layout, DM Sans, OG metadata
-- `globals.css` — Tailwind + `.fade-up`, `.btn-black`, `.btn-outline`, `.eyebrow`
-- `icon.svg` — Favicon
+- `page.tsx`: homepage = hero + `components/product/ProductWindow.tsx` (the app shell with Risk / Efficiency / Cost tabs, screens in `product/screens.tsx`) + a short close
+- `prompts/`, `p/[id]`, `c/[id]`: Arceo Prompts landing and public share pages (data via `lib/prompts.ts`)
+- `security/`, `book-demo/` (posts to `api/demo-request`)
+- `/pricing` was removed; `next.config.ts` redirects it to `/` (308)
 
-### Components (all in use)
-- `Navbar.tsx`, `Hero.tsx`, `ProblemStatement.tsx`, `HowItWorks.tsx`, `ProductVisual.tsx`, `FeatureRows.tsx`, `CTABanner.tsx`, `Footer.tsx`, `Logo.tsx`
-
-### `next.config.ts`
-- `turbopack.root = __dirname` — pinned to avoid workspace-root inference issues
-- Rewrites `/api/backend/*` → `${BACKEND_URL ?? "http://localhost:8000"}/api/*`
-
-### Critical behavior
-- `Hero.tsx` + `lib/useFadeIn.ts` have a `pageshow` listener that calls `window.location.reload()` on bfcache restore — fixes a Safari/Chrome bug where fade-in elements stuck at `opacity: 0` after browser back-navigation. **Do not undo this.**
-- Logo click force-reloads home. Internal links use Next.js `<Link>`. External (`Get Started` to the app) is plain `<a>`.
+### Rules
+- All demo figures live in `lib/demo.ts` (the window and the OG image read it); keep them internally consistent
+- No em dashes in user-facing copy, no scroll animations, no gradient/glass/pill styling; the 20 "AI tells" list is in the brain note above
+- `npm run lint` is broken (Next 16 removed `next lint`); `npm run build` type-checks
 
 ---
 

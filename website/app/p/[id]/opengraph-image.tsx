@@ -19,9 +19,9 @@ export default async function Image({ params }: { params: Promise<{ id: string }
     (
       <div style={{ width: "100%", height: "100%", display: "flex", flexDirection: "column", justifyContent: "space-between", background: C.paper, padding: "64px 72px", fontFamily: "sans-serif" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 18 }}>
-          <div style={{ display: "flex", fontSize: 28, fontWeight: 700, color: C.ink, letterSpacing: "4px" }}>ARCEO · PROMPTS</div>
+          <div style={{ display: "flex", fontSize: 28, fontWeight: 700, color: C.ink, letterSpacing: "1px" }}>ARCEO · PROMPTS</div>
           {p?.use_case && (
-            <div style={{ display: "flex", fontSize: 24, fontWeight: 600, color: C.muted, background: C.ground, borderRadius: 999, padding: "8px 20px" }}>
+            <div style={{ display: "flex", fontSize: 24, fontWeight: 600, color: C.muted, background: C.ground, borderRadius: 10, padding: "8px 20px" }}>
               {p.use_case.slice(0, 40)}
             </div>
           )}
@@ -34,12 +34,12 @@ export default async function Image({ params }: { params: Promise<{ id: string }
         </div>
         <div style={{ display: "flex", gap: 24 }}>
           {p && (
-            <div style={{ display: "flex", alignItems: "center", background: C.brand, borderRadius: 16, padding: "18px 26px" }}>
+            <div style={{ display: "flex", alignItems: "center", background: C.brand, borderRadius: 10, padding: "18px 26px" }}>
               <div style={{ display: "flex", fontSize: 30, fontWeight: 700, color: "#FFFFFF" }}>Send it to your agent in one click</div>
             </div>
           )}
           {h && (
-            <div style={{ display: "flex", alignItems: "center", gap: 12, background: C.ground, borderRadius: 16, padding: "18px 26px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 12, background: C.ground, borderRadius: 10, padding: "18px 26px" }}>
               <div style={{ display: "flex", fontSize: 30, fontWeight: 800, color: C.ink }}>{h.perMonth ?? `${runCost(h.perRun)} each time`}</div>
               <div style={{ display: "flex", fontSize: 24, color: C.muted }}>{`on ${h.model}`}</div>
             </div>

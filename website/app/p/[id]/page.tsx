@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
-import Navbar from "../../../components/Navbar";
+import Navbar from "@/components/Navbar";
+import { Button } from "@/components/ui/button";
 import Footer from "../../../components/Footer";
 import PromptCards from "../../../components/PromptCards";
 import PromptWarnings from "../../../components/PromptWarnings";
@@ -15,13 +16,6 @@ import {
 // warning only when one applies, what it costs, and similar prompts.
 
 type Props = { params: Promise<{ id: string }> };
-
-const card: React.CSSProperties = {
-  background: "var(--paper)", borderRadius: "var(--r-lg)", padding: 20, boxShadow: "0 1px 4px rgba(0,0,0,0.05)",
-};
-const label: React.CSSProperties = {
-  fontSize: 11, fontWeight: 700, color: "var(--muted-2)", textTransform: "uppercase", letterSpacing: "0.08em",
-};
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { id } = await params;
@@ -51,29 +45,27 @@ export default async function PromptPage({ params }: Props) {
   return (
     <>
       <Navbar />
-      <main style={{ background: "var(--ground)", minHeight: "calc(100vh - 64px)" }}>
-        <section className="container" style={{ padding: "56px 24px 80px", maxWidth: 1040 }}>
-          <span style={{ fontSize: 11, fontWeight: 700, color: "var(--muted-2)", textTransform: "uppercase", letterSpacing: "0.12em" }}>
-            Prompt{p.use_case ? ` · ${p.use_case}` : ""}
-          </span>
-          <h1 style={{ fontSize: "clamp(28px, 6vw, 40px)", fontWeight: 700, letterSpacing: "-0.02em", color: "var(--ink)", margin: "10px 0 8px", overflowWrap: "anywhere" }}>
+      <main className="min-h-[calc(100vh-64px)]">
+        <section className="container-site max-w-[1080px] pt-12 pb-20 sm:pt-16">
+          <div className="text-[13px] text-ink-3">Prompt{p.use_case ? ` · ${p.use_case}` : ""}</div>
+          <h1 className="mt-2 text-[30px] font-semibold leading-tight tracking-[-0.025em] text-ink [overflow-wrap:anywhere] sm:text-[40px]">
             {p.title}
           </h1>
           {(p.author_name || p.use_count > 0) && (
-            <p style={{ fontSize: 15, color: "var(--muted)", overflowWrap: "anywhere" }}>
+            <p className="mt-2 text-[15px] text-ink-3 [overflow-wrap:anywhere]">
               {[p.author_name && `By ${p.author_name}`, p.use_count ? `used ${p.use_count.toLocaleString("en-US")} ${p.use_count === 1 ? "time" : "times"}` : null].filter(Boolean).join(" · ")}
             </p>
           )}
-          {p.description && <p style={{ fontSize: 15, color: "var(--muted)", marginTop: 8, maxWidth: 640, lineHeight: 1.6, overflowWrap: "anywhere" }}>{p.description}</p>}
+          {p.description && <p className="mt-2 max-w-[640px] text-[15px] leading-relaxed text-ink-2 [overflow-wrap:anywhere]">{p.description}</p>}
 
-          <div className="share-grid" style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)", gap: 20, alignItems: "start", marginTop: 28 }}>
-            <div style={card}>
-              <div style={label}>The prompt</div>
-              <pre style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere", fontFamily: "inherit", fontSize: 14, lineHeight: 1.6, color: "var(--ink)", margin: "10px 0 0" }}>
+          <div className="mt-8 grid items-start gap-5 md:grid-cols-2">
+            <div className="rounded-lg border bg-white p-5 shadow-xs">
+              <h2 className="text-[15px] font-semibold text-ink">The prompt</h2>
+              <pre className="mt-3 whitespace-pre-wrap font-sans text-[14px] leading-relaxed text-ink [overflow-wrap:anywhere]">
                 {bodyParts(p.body).map((part, i) => part.blank
                   ? (
                     <mark key={i} title={`A blank: fill in the ${blankName(part.blank)}`}
-                      style={{ background: "var(--amber-soft)", color: "var(--amber-ink)", border: "1px solid var(--amber-border)", borderRadius: "var(--r-xs)", padding: "0 4px", fontWeight: 600 }}>
+                      className="rounded-sm border border-caution-line bg-caution-bg px-1 font-semibold text-caution">
                       [{blankName(part.blank)}]
                     </mark>
                   )
@@ -81,37 +73,36 @@ export default async function PromptPage({ params }: Props) {
               </pre>
             </div>
 
-            <div style={{ display: "flex", flexDirection: "column", gap: 20, minWidth: 0 }}>
+            <div className="flex min-w-0 flex-col gap-5">
               <PromptWarnings warnings={warnings} />
               <SendPrompt text={p.body} promptId={p.id} blanks={blanks} />
               {h && (
-                <div style={card}>
-                  <div style={label}>What it costs</div>
-                  <div style={{ fontSize: 28, fontWeight: 700, color: "var(--ink)", marginTop: 8, fontVariantNumeric: "tabular-nums" }}>{h.perMonth ?? runCost(h.perRun)}</div>
-                  <div style={{ fontSize: 13, color: "var(--muted)", marginTop: 4 }}>
+                <div className="rounded-lg border bg-white p-5 shadow-xs">
+                  <h2 className="text-[15px] font-semibold text-ink">What it costs</h2>
+                  <div className="num mt-2 text-[28px] font-semibold tracking-[-0.02em] text-ink">{h.perMonth ?? runCost(h.perRun)}</div>
+                  <div className="mt-1 text-[13px] text-ink-3">
                     {h.perMonth ? `Used ${p.runs_per_day} times a day on ${h.model} · ${runCost(h.perRun)} each time` : `each time, on ${h.model}`}
                   </div>
                 </div>
               )}
               {openHref && (
-                <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-                  <a href={openHref} className="btn-outline">Save it to your library</a>
-                  <a href={`${APP_URL}/login?for=prompts`} className="btn-outline">Browse more prompts</a>
+                <div className="flex flex-wrap gap-3">
+                  <Button asChild variant="outline" className="h-10 bg-white px-4 text-[14px]"><a href={openHref}>Save it to your library</a></Button>
+                  <Button asChild variant="outline" className="h-10 bg-white px-4 text-[14px]"><a href={`${APP_URL}/login?for=prompts`}>Browse more prompts</a></Button>
                 </div>
               )}
             </div>
           </div>
 
           {similar.length > 0 && (
-            <section aria-labelledby="similar-heading" style={{ marginTop: 48 }}>
-              <h2 id="similar-heading" style={{ fontSize: 20, fontWeight: 700, color: "var(--ink)", marginBottom: 14 }}>Similar prompts</h2>
+            <section aria-labelledby="similar-heading" className="mt-14">
+              <h2 id="similar-heading" className="mb-4 text-[20px] font-semibold tracking-[-0.01em] text-ink">Similar prompts</h2>
               <PromptCards prompts={similar} />
             </section>
           )}
         </section>
       </main>
       <Footer />
-      <style>{`@media (max-width: 860px) { .share-grid { grid-template-columns: minmax(0, 1fr) !important; } }`}</style>
     </>
   );
 }
