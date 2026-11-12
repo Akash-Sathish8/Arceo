@@ -1,0 +1,130 @@
+# SEALED prompt-match eval cases, quarter 4 (sorted corpus indices 177..236).
+#
+# Held back for the final honest check: do not fit weights, pick thresholds
+# or grow the lexicon against these. Same shape as prompt_similarity_cases_4.yaml.
+# Written without looking at the matcher's code, lexicon or weights.
+cases:
+
+- id: s4-release-notes-para-filled
+  target: Release notes
+  kind: paraphrase
+  expect: same
+  filled: true
+  query:
+    body: |-
+      Our dev team gave me this list of what shipped this month. Make it into notes our customers will actually want to read: put each item under New, Improved or Fixed, and start every line with how it helps them.
+
+      * Bulk edit for product prices
+      * Calendar sync now handles recurring bookings
+      * Fixed: receipts sometimes showed the wrong store address
+      * Checkout page loads in half the time
+
+- id: s4-review-reply-para-filled
+  target: Reply to an online review
+  kind: paraphrase
+  expect: same
+  filled: true
+  query:
+    title: Answer a 5-star Yelp review
+    body: |-
+      Write our public response to this 5-star Yelp review for Copper Kettle Bakery. Remember the people who read it are mostly future customers. Thank them, pick up on one specific thing they said, keep it under 80 words. (If it were a bad review I'd want an apology with no excuses and an invite to contact us privately, but this one's lovely.)
+
+      "The cardamom buns are the best thing in this town. Staff remembered my name on my second visit!"
+
+- id: s4-timeline-para-filled
+  target: Timeline from scattered notes
+  kind: paraphrase
+  expect: same
+  filled: true
+  query:
+    body: |-
+      Help me sort out what happened with our delivery van repair - I need a dated sequence of events, earliest first. For each: when (estimate with "about" if unsure), what happened, who was involved. Point out where my notes contradict each other on dates, and list any stretches where I don't know what happened.
+
+      - Garage invoice Jun 14: brake pads + rotors, $780
+      - My calendar Jun 3: dropped van at garage
+      - Text from garage Jun 6: "parts on order, maybe next Tues"
+      - Email Jun 12: garage says van ready Jun 10?? but invoice is dated 14th
+      - Note: picked up van, sometime that week
+
+- id: s4-search-box-para
+  target: Search box for my site
+  kind: paraphrase
+  expect: same
+  query:
+    title: Product search bar
+    body: |-
+      Put a search bar in the header of my shop so people can look up {{items}}. Show live suggestions as they type with the matching part highlighted; pressing Enter opens a full list of results. It should cope with small spelling mistakes. If there's nothing, don't leave a blank screen - say so kindly and suggest a couple of things. Before you start, explain your approach in a few plain sentences, change only what's needed for search, and tell me how to test it.
+
+- id: s4-color-scheme-para-terse
+  target: Suggest a color scheme for my brand
+  kind: paraphrase
+  expect: same
+  query:
+    body: |-
+      no brand colors yet. we're {{what_we_are}}, want it to feel {{vibe}}. give me 3 color combos (main, accent, background, text) w/ a sentence on why, preview each on my homepage without changing the real one, then apply the one I pick + tell me how to undo it
+
+- id: s4-sop-ext
+  target: SOP writer
+  kind: extended
+  expect: close
+  yours_only: [time estimate per step, version and review date line]
+  query:
+    title: SOP with timings
+    body: |-
+      Write a standard operating procedure for {{process}}. Include the purpose, owner, numbered steps with a rough time estimate for each, a checklist, and common mistakes. Add a line at the top with a version number and the date it should next be reviewed.
+
+- id: s4-tagline-ext
+  target: Tagline and slogan ideas
+  kind: extended
+  expect: close
+  yours_only: [Spanish version of the top two, which one suits a van or sign]
+  query:
+    body: |-
+      Suggest 12 tagline options for {{business_name}}, which {{what_we_do}} for {{audience}}. Group them into three styles: plain and clear, warm and friendly, and bold or playful. Keep each under 7 words and avoid cliches like "your one-stop shop". Finish by picking your top two and saying in one sentence each why they work, give a natural Spanish version of those two, and tell me which would read best painted on the side of a work van.
+
+- id: s4-video-script-trim
+  target: Script for a short video
+  kind: trimmed
+  expect: close
+  theirs_only: [numbered shots with what to film, say and show on screen]
+  query:
+    title: Short video script
+    body: |-
+      Write a script for a {{length}} vertical video for {{platform}} about {{idea}}, for {{business}}. Open with a hook that works in the first two seconds with the sound off, keep it doable with just a phone, and end with one simple thing for viewers to do next.
+
+- id: s4-summarize-article-trim
+  target: Summarize an article
+  kind: trimmed
+  expect: close
+  theirs_only: [Worth knowing detail, note if one-sided]
+  query:
+    body: |-
+      Summarize the article below for someone who doesn't have time to read it: the main point in one sentence, then 5 bullets with the key ideas in order of importance, keeping important numbers.
+      <article>{{article}}</article>
+
+- id: s4-summarize-article-hn-rebuttal
+  target: Summarize an article
+  kind: hard_negative
+  expect: none
+  query:
+    title: Letter to the editor
+    body: |-
+      The article below argues that the new downtown bike lanes hurt local shops. Write a letter to the editor, under 250 words, from a shop owner on that street who disagrees: open with the main point, use one or two numbers from the article itself, and keep the tone polite and local.
+      <article>{{article}}</article>
+
+- id: s4-win-back-hn-price-increase
+  target: Win back past customers
+  kind: hard_negative
+  expect: none
+  query:
+    body: |-
+      Write an email from {{business_name}} to our regular customers letting them know our prices go up by {{amount}} starting next month. Explain why in one or two honest sentences, thank them for sticking with us, and mention that anything booked before the change keeps the old price. Under 130 words, with a subject line.
+
+- id: s4-novel-trip-itinerary
+  target: null
+  kind: novel
+  expect: none
+  query:
+    title: Business trip plan
+    body: |-
+      I'm flying to Chicago for three days to meet two wholesale clients and visit a trade fair. Plan the trip day by day: when to arrive, which neighborhood to stay in to keep travel short, when to schedule the client dinners, and a short list of things to pack for meetings.

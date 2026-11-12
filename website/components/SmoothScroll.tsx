@@ -28,7 +28,7 @@ import Lenis from "lenis";
 
 const NAV = 72; // the sticky nav plus breathing room; same as globals.css
 const REST_MS = 260; // how long the page must be still before it settles
-const REACH = 0.5; // snap when a chapter top is within this fraction of the viewport
+const REACH = 1; // every chapter is one screen, so the nearest top is always within reach
 const easeOut = (t: number) => 1 - Math.pow(1 - t, 3);
 
 export default function SmoothScroll() {

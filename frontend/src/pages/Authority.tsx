@@ -10,6 +10,7 @@ import { apiFetch, getUser } from '@/lib/api'
 import { scoreBand, riskLabelName } from '@/lib/utils'
 import { fetchBatchSpendForecasts } from '@/lib/spendApi'
 import { recordAgentView, getAgentViewTimes } from '@/lib/recentViews'
+import GithubScanPanel from '@/components/connect/GithubScanPanel'
 import type { MockSpend } from '@/lib/mockSpend'
 import { toast } from '@/components/shared/Toast'
 import Tooltip from '@/components/shared/Tooltip'
@@ -156,6 +157,13 @@ function parseToolsText(toolsText: string) {
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
+const GITHUB_CONNECT_ERRORS: Record<string, string> = {
+  expired: 'That GitHub connection link expired. Start again from Connect GitHub.',
+  denied: 'GitHub access wasn\u2019t granted.',
+  state: 'That GitHub sign-in didn\u2019t match this browser session. Try again.',
+  vault: 'This server can\u2019t store GitHub connections yet. Ask your admin to set up the credential vault.',
+}
+
 export default function Authority() {
   const [searchParams, setSearchParams] = useSearchParams()
   const navigate = useNavigate()
@@ -192,7 +200,11 @@ export default function Authority() {
   // One close path for the Connect dialog: the X, the footer button, the scrim
   // and Esc. Declared with the other hooks — this component returns early for
   // its loading and error states, so a hook below those runs conditionally.
-  const closeConnect = useCallback(() => setShowCreate(false), [])
+  const closeConnect = useCallback(() => {
+    // A repo scan keeps running server-side; its agents land in the list when it ends.
+    if (githubBusyRef.current) toast('The repo scan keeps running. New agents will appear here when it finishes.')
+    setShowCreate(false)
+  }, [])
   useEffect(() => {
     if (!showCreate) return
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') closeConnect() }
@@ -231,31 +243,29 @@ export default function Authority() {
     }
   }, [connectMenuOpen])
   const [showConnectTabs, setShowConnectTabs] = useState(false)
+  // One open path for the Connect dialog: the header CTA and the ?connect=true
+  // deep link. Always lands on the tabbed view with Upload selected, even on
+  // an empty workspace (the template picker is no longer the entry screen).
+  const openConnect = useCallback(() => {
+    setShowCreate(true)
+    setAgentTab('agents')       // the connect form only renders on the Agents tab
+    setConnectTab('upload')
+    setShowConnectTabs(true)
+  }, [])
   const [uploadFileContent, setUploadFileContent] = useState('')
   const [uploadFilename, setUploadFilename] = useState('')
   const [uploadSubmitting, setUploadSubmitting] = useState(false)
   const [dragOver, setDragOver] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [uploadResult, setUploadResult] = useState<{ id: string; name: string; tools_count: number; actions_count: number; model: string; system_prompt: string } | null>(null)
-  const [githubUrl, setGithubUrl] = useState('')
-  const [githubScanning, setGithubScanning] = useState(false)
-  const [githubResult, setGithubResult] = useState<{
-    owner: string; repo: string; branch: string;
-    files_scanned: number; agents_detected: number; agents_registered: number;
-    results: { path: string; status: string; agent_id?: string; tools_count?: number; model?: string; error?: string }[]
-    // Coverage disclosure the backend already sends (candidate cap, max_files
-    // stop, rate-limited fetches, size skips) — apiFetch is a bare res.json(),
-    // so these are in the response at runtime; the type just didn't admit it.
-    truncated?: boolean; scan_notes?: string[]; fetch_errors?: number;
-    candidates_total?: number; candidates_scanned?: number;
-  } | null>(null)
+  const githubBusyRef = useRef(false)
+  const [githubJustConnected, setGithubJustConnected] = useState(false)
   const [bundledFiles, setBundledFiles] = useState<{ path: string; chars: number; truncated?: boolean }[]>([])
   const [bundling, setBundling] = useState(false)
   const [proxyName, setProxyName] = useState('')
   const connectFormRef = useRef<HTMLDivElement>(null)
   const [creating, setCreating] = useState(false)
   // MCP connect
-  const [, setShowMcpConnect] = useState(false)
   const [mcpUrl, setMcpUrl] = useState('')
   const [mcpAgentName, setMcpAgentName] = useState('')
   const [mcpConnecting, setMcpConnecting] = useState(false)
@@ -293,18 +303,31 @@ export default function Authority() {
     return () => clearInterval(interval)
   }, [])
 
+  // Remembered across the first-load tab decision below, so a login that
+  // lands here with ?connect=true keeps the form open on an empty workspace.
+  const connectRequestedRef = useRef(false)
+
   useEffect(() => {
     if (searchParams.get('connect') === 'true') {
-      setShowCreate(true)
-      setAgentTab('agents')       // the connect form only renders on the Agents tab
-      setConnectTab('upload')
+      connectRequestedRef.current = true
+      openConnect()
       setSearchParams({}, { replace: true })
-      setTimeout(
-        () => connectFormRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }),
-        100,
-      )
     }
-  }, [searchParams])
+    // Back from GitHub's "Connect GitHub" flow: reopen on the repo scan.
+    if (searchParams.get('connect') === 'github') {
+      connectRequestedRef.current = true
+      openConnect()
+      setConnectTab('github')
+      const err = searchParams.get('github_error')
+      if (searchParams.get('github') === 'connected') {
+        setGithubJustConnected(true)
+        toast('GitHub connected. Pick a repo to scan.')
+      } else if (err) {
+        toast(GITHUB_CONNECT_ERRORS[err] ?? 'Connecting GitHub didn\u2019t finish. Try again.', 'error')
+      }
+      setSearchParams({}, { replace: true })
+    }
+  }, [searchParams, openConnect])
 
   useEffect(() => {
     if (!loading && !animReadyRef.current) {
@@ -318,7 +341,7 @@ export default function Authority() {
   // completes; user's manual tab switches afterwards stay sticky.
   useEffect(() => {
     if (loading || initialTabRef.current) return
-    if (agents.length === 0) {
+    if (agents.length === 0 && !connectRequestedRef.current) {
       // Land on Overview for a first-run account, but leave the connect form
       // CLOSED — otherwise the header CTA reads "Cancel" over a hidden form.
       // The user opens it via the "Connect agent" button (which switches tabs).
@@ -444,36 +467,6 @@ export default function Authority() {
     }
   }
 
-  const handleGithubScan = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!githubUrl.trim()) {
-      toast('Enter a GitHub URL', 'error')
-      return
-    }
-    setGithubScanning(true)
-    setGithubResult(null)
-    try {
-      const data: typeof githubResult = await apiFetch('/api/authority/agents/extract-github', {
-        method: 'POST',
-        body: JSON.stringify({ url: githubUrl }),
-      })
-      setGithubResult(data)
-      // Branch on what was DETECTED, not what registered: 25 detected /
-      // 25 failed used to read "no agent files detected" and blame the repo.
-      if (data && data.agents_registered > 0) {
-        toast(`Registered ${data.agents_registered} agent${data.agents_registered !== 1 ? 's' : ''} from ${data.owner}/${data.repo}`)
-      } else if (data && data.agents_detected > 0) {
-        toast(`Detected ${data.agents_detected} agent file${data.agents_detected !== 1 ? 's' : ''} but we couldn't register them. Check the per-file results below.`, 'error')
-      } else {
-        toast("Scan finished, but we didn't find any agent files", 'error')
-      }
-      loadData()
-    } catch (err) {
-      toast((err as Error).message, 'error')
-    }
-    setGithubScanning(false)
-  }
-
   const handleUploadSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!uploadFileContent.trim()) {
@@ -490,6 +483,7 @@ export default function Authority() {
       setUploadResult(data)
       toast(`Extracted ${data!.tools_count} tools, ${data!.actions_count} actions`)
       loadData()
+      if (data?.id) navigate(`/agent/${data.id}`)
     } catch (err) {
       toast((err as Error).message, 'error')
     }
@@ -508,7 +502,6 @@ export default function Authority() {
       setMcpResult(data)
       setMcpUrl('')
       setMcpAgentName('')
-      setShowMcpConnect(false)
       toast(`Connected. We imported ${data.tools_imported} tool${data.tools_imported !== 1 ? 's' : ''}.`)
       loadData()
     } catch (err) {
@@ -618,9 +611,7 @@ export default function Authority() {
         actions={
           <button
             type="button"
-            onClick={() => {
-              setShowCreate(true); setShowMcpConnect(false); setAgentTab('agents')
-            }}
+            onClick={openConnect}
             className="btn btn--primary ag-btn"
           >
             <Plus size={16} strokeWidth={1.8} />
@@ -628,8 +619,6 @@ export default function Authority() {
           </button>
         }
       />
-
-      <SpendTrendCard />
 
       <div style={{ display: 'flex', gap: 26, borderBottom: '1px solid var(--line)', margin: '24px 0 26px' }}>
         {(agents.length === 0
@@ -821,7 +810,7 @@ export default function Authority() {
                 }}>RECOMMENDED</span>
               )
               const githubChildren: { id: ConnectTabId; label: string; sub: string }[] = [
-                { id: 'github', label: 'GitHub repo',   sub: 'Scan an entire repo at once' },
+                { id: 'github', label: 'Scan a repo',   sub: 'Every agent in a repo, public or private' },
                 { id: 'gha',    label: 'GitHub Action', sub: 'Re-scan on every PR' },
               ]
               const postChildren: { id: ConnectTabId; label: string; sub: string }[] = [
@@ -1068,75 +1057,12 @@ export default function Authority() {
           )}
 
           {connectTab === 'github' && (
-            <div className="space-y-4">
-              <p style={{ fontSize: 13, color: 'var(--text-secondary)', background: 'var(--bg-sunken)', borderRadius: 8, padding: '10px 14px', margin: 0 }}>
-                Arceo scans the repo and registers every agent it finds. One scan covers your whole fleet.
-              </p>
-              <form onSubmit={handleGithubScan} className="space-y-3">
-                <div>
-                  <label className="text-xs font-medium text-gray-700 block mb-1">GitHub repository URL</label>
-                  <Input
-                    type="url"
-                    value={githubUrl}
-                    onChange={(e) => setGithubUrl(e.target.value)}
-                    placeholder="https://github.com/your-company/your-agent-repo"
-                    style={{ height: 40 }}
-                  />
-                  <p className="text-[11px] text-gray-500 mt-1">
-                    Public repos only. Arceo picks files with LLM SDK calls (anthropic / openai / langchain) and runs Haiku extraction on each. Capped at 25 agents per scan.
-                  </p>
-                </div>
-                <Button type="submit" loading={githubScanning} disabled={githubScanning || !githubUrl.trim()} style={{ width: '100%', marginTop: 16 }}>
-                  {githubScanning ? 'Scanning repo…' : 'Scan and register all agents'}
-                </Button>
-                {githubResult && (() => {
-                  // Tone follows the outcome. This panel used to be green with
-                  // a hardcoded ✓ even when every detected file failed.
-                  const failedCount = githubResult.results.filter((r) => r.status !== 'registered' && r.status !== 'skipped').length
-                  const allFailed = githubResult.agents_detected > 0 && githubResult.agents_registered === 0
-                  const tone = allFailed ? 'red' : failedCount > 0 ? 'amber' : 'green'
-                  const paneClass = tone === 'red'
-                    ? 'mt-2 bg-red-50 border border-red-200 rounded-lg p-4 space-y-2 text-xs'
-                    : tone === 'amber'
-                    ? 'mt-2 bg-amber-50 border border-amber-200 rounded-lg p-4 space-y-2 text-xs'
-                    : 'mt-2 bg-green-50 border border-green-200 rounded-lg p-4 space-y-2 text-xs'
-                  const headClass = tone === 'red' ? 'font-semibold text-red-900' : tone === 'amber' ? 'font-semibold text-amber-900' : 'font-semibold text-green-900'
-                  const bodyClass = tone === 'red' ? 'text-red-800' : tone === 'amber' ? 'text-amber-800' : 'text-green-800'
-                  const scannedShort = (githubResult.candidates_scanned ?? 0) < (githubResult.candidates_total ?? 0)
-                  const showCoverage = Boolean(githubResult.truncated || scannedShort || (githubResult.fetch_errors ?? 0) > 0)
-                  return (
-                  <div className={paneClass}>
-                    <div className={headClass}>{allFailed ? '✗' : '✓'} {githubResult.owner}/{githubResult.repo} <span className="font-normal opacity-75">({githubResult.branch})</span></div>
-                    <div className={bodyClass}>
-                      Scanned <strong>{githubResult.files_scanned}</strong> files → detected <strong>{githubResult.agents_detected}</strong> with LLM SDK usage → registered <strong>{githubResult.agents_registered}</strong> agents.
-                    </div>
-                    {showCoverage && (
-                      <div className="bg-amber-50 border border-amber-200 rounded p-2 text-amber-900">
-                        Scanned {githubResult.candidates_scanned ?? githubResult.files_scanned} of {githubResult.candidates_total ?? githubResult.files_scanned} candidate files{(githubResult.fetch_errors ?? 0) > 0 ? `, ${githubResult.fetch_errors} fetches failed` : ''}. Results cover only what was scanned.
-                        {(githubResult.scan_notes ?? []).map((n, i) => (
-                          <div key={i} className="mt-1 text-[11px]">{n}</div>
-                        ))}
-                      </div>
-                    )}
-                    {githubResult.results.length > 0 && (
-                      <details className={bodyClass}>
-                        <summary className="cursor-pointer">Per-file results</summary>
-                        <div className="mt-2 bg-white rounded p-2 max-h-60 overflow-auto space-y-1">
-                          {githubResult.results.map((r, i) => (
-                            <div key={i} className="flex items-center gap-2 text-[11px]">
-                              <span style={{ width: 8, height: 8, borderRadius: 4, flexShrink: 0, background: r.status === 'registered' ? 'var(--safe)' : r.status === 'skipped' ? '#9ca3af' : 'var(--critical)' }} />
-                              <code className="font-mono text-gray-700 truncate flex-1">{r.path}</code>
-                              <span className="text-gray-500">{r.status === 'registered' ? `→ ${r.agent_id} (${r.tools_count} tools${r.model ? `, ${r.model}` : ''})` : r.status === 'skipped' ? 'skipped' : `failed: ${r.error}`}</span>
-                            </div>
-                          ))}
-                        </div>
-                      </details>
-                    )}
-                  </div>
-                  )
-                })()}
-              </form>
-            </div>
+            <GithubScanPanel
+              onScanned={loadData}
+              onClose={closeConnect}
+              onBusyChange={(busy) => { githubBusyRef.current = busy }}
+              justConnected={githubJustConnected}
+            />
           )}
 
           {connectTab === 'proxy' && (
@@ -1951,6 +1877,12 @@ export default function Authority() {
         </section>
         )
       })()}
+
+      {agents.length > 0 && (
+        <div style={{ marginTop: 32 }}>
+          <SpendTrendCard />
+        </div>
+      )}
 
       <AgentDrawer
         agent={drawerAgent}

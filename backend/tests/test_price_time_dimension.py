@@ -116,7 +116,10 @@ def test_backward_looking_callers_reprice_at_the_billed_rate():
 
     assert compute_month_to_date_spend(rows, now=datetime(2026, 8, 20)) == 2.00
 
-    series = compute_spend_timeseries(rows, days=30)
+    # The series always ends today, so reach back far enough to still include the
+    # fixed call date (a hard-coded 30 days stopped covering 2026-08-15 in mid-September).
+    days_back = (datetime.utcnow().date() - ts.date()).days + 2
+    series = compute_spend_timeseries(rows, days=max(30, days_back))
     day = next((d for d in series if d["date"] == "2026-08-15"), None)
     assert day is not None and day["usd"] == 2.00
 

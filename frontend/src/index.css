@@ -1,5 +1,4 @@
-@import '@fontsource-variable/schibsted-grotesk';
-@import '@fontsource-variable/manrope';
+@import '@fontsource-variable/inter';
 @import '@fontsource-variable/jetbrains-mono';
 @import "tailwindcss";
 
@@ -9,67 +8,70 @@
    Values mirror the :root tokens below (Tailwind's @theme cannot reference
    them via var()). New code should still prefer the tokens directly. */
 @theme {
-  --color-gray-50:  #f7f7f5;  /* --paper-2 */
-  --color-gray-100: #f1f1ef;  /* --line-soft */
-  --color-gray-200: #e9e9e7;  /* --line */
-  --color-gray-300: #d5d3cf;
-  --color-gray-400: #9b9a97;  /* --ink-400 */
-  --color-gray-500: #787774;  /* --ink-500 */
-  --color-gray-600: #6b6966;  /* --ink-600 */
-  --color-gray-700: #55534e;  /* --ink-700 */
-  --color-gray-800: #44423c;  /* --ink-800 */
-  --color-gray-900: #37352f;  /* --ink-900 */
-  --color-gray-950: #2b2a27;
-  --color-blue-50:  #EEF2FA;  /* --accent-soft */
-  --color-blue-100: #DDE5F4;
-  --color-blue-200: #CBD8EE;  /* --accent-line */
-  --color-blue-300: #9DB3DC;
-  --color-blue-400: #5578B8;
-  --color-blue-500: #0E3C90;  /* --accent — brand deep blue */
-  --color-blue-600: #092C6E;  /* --accent-ink */
-  --color-blue-700: #07245A;
-  /* Status scales aligned to the severity tokens so Tailwind classes like
-     text-red-600 / bg-amber-50 land exactly on --critical / --caution etc. */
-  --color-red-50:  #fbece8;  /* --critical-bg */
-  --color-red-100: #f8e0db;
-  --color-red-200: #f3d6cf;  /* --critical-line */
-  --color-red-300: #e9b6ad;
-  --color-red-400: #d76a5e;
-  --color-red-500: #c73a2f;
-  --color-red-600: #b3261e;  /* --critical */
-  --color-red-700: #99201a;
-  --color-red-800: #7f1b16;
-  --color-red-900: #691713;
-  --color-orange-50:  #fdf0e7;  /* --high-bg */
-  --color-orange-100: #fae3d2;
-  --color-orange-200: #f5d5bc;  /* --high-line */
-  --color-orange-300: #eeb28b;
-  --color-orange-400: #e37b3a;
-  --color-orange-500: #d9560f;  /* --high-ring */
-  --color-orange-600: #c2410c;  /* --high */
-  --color-orange-700: #a53709;
-  --color-orange-800: #872d08;
-  --color-orange-900: #6f2507;
-  --color-amber-50:  #f59e0b;  /* --caution-bg — brand amber fill */
-  --color-amber-100: #f6e8c9;
-  --color-amber-200: #f59e0b;  /* --caution-line — matches the fill, no outline */
-  --color-amber-300: #e3c286;
-  --color-amber-400: #f59e0b;  /* --caution-ring — brand amber */
-  --color-amber-500: #c07c08;
-  --color-amber-600: #9c6206;  /* --caution */
-  --color-amber-700: #7f5005;
-  --color-amber-800: #664104;
-  --color-amber-900: #533503;
-  --color-green-50:  #ecf7f2;  /* --safe-bg */
-  --color-green-100: #daefe6;
-  --color-green-200: #c3e3d5;  /* --safe-line */
-  --color-green-300: #8fd0b8;
-  --color-green-400: #35b394;
-  --color-green-500: #0e9b7d;  /* --safe-ring */
-  --color-green-600: #0b7f66;  /* --safe — brand aquamarine, readable member */
-  --color-green-700: #096a55;
-  --color-green-800: #07553f;
-  --color-green-900: #064534;
+  /* shadcn design system (2026-09-25): zinc neutrals, a near-black brand,
+     and the shadcn status scales. Tailwind's gray/blue/red/orange/amber/green
+     utilities land on the same tokens as the :root vars below, so the ~550
+     legacy `*-gray-*` / `*-blue-*` usages render in-system. */
+  --color-gray-50:  #FAFAFA;  /* neutral-secondary-soft */
+  --color-gray-100: #F4F4F5;  /* neutral-tertiary */
+  --color-gray-200: #E4E4E7;  /* border-default */
+  --color-gray-300: #D4D4D8;  /* border-default-strong */
+  --color-gray-400: #A1A1AA;  /* body-subtle */
+  --color-gray-500: #71717A;  /* body */
+  --color-gray-600: #52525B;
+  --color-gray-700: #3F3F46;
+  --color-gray-800: #27272A;
+  --color-gray-900: #18181B;
+  --color-gray-950: #09090B;  /* heading */
+  /* "blue" is the brand accent slot. The brand is near-black now. */
+  --color-blue-50:  #F5F5F5;  /* brand-softer */
+  --color-blue-100: #E5E5E5;  /* brand-soft */
+  --color-blue-200: #D4D4D4;  /* brand-medium */
+  --color-blue-300: #A3A3A3;
+  --color-blue-400: #525252;
+  --color-blue-500: #2E2E2E;  /* brand */
+  --color-blue-600: #1A1A1A;  /* brand-strong */
+  --color-blue-700: #0A0A0A;
+  --color-red-50:  #FEF2F2;  /* danger-soft */
+  --color-red-100: #FEE2E2;  /* danger-medium */
+  --color-red-200: #FECACA;  /* border-danger-subtle */
+  --color-red-300: #FCA5A5;
+  --color-red-400: #F87171;
+  --color-red-500: #EF4444;
+  --color-red-600: #DC2626;  /* danger */
+  --color-red-700: #B91C1C;  /* danger-strong */
+  --color-red-800: #991B1B;
+  --color-red-900: #7F1D1D;
+  --color-orange-50:  #FFF7ED;
+  --color-orange-100: #FFEDD5;
+  --color-orange-200: #FED7AA;
+  --color-orange-300: #FDBA74;
+  --color-orange-400: #FB923C;
+  --color-orange-500: #F97316;  /* accent orange */
+  --color-orange-600: #EA580C;
+  --color-orange-700: #C2410C;
+  --color-orange-800: #9A3412;
+  --color-orange-900: #7C2D12;
+  --color-amber-50:  #FFFBEB;  /* warning-soft */
+  --color-amber-100: #FEF3C7;  /* warning-medium */
+  --color-amber-200: #FDE68A;  /* border-warning-subtle */
+  --color-amber-300: #FCD34D;
+  --color-amber-400: #FBBF24;
+  --color-amber-500: #F59E0B;  /* warning */
+  --color-amber-600: #D97706;  /* warning-strong */
+  --color-amber-700: #B45309;
+  --color-amber-800: #92400E;  /* fg-warning */
+  --color-amber-900: #78350F;
+  --color-green-50:  #F0FDF4;  /* success-soft */
+  --color-green-100: #DCFCE7;  /* success-medium */
+  --color-green-200: #BBF7D0;  /* border-success-subtle */
+  --color-green-300: #86EFAC;
+  --color-green-400: #4ADE80;
+  --color-green-500: #22C55E;
+  --color-green-600: #16A34A;  /* success */
+  --color-green-700: #15803D;  /* success-strong */
+  --color-green-800: #166534;
+  --color-green-900: #14532D;
 }
 
 /* ── Google Stitch design system ─────────────────────────────────────
@@ -84,109 +86,99 @@
   /* Surfaces — the page is tinted and cards are pure white, which is what
      makes a Stitch screen read as cards floating rather than as regions
      divided by hairlines. */
-  --color-surface:                   #faf8ff;
-  --color-surface-dim:               #dad9e1;
-  --color-surface-bright:            #faf8ff;
-  --color-surface-container-lowest:  #ffffff;
-  --color-surface-container-low:     #f4f3fb;
-  --color-surface-container:         #eeedf5;
-  --color-surface-container-high:    #e8e7ef;
-  --color-surface-container-highest: #e2e2e9;
-  --color-surface-variant:           #e2e2e9;
-  --color-surface-tint:              #365aaf;
-  --color-background:                #faf8ff;
-  --color-on-background:             #1a1b21;
-  --color-on-surface:                #1a1b21;
-  --color-on-surface-variant:        #434652;
-  --color-inverse-surface:           #2f3036;
-  --color-inverse-on-surface:        #f1f0f8;
-  --color-outline:                   #747783;
-  --color-outline-variant:           #c4c6d3;
+  --color-surface:                   #FFFFFF;
+  --color-surface-dim:               #E4E4E7;
+  --color-surface-bright:            #FFFFFF;
+  --color-surface-container-lowest:  #FFFFFF;
+  --color-surface-container-low:     #FAFAFA;
+  --color-surface-container:         #F4F4F5;
+  --color-surface-container-high:    #F4F4F5;
+  --color-surface-container-highest: #E4E4E7;
+  --color-surface-variant:           #E4E4E7;
+  --color-surface-tint:              #2E2E2E;
+  --color-background:                #FAFAFA;
+  --color-on-background:             #09090B;
+  --color-on-surface:                #09090B;
+  --color-on-surface-variant:        #3F3F46;
+  --color-inverse-surface:           #18181B;
+  --color-inverse-on-surface:        #FAFAFA;
+  --color-outline:                   #71717A;
+  --color-outline-variant:           #E4E4E7;
 
-  /* Primary — deep blue, the Authority voice */
-  --color-primary:                   #002769;
-  --color-on-primary:                #ffffff;
-  --color-primary-container:         #0e3c90;
-  --color-on-primary-container:      #8dabff;
-  --color-inverse-primary:           #b2c5ff;
-  --color-primary-fixed:             #dae2ff;
-  --color-primary-fixed-dim:         #b2c5ff;
-  --color-on-primary-fixed:          #001848;
-  --color-on-primary-fixed-variant:  #174296;
+  /* Primary — the brand, near-black */
+  --color-primary:                   #2E2E2E;
+  --color-on-primary:                #FFFFFF;
+  --color-primary-container:         #1A1A1A;
+  --color-on-primary-container:      #FFFFFF;
+  --color-inverse-primary:           #D4D4D4;
+  --color-primary-fixed:             #F5F5F5;
+  --color-primary-fixed-dim:         #E5E5E5;
+  --color-on-primary-fixed:          #0A0A0A;
+  --color-on-primary-fixed-variant:  #2E2E2E;
 
-  --color-secondary:                 #006c52;
-  --color-on-secondary:              #ffffff;
-  --color-secondary-container:       #79f9ce;
-  --color-on-secondary-container:    #007258;
-  --color-secondary-fixed:           #79f9ce;
-  --color-secondary-fixed-dim:       #5adcb3;
-  --color-on-secondary-fixed:        #002117;
-  --color-on-secondary-fixed-variant:#00513d;
+  --color-secondary:                 #15803D;
+  --color-on-secondary:              #FFFFFF;
+  --color-secondary-container:       #DCFCE7;
+  --color-on-secondary-container:    #166534;
+  --color-secondary-fixed:           #DCFCE7;
+  --color-secondary-fixed-dim:       #BBF7D0;
+  --color-on-secondary-fixed:        #14532D;
+  --color-on-secondary-fixed-variant:#15803D;
 
-  --color-tertiary:                  #402500;
-  --color-on-tertiary:               #ffffff;
-  --color-tertiary-container:        #5e3900;
-  --color-on-tertiary-container:     #f19a04;
-  --color-tertiary-fixed:            #ffddb8;
-  --color-tertiary-fixed-dim:        #ffb95f;
-  --color-on-tertiary-fixed:         #2a1700;
-  --color-on-tertiary-fixed-variant: #653e00;
+  --color-tertiary:                  #92400E;
+  --color-on-tertiary:               #FFFFFF;
+  --color-tertiary-container:        #FEF3C7;
+  --color-on-tertiary-container:     #92400E;
+  --color-tertiary-fixed:            #FEF3C7;
+  --color-tertiary-fixed-dim:        #FDE68A;
+  --color-on-tertiary-fixed:         #78350F;
+  --color-on-tertiary-fixed-variant: #B45309;
 
-  --color-error:                     #ba1a1a;
-  --color-on-error:                  #ffffff;
-  --color-error-container:           #ffdad6;
-  --color-on-error-container:        #93000a;
+  --color-error:                     #DC2626;
+  --color-on-error:                  #FFFFFF;
+  --color-error-container:           #FEE2E2;
+  --color-on-error-container:        #991B1B;
 
   /* Brand + functional scales (identical to the :root tokens below —
      these are the Tailwind-class form of the same values) */
-  --color-aquamarine-ring:   #0E9B7D;
-  --color-aquamarine-text:   #0B7F66;
-  --color-aquamarine-tint:   #ECF7F2;
-  --color-aquamarine-border: #C3E3D5;
-  --color-amber-text:        #9C6206;
-  --color-amber-tint:        #f59e0b;
-  --color-graphite:          #1E2836;
+  --color-aquamarine-ring:   #16A34A;
+  --color-aquamarine-text:   #15803D;
+  --color-aquamarine-tint:   #F0FDF4;
+  --color-aquamarine-border: #BBF7D0;
+  --color-amber-text:        #92400E;
+  --color-amber-tint:        #FFFBEB;
+  --color-graphite:          #18181B;
   --color-severity-high:     #C2410C;
-  --color-severity-critical: #B3261E;
-  --color-neutral-primary:   #37352F;
-  --color-neutral-secondary: #787774;
-  --color-neutral-muted:     #9B9A97;
-  --color-neutral-border:    #E9E9E7;
-  /* The rail stays a cold neutral, one step off the page. Cyan lives on the
-     INTERACTIONS instead, which is where a colour earns its keep: hover takes
-     the pale wash from the spend graph, the selected item takes the saturated
-     cyan from the simulation canvas. Both carry dark text — white on the
-     selected pill is 2.0:1 and unusable. */
-  --color-neutral-sunken:    #e8e7f0;
-  --color-rail-primary:      #37352F;   /* 10.0:1 on the rail */
-  --color-rail-secondary:    #4c4a45;   /*  6.6:1 — the page default is 3.7:1 here */
-  --color-rail-muted:        #63615c;   /*  4.6:1 */
-  --color-rail-hover:        #e1f7f9;   /* spend-graph wash */
-  --color-rail-active:       #34c9d5;   /* simulation-canvas cyan */
-  --color-on-rail-active:    #0f2126;   /*  8.3:1 on it */
+  --color-severity-critical: #B91C1C;
+  --color-neutral-primary:   #09090B;
+  --color-neutral-secondary: #71717A;
+  --color-neutral-muted:     #A1A1AA;
+  --color-neutral-border:    #E4E4E7;
+  /* The rail: neutral-primary-soft with a border-default edge (sidebars.md).
+     Hover is neutral-secondary-medium, the active item neutral-secondary-strong
+     with fg-brand-strong text. */
+  --color-neutral-sunken:    #FFFFFF;
+  --color-rail-primary:      #09090B;
+  --color-rail-secondary:    #3F3F46;
+  --color-rail-muted:        #71717A;
+  --color-rail-hover:        #F4F4F5;
+  --color-rail-active:       #F4F4F5;
+  --color-on-rail-active:    #1A1A1A;
 
-  /* Charcoal bars that bracket a data table: the header row and the footer
-     summary. On a borderless, shadowless card the old --neutral-sunken bar was
-     within 1.03:1 of the page and read as nothing, so the table lost its frame
-     entirely. Graphite gives the table two hard edges instead. */
-  --color-bar-dark:          #1E2836;
-  --color-on-bar-dark:       #ffffff;   /* 14.9:1 */
-  --color-on-bar-dark-muted: #aab6c2;   /*  7.2:1 */
+  --color-bar-dark:          #18181B;
+  --color-on-bar-dark:       #FFFFFF;
+  --color-on-bar-dark-muted: #A1A1AA;
 
-  /* Typography — Stitch's eight named steps */
-  --font-display:         'Manrope Variable', 'Manrope', system-ui, sans-serif;
-  --font-page-title:      'Schibsted Grotesk Variable', 'Schibsted Grotesk', system-ui, sans-serif;
-  --font-card-title:      'Schibsted Grotesk Variable', 'Schibsted Grotesk', system-ui, sans-serif;
-  --font-body:            'Schibsted Grotesk Variable', 'Schibsted Grotesk', system-ui, sans-serif;
-  --font-meta:            'Schibsted Grotesk Variable', 'Schibsted Grotesk', system-ui, sans-serif;
-  --font-eyebrow:         'Schibsted Grotesk Variable', 'Schibsted Grotesk', system-ui, sans-serif;
-  /* Names kept so ported Stitch markup still matches; the family is Manrope. */
-  --font-monospace-data:  'Manrope Variable', 'Manrope', system-ui, sans-serif;
-  --font-monospace-label: 'Manrope Variable', 'Manrope', system-ui, sans-serif;
-  /* Tailwind's own `font-mono` utility. Pointed at the code stack so the two
-     ideas stop being one: `font-mono` on a curl snippet keeps a real monospace,
-     while every FIGURE goes through --font-num / .mono / font-monospace-* and
-     lands on Manrope. */
+  /* Typography — Inter everywhere (typography.md). Figures share the face
+     and rely on tabular-nums for alignment; code keeps a real monospace. */
+  --font-display:         'Inter Variable', 'Inter', system-ui, sans-serif;
+  --font-page-title:      'Inter Variable', 'Inter', system-ui, sans-serif;
+  --font-card-title:      'Inter Variable', 'Inter', system-ui, sans-serif;
+  --font-body:            'Inter Variable', 'Inter', system-ui, sans-serif;
+  --font-meta:            'Inter Variable', 'Inter', system-ui, sans-serif;
+  --font-eyebrow:         'Inter Variable', 'Inter', system-ui, sans-serif;
+  --font-monospace-data:  'Inter Variable', 'Inter', system-ui, sans-serif;
+  --font-monospace-label: 'Inter Variable', 'Inter', system-ui, sans-serif;
   --font-mono: 'JetBrains Mono Variable', 'JetBrains Mono', 'Fira Code', monospace;
 
   --text-display: 26px;
@@ -195,16 +187,16 @@
   --text-page-title: 21px;
   --text-page-title--line-height: 28px;
   --text-page-title--font-weight: 600;
-  --text-card-title: 16px;
-  --text-card-title--line-height: 24px;
-  --text-card-title--font-weight: 600;
+  --text-card-title: 18px;
+  --text-card-title--line-height: 26px;
+  --text-card-title--font-weight: 500;
   --text-body: 14px;
   --text-body--line-height: 20px;
   --text-meta: 12.5px;
   --text-meta--line-height: 18px;
   --text-eyebrow: 11px;
   --text-eyebrow--line-height: 16px;
-  --text-eyebrow--letter-spacing: 0.5px;
+  --text-eyebrow--letter-spacing: 0.4px;
   --text-eyebrow--font-weight: 600;
   --text-monospace-data: 14px;
   --text-monospace-data--line-height: 20px;
@@ -214,38 +206,28 @@
   --text-monospace-label--font-weight: 500;
 
   /* Spacing + shape */
-  --spacing-nav-width:         240px;
+  --spacing-nav-width:         256px;
   --spacing-container-padding: 24px;
   --spacing-stack-gap:         16px;
   --spacing-inline-gap:        12px;
   --spacing-section-margin:    32px;
 
-  /* Corners, tightened. A 12px radius on a full-width panel is the single
-     loudest "generated dashboard" tell; 5-6px reads as a drawn edge rather
-     than a rounded blob, and small elements go tighter still. */
-  --radius-sm: 0.125rem;   /* 2px  */
-  --radius-md: 0.25rem;    /* 4px  */
-  --radius-lg: 0.3125rem;  /* 5px  */
-  --radius-xl: 0.375rem;   /* 6px  */
-  --radius-2xl: 0.5rem;    /* 8px — the largest thing in the product */
+  /* Corners (radius.md): 8px base for buttons, cards, modals; 6px for
+     inputs, badges, small controls; 4px for checkboxes and tiny elements. */
+  --radius-sm: 0.25rem;    /* 4px  */
+  --radius-md: 0.375rem;   /* 6px  */
+  --radius-lg: 0.5rem;     /* 8px  */
+  --radius-xl: 0.5rem;     /* 8px  */
+  --radius-2xl: 0.5rem;    /* 8px — nothing in the product is rounder */
 }
 
 :root {
   /* ── Typography ──────────────────────────────────────────────── */
-  /* Schibsted Grotesk (self-hosted via @fontsource) is THE product font.
-     Manrope carries every FIGURE. No CDN fonts — index.html is clean.
-
-     Manrope is proportional, not monospace, so `tabular-nums` is not optional
-     here: it is the only thing keeping a column of dollar amounts aligned now
-     that the glyphs are no longer fixed-width. Every rule that sets --font-num
-     sets it too.
-
-     --font-code stays a true monospace and is used for ONE thing: literal code
-     the reader may copy (curl commands, JSON payloads). Proportional code
-     misaligns its own indentation, which is a different job from displaying a
-     number. */
-  --font-sans: 'Schibsted Grotesk Variable', 'Schibsted Grotesk', system-ui, -apple-system, sans-serif;
-  --font-num:  'Manrope Variable', 'Manrope', system-ui, -apple-system, sans-serif;
+  /* Inter (self-hosted via @fontsource) is THE product font, per the shadcn
+     design system. Figures use the same face with tabular-nums; --font-code
+     stays a true monospace for literal code the reader may copy. */
+  --font-sans: 'Inter Variable', 'Inter', system-ui, -apple-system, sans-serif;
+  --font-num:  'Inter Variable', 'Inter', system-ui, -apple-system, sans-serif;
   --font-code: 'JetBrains Mono Variable', 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
 
 
@@ -265,108 +247,68 @@
   /* Notion-style pass (2026-08-23): warm neutral ramp instead of the old
      cool blue-grays. Content-first, calm; severity colors stay the only
      loud voices on the page. */
-  --ink-900: #37352f;
-  --ink-800: #44423c;
-  --ink-700: #55534e;
-  --ink-600: #6b6966;
-  --ink-500: #787774;
-  --ink-400: #9b9a97;
-  --ink-300: #c9c7c4;
-  --ink-200: #e3e2df;
+  --ink-900: #09090B;   /* heading */
+  --ink-800: #18181B;
+  --ink-700: #3F3F46;
+  --ink-600: #52525B;
+  --ink-500: #71717A;   /* body */
+  --ink-400: #A1A1AA;   /* body-subtle */
+  --ink-300: #D4D4D8;   /* border-default-strong */
+  --ink-200: #E4E4E7;   /* border-default */
 
-  --paper:    #ffffff;
-  --paper-2:  #f7f7f5;
-  --card:     #ffffff;
-  --line:     #e9e9e7;
-  --line-soft:#f1f1ef;
+  --paper:    #FFFFFF;  /* neutral-primary-soft */
+  --paper-2:  #FAFAFA;  /* neutral-secondary-soft */
+  --card:     #FFFFFF;
+  --line:     #E4E4E7;  /* border-default */
+  --line-soft:#F4F4F5;  /* border-light */
 
-  /* ── Brand chromatics (2026-09-02, from the logo/branding working file) ──
-     The warm neutral ramp above is Ian's 2026-08-23 Notion pass and is
-     deliberately UNCHANGED — warm neutrals make a saturated blue and an
-     aquamarine read better than cool grays do. Only the colored voices moved.
+  /* ── Brand (shadcn design system, 2026-09-25) ──────────────────
+     The brand is near-black: #2E2E2E with #1A1A1A for hover and pressed,
+     #F5F5F5 / #E5E5E5 / #D4D4D4 as its soft tints. Colour is reserved for
+     status. Everything below that used to be blue, aquamarine or cyan now
+     resolves to zinc or to a shadcn status scale. */
+  --accent:        #2E2E2E;   /* brand */
+  --accent-ink:    #1A1A1A;   /* brand-strong — hover / pressed */
+  --accent-soft:   #F5F5F5;   /* brand-softer */
+  --accent-line:   #D4D4D4;   /* brand-medium / border-brand-subtle */
 
-       Deep blue  #0E3C90  Authority   structure + important statements
-       Aquamarine #7FFFD4  Controlled  approved or bounded outcomes
-       Amber      #F49D0A  Attention   review, uncertainty, decision moments
-       Graphite   #1E2836  Gravity     primary text + serious applications
+  /* Success — the shadcn success scale, in the old aquamarine slots. */
+  --aqua:      #DCFCE7;   /* success-medium: fills and chips */
+  --aqua-ink:  #16A34A;   /* success: rings, arcs, thin marks */
+  --aqua-deep: #15803D;   /* success-strong: text */
+  --aqua-soft: #F0FDF4;   /* success-soft */
+  --aqua-line: #BBF7D0;   /* border-success-subtle */
 
-     Graphite is the brand's INK, and this app's ink is Ian's warm #37352f, so
-     graphite lands only on genuinely dark surfaces (scrim, dark chips) rather
-     than fighting the ramp. */
+  /* Warning. --amber is the warning fill; --amber-ink the readable text. */
+  --amber:      #F59E0B;
+  --amber-ink:  #92400E;  /* fg-warning */
 
-  /* Accent — brand deep blue. Replaces Carolina blue (UNC PMS 542). */
-  --accent:        #0E3C90;   /* 10.16:1 on white */
-  --accent-ink:    #092C6E;   /* hover / pressed */
-  --accent-soft:   #EEF2FA;
-  --accent-line:   #CBD8EE;
+  /* The one dark surface tone. */
+  --graphite:   #18181B;
 
-  /* Aquamarine — Controlled. The brand file's teal became aquamarine
-     (2026-09-02). Aquamarine is intrinsically light: #7FFFD4 is 1.21:1 on
-     white, and this app has no dark rail to put it on, so it is a FILL here —
-     bars, meters, the aqua chip — while the darker members carry text. */
-  --aqua:      #7FFFD4;   /* fills and chips (warm ink on it = 10.02:1) */
-  --aqua-ink:  #0E9B7D;   /* rings, arcs, thin marks — 3.50:1, UI/large only */
-  --aqua-deep: #0B7F66;   /* text — 4.95:1 on white, 4.52:1 on --aqua-soft */
-  --aqua-soft: #ECF7F2;
-  --aqua-line: #C3E3D5;
+  /* The former "meaning-free" cyan family resolves to zinc: chart bands,
+     waiting states and canvas chrome read as neutral structure. */
+  --cyan-tint:  #F4F4F5;
+  --cyan-soft:  #E4E4E7;
+  --cyan:       #A1A1AA;
+  --cyan-ring:  #52525B;
+  --cyan-ink:   #3F3F46;
 
-  /* Amber — Attention. Brand amber fills; amber-ink is the readable sibling.
-     One definition: --caution-bg, --caution-line and --caution-ring all derive
-     from this, so the brand amber is changed in exactly one place. */
-  --amber:      #f59e0b;
-  --amber-ink:  #9C6206;  /* 5.04:1 on white */
+  /* Status bands (alerts.md / badges.md): soft background, subtle border,
+     strong text. Bands separate by hue; keep pairing them with the word. */
+  --safe:        #15803D; --safe-bg:     #F0FDF4; --safe-line:     #BBF7D0;
+  --caution:     #92400E; --caution-bg:  #FFFBEB;
+  --caution-line:  #FDE68A;
+  --on-caution:    #92400E;
+  --high:        #C2410C; --high-bg:     #FFF7ED; --high-line:     #FED7AA;
+  --critical:    #B91C1C; --critical-bg: #FEF2F2; --critical-line: #FECACA;
+  --safe-ring:     #16A34A;
+  --caution-ring:  #F59E0B;
+  --high-ring:     #EA580C;
+  --critical-ring: #DC2626;
 
-  /* Graphite — the one dark surface tone. */
-  --graphite:   #1E2836;
-
-  /* Cyan — the third brand colour, and the only one of the three that carries
-     NO meaning. Deep blue speaks authority, amber signals attention, and both
-     are spoken for; the severity scale and the aquamarine "controlled" tone are
-     spoken for too. Cyan is deliberately semantic-free, which is exactly what
-     lets it be used for warmth: chart series, empty and waiting states,
-     progress, and brand chrome. Never for state.
-
-     At 1.65:1 on white it can never be text on a light ground — it is a FILL.
-     --cyan-ink is its readable sibling (5.26:1) for the rare text case. */
-  --cyan-tint:  #e1f7f9;   /* wash behind a selected or waiting surface */
-  --cyan-soft:  #c4eff3;   /* secondary fill, chart bands */
-  --cyan:       #71d9e2;   /* the brand third colour */
-  --cyan-ring:  #34c9d5;   /* strokes, lines, focus */
-  --cyan-ink:   #1a777f;   /* 5.26:1 on white */
-
-  /* safe IS the brand's Controlled aquamarine and caution IS its Attention
-     amber, so two of the four bands now carry the brand's own assigned
-     meaning. Every text tone clears 4.5:1 on its own tint (verified
-     2026-09-02). Bands separate by HUE, not luminance — keep pairing them with
-     the number and the word. */
-  --safe:        #0b7f66; --safe-bg:     #ecf7f2; --safe-line:     #c3e3d5;
-  /* The caution SURFACE is the brand amber itself, not its pale tint. Amber
-     fills need a dark foreground: --caution (#9c6206) reads 2.3:1 on #f49d0a
-     and is unusable there, so anything sitting ON --caution-bg takes
-     --on-caution. --caution stays the text tone for amber-on-white. */
-  --caution:     #9c6206; --caution-bg:  var(--amber);
-  /* The amber fill carries no outline: a darker rule around a solid block just
-     muddies its edge. Borders drawn with --caution-line therefore disappear on
-     amber and read as a clean amber hairline on white. Both derive from
-     --caution-bg, so changing the fill changes everything with it. */
-  --caution-line:  var(--caution-bg);
-  --on-caution:    #1E2836;  /* graphite, 6.85:1 on brand amber */
-  /* High band (60-79) — added 2026-07-03. Orange-700 family: 5.4:1 on white,
-     distinct from both amber (medium) and red (critical). Replaces the
-     unreadable #fed7aa/#ea580c hardcodes. */
-  --high:        #c2410c; --high-bg:     #fdf0e7; --high-line:     #f5d5bc;
-  /* Critical sits one hue-step from high (orange) — deepened to crimson so the
-     pair separates (was #cf4636, ΔE 4 from --high; still a ramp, so critical
-     pills additionally use a FILLED treatment where they appear next to high). */
-  --critical:    #b3261e; --critical-bg: #fbece8; --critical-line: #f3d6cf;
-  /* Ring/score variants — slightly punchier than the text tones. */
-  --safe-ring:     #0e9b7d;
-  --caution-ring:  var(--amber);
-  --high-ring:     #d9560f;
-  --critical-ring: #ad2418;
-
-  /* No shadow anywhere. Separation is tonal: white card, tinted ground. */
-  --shadow-card-new: none;
+  /* Cards carry shadow-sm (cards.md); borders do the separating. */
+  --shadow-card-new: 0 1px 3px 0 rgb(0 0 0 / 0.08), 0 1px 2px -1px rgb(0 0 0 / 0.08);
 
   /* ── Surfaces ────────────────────────────────────────────────── */
   /* Aliased to handoff surfaces so legacy pages pick up the new palette.
@@ -377,22 +319,22 @@
      separate them from the page. White on the old #faf8ff is 1.05:1, which is
      invisible; this is Stitch's own `surface-container`, and at 1.16:1 a white
      card reads as a distinct plane with nothing drawn around it. */
-  --bg-page:          #eeedf5;
+  --bg-page:          #FAFAFA;  /* neutral-secondary-soft; cards are white with a border */
   --bg-card:          var(--card);
   --bg-sunken:        var(--paper-2);
-  --bg-overlay:       rgba(30, 40, 54, 0.52);
+  --bg-overlay:       rgba(0, 0, 0, 0.5);
 
   /* ── Sidebar ─────────────────────────────────────────────────── */
   /* Single source of truth for the rail — the component reads these.
      Light warm-gray rail (Notion-style) since the 2026-08-23 pass; the
      content area stays white so the rail reads as quiet chrome. */
-  --sidebar-bg:            #f7f7f5;
-  --sidebar-hover:         rgba(0, 0, 0, 0.04);
-  --sidebar-active:        rgba(0, 0, 0, 0.06);
-  --sidebar-border:        #e9e9e7;
-  --sidebar-text:          #6b6966;
-  --sidebar-text-active:   #37352f;
-  --sidebar-text-dim:      #9b9a97;
+  --sidebar-bg:            #FFFFFF;
+  --sidebar-hover:         #F4F4F5;
+  --sidebar-active:        #F4F4F5;
+  --sidebar-border:        #E4E4E7;
+  --sidebar-text:          #09090B;
+  --sidebar-text-active:   #1A1A1A;
+  --sidebar-text-dim:      #71717A;
 
   /* ── Borders ─────────────────────────────────────────────────── */
   /* Legacy names aliased to handoff tokens so non-redesigned pages
@@ -465,19 +407,23 @@
   /* ── Shadows ─────────────────────────────────────────────────── */
   /* Near-flat (Notion pass): hairline borders separate surfaces; elevation
      is reserved for things that genuinely float (popovers, menus). */
-  --shadow-sm:    none;
-  --shadow-md:    0 1px 2px rgba(15,15,15,0.04);
-  --shadow-hover: 0 2px 8px rgba(15,15,15,0.06);
-  --shadow-lg:    0 4px 12px rgba(15,15,15,0.08), 0 12px 32px rgba(15,15,15,0.10);
+  --shadow-2xs:   0 1px rgb(0 0 0 / 0.05);
+  --shadow-xs:    0 1px 2px 0 rgb(0 0 0 / 0.05);
+  --shadow-sm:    0 1px 3px 0 rgb(0 0 0 / 0.08), 0 1px 2px -1px rgb(0 0 0 / 0.08);
+  --shadow-md:    0 4px 6px -1px rgb(0 0 0 / 0.08), 0 2px 4px -2px rgb(0 0 0 / 0.08);
+  --shadow-hover: 0 4px 6px -1px rgb(0 0 0 / 0.08), 0 2px 4px -2px rgb(0 0 0 / 0.08);
+  --shadow-lg:    0 10px 15px -3px rgb(0 0 0 / 0.08), 0 4px 6px -4px rgb(0 0 0 / 0.08);
+  /* Button glint (buttons.md): inset top-edge highlight + soft outer glow. */
+  --color-1-400:  rgba(255,255,255,0.06);
+  --color-1-700:  rgba(0,0,0,0.04);
+  --btn-glint:    var(--shadow-2xs), inset var(--color-1-400) 0 6px 0px -5px, var(--color-1-700) 0 4px 10px -5px;
 
   /* ── Radii ───────────────────────────────────────────────────── */
-  --radius-sm:    2px;
-  /* Buttons carry their own corner so every action matches the reference
-     exactly (Tailwind `rounded`), independent of card radii. */
-  --radius-btn:   3px;
-  --radius-md:    4px;
-  --radius-lg:    5px;
-  --radius-xl:    6px;
+  --radius-sm:    4px;
+  --radius-btn:   8px;
+  --radius-md:    6px;
+  --radius-lg:    8px;
+  --radius-xl:    8px;
   --radius-full:  9999px;
 
   /* ── Chart series (forecast composition, fleet by-model) ─────── */
@@ -494,18 +440,16 @@
      tints of one blue, because two brand hues separate the slices at a glance
      where three tints of the same hue did not, and cyan carries no severity
      meaning, so a bigger "tools" slice never reads as a worse one. */
-  --chart-tokens:    #0E3C90;   /* largest slice — brand deep blue */
-  --chart-tools:     var(--cyan-ring);
-  --chart-infra:     var(--cyan-soft);
-  /* Categorical series (models, agents) where slices are peers, not a
-     part-to-whole ramp. Deliberately NOT the severity palette: a model name is
-     not a risk level, and painting Opus red said it was. */
-  --series-1:        #0E3C90;
-  --series-2:        var(--cyan-ring);
-  --series-3:        #5578B8;
-  --series-4:        var(--cyan-soft);
-  --series-5:        #9DB3DC;
-  --series-6:        var(--ink-400);
+  --chart-tokens:    #18181B;   /* largest slice — near-black */
+  --chart-tools:     #71717A;
+  --chart-infra:     #D4D4D8;
+  /* Categorical series: the brand black, then the shadcn accents, then zinc. */
+  --series-1:        #18181B;
+  --series-2:        #4F46E5;   /* indigo */
+  --series-3:        #0EA5E9;   /* sky */
+  --series-4:        #0D9488;   /* teal */
+  --series-5:        #A1A1AA;
+  --series-6:        #D4D4D8;
   --chart-grid:      var(--line-soft);
   --chart-axis:      var(--text-muted);
 }
@@ -526,6 +470,7 @@
 body {
   font-family: var(--font-sans);
   font-size: 14px;
+  line-height: 1.5;
   color: var(--text-primary);
   background: var(--bg-page);
   -webkit-font-smoothing: antialiased;
@@ -565,7 +510,6 @@ body {
 /* ── Button hover states ────────────────────────────────────────── */
 .btn-primary:hover:not(:disabled) {
   background: var(--color-cta-hover) !important;
-  box-shadow: 0 2px 8px rgba(14, 60, 144, 0.28);
 }
 .btn-secondary:hover:not(:disabled) {
   background: var(--bg-sunken) !important;
@@ -579,8 +523,7 @@ body {
   background: rgba(255,255,255,0.14) !important;
 }
 .btn-destructive:hover:not(:disabled) {
-  background: #c82828 !important;
-  box-shadow: 0 2px 8px rgba(229, 53, 53, 0.25);
+  background: #B91C1C !important;
 }
 
 /* ── Action buttons ───────────────────────────────────────────────────────
@@ -600,46 +543,54 @@ body {
   padding: 8px 16px;
   border-radius: var(--radius-btn);
   border: 1px solid transparent;
-  font-family: var(--font-monospace-label);
-  font-size: var(--text-monospace-label);
-  line-height: var(--text-monospace-label--line-height);
-  font-weight: var(--text-monospace-label--font-weight);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 20px;
+  font-weight: 500;
   letter-spacing: 0;
   white-space: nowrap;
   cursor: pointer;
   text-decoration: none;
-  transition: opacity 150ms ease, background 150ms ease, border-color 150ms ease;
+  box-shadow: var(--btn-glint);
+  transition: color 150ms ease, background 150ms ease, border-color 150ms ease;
 }
 .btn:disabled,
-.btn[aria-disabled="true"] { opacity: .5; cursor: not-allowed; }
-.btn:hover:not(:disabled):not([aria-disabled="true"]) { opacity: .9; }
+.btn[aria-disabled="true"] {
+  background: #F4F4F5; color: #A1A1AA; border-color: #E4E4E7;
+  box-shadow: none; cursor: not-allowed;
+}
+.btn:focus-visible { outline: none; }
 
 .btn--primary {
-  background: var(--color-primary);
-  color: var(--color-on-primary);
-  box-shadow: 0 1px 2px rgba(15, 15, 15, .05);
+  background: var(--accent);
+  color: #fff;
 }
+.btn--primary:hover:not(:disabled) { background: var(--accent-ink); }
+.btn--primary:focus-visible { box-shadow: var(--btn-glint), 0 0 0 3px #D4D4D4; }
 .btn--secondary {
-  background: var(--card);
-  color: var(--ink-700);
-  border-color: var(--line);
+  background: #F4F4F5;
+  color: var(--ink-500);
+  border-color: #E4E4E7;
 }
-.btn--secondary:hover:not(:disabled) { background: var(--bg-sunken); opacity: 1; }
-.btn--ghost { background: transparent; color: var(--ink-500); }
-.btn--ghost:hover:not(:disabled) {
-  background: var(--bg-sunken); color: var(--ink-900); opacity: 1;
-}
-.btn--danger { background: var(--critical); color: #fff; }
+.btn--secondary:hover:not(:disabled) { background: #E4E4E7; color: var(--ink-900); }
+.btn--secondary:focus-visible { box-shadow: var(--btn-glint), 0 0 0 3px #F4F4F5; }
+.btn--ghost { background: transparent; color: var(--ink-900); box-shadow: none; }
+.btn--ghost:hover:not(:disabled) { background: #F4F4F5; }
+.btn--ghost:focus-visible { box-shadow: 0 0 0 3px #F4F4F5; }
+.btn--danger { background: #DC2626; color: #fff; }
+.btn--danger:hover:not(:disabled) { background: #B91C1C; }
+.btn--danger:focus-visible { box-shadow: var(--btn-glint), 0 0 0 3px #FEE2E2; }
 /* Dark surfaces (the simulation canvas, the graphite panels). */
 .btn--on-dark {
   background: rgba(255, 255, 255, .08);
   color: #fff;
   border-color: rgba(255, 255, 255, .16);
+  box-shadow: none;
 }
-.btn--on-dark:hover:not(:disabled) { background: rgba(255, 255, 255, .16); opacity: 1; }
+.btn--on-dark:hover:not(:disabled) { background: rgba(255, 255, 255, .16); }
 
-.btn--sm { padding: 5px 12px; }
-.btn--lg { padding: 11px 22px; }
+.btn--sm { padding: 6px 12px; }
+.btn--lg { padding: 10px 24px; }
 .btn--block { width: 100%; }
 
 /* History table rows. A hairline hover, not a brightness filter — filtering
@@ -679,9 +630,10 @@ body {
 .ag-row:hover { background: var(--paper-2); }
 
 .ag-input { transition: border-color .14s ease, box-shadow .14s ease; }
+.ag-input:hover { border-color: var(--ink-300); }
 .ag-input:focus-within {
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-soft);
+  box-shadow: 0 0 0 1px var(--accent);
 }
 
 .ag-nav { transition: background .12s ease, color .12s ease; }
@@ -696,8 +648,8 @@ body {
 /* Command-palette keyboard selection — cmdk sets [data-selected] on arrow-key
    nav; without this the highlight is invisible (was faked via onMouseEnter). */
 [cmdk-item][data-selected="true"] {
-  background: var(--accent-soft);
-  color: var(--accent-ink);
+  background: #E4E4E7;
+  color: var(--ink-900);
 }
 
 /* Respect reduced-motion: damp transitions/animations for users who ask. */
@@ -734,7 +686,7 @@ summary:focus-visible {
   position: relative;
   overflow: hidden;
   background: var(--paper-2);
-  border-radius: 10px;
+  border-radius: 8px;
 }
 .skeleton::after {
   content: "";
@@ -1065,3 +1017,21 @@ summary:focus-visible {
   .sim-edge-flow, .sim-pulse { animation: none; }
   .sim-edge-flow { stroke-dasharray: none; }
 }
+
+/* ── shadcn cards (cards.md) ─────────────────────────────────────────
+   Every card surface in the product carries a 1px border-default edge and
+   shadow-sm. The two card idioms in the codebase are the Stitch
+   `bg-surface-container-lowest` and the older `bg-white rounded-xl`; both
+   pick the treatment up here so no page has to change. Elements that opt
+   out (dropdown menus float on shadow-md) add `.card-float`. */
+.bg-surface-container-lowest,
+.bg-white.rounded-xl,
+.panel-card,
+.panel-card--framed {
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow-sm);
+}
+.card-float { box-shadow: var(--shadow-md); }
+
+/* Sidebar (sidebars.md): white rail, border-default edge, 256px wide. */
+aside.bg-neutral-sunken { border-right: 1px solid var(--line); }

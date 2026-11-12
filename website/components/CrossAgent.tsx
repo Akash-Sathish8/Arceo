@@ -127,6 +127,13 @@ const FINAL = BEATS.length - 1;
 export default function CrossAgent() {
   const [ref, armed] = useArmed<HTMLElement>(0.25);
   const [step, setStep] = useState(0);
+  /* A beat the reader picked holds longer than one the loop reached, so a
+     click is a place to look rather than a frame that slips away. */
+  const [held, setHeld] = useState(false);
+  const pick = (i: number) => {
+    setStep(i);
+    setHeld(true);
+  };
 
   useEffect(() => {
     if (!armed) return;
@@ -134,9 +141,12 @@ export default function CrossAgent() {
       setStep(FINAL);
       return;
     }
-    const id = setTimeout(() => setStep((s) => (s + 1) % BEATS.length), BEATS[step]);
+    const id = setTimeout(() => {
+      setHeld(false);
+      setStep((s) => (s + 1) % BEATS.length);
+    }, held ? 8000 : BEATS[step]);
     return () => clearTimeout(id);
-  }, [armed, step]);
+  }, [armed, step, held]);
 
   const dispatching = step === 2;
   /* Both agents change at the same moment, because that is the finding: the
@@ -201,9 +211,17 @@ export default function CrossAgent() {
 
         <div className="xa-stage">
           <div className="xa-caption">
-            <span className="xa-beats" aria-hidden="true">
-              {NARRATION.map((_, i) => (
-                <span key={i} className={`xa-beat${i <= step ? " on" : ""}`} />
+            <span className="xa-beats" role="tablist" aria-label="Steps">
+              {NARRATION.map((label, i) => (
+                <button
+                  key={i}
+                  type="button"
+                  role="tab"
+                  aria-selected={i === step}
+                  aria-label={label}
+                  className={`xa-beat${i <= step ? " on" : ""}`}
+                  onClick={() => pick(i)}
+                />
               ))}
             </span>
             <span className="xa-caption-text" key={step}>
@@ -268,6 +286,9 @@ export default function CrossAgent() {
           border-bottom: 1px solid var(--rule);
         }
         .xa-beats { display: inline-flex; gap: 5px; flex-shrink: 0; }
+        .xa-beat { appearance: none; border: 0; padding: 0; cursor: pointer; }
+        .xa-beat:hover { transform: scaleY(1.6); }
+        .xa-beat:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
         .xa-beat {
           width: 18px; height: 3px; border-radius: 2px;
           background: var(--ground-3);

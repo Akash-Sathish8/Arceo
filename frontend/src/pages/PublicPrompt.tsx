@@ -1,0 +1,99 @@
+/**
+ * Public share page for one published prompt: /p/:promptId. No login, no
+ * sidebar. Shows the published version only: what it does, the text, a Send
+ * button, plain warnings when one applies, what it costs and similar prompts,
+ * so a founder can send a teammate or client one link.
+ */
+
+import { useEffect, useState } from "react"
+import { Link, useParams } from "react-router-dom"
+import { GitFork, Send } from "lucide-react"
+import LogoMark, { ArceoWordmark } from "@/components/shared/LogoMark"
+import ErrorState from "@/components/shared/ErrorState"
+import { Button } from "@/components/ui/Button"
+import { CostPanel } from "@/components/prompts/ScorePanels"
+import SendDialog from "@/components/prompts/SendDialog"
+import SendButton from "@/components/prompts/SendButton"
+import SimilarPrompts from "@/components/prompts/SimilarPrompts"
+import Warnings from "@/components/prompts/Warnings"
+import { CARD, EYEBROW } from "@/components/prompts/ui"
+import PromptText from "@/components/prompts/PromptText"
+import { isLoggedIn } from "@/lib/api"
+import { getPublicPrompt, type Prompt } from "@/lib/promptsApi"
+
+export default function PublicPrompt() {
+  const { promptId } = useParams()
+  const [p, setP] = useState<Prompt | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [using, setUsing] = useState(false)
+
+  useEffect(() => {
+    getPublicPrompt(promptId!).then(setP).catch((e: Error) => setError(e.message))
+  }, [promptId])
+
+  useEffect(() => {
+    if (p) document.title = `${p.title} · Prompts · Arceo`
+  }, [p])
+
+  const signedIn = isLoggedIn()
+  const forkHref = signedIn ? `/prompts/${promptId}` : "/login?for=prompts"
+
+  return (
+    <div style={{ minHeight: "100vh", background: "var(--bg-page)", fontFamily: "var(--font-sans)", color: "var(--ink-900)" }}>
+      <header style={{ display: "flex", alignItems: "center", gap: 8, padding: "18px clamp(16px, 4vw, 40px)", borderBottom: "1px solid var(--line)" }}>
+        <Link to="/" style={{ display: "flex", alignItems: "center", gap: 8, textDecoration: "none" }} aria-label="Arceo">
+          <LogoMark size={26} />
+          <ArceoWordmark height={12} />
+        </Link>
+        <span style={{ fontSize: "var(--fs-small)", color: "var(--ink-400)", marginLeft: 6 }}>Prompts</span>
+      </header>
+      <main style={{ maxWidth: 1080, margin: "0 auto", padding: "32px clamp(16px, 4vw, 40px) 64px" }}>
+        {error ? (
+          <ErrorState title="This prompt isn't available" message="It may have been unpublished, or the link is wrong." />
+        ) : !p ? (
+          <div className="skeleton" style={{ height: 30, width: 280 }} aria-busy="true" />
+        ) : (
+          <>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16, flexWrap: "wrap", marginBottom: 20 }}>
+              <div style={{ minWidth: 0 }}>
+                <h1 style={{ fontSize: "var(--fs-page)", fontWeight: 600, lineHeight: 1.2 }}>{p.title}</h1>
+                <p style={{ fontSize: "var(--fs-small)", color: "var(--ink-500)", marginTop: 5 }}>
+                  {p.author_name && p.author_id
+                    ? <Link to={`/u/${p.author_id}`} style={{ color: "var(--ink-700)" }}>By {p.author_name}</Link>
+                    : p.author_name && `By ${p.author_name}`}
+                  {[p.use_case, p.use_count ? `used ${p.use_count} ${p.use_count === 1 ? "time" : "times"}` : null].filter(Boolean).map((x) => ` · ${x}`)}
+                </p>
+                {p.description && <p style={{ fontSize: "var(--fs-small)", color: "var(--ink-600)", marginTop: 8, maxWidth: 620, lineHeight: 1.5 }}>{p.description}</p>}
+              </div>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                <Button icon={<Send size={14} />} onClick={() => setUsing(true)}>Send to…</Button>
+                <a href={forkHref} style={{ textDecoration: "none" }}>
+                  <Button variant="secondary" icon={<GitFork size={14} />}>Save a copy in Arceo</Button>
+                </a>
+              </div>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 420px), 1fr))", gap: 16, alignItems: "start" }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: 16, minWidth: 0 }}>
+                <Warnings prompt={p} compact />
+                <div style={CARD}>
+                  <div style={{ ...EYEBROW, marginBottom: 10 }}>The prompt</div>
+                  <PromptText body={p.body} />
+                </div>
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 16, minWidth: 0 }}>
+                <CostPanel cost={p.cost_summary} runsPerDay={p.runs_per_day} preferredModel={p.model} />
+              </div>
+            </div>
+            <div style={{ marginTop: 28 }}>
+              <SimilarPrompts promptId={p.id} publicView
+                renderAction={(m) => <SendButton promptId={m.id} title={m.title} compact signedIn={false} />} />
+            </div>
+          </>
+        )}
+      </main>
+      {using && p && (
+        <SendDialog prompt={p} signedIn={signedIn} onClose={() => setUsing(false)} />
+      )}
+    </div>
+  )
+}

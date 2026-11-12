@@ -1034,6 +1034,31 @@ def _call_cost_usd(
     )
 
 
+def price_call(
+    model: Optional[str], input_tokens: int, output_tokens: int, *,
+    cached_input: int = 0, org_id: Optional[str] = None, defaults: Optional[dict] = None,
+) -> dict:
+    """Public, forward-looking price of ONE call: the prompt-library entry point.
+
+    Wraps the private resolve + rate + cost helpers so callers outside this
+    module never reach for underscored names. Prices at the standing rate
+    (`at=None`), because a prompt score is about money not yet spent.
+
+    Returns {usd, model_key, match, verified_on}. `usd` is None unless the
+    model's price is VERIFIED (exact or dated-snapshot match). A family guess
+    must never print as a real per-run price.
+    """
+    defaults = defaults or load_defaults(org_id)
+    model_key, match = _resolve_model_pricing(model, defaults)
+    row = (defaults.get("models") or {}).get(model_key) or {}
+    usd = None
+    if match in ("exact", "prefix"):
+        usd = _call_cost_usd(int(input_tokens), int(cached_input), int(output_tokens),
+                             model_key, defaults)
+    return {"usd": usd, "model_key": model_key, "match": match,
+            "verified_on": row.get("verified_on")}
+
+
 def catalog_calibration_date(defaults: dict) -> Optional[str]:
     """The date to SHOW for "price catalog last calibrated" — the oldest thing
     behind the number, not the newest.

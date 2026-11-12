@@ -1,3 +1,4 @@
+import { ArceoMark, BRAND_INK } from "@/components/shared/LogoMark"
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Shield, ArrowRight, ArrowLeft, Check, Eye, EyeOff, AlertCircle } from 'lucide-react'
@@ -11,7 +12,9 @@ type AgentTypeId = 'support' | 'devops' | 'sales' | 'custom'
 interface AgentTypeOption { id: AgentTypeId; label: string; desc: string }
 interface AgentTemplate { name: string; description: string; tools: string }
 interface LoginResponse { token: string; user: User }
-interface DemoModeResponse { demo: boolean }
+interface DemoModeResponse { demo: boolean
+  open_login?: boolean
+}
 interface ToolAction { action: string; description: string; risk_labels: string[]; reversible: boolean }
 interface ToolDef { name: string; service: string; description: string; actions: ToolAction[] }
 
@@ -203,18 +206,12 @@ function NodeChip({ label, r }: { label: string; r: number }) {
   )
 }
 
-// ── Arceo logo — the broken O with the teal dash (brand mark) ──────────────
+// ── Arceo logo — the official E+O monogram, black ink ──────────────────────
 
 function ShieldLogo({ size = 52, color }: { size?: number; color?: string } = {}) {
-  // Explicit color (e.g. "#fff" on a dark tile) recolours the ring; the
-  // dash stays teal — it reads on both light and dark chrome.
-  const ring = color ?? "#63D2E0"
-  return (
-    <svg width={size} height={size} viewBox="0 0 32 32" fill="none" aria-hidden="true">
-      <path d="M7.39 12.81 A10.6 10.6 0 1 1 7.39 19.19" stroke={ring} strokeWidth="4.4" />
-      <rect x="2.2" y="13.8" width="6.3" height="4.4" fill="#13B7A3" />
-    </svg>
-  )
+  // `size` is the rendered width; the mark is 1.75x wider than tall, so
+  // the height follows. Pass color="#fff" for the reversed lockup.
+  return <ArceoMark height={size / 1.7515} ink={color ?? BRAND_INK} />
 }
 
 // ── Animated node graph ────────────────────────────────────────────────────
@@ -334,9 +331,14 @@ export default function Login() {
   const [autoLogging, setAutoLogging] = useState(false)
   const navigate = useNavigate()
 
+  // Open demo login: any credentials create a fresh, empty workspace. The page
+  // becomes one form and lands on the dashboard with Connect already open.
+  const [openLogin, setOpenLogin] = useState(false)
+
   useEffect(() => {
     apiFetch<DemoModeResponse>('/api/demo-mode', { skipLogoutOn401: true })
       .then((data) => {
+        if (data?.open_login) setOpenLogin(true)
         if (data?.demo) {
           setAutoLogging(true)
           apiFetch<LoginResponse>('/api/auth/login', {
@@ -359,6 +361,7 @@ export default function Login() {
   }
 
   const doLogin = async () => {
+    if (openLogin && !email.trim()) { setError('Enter any name or email to get a workspace'); return }
     setLoading(true); setError(null)
     const isDemo = !email.trim() || email.trim().toLowerCase() === 'demo'
     try {
@@ -369,7 +372,7 @@ export default function Login() {
       })
       setToken(data.token); setUser(data.user); markDemoSession(isDemo)
       if (isDemo) toast('Signed in to the shared demo account')
-      navigate('/')
+      navigate(openLogin ? '/?connect=true' : '/')
     } catch (err) {
       // 401 is genuinely bad credentials; anything else (network, 500, rate
       // limit) must surface its real message, not a misleading "wrong password".
@@ -629,10 +632,10 @@ export default function Login() {
 
         {/* Headline */}
         <h1 style={{ fontFamily: dmSans, fontSize: '30px', fontWeight: 700, color: '#111827', textAlign: 'center', margin: '0 0 10px', letterSpacing: '-0.5px', lineHeight: 1.2 }}>
-          Welcome back
+          {openLogin ? 'Try Arceo' : 'Welcome back'}
         </h1>
         <p style={{ fontFamily: dmSans, fontSize: '15px', color: '#6b7280', textAlign: 'center', margin: '0 0 34px', lineHeight: 1.5 }}>
-          Sign in to access your dashboard
+          {openLogin ? 'Any email and password works. You get a fresh, empty workspace.' : 'Sign in to access your dashboard'}
         </p>
 
         {/* Error */}
@@ -700,6 +703,7 @@ export default function Login() {
         </form>
 
         {/* Sign up link */}
+        {!openLogin && (
         <p style={{ textAlign: 'center', fontSize: '14px', color: '#6b7280', margin: '24px 0 0', fontFamily: dmSans }}>
           Don&apos;t have an account?{' '}
           <button
@@ -710,8 +714,10 @@ export default function Login() {
             Sign up
           </button>
         </p>
+        )}
 
         {/* Demo */}
+        {!openLogin && (
         <button
           type="button"
           onClick={doLogin}
@@ -722,6 +728,7 @@ export default function Login() {
         >
           Try demo account
         </button>
+        )}
 
       </div>
     </div>

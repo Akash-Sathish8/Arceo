@@ -8,7 +8,7 @@
  */
 
 import { useEffect, useRef, useState } from "react";
-import { X, FlaskConical, AlertTriangle, Lock, Link2, TrendingUp, DollarSign } from "lucide-react";
+import { X, FlaskConical, AlertTriangle, TrendingUp, DollarSign } from "lucide-react";
 import { Link } from "react-router-dom";
 import { apiFetch } from "@/lib/api";
 import RiskRing from "@/components/shared/RiskRing";
@@ -360,101 +360,65 @@ export default function AgentDrawer({
             </div>
           )}
 
-          {/* Worst-case callout */}
+          {/* Worst case. A plain bordered card, not a tinted alert: the numbers
+              carry the weight, the amber is one hairline on the left. */}
           {(unguarded || a.critical > 0) && (
             <div
               style={{
-                background: "var(--caution-bg)",
-                border: "1px solid var(--caution-line)",
-                borderRadius: 12,
-                padding: 18,
+                background: "var(--paper)",
+                border: "1px solid var(--line)",
+                borderLeft: "3px solid var(--caution-ring)",
+                borderRadius: 8,
                 marginTop: 18,
+                overflow: "hidden",
               }}
             >
               <div
                 style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 8,
-                  fontSize: 13.5,
-                  fontWeight: 700,
-                  color: "#8a5a12",
-                  whiteSpace: "nowrap",
+                  padding: "10px 16px",
+                  borderBottom: "1px solid var(--line)",
+                  fontSize: 11,
+                  fontWeight: 600,
+                  letterSpacing: 0.4,
+                  textTransform: "uppercase",
+                  color: "var(--ink-500)",
                 }}
               >
-                <AlertTriangle size={16} strokeWidth={1.8} /> Worst-case scenario
+                Worst case
               </div>
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "baseline",
-                  gap: 8,
-                  fontSize: 13,
-                  color: "var(--ink-700)",
-                  marginTop: 12,
-                  lineHeight: 1.5,
-                }}
-              >
-                <Lock size={14} strokeWidth={1.8} style={{ position: "relative", top: 2, flexShrink: 0 }} />
-                <span>
-                  <b className="mono" style={{ color: "var(--ink-900)" }}>{a.irreversible}</b> irreversible actions that cannot be undone once they run.
-                </span>
-              </div>
-              {a.critical > 0 && (
+              <dl style={{ margin: 0, padding: "4px 16px" }}>
                 <div
                   style={{
-                    display: "flex",
-                    alignItems: "baseline",
-                    gap: 8,
-                    fontSize: 13,
-                    color: "var(--ink-700)",
-                    marginTop: 8,
-                    lineHeight: 1.5,
+                    display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 16,
+                    padding: "9px 0", borderBottom: a.critical > 0 ? "1px solid var(--line-soft)" : "none",
                   }}
                 >
-                  <Link2 size={14} strokeWidth={1.8} style={{ position: "relative", top: 2, flexShrink: 0 }} />
-                  <span>
-                    <b className="mono" style={{ color: "var(--critical)" }}>{a.critical}</b> critical chains detected
-                    {unguarded ? ", and no policy is set." : "."}
-                  </span>
+                  <dt style={{ fontSize: 13, color: "var(--ink-700)", margin: 0 }}>Irreversible actions</dt>
+                  <dd className="mono" style={{ fontSize: 14, fontWeight: 600, color: "var(--ink-900)", margin: 0 }}>
+                    {a.irreversible}
+                  </dd>
                 </div>
-              )}
-              <div style={{ display: "flex", gap: 9, marginTop: 16 }}>
-                <Link
-                  to={`/agent/${a.id}#policies`}
-                  className="ag-btn"
-                  style={{
-                    display: "inline-flex", alignItems: "center",
-                    background: "var(--ink-900)",
-                    color: "#fff",
-                    border: "none",
-                    borderRadius: 8,
-                    padding: "9px 15px",
-                    fontSize: 13,
-                    fontWeight: 550,
-                    fontFamily: "inherit",
-                    cursor: "pointer",
-                    textDecoration: "none",
-                  }}
-                >
+                {a.critical > 0 && (
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 16, padding: "9px 0" }}>
+                    <dt style={{ fontSize: 13, color: "var(--ink-700)", margin: 0 }}>
+                      Critical chains{unguarded ? ", no policy set" : ""}
+                    </dt>
+                    <dd className="mono" style={{ fontSize: 14, fontWeight: 600, color: "var(--critical)", margin: 0 }}>
+                      {a.critical}
+                    </dd>
+                  </div>
+                )}
+              </dl>
+              <div
+                style={{
+                  display: "flex", gap: 8, padding: "12px 16px",
+                  borderTop: "1px solid var(--line)", background: "var(--paper-2)",
+                }}
+              >
+                <Link to={`/agent/${a.id}#policies`} className="btn btn--primary btn--sm">
                   Add policy
                 </Link>
-                <button
-                  type="button"
-                  className="ag-btn"
-                  onClick={() => onSimulate?.(a.id)}
-                  style={{
-                    background: "#fff",
-                    color: "var(--ink-800)",
-                    border: "1px solid var(--line)",
-                    borderRadius: 8,
-                    padding: "9px 15px",
-                    fontSize: 13,
-                    fontWeight: 550,
-                    fontFamily: "inherit",
-                    cursor: "pointer",
-                  }}
-                >
+                <button type="button" className="btn btn--secondary btn--sm" onClick={() => onSimulate?.(a.id)}>
                   Simulate worst case
                 </button>
               </div>

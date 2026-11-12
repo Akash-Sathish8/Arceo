@@ -158,6 +158,14 @@ export default function PullRequest() {
                 →
               </span>
               <span className="mono pr-branch-base">main</span>
+              <button
+                type="button"
+                className="mono pr-replay"
+                onClick={() => setStep(0)}
+                aria-label="Run the check again"
+              >
+                {done ? "run again" : "running…"}
+              </button>
               <span className="mono pr-num">#248</span>
             </div>
 
@@ -264,6 +272,15 @@ export default function PullRequest() {
         .pr-fact-v { font-size: 12px; color: var(--ink); }
 
         /* ── Panel ────────────────────────────────────────────── */
+        .pr-replay {
+          margin-left: auto; appearance: none; background: transparent;
+          border: 1px solid rgba(255,255,255,0.22); color: rgba(255,255,255,0.72);
+          border-radius: var(--r-xs); padding: 3px 9px; font-size: 10.5px;
+          letter-spacing: 0.06em; cursor: pointer;
+          transition: background 0.15s ease, color 0.15s ease;
+        }
+        .pr-replay:hover { background: rgba(255,255,255,0.1); color: #fff; }
+        .pr-replay:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
         .pr-panel {
           border-radius: var(--r-lg);
           border: 1px solid rgba(255,255,255,0.09);

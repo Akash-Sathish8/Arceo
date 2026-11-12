@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import functools
+import threading
 import hmac
 import json
 import re
@@ -13,7 +14,7 @@ import anyio
 import anyio.to_thread
 from dataclasses import asdict
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Literal, Optional
 import logging
 logger = logging.getLogger(__name__)
 
@@ -34,6 +35,8 @@ from db import (
     log_audit, log_execution, store_llm_capture, DEFAULT_ORG_ID,
 )
 import vault
+import github_app
+import github_scan
 import encryption
 import redaction
 import errors
@@ -101,7 +104,12 @@ async def lifespan(app: FastAPI):
     if not _snapshot_scheduler_disabled():
         import threading
         threading.Thread(target=_snapshot_scheduler_loop, daemon=True, name="snapshot-scheduler").start()
-    yield
+    # The prompts MCP server (/mcp) runs its session manager for the app's
+    # lifetime. Imported here, not at module top, because the prompt routers
+    # are imported further down this file.
+    from prompts.mcp_server import mcp_lifespan
+    async with mcp_lifespan():
+        yield
     # Shutdown: the scheduler is a daemon thread; it exits with the process.
 
 
@@ -126,7 +134,9 @@ async def _tenant_context(request: Request, call_next):
                 org = row.get("org_id") or "system"
         else:
             auth = request.headers.get("Authorization", "")
-            if auth.lower().startswith("bearer "):
+            # An Arceo Prompts agent connection key ("ap_...", /mcp) is not a JWT: the MCP
+            # endpoint checks it and sets the org itself, so it isn't a resolution failure.
+            if auth.lower().startswith("bearer ") and not auth[7:].strip().startswith("ap_"):
                 from auth import verify_token
                 payload = verify_token(auth[7:])
                 org = payload.get("org_id") or "system"
@@ -164,6 +174,14 @@ _RBAC_ADMIN_PREFIXES = (
 # routes carry an X-API-Key, not a bearer JWT, so they're skipped automatically.
 _RBAC_EXEMPT_PREFIXES = ("/api/auth/",)
 _MUTATING_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+# Writes anyone signed in may make to their OWN things, whatever their role: turning off
+# one of your own agent connections (the endpoint only ever touches the caller's own key,
+# and a viewer's key keeps working for reading until they turn it off).
+_RBAC_SELF_SERVICE = ((("DELETE",), re.compile(r"^/api/prompts/agent-tokens/[^/]+$")),)
+
+
+def _rbac_self_service(method: str, path: str) -> bool:
+    return any(method in methods and rx.match(path) for methods, rx in _RBAC_SELF_SERVICE)
 
 
 @app.middleware("http")
@@ -174,7 +192,7 @@ async def _rbac(request: Request, call_next):
     enforcement means no per-route miss — 'one miss is a hole'."""
     path = request.url.path
     if (request.method in _MUTATING_METHODS and path.startswith("/api/")
-            and not path.startswith(_RBAC_EXEMPT_PREFIXES)):
+            and not path.startswith(_RBAC_EXEMPT_PREFIXES) and not _rbac_self_service(request.method, path)):
         auth = request.headers.get("Authorization", "")
         # Agent auth takes precedence, exactly as every endpoint does
         # (verify_api_key FIRST, then bearer). A valid X-API-Key means this is a
@@ -787,6 +805,16 @@ def _snapshot_scheduler_loop():
                             f"{p['retention_days']}d")
         except Exception as e:  # noqa: BLE001 — scheduler must never die
             logger.warning(f"capture retention run failed: {e}")
+        try:
+            # Prompts sent to a coding agent (prompts/sends.py) can carry pasted customer
+            # content: they go KEEP_DAYS after they expire, whether or not anyone sends again.
+            from prompts.sends import purge_expired as _purge_prompt_sends
+            with get_db() as conn:
+                n = _purge_prompt_sends(conn)
+            if n:
+                logger.info(f"purged {n} expired prompt send(s)")
+        except Exception as e:  # noqa: BLE001 — scheduler must never die
+            logger.warning(f"prompt send retention run failed: {e}")
         time.sleep(_SNAPSHOT_POLL_SECONDS)
 
 
@@ -827,16 +855,29 @@ def cron_weekly_digest(request: Request):
 def cron_purge_llm_captures(request: Request):
     _require_cron_auth(request)
     from jobs.purge_llm_captures import purge_expired_captures
+    from prompts.sends import purge_expired as purge_prompt_sends
     with get_db() as conn:
-        return purge_expired_captures(conn)
+        out = purge_expired_captures(conn)
+        # The same daily retention sweep also drops expired prompt sends (prompts/sends.py).
+        out["prompt_sends_purged"] = purge_prompt_sends(conn)
+        return out
+
+
+@app.get("/api/internal/cron/purge-demo-orgs")
+def cron_purge_demo_orgs(request: Request):
+    _require_cron_auth(request)
+    from jobs.purge_demo_orgs import purge_demo_orgs
+    return purge_demo_orgs()
 
 
 @app.get("/api/demo-mode")
 def demo_mode_status():
     """Unauthenticated — lets the frontend know if DEMO_MODE is active and
     whether LLM-driven simulation is available (key presence only, never the key)."""
+    from auth import open_demo_login_enabled
     return {
         "demo": demo_mode_enabled(),
+        "open_login": open_demo_login_enabled(),
         "llm_available": bool(os.getenv("ANTHROPIC_API_KEY")),
     }
 
@@ -1788,6 +1829,9 @@ class SignupRequest(BaseModel):
     email: str
     password: str
     name: str = ""
+    # Which product the signup came for: a founder arriving from the prompts
+    # page gets a prompts workspace (Prompts-first sidebar and landing).
+    workspace: Literal["agents", "prompts"] = "agents"
 
 
 @app.post("/api/auth/signup")
@@ -1836,8 +1880,8 @@ def signup(req: SignupRequest, request: Request):
         # Each new account gets its own organization — the tenant boundary every
         # other query scopes by. (The seeded demo admin stays in DEFAULT_ORG_ID.)
         conn.execute(
-            "INSERT INTO organizations (id, name, created_at) VALUES (%s, %s, %s)",
-            (org_id, org_name, now),
+            "INSERT INTO organizations (id, name, created_at, workspace) VALUES (%s, %s, %s, %s)",
+            (org_id, org_name, now, req.workspace),
         )
         conn.execute(
             "INSERT INTO users (id, email, password_hash, name, role, org_id, created_at) VALUES (%s, %s, %s, %s, %s, %s, %s)",
@@ -1848,7 +1892,7 @@ def signup(req: SignupRequest, request: Request):
     token = create_token(user_id, req.email, "admin", org_id=org_id)
     return {
         "token": token,
-        "user": {"id": user_id, "email": req.email, "name": name, "role": "admin"},
+        "user": {"id": user_id, "email": req.email, "name": name, "role": "admin", "workspace": req.workspace},
     }
 
 
@@ -1884,7 +1928,56 @@ def login(req: LoginRequest, request: Request):
     if is_demo_mode and is_demo_email:
         _wipe_demo_data()
         return login_user("admin@actiongate.io", "admin123")
+    from auth import open_demo_login_enabled
+    if open_demo_login_enabled():
+        # Real accounts (the seeded admin org) authenticate normally. Anything
+        # else, wrong password included, gets its own fresh tenant.
+        try:
+            return login_user(req.email, req.password)
+        except HTTPException as exc:
+            if exc.status_code != 401:
+                raise
+        return _provision_open_demo_tenant(req.email, req.password)
     return login_user(req.email, req.password)
+
+
+def _provision_open_demo_tenant(typed_email: str, password: str) -> dict:
+    """A brand-new org and admin user for an open-demo login.
+
+    The user row carries a unique internal email (`local+demo-<hex>@domain`) so
+    the same typed name can log in any number of times and land somewhere new
+    each time; the token and the returned user carry what was typed, which is
+    what the UI shows. The `+demo-` marker is what the purge job keys on."""
+    from auth import hash_password, create_token, OPEN_DEMO_MARKER
+
+    typed = (typed_email or "").strip() or "guest"
+    if "@" in typed:
+        local, domain = typed.rsplit("@", 1)
+    else:
+        local, domain = typed, "demo.arceoai.app"
+    local = "".join(ch for ch in local if ch.isalnum() or ch in "._-") or "guest"
+    domain = "".join(ch for ch in domain if ch.isalnum() or ch in ".-") or "demo.arceoai.app"
+    stored_email = f"{local}{OPEN_DEMO_MARKER}{uuid.uuid4().hex[:8]}@{domain}"
+
+    user_id = str(uuid.uuid4())
+    org_id = str(uuid.uuid4())
+    now = datetime.utcnow().isoformat()
+    name = local
+    with get_db() as conn:
+        conn.execute(
+            "INSERT INTO organizations (id, name, created_at) VALUES (%s, %s, %s)",
+            (org_id, domain, now),
+        )
+        conn.execute(
+            "INSERT INTO users (id, email, password_hash, name, role, org_id, created_at) VALUES (%s, %s, %s, %s, %s, %s, %s)",
+            (user_id, stored_email, hash_password(password or "demo"), name, "admin", org_id, now),
+        )
+        log_audit(conn, user_id, stored_email, "SIGNUP", detail="Open demo login", org_id=org_id)
+    token = create_token(user_id, typed, "admin", org_id=org_id)
+    return {
+        "token": token,
+        "user": {"id": user_id, "email": typed, "name": name, "role": "admin", "org_id": org_id},
+    }
 
 
 @app.get("/api/auth/me")
@@ -2136,40 +2229,25 @@ def list_agents(user: dict = Depends(get_current_user)):
     return {"agents": results}
 
 
-@app.get("/api/authority/agent/{agent_id}")
-def get_agent_detail(agent_id: str, user: dict = Depends(get_current_user)):
-    with get_db() as conn:
-        agent = get_agent_from_db(conn, agent_id, org_id=_org(user))
-        if not agent:
-            raise HTTPException(status_code=404, detail=f"Agent '{agent_id}' not found")
+def _agent_risk_snapshot(conn, agent: dict, org_id: str, *, only_actions: set | None = None) -> dict:
+    """The agent-detail blast-radius recipe: chains + residual/evidence/magnitude
+    radius for one agent. Shared with the prompt library's "try on my agent".
 
-        # No audit write here: the agent-detail page polls this endpoint, so a
-        # VIEW_AGENT row per poll made a read contend for WAL's writer slot.
-
-        # Get policies for this agent
-        policies = conn.execute(
-            "SELECT * FROM policies WHERE agent_id = %s ORDER BY created_at DESC", (agent_id,)
-        ).fetchall()
-
-        # Get execution logs for this agent
-        executions = conn.execute(
-            "SELECT * FROM execution_log WHERE agent_id = %s AND org_id = %s ORDER BY timestamp DESC LIMIT 50", (agent_id, _org(user))
-        ).fetchall()
-
-        # Signals for the residual/evidence/magnitude blast model (need the conn).
-        sev_overrides = _fetch_breach_overrides(conn, _org(user))
-        sim_evidence = _latest_sim_evidence(conn, agent_id, _org(user))
-
-        # Same verdict the fleet list renders, so the two screens can never
-        # disagree about whether this agent is in production.
-        detail_calls_7d = _live_calls_7d(conn, agent_id, _org(user))
-        detail_state, detail_mismatch = _deployment_state(
-            agent, executions[0]["timestamp"] if executions else None, detail_calls_7d
-        )
-
+    `only_actions` ({(tool, action)}) scores the agent as if those were its only
+    actions: the part of its blast radius one prompt can actually reach."""
+    if only_actions is not None:
+        agent = {**agent, "tools": [
+            {**t, "actions": [a for a in t["actions"] if (t["name"], a["action"]) in only_actions]}
+            for t in agent["tools"]
+        ]}
+        agent["tools"] = [t for t in agent["tools"] if t["actions"]]
+    policies = conn.execute(
+        "SELECT * FROM policies WHERE agent_id = %s ORDER BY created_at DESC", (agent["id"],)
+    ).fetchall()
+    sev_overrides = _fetch_breach_overrides(conn, org_id)
+    sim_evidence = _latest_sim_evidence(conn, agent["id"], org_id)
     config = _db_agent_to_config(agent)
     catalog = _db_agent_to_action_catalog(agent)
-    graph = build_agent_graph(config, action_overrides=catalog)
     chain_result = _detect_chains(config, action_overrides=catalog)
     from analysis.cost_model import raw_action_magnitudes
     radius = calculate_blast_radius(
@@ -2180,6 +2258,38 @@ def get_agent_detail(agent_id: str, user: dict = Depends(get_current_user)):
         sim_evidence=sim_evidence,
         exposure_context=_exposure_context(agent),
     )
+    return {"config": config, "catalog": catalog, "chain_result": chain_result, "radius": radius,
+            "policies": policies, "sim_evidence": sim_evidence}
+
+
+@app.get("/api/authority/agent/{agent_id}")
+def get_agent_detail(agent_id: str, user: dict = Depends(get_current_user)):
+    with get_db() as conn:
+        agent = get_agent_from_db(conn, agent_id, org_id=_org(user))
+        if not agent:
+            raise HTTPException(status_code=404, detail=f"Agent '{agent_id}' not found")
+
+        # No audit write here: the agent-detail page polls this endpoint, so a
+        # VIEW_AGENT row per poll made a read contend for WAL's writer slot.
+
+        # Get execution logs for this agent
+        executions = conn.execute(
+            "SELECT * FROM execution_log WHERE agent_id = %s AND org_id = %s ORDER BY timestamp DESC LIMIT 50", (agent_id, _org(user))
+        ).fetchall()
+
+        risk = _agent_risk_snapshot(conn, agent, _org(user))
+        policies, sim_evidence = risk["policies"], risk["sim_evidence"]
+
+        # Same verdict the fleet list renders, so the two screens can never
+        # disagree about whether this agent is in production.
+        detail_calls_7d = _live_calls_7d(conn, agent_id, _org(user))
+        detail_state, detail_mismatch = _deployment_state(
+            agent, executions[0]["timestamp"] if executions else None, detail_calls_7d
+        )
+
+    config, catalog = risk["config"], risk["catalog"]
+    chain_result, radius = risk["chain_result"], risk["radius"]
+    graph = build_agent_graph(config, action_overrides=catalog)
 
     # Which chains the latest sandbox run actually fired (id → data_linked).
     demonstrated_chains = (sim_evidence or {}).get("demonstrated_chains", {})
@@ -2723,6 +2833,12 @@ def _upsert_agent(
             raise HTTPException(status_code=409, detail=f"An agent named '{agent_id}' already exists in another workspace. Pick a different name.")
 
     if existing:
+        # A re-registration (code extraction returns a kebab-case identifier)
+        # must not downgrade a human-set name to its own slug.
+        if name == agent_id:
+            prior = conn.execute("SELECT name FROM agents WHERE id = %s", (agent_id,)).fetchone()
+            if prior and prior["name"] and prior["name"] != agent_id:
+                name = prior["name"]
         conn.execute(
             "UPDATE agents SET name = %s, description = %s, "
             "simulation_model = COALESCE(%s, simulation_model), "
@@ -2916,7 +3032,38 @@ def _looks_like_tool_definitions(content: str) -> bool:
     return any(m.lower() in lowered for m in _TOOL_MARKERS)
 
 
-def _extract_and_register(content: str, filename: str = "", agent_name_hint: str = "", org_id: str = DEFAULT_ORG_ID, skip_if_empty: bool = False) -> dict:
+def _tenant_agent_id(slug: str, org_id: str) -> str:
+    """agents.id is a global key, so a slug another workspace already owns would
+    409 every extraction of that agent here: a second demo visitor scanning the
+    same public repo got "already exists in another workspace" on every file.
+    Suffix with a stable per-org tag instead; a rescan in the same org keeps
+    resolving to the same id, so it stays an update, not a duplicate."""
+    slug = slug or "extracted-agent"
+    with get_db() as conn:
+        taken = conn.execute("SELECT 1 FROM agents WHERE id = %s AND org_id <> %s",
+                             (slug, org_id)).fetchone()
+    if not taken:
+        return slug
+    import hashlib as _h
+    return f"{slug}-{_h.sha1(org_id.encode()).hexdigest()[:6]}"
+
+
+def _reserve_scan_agent_id(agent_id: str, filename: str, reserved: dict, lock) -> str:
+    """Within one repo scan, a second file resolving to an id the scan already
+    used gets a file-derived suffix rather than overwriting the first agent."""
+    stem = re.sub(r"[^a-z0-9-]+", "-", filename.rsplit("/", 1)[-1].rsplit(".", 1)[0].lower()).strip("-") or "file"
+    with lock:
+        if agent_id in reserved and reserved[agent_id] != filename:
+            base = f"{agent_id}-{stem}"
+            candidate, n = base, 2
+            while candidate in reserved:
+                candidate, n = f"{base}-{n}", n + 1
+            agent_id = candidate
+        reserved[agent_id] = filename
+    return agent_id
+
+
+def _extract_and_register(content: str, filename: str = "", agent_name_hint: str = "", org_id: str = DEFAULT_ORG_ID, skip_if_empty: bool = False, scan_reservations: Optional[tuple] = None) -> dict:
     """Shared helper: Haiku extraction + registration. Raises HTTPException.
 
     skip_if_empty=True (used by the whole-repo scan) raises 422 instead of
@@ -2968,7 +3115,9 @@ def _extract_and_register(content: str, filename: str = "", agent_name_hint: str
         raise HTTPException(status_code=502, detail=f"Extraction failed (ref: {ref})")
 
     name = (parsed.get("name") or agent_name_hint or "extracted-agent").strip()
-    agent_id = name.lower().replace(" ", "-").replace("_", "-")
+    agent_id = _tenant_agent_id(name.lower().replace(" ", "-").replace("_", "-"), org_id)
+    if scan_reservations is not None:
+        agent_id = _reserve_scan_agent_id(agent_id, filename, *scan_reservations)
     description = parsed.get("description", "")
     tools_extracted = parsed.get("tools", []) or []
 
@@ -3052,14 +3201,8 @@ def extract_agent_from_code(req: ExtractInput, user: dict = Depends(get_current_
 GITHUB_MAX_FILE_BYTES = int(os.getenv("ARCEO_GITHUB_MAX_FILE_BYTES", str(1024 * 1024)))
 GITHUB_MAX_SCAN_BYTES = int(os.getenv("ARCEO_GITHUB_MAX_SCAN_BYTES", str(64 * 1024 * 1024)))
 
-# A branch name lands inside a raw.githubusercontent.com URL. Left unvalidated, a
-# caller-supplied ref could carry path traversal or control characters and steer
-# the fetch somewhere other than the repo they named.
-_GIT_REF_RE = re.compile(r"^[A-Za-z0-9._/-]{1,255}$")
-
-
-def _valid_git_ref(ref: str) -> bool:
-    return bool(_GIT_REF_RE.match(ref)) and ".." not in ref and not ref.startswith("/")
+# A branch name lands inside a GitHub URL; the validator lives with the scanner.
+_valid_git_ref = github_scan.valid_git_ref
 
 
 class GithubExtractInput(BaseModel):
@@ -3068,228 +3211,123 @@ class GithubExtractInput(BaseModel):
     max_files: int = Field(default=25, ge=1, le=50)  # IC2: bound Haiku calls per request
 
 
+async def _prepare_github_scan(req: GithubExtractInput, user: dict):
+    """Validate the request and return the kwargs for `github_scan.scan_events`.
+
+    Everything that can be rejected without talking to GitHub is rejected here,
+    as a plain HTTP error, before a streaming response has started.
+    """
+    parsed = github_scan.parse_github_url(req.url)
+    if not parsed:
+        raise HTTPException(status_code=400, detail=(
+            "That doesn't look like a GitHub repo. Paste a link like https://github.com/owner/repo"))
+    owner, repo, url_ref, subpath = parsed
+    branch = (req.branch or "").strip() or url_ref
+    # MED-012: the ref is interpolated into a GitHub URL.
+    if branch and not _valid_git_ref(branch):
+        raise HTTPException(status_code=400, detail="Invalid branch name")
+    if subpath and (".." in subpath.split("/") or len(subpath) > 400):
+        raise HTTPException(status_code=400, detail="Invalid folder path")
+    if not os.getenv("ANTHROPIC_API_KEY"):
+        # Fail before walking the repo: every file would fail extraction anyway.
+        raise HTTPException(status_code=503, detail=(
+            "Code extraction isn't available on this server right now (no model API key is configured)."))
+
+    org_id = _org(user)
+    auths: list[github_scan.ScanAuth] = []
+    app_link = _github_app_link(org_id)
+    if app_link and github_app.configured():
+        try:
+            tok = await github_app.installation_token(app_link["installation_id"])
+            auths.append(github_scan.ScanAuth(tok, "app", app_link.get("account", "")))
+        except github_app.InstallationGone:
+            # Uninstalled on GitHub's side: drop the dead link so the UI offers
+            # Connect again instead of claiming a connection that can't work.
+            _github_app_unlink(org_id, reason="installation removed on GitHub")
+            app_link = None
+        except Exception as e:  # noqa: BLE001 — degrade to public-only, don't 500
+            logger.warning("github app token for org %s unavailable: %s", org_id, e)
+    gh_token, gh_token_source = _github_scan_token(org_id)
+    if gh_token:
+        auths.append(github_scan.ScanAuth(gh_token, gh_token_source))
+    elif github_app.configured() and os.getenv("GITHUB_APP_PUBLIC_INSTALLATION_ID", "").isdigit():
+        # No server PAT: public scans ride the operator's own App installation
+        # (5000/hr instead of the 60/hr anonymous limit shared across the
+        # platform's egress IPs). Tagged "server", so it can never read a
+        # tenant's private repo; the scanner refuses private + server.
+        try:
+            tok = await github_app.installation_token(int(os.environ["GITHUB_APP_PUBLIC_INSTALLATION_ID"]))
+            auths.append(github_scan.ScanAuth(tok, "server"))
+        except Exception as e:  # noqa: BLE001 — fall back to anonymous
+            logger.warning("public-scan installation token unavailable: %s", e)
+    auths.append(github_scan.ScanAuth(None, "none"))
+
+    # Per-scan agent-id reservations: two files that both call themselves
+    # "support-agent" must not silently overwrite each other.
+    reserved: dict = {}
+    lock = threading.Lock()
+
+    async def extract(content: str, path: str) -> dict:
+        from fastapi.concurrency import run_in_threadpool
+        hint = path.rsplit("/", 1)[-1].rsplit(".", 1)[0]
+        try:
+            # _extract_and_register makes a SYNCHRONOUS Anthropic call; on the
+            # event loop it would block the whole server for the scan.
+            return await run_in_threadpool(
+                _extract_and_register, content, path, hint, org_id, True, (reserved, lock))
+        except HTTPException as e:
+            raise github_scan.ExtractFailure(e.status_code, str(e.detail))
+
+    return dict(owner=owner, repo=repo, branch=branch, subpath=subpath,
+                max_files=req.max_files, auths=auths, extract=extract,
+                max_file_bytes=GITHUB_MAX_FILE_BYTES, max_scan_bytes=GITHUB_MAX_SCAN_BYTES,
+                app_connected=bool(app_link), app_configured=github_app.configured())
+
+
 @app.post("/api/authority/agents/extract-github")
 async def extract_agents_from_github(req: GithubExtractInput, user: dict = Depends(get_current_user)):
-    """Scan a public GitHub repo for agent files and register every one found.
+    """Scan a GitHub repo for agent files and register every one found.
 
     ⚠️ Rate-limited per org (2.6): ONE request here is up to max_files (25) Haiku
     extractions on Arceo's key, which made this the most expensive unguarded
     endpoint in the product.
 
-    Walks the repo tree, picks files that import an LLM SDK (anthropic / openai /
-    langchain / etc.), and runs Haiku extraction on each. Returns per-file
-    results. Requires auth; public repos only for now — capped at max_files Haiku
-    calls per request to bound cost.
+    Public repos scan anonymously (or on the workspace's credential); private
+    repos need "Connect GitHub" (github_app.py). Returns the whole result at the
+    end; the dashboard uses the /stream variant for live progress.
     """
     check_rate_limit(f"extract:{_org(user)}",
                      RATE_LIMIT_EXTRACT_MAX, RATE_LIMIT_EXTRACT_WINDOW)
+    kwargs = await _prepare_github_scan(req, user)
+    async for ev in github_scan.scan_events(**kwargs):
+        if ev["type"] == "error":
+            raise HTTPException(status_code=ev["status"], detail=ev["detail"])
+        if ev["type"] == "done":
+            return {k: v for k, v in ev.items() if k != "type"}
+    raise HTTPException(status_code=500, detail="The scan ended unexpectedly")
 
-    import re as _re
-    import httpx as _httpx
 
-    m = _re.match(r"^https?://github\.com/([^/]+)/([^/?#]+?)(?:\.git)?(?:/.*)?/?$", req.url.strip())
-    if not m:
-        raise HTTPException(status_code=400, detail="That GitHub URL doesn't look right. We expect https://github.com/owner/repo")
-    owner, repo = m.group(1), m.group(2)
+@app.post("/api/authority/agents/extract-github/stream")
+async def extract_agents_from_github_stream(req: GithubExtractInput, user: dict = Depends(get_current_user)):
+    """The same scan as extract-github, streamed as NDJSON events (one JSON
+    object per line) so the dashboard can show each stage and file as it lands.
+    Validation errors are ordinary HTTP errors; anything after the stream has
+    started arrives as a terminal `{"type": "error"}` event."""
+    check_rate_limit(f"extract:{_org(user)}",
+                     RATE_LIMIT_EXTRACT_MAX, RATE_LIMIT_EXTRACT_WINDOW)
+    kwargs = await _prepare_github_scan(req, user)
 
-    skip_dirs = ("node_modules/", ".venv/", "venv/", "__pycache__/", "dist/", "build/", ".git/", ".next/", "vendor/")
-    valid_ext = ("py", "ts", "tsx", "js", "jsx", "mjs")
-    indicators = (
-        "anthropic", "openai", "langchain", "messages.create", "chat.completions.create",
-        "@tool", "ChatAnthropic", "ChatOpenAI",
-        # Frameworks/providers the original list missed — a file that only uses
-        # one of these was filtered out and never extracted.
-        "bedrock", "vertex", "vertexai", "litellm", "gemini", "google.generativeai",
-        "genai", "crewai", "autogen", "llama_index", "llamaindex",
-        # OpenAI Agents SDK. Its tool files import `from agents import
-        # function_tool` and decorate with `@function_tool` — neither string
-        # matches anything above ("@tool" is not a substring of
-        # "@function_tool"), so every tool-defining file in an Agents SDK repo
-        # was filtered out and the scan registered only the plumbing around it.
-        "function_tool", "from agents import",
-    )
-
-    headers = {"Accept": "application/vnd.github+json", "User-Agent": "arceo-scanner"}
-    gh_token, gh_token_source = _github_scan_token(_org(user))
-    if gh_token:
-        headers["Authorization"] = f"Bearer {gh_token}"
-
-    async with _httpx.AsyncClient(timeout=30.0, headers=headers, follow_redirects=True) as client:
-        # Try requested branch, then main, then master
-        # MED-012: the ref is interpolated into a raw.githubusercontent.com URL.
-        if req.branch and not _valid_git_ref(req.branch):
-            raise HTTPException(status_code=400, detail="Invalid branch name")
-        branches_to_try = [req.branch] if req.branch else []
-        branches_to_try += ["main", "master"]
-        tree_data = None
-        used_branch = None
-        last_status = None
-        for branch in branches_to_try:
-            if not branch:
-                continue
-            r = await client.get(f"https://api.github.com/repos/{owner}/{repo}/git/trees/{branch}?recursive=1")
-            if r.status_code == 200:
-                tree_data = r.json()
-                used_branch = branch
-                break
-            last_status = r.status_code
-            if r.status_code == 403:
-                # 3.1: never print operator instructions for OUR backend at a
-                # tenant. They cannot set an env var on a shared instance, and
-                # telling them to is both useless and a disclosure about how the
-                # service is run.
-                raise HTTPException(status_code=429, detail=(
-                    "GitHub's API rate limit was hit. Add a GitHub token under "
-                    "Settings → API & Integration → Credentials to scan with your "
-                    "own rate limit (5000/hr) instead of the shared one."
-                    if gh_token_source == "server" else
-                    "GitHub's API rate limit was hit for the token on your "
-                    "workspace credential. Try again shortly."))
-        if not tree_data:
-            # GitHub returns 404 for a private repo to an unauthenticated caller —
-            # indistinguishable from truly-missing without a token. Say so instead
-            # of a flat "Repo not found".
-            if last_status == 404 and not gh_token:
-                raise HTTPException(status_code=404, detail=(
-                    f"{owner}/{repo} not found. GitHub returns 404 rather than 403 "
-                    "for repositories a token cannot see, so this also means "
-                    "'private, and the credential in use has no access'. To scan a "
-                    "private repository, add a GitHub token with read access under "
-                    "Settings → API & Integration → Credentials."))
-            if last_status in (401, 403):
-                raise HTTPException(status_code=403, detail=(
-                    f"Access to {owner}/{repo} was denied by GitHub. "
-                    + ("your workspace's GitHub credential does not have access to it."
-                       if gh_token_source == "org" else
-                       "add a GitHub token with access to it under Settings → "
-                       "API & Integration → Credentials.")))
-            raise HTTPException(status_code=404, detail=f"Repo not found or no main/master branch: {owner}/{repo}")
-
-        candidates: list[str] = []
-        for item in tree_data.get("tree", []):
-            if item.get("type") != "blob":
-                continue
-            path = item.get("path", "")
-            if any(sd in path for sd in skip_dirs):
-                continue
-            ext = path.rsplit(".", 1)[-1].lower() if "." in path else ""
-            if ext not in valid_ext:
-                continue
-            candidates.append(path)
-
-        # Fetch raw content + filter by indicator presence.
-        CANDIDATE_SCAN_CAP = 300
-        agent_files: list[dict] = []
-        scanned = 0
-        fetch_errors = 0        # files we couldn't fetch (rate limit / transient)
-        rate_limited = False
-        oversized_files: list[str] = []   # MED-012: skipped for size, not silently
-        scan_bytes = 0
-        notes_budget_hit = False
-        for path in candidates[:CANDIDATE_SCAN_CAP]:
-            if scan_bytes >= GITHUB_MAX_SCAN_BYTES:
-                notes_budget_hit = True
-                break
-            scanned += 1
-            raw_url = f"https://raw.githubusercontent.com/{owner}/{repo}/{used_branch}/{path}"
-            # MED-012: streamed with a running byte count instead of `r.text`, so an
-            # oversized blob is abandoned mid-transfer rather than fully buffered
-            # into the worker and only then measured.
-            try:
-                async with client.stream("GET", raw_url) as r:
-                    if r.status_code != 200:
-                        # A 403/429 is a rate-limit drop, not "not an agent file" —
-                        # track it so a partial scan doesn't silently under-report.
-                        if r.status_code in (403, 429):
-                            fetch_errors += 1
-                            rate_limited = True
-                        continue
-                    chunks: list[bytes] = []
-                    size = 0
-                    over = False
-                    async for chunk in r.aiter_bytes():
-                        size += len(chunk)
-                        if size > GITHUB_MAX_FILE_BYTES:
-                            over = True
-                            break
-                        chunks.append(chunk)
-            except _httpx.HTTPError:
-                fetch_errors += 1
-                continue
-            if over:
-                oversized_files.append(path)
-                continue
-            scan_bytes += size
-            content = b"".join(chunks).decode("utf-8", errors="replace")
-            if not any(ind.lower() in content.lower() for ind in indicators):
-                continue
-            agent_files.append({"path": path, "content": content})
-            if len(agent_files) >= req.max_files:
-                break
-
-    # Extract each via Haiku. Offloaded to the threadpool: _extract_and_register
-    # makes a SYNCHRONOUS Anthropic call, which run directly on the event loop
-    # blocked the whole server for the minutes a multi-file scan takes.
-    from fastapi.concurrency import run_in_threadpool
-    results = []
-    for f in agent_files:
-        hint = f["path"].rsplit("/", 1)[-1].rsplit(".", 1)[0]
+    async def body():
         try:
-            extracted = await run_in_threadpool(
-                _extract_and_register, f["content"], f["path"], hint, _org(user), True
-            )
-            results.append({
-                "path": f["path"],
-                "status": "registered",
-                "agent_id": extracted["id"],
-                "tools_count": extracted["tools_count"],
-                "actions_count": extracted["actions_count"],
-                "model": extracted.get("model", ""),
-            })
-        except HTTPException as e:
-            results.append({"path": f["path"], "status": "skipped" if e.status_code == 422 else "failed", "error": e.detail})
-        except Exception as e:
-            results.append({"path": f["path"], "status": "failed", "error": str(e)})
+            async for ev in github_scan.scan_events(**kwargs):
+                yield json.dumps(ev, default=str) + "\n"
+        except Exception as e:  # noqa: BLE001 — the client must always get a terminal event
+            ref = errors.log_and_ref(logger, "github scan stream", e)
+            yield json.dumps({"type": "error", "status": 500, "code": "internal",
+                              "detail": f"The scan failed unexpectedly (ref: {ref})"}) + "\n"
 
-    # Disclose when the scan was cut short so the caller knows the result is partial.
-    candidates_capped = len(candidates) > CANDIDATE_SCAN_CAP
-    max_files_reached = len(agent_files) >= req.max_files
-    # MED-012: a file skipped for size, or a scan stopped at the byte budget, is a
-    # coverage gap — report it rather than letting the result read as complete.
-    truncated = (candidates_capped or max_files_reached or fetch_errors > 0
-                 or bool(oversized_files) or notes_budget_hit)
-    notes = []
-    if candidates_capped:
-        notes.append(f"scanned first {CANDIDATE_SCAN_CAP} of {len(candidates)} candidate files")
-    if max_files_reached:
-        notes.append(f"stopped at the {req.max_files}-file limit, so there may be more agents")
-    if fetch_errors:
-        notes.append(f"{fetch_errors} file(s) could not be fetched"
-                     + (" (GitHub rate limit reached. Add your own GitHub credential in Settings"
-                        " to scan on your own limit)" if rate_limited else ""))
-    if oversized_files:
-        shown = ", ".join(oversized_files[:3])
-        notes.append(f"{len(oversized_files)} file(s) skipped over the "
-                     f"{GITHUB_MAX_FILE_BYTES // 1024}KB per-file limit: {shown}"
-                     + ("…" if len(oversized_files) > 3 else ""))
-    if notes_budget_hit:
-        notes.append(f"stopped at the {GITHUB_MAX_SCAN_BYTES // (1024 * 1024)}MB "
-                     f"total-download budget, so there may be more agents")
-
-    return {
-        "owner": owner,
-        "repo": repo,
-        "branch": used_branch,
-        "files_scanned": scanned,
-        "candidates_total": len(candidates),
-        "candidates_scanned": min(len(candidates), CANDIDATE_SCAN_CAP),
-        "agents_detected": len(agent_files),
-        "agents_registered": len([r for r in results if r["status"] == "registered"]),
-        "truncated": truncated,
-        "fetch_errors": fetch_errors,
-        "scan_notes": notes,
-        "results": results,
-    }
+    return StreamingResponse(body(), media_type="application/x-ndjson",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
 # ── /api/scan ──────────────────────────────────────────────────────────────
@@ -4682,7 +4720,11 @@ def send_test_digest(user: dict = Depends(get_current_user)):
 #: force_push, merge_pull_request and delete_branch — so reusing it for repo
 #: READS would mean every scan runs with a production write credential. Two
 #: purposes, two secrets, and a customer can grant the scan one read-only scope.
-VAULT_SUPPORTED_PROVIDERS = {"stripe", "github", "github_scan", "sendgrid", "zendesk", "salesforce"}
+# llm_anthropic / llm_openai: a customer's own model key for prompt QA, compare
+# and workflow runs (prompts/qa.py). Named apart from the proxy's service names
+# so storing one never changes how /proxy forwards.
+VAULT_SUPPORTED_PROVIDERS = {"stripe", "github", "github_scan", "sendgrid", "zendesk", "salesforce",
+                             "llm_anthropic", "llm_openai"}
 
 
 def _github_scan_token(org_id: str) -> tuple[str | None, str]:
@@ -4800,6 +4842,196 @@ def delete_credential(provider: str, user: dict = Depends(get_current_user)):
         log_audit(conn, user["sub"], user["email"], "VAULT_DELETE_CREDENTIAL", resource=provider,
                   detail=f"Credential revoked for {provider}", org_id=org_id)
     return {"message": f"Credential revoked for {provider}"}
+
+
+# ── Connect with GitHub (GitHub App, for private-repo scans) ────────────────
+# The link is one provider_credentials row, provider `github_app`, holding the
+# installation id. It is deliberately NOT in VAULT_SUPPORTED_PROVIDERS: the
+# generic PUT would let an admin paste any installation id, and only the
+# callback below proves the connecting GitHub user can actually access it.
+
+_GITHUB_APP_PROVIDER = "github_app"
+
+
+def _github_app_link(org_id: str) -> Optional[dict]:
+    try:
+        with get_db() as conn:
+            row = conn.execute(
+                "SELECT encrypted_config, wrapped_dek, created_by, updated_at FROM provider_credentials "
+                "WHERE org_id = %s AND provider = %s", (org_id, _GITHUB_APP_PROVIDER),
+            ).fetchone()
+        if not row:
+            return None
+        cfg = vault.decrypt_credential(row["wrapped_dek"], row["encrypted_config"]) or {}
+        return {"installation_id": int(cfg["secret"]), "account": cfg.get("account", ""),
+                "account_type": cfg.get("account_type", ""), "connected_by": row["created_by"],
+                "connected_at": row["updated_at"]}
+    except Exception as e:  # noqa: BLE001 — an unreadable link reads as "not connected"
+        logger.warning("github_app link unreadable for org %s: %s", org_id, e)
+        return None
+
+
+def _github_app_unlink(org_id: str, reason: str, user: Optional[dict] = None) -> bool:
+    with get_db() as conn:
+        cur = conn.execute("DELETE FROM provider_credentials WHERE org_id = %s AND provider = %s",
+                           (org_id, _GITHUB_APP_PROVIDER))
+        if cur.rowcount:
+            log_audit(conn, (user or {}).get("sub"), (user or {}).get("email") or "system",
+                      "GITHUB_APP_DISCONNECTED", resource="github", detail=reason, org_id=org_id)
+    return bool(cur.rowcount)
+
+
+def _app_url(path: str) -> str:
+    """Where the browser lands after GitHub. Same origin on a hosted deploy;
+    ARCEO_APP_URL points it at the Vite dev server locally."""
+    return os.getenv("ARCEO_APP_URL", "").rstrip("/") + path
+
+
+def _github_back(params: str) -> Response:
+    from fastapi.responses import RedirectResponse
+    resp = RedirectResponse(_app_url(f"/?connect=github&{params}"), status_code=302)
+    resp.delete_cookie(github_app.STATE_COOKIE, path="/api/integrations/github")
+    return resp
+
+
+def _github_manage_url(link: Optional[dict]) -> str:
+    """GitHub's page for changing which repos the installation can see."""
+    if not link:
+        return ""
+    iid = link["installation_id"]
+    if link.get("account_type") == "Organization":
+        return f"https://github.com/organizations/{link['account']}/settings/installations/{iid}"
+    return f"https://github.com/settings/installations/{iid}"
+
+
+@app.get("/api/integrations/github")
+def github_integration_status(user: dict = Depends(get_current_user)):
+    link = _github_app_link(_org(user))
+    return {
+        "configured": github_app.configured(),
+        "connected": bool(link),
+        "account": (link or {}).get("account", ""),
+        "account_type": (link or {}).get("account_type", ""),
+        "connected_by": (link or {}).get("connected_by", ""),
+        "manage_url": _github_manage_url(link),
+        "install_url": github_app.install_url() if github_app.configured() else "",
+    }
+
+
+@app.post("/api/integrations/github/connect")
+def github_integration_connect(user: dict = Depends(get_current_user)):
+    """Mint a short-lived ticket the browser trades at /start for the signed
+    state cookie. (A browser navigation can't carry the bearer token.)"""
+    require_role(user, "editor")
+    if not github_app.configured():
+        raise HTTPException(status_code=503, detail="Connecting GitHub isn't set up on this server yet.")
+    ticket = github_app.sign({"k": "ticket", "org": _org(user), "sub": user["sub"],
+                              "email": user.get("email", "")}, github_app.TICKET_TTL)
+    return {"url": f"/api/integrations/github/start?ticket={ticket}"}
+
+
+@app.get("/api/integrations/github/start")
+def github_integration_start(ticket: str, request: Request):
+    from fastapi.responses import RedirectResponse
+    body = github_app.verify(ticket, "ticket")
+    if not body or not github_app.configured():
+        return _github_back("github_error=expired")
+    state = github_app.sign({"k": "state", "org": body["org"], "sub": body["sub"],
+                             "email": body.get("email", "")}, github_app.STATE_TTL)
+    from urllib.parse import urlencode
+    url = "https://github.com/login/oauth/authorize?" + urlencode(
+        {"client_id": os.getenv("GITHUB_APP_CLIENT_ID"), "state": state.split(".", 1)[1][:32]})
+    resp = RedirectResponse(url, status_code=302)
+    secure = request.url.scheme == "https" or request.headers.get("x-forwarded-proto") == "https"
+    resp.set_cookie(github_app.STATE_COOKIE, state, max_age=github_app.STATE_TTL, httponly=True,
+                    secure=secure, samesite="lax", path="/api/integrations/github")
+    return resp
+
+
+@app.get("/api/integrations/github/callback")
+async def github_integration_callback(request: Request, code: str = "", state: str = "",
+                                      installation_id: str = "", setup_action: str = ""):
+    """GitHub sends the browser here after OAuth, and after an install (with
+    "Request user authorization during installation" on). Unauthenticated by
+    necessity: the signed state cookie set at /start carries the org."""
+    from fastapi.responses import RedirectResponse
+    cookie = request.cookies.get(github_app.STATE_COOKIE, "")
+    body = github_app.verify(cookie, "state")
+    if not body:
+        return _github_back("github_error=expired")
+    # CSRF: when GitHub echoes a state, it must be the one this browser was given.
+    if state and not hmac.compare_digest(state, cookie.split(".", 1)[1][:32]):
+        return _github_back("github_error=state")
+    if not code:
+        return _github_back("github_error=denied")
+    try:
+        user_token = await github_app.exchange_code(code)
+        installs = await github_app.user_installations(user_token)
+    except github_app.GithubAppError as e:
+        logger.warning("github app callback failed: %s", e)
+        return _github_back(f"github_error={e.code}")
+    except Exception as e:  # noqa: BLE001
+        errors.log_and_ref(logger, "github app callback", e)
+        return _github_back("github_error=github")
+
+    chosen = None
+    if installation_id.isdigit():
+        # Only an installation this GitHub user can see; a forged id is ignored.
+        chosen = next((i for i in installs if i["id"] == int(installation_id)), None)
+    if chosen is None and installs:
+        chosen = installs[0]
+    if chosen is None:
+        # Authorized, but the app isn't installed anywhere they can reach yet.
+        # The cookie is still valid; GitHub returns to this callback after install.
+        return RedirectResponse(github_app.install_url(), status_code=302)
+
+    org_id = body["org"]
+    try:
+        wrapped_dek, encrypted_config = vault.encrypt_credential(
+            {"secret": str(chosen["id"]), "account": chosen["account"], "account_type": chosen["account_type"]})
+    except vault.VaultConfigError as e:
+        logger.error("github app connect: vault unavailable: %s", e)
+        return _github_back("github_error=vault")
+    now = datetime.utcnow().isoformat()
+    with get_db() as conn:
+        conn.execute(
+            "INSERT INTO provider_credentials (id, org_id, provider, auth_type, encrypted_config, wrapped_dek, created_by, created_at, updated_at) "
+            "VALUES (%s, %s, %s, 'github_app', %s, %s, %s, %s, %s) "
+            "ON CONFLICT (org_id, provider) DO UPDATE SET "
+            "encrypted_config = EXCLUDED.encrypted_config, wrapped_dek = EXCLUDED.wrapped_dek, "
+            "auth_type = EXCLUDED.auth_type, created_by = EXCLUDED.created_by, updated_at = EXCLUDED.updated_at",
+            (uuid.uuid4().hex[:12], org_id, _GITHUB_APP_PROVIDER, encrypted_config, wrapped_dek,
+             body.get("email", ""), now, now),
+        )
+        log_audit(conn, body.get("sub"), body.get("email", ""), "GITHUB_APP_CONNECTED", resource="github",
+                  detail=f"Connected GitHub installation for @{chosen['account']}", org_id=org_id)
+    github_app.forget_token(chosen["id"])
+    return _github_back("github=connected")
+
+
+@app.get("/api/integrations/github/repos")
+async def github_integration_repos(user: dict = Depends(get_current_user)):
+    org_id = _org(user)
+    link = _github_app_link(org_id)
+    if not link or not github_app.configured():
+        return {"connected": False, "repos": []}
+    try:
+        repos = await github_app.installation_repos(link["installation_id"])
+    except github_app.InstallationGone:
+        _github_app_unlink(org_id, reason="installation removed on GitHub")
+        return {"connected": False, "repos": [], "gone": True}
+    except Exception as e:  # noqa: BLE001
+        ref = errors.log_and_ref(logger, "github app repos", e)
+        raise HTTPException(status_code=502, detail=f"Couldn't load your repositories from GitHub (ref: {ref})")
+    return {"connected": True, "account": link["account"], "repos": repos}
+
+
+@app.delete("/api/integrations/github")
+def github_integration_disconnect(user: dict = Depends(get_current_user)):
+    require_admin(user)
+    if not _github_app_unlink(_org(user), reason="disconnected from Arceo", user=user):
+        raise HTTPException(status_code=404, detail="GitHub isn't connected")
+    return {"message": "GitHub disconnected"}
 
 
 # ── Audit Log ───────────────────────────────────────────────────────────────
@@ -5008,6 +5240,9 @@ def get_pending_approvals(user: dict = Depends(get_current_user)):
                  LEFT JOIN tool_actions ta ON ta.tool_id = t.id AND ta.action = e.action
                  LEFT JOIN policies p ON p.id = e.policy_id
                  WHERE e.status = 'PENDING_APPROVAL' AND e.org_id = %s
+                   -- Boundary-test probes enumerate what a policy WOULD hold;
+                   -- nothing is waiting on a human, so they stay out of the queue.
+                   AND COALESCE(e.source, '') <> 'boundary_test'
                  ORDER BY e.id
                ) pending
                ORDER BY pending.timestamp DESC""",
@@ -8151,6 +8386,36 @@ def readiness(response: Response):
     if not ok:
         response.status_code = 503
     return {"status": "ready" if ok else "not ready", "detail": detail}
+
+
+# ── Prompt library (HackThePrompt) ────────────────────────────────────────
+# Mounted before the SPA catch-all below so /api/prompts/* never falls through.
+from prompts.router import public_router as _prompts_public_router  # noqa: E402
+from prompts.router import router as _prompts_router  # noqa: E402
+from prompts.workflow_router import router as _prompt_workflows_router  # noqa: E402
+from prompts.battle_router import public_router as _battles_public_router  # noqa: E402
+from prompts.battle_router import router as _battles_router  # noqa: E402
+from prompts.workspace_router import router as _workspace_router  # noqa: E402
+from prompts.similar_router import router as _prompts_similar_router  # noqa: E402
+from prompts.similar_router import public_router as _prompts_similar_public_router  # noqa: E402
+from prompts.agent_router import router as _prompts_agent_router  # noqa: E402
+from prompts.mcp_server import mount_mcp as _mount_prompts_mcp  # noqa: E402
+
+# ⚠️ ORDER: these fixed paths (/api/prompts/similar, /agent-tokens, /sends) must
+# be registered BEFORE _prompts_router, whose GET/PUT/DELETE /api/prompts/{prompt_id}
+# would otherwise read "agent-tokens" or "sends" as a prompt id.
+app.include_router(_prompts_similar_router)
+app.include_router(_prompts_similar_public_router)
+app.include_router(_prompts_agent_router)
+app.include_router(_prompts_router)
+app.include_router(_prompts_public_router)
+app.include_router(_prompt_workflows_router)
+app.include_router(_battles_router)
+app.include_router(_battles_public_router)
+app.include_router(_workspace_router)
+# The agent-facing MCP endpoint, <api origin>/mcp. Registered here so it sits
+# before the SPA catch-all, which would otherwise answer GET /mcp with index.html.
+_mount_prompts_mcp(app)
 
 
 

@@ -64,6 +64,18 @@ def test_unparseable_content_length_falls_through_to_the_counter(client, monkeyp
 
 # ── MED-012: per-file and whole-scan byte ceilings ────────────────────────────
 
+class _NoToolsLLM:
+    """Offline stand-in for the extractor: every file yields no tools."""
+
+    def __init__(self):
+        self.messages = self
+
+    def create(self, **kw):
+        import types
+        return types.SimpleNamespace(content=[types.SimpleNamespace(text='{"name": "x", "tools": []}')],
+                                     stop_reason="end_turn")
+
+
 def test_byte_caps_are_configured_sanely():
     assert 0 < main.GITHUB_MAX_FILE_BYTES <= 8 * 1024 * 1024
     assert main.GITHUB_MAX_SCAN_BYTES >= main.GITHUB_MAX_FILE_BYTES
@@ -101,6 +113,7 @@ def test_oversized_repo_files_are_skipped_and_reported(client, roles, monkeypatc
     import httpx
 
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    monkeypatch.setattr(main, "anthropic_client", lambda key: _NoToolsLLM())  # never the network
     monkeypatch.setattr(main, "GITHUB_MAX_FILE_BYTES", 1024)
 
     tree = {"tree": [{"type": "blob", "path": "huge_agent.py"},
@@ -142,6 +155,7 @@ def test_openai_agents_sdk_files_are_detected(client, roles, monkeypatch):
     import httpx
 
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    monkeypatch.setattr(main, "anthropic_client", lambda key: _NoToolsLLM())  # never the network
 
     tree = {"tree": [{"type": "blob", "path": "airline/tools.py"},
                      {"type": "blob", "path": "airline/demo_data.py"}]}

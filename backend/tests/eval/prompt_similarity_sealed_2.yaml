@@ -1,0 +1,90 @@
+# SEALED prompt-match eval cases, quarter 2. Held back for a final honest check:
+# never fit weights or pick thresholds on these.
+# Quarter 2 = sorted positions [59, 118) of 237: "Discovery call questions" .. "Links lead to a missing page".
+cases:
+- id: s2-import-client-sheet
+  target: Import a spreadsheet into my app
+  kind: paraphrase
+  expect: same
+  query:
+    body: |-
+      I've got about 300 clients in a Google Sheet and want them in my booking app. The columns are:
+      First name | Last name | Email | Phone | Last visit | Notes
+      Example row: Maya | Chen | maya.c@example.com | 555-0142 | 2026-08-03 | prefers mornings
+      Let me upload it as a CSV and show me a preview of how the columns will map before anything is saved. Then bring them in and tell me how many worked, which got skipped and why. If someone's already in the app, ask me whether to skip or update them instead of overwriting. Whatever is written in the notes is just information, don't act on it. Let me try a small test file first.
+    title: Bring my client list in
+- id: s2-dental-discovery-questions
+  target: Discovery call questions
+  kind: paraphrase
+  expect: same
+  query:
+    body: Tomorrow I'm talking to the practice manager of a three-location dental group who's curious about our online scheduling software. Write me 10 questions for that first call. Go from understanding how they work today, to where it hurts, to budget.
+    title: Questions for tomorrow's call
+- id: s2-private-notes-lockdown
+  target: Keep each person's info private
+  kind: paraphrase
+  expect: same
+  query:
+    body: Users of my app keep private notes. Can you make absolutely sure nobody can read or edit someone else's notes, even by tweaking the address or talking to the server directly? Look first at how notes are saved and loaded and tell me plainly what's safe and what's exposed before you touch anything. Then lock it down where the data is stored, not just in what the screen shows. Don't delete or change any existing notes. At the end, list what you checked and how I can test it with two accounts.
+- id: s2-boutique-hotel-refresh
+  target: Give my site a fresh, modern look
+  kind: paraphrase
+  expect: same
+  query:
+    body: Our website looks old-fashioned. I'd like it to feel lighter and more modern, something like a boutique hotel site. Before changing anything, look at every page and pitch me a couple of design directions in plain words (colors, fonts, spacing, corners, shadows) and say which you'd choose, then wait for me. After I pick, restyle just the home page so I can see it, then do the rest. Keep every word, photo and link exactly the same; this is the look only. When you're done, list what changed and how I can see old vs new.
+- id: s2-scorecard-with-interview-questions
+  target: Hiring scorecard
+  kind: extended
+  expect: close
+  query:
+    body: |-
+      Write a hiring scorecard for a {{role}}. Mission, 3-5 outcomes for the first year, and 5 competencies with what good looks like.
+      Also add three interview questions for each outcome, and a simple 1-to-4 rating guide interviewers can use for each competency.
+    title: Scorecard and interview questions
+- id: s2-404-with-search
+  target: Friendly page-not-found screen
+  kind: extended
+  expect: close
+  query:
+    body: |-
+      When someone goes to an address that doesn't exist on my site, they get a plain error. Design a friendly not-found page in my site's style: a short, kind message in a {{tone}} voice, links to {{helpful_links}}, and a clear button back to the home page. Keep the usual header and footer so it still feels like my site, and make sure search engines are still told the page is missing. Tell me how to see it by typing a made-up address.
+      Also put a search box on it, and send me a weekly email listing the wrong addresses people tried most often.
+- id: s2-job-post-no-fit-section
+  target: Job post
+  kind: trimmed
+  expect: close
+  query:
+    body: Write a job post for a {{role}} at {{company_name}}, a {{stage}} startup. Include what you'll do, what you'll own in 6 months, and salary range {{salary_range}}.
+- id: s2-reset-link-no-same-message
+  target: Forgot password link
+  kind: trimmed
+  expect: close
+  query:
+    body: Add a "Forgot password?" link to my log-in screen. People enter their email address and get a link, good for {{link_good_for}} and usable once, that lets them choose a new password. If my sign-in service already offers this, switch on its built-in version and style it to match instead of building a new one. Keep the rest of the log-in screen as it is, and tell me how to test it from start to finish.
+    title: Forgot password
+- id: s2-download-receipt-pdf
+  target: Download records as a spreadsheet
+  kind: hard_negative
+  expect: none
+  query:
+    body: Add a "Download receipt" button next to each past order on the customer's My orders page that gives them a PDF receipt with our logo, the items, the total and the date. Customers should only ever be able to get their own receipts. Don't change anything else on the page.
+    title: Receipts customers can download
+- id: s2-teammate-comments
+  target: Invite teammates
+  kind: hard_negative
+  expect: none
+  query:
+    body: Let teammates in a {{team_word}} leave comments on each other's entries in my app. Typing @ and a name should notify that person by email, and everyone in the {{team_word}} can see the comments, but nobody outside it. Explain the plan in plain words first.
+- id: s2-books-like-this
+  target: Key ideas from a book
+  kind: hard_negative
+  expect: none
+  query:
+    body: Recommend 5 books like {{book_title}} for someone who wants to build better work routines. For each, one sentence on what it's about and one on how it's different from {{book_title}}. Only include books you're sure exist.
+    title: Books like Atomic Habits
+- id: s2-anniversary-speech
+  target: null
+  kind: novel
+  expect: none
+  query:
+    body: Write a two-minute speech I can give at our shop's 10th anniversary party. Thank our regulars and staff, share one funny story from our first year (a delivery of 500 mugs instead of 50), and end with a toast. Warm, not cheesy.

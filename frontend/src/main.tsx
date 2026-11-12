@@ -8,7 +8,8 @@ import CommandPalette from '@/components/layout/CommandPalette'
 import { ToastContainer } from '@/components/shared/Toast'
 import { isLoggedIn } from '@/lib/api'
 import Login from '@/pages/Login'
-import Authority from '@/pages/Authority'
+import HomeRoute, { LoginGate } from '@/pages/HomeRoute'
+import PromptsAuth from '@/pages/PromptsAuth'
 import AgentDetail from '@/pages/AgentDetail'
 import History from '@/pages/History'
 import Workflows from '@/pages/Workflows'
@@ -20,7 +21,18 @@ import Settings from '@/pages/Settings'
 import Approvals from '@/pages/Approvals'
 import CostPortfolio from '@/pages/CostPortfolio'
 import SpendDashboard from '@/pages/SpendDashboard'
+import IncidentReplay from '@/pages/IncidentReplay'
 import NotFound from '@/pages/NotFound'
+import PromptLibrary from '@/pages/PromptLibrary'
+import PromptDetail from '@/pages/PromptDetail'
+import PromptsConnect from '@/pages/PromptsConnect'
+import PublicPrompt from '@/pages/PublicPrompt'
+import PromptWorkflows from '@/pages/PromptWorkflows'
+import PromptWorkflowBuilder from '@/pages/PromptWorkflowBuilder'
+import Battles from '@/pages/Battles'
+import BattleDetail from '@/pages/BattleDetail'
+import PublicBattle from '@/pages/PublicBattle'
+import CreatorProfile from '@/pages/CreatorProfile'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -33,7 +45,9 @@ const queryClient = new QueryClient({
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   if (!isLoggedIn()) {
-    return <Navigate to="/login" replace />
+    let prompts = false
+    try { prompts = localStorage.getItem('arceo.workspace') === 'prompts' } catch { /* ignore */ }
+    return <Navigate to={prompts ? '/login?for=prompts' : '/login'} replace />
   }
   return <>{children}</>
 }
@@ -44,12 +58,12 @@ createRoot(document.getElementById('root')!).render(
       <BrowserRouter>
         <AppShell>
           <Routes>
-            <Route path="/login" element={<Login />} />
+            <Route path="/login" element={<LoginGate Login={Login} PromptsAuth={PromptsAuth} />} />
             <Route
               path="/"
               element={
                 <ProtectedRoute>
-                  <Authority />
+                  <HomeRoute />
                 </ProtectedRoute>
               }
             />
@@ -92,6 +106,14 @@ createRoot(document.getElementById('root')!).render(
               element={
                 <ProtectedRoute>
                   <Workflows />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/incident"
+              element={
+                <ProtectedRoute>
+                  <IncidentReplay />
                 </ProtectedRoute>
               }
             />
@@ -143,6 +165,18 @@ createRoot(document.getElementById('root')!).render(
                 </ProtectedRoute>
               }
             />
+            <Route path="/prompts" element={<ProtectedRoute><PromptLibrary /></ProtectedRoute>} />
+            <Route path="/prompt-workflows" element={<ProtectedRoute><PromptWorkflows /></ProtectedRoute>} />
+            <Route path="/prompt-workflows/:workflowId" element={<ProtectedRoute><PromptWorkflowBuilder /></ProtectedRoute>} />
+            <Route path="/prompts/connect" element={<ProtectedRoute><PromptsConnect /></ProtectedRoute>} />
+            <Route path="/prompts/:promptId" element={<ProtectedRoute><PromptDetail /></ProtectedRoute>} />
+            <Route path="/prompt-compare" element={<ProtectedRoute><Battles /></ProtectedRoute>} />
+            <Route path="/prompt-compare/:battleId" element={<ProtectedRoute><BattleDetail /></ProtectedRoute>} />
+            {/* Public, unauthenticated share page. */}
+            <Route path="/p/:promptId" element={<PublicPrompt />} />
+            <Route path="/c/:battleId" element={<PublicBattle />} />
+            <Route path="/u/:authorId" element={<CreatorProfile publicView />} />
+            <Route path="/creators/:authorId" element={<ProtectedRoute><CreatorProfile /></ProtectedRoute>} />
             <Route path="*" element={<ProtectedRoute><NotFound /></ProtectedRoute>} />
           </Routes>
         </AppShell>

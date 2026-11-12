@@ -16,6 +16,7 @@ import hashlib
 import json
 import logging
 import os
+import time
 import uuid
 from datetime import datetime
 from dataclasses import dataclass
@@ -352,6 +353,7 @@ def run_simulation(
     approval_mode: str = "pause",
     on_step_callback=None,
     budget: "_SimBudget | None" = None,
+    system_prompt: str | None = None,
 ) -> SimulationTrace:
     """Run a full simulation: LLM agent with tools, enforcement, and mocks.
 
@@ -398,7 +400,10 @@ def run_simulation(
     agent_type = scenario.agent_type
     declared_prompt = (agent_config.get("system_prompt") or "").strip()
     description = (agent_config.get("description") or "").strip()
-    if declared_prompt:
+    if system_prompt and system_prompt.strip():
+        # Caller-supplied instructions (the prompt library's "try on my agent").
+        system_prompt = system_prompt.strip()
+    elif declared_prompt:
         system_prompt = declared_prompt
     elif SYSTEM_PROMPTS.get(agent_type):
         system_prompt = SYSTEM_PROMPTS[agent_type]
@@ -428,7 +433,9 @@ def run_simulation(
             trace.completed_at = datetime.utcnow().isoformat()
             break
         try:
+            t0 = time.perf_counter()
             response = _call_llm(model, system_prompt, messages, tool_defs, api_key=api_key)
+            latency_ms = int((time.perf_counter() - t0) * 1000)
         except Exception as e:
             # MED-016: trace.error is returned to the client with the simulation,
             # so the provider's raw exception text travelled with it. The model
@@ -446,10 +453,11 @@ def run_simulation(
         try:
             u = _usage_from_raw(response.raw)
             if u is not None:
-                total_in, cached, out = u
+                total_in, cached, _cache_write, out = u
                 trace.turn_usage.append(TurnUsage(
                     turn_index=turn, input_tokens=total_in,
                     cached_input_tokens=cached, output_tokens=out,
+                    latency_ms=latency_ms,
                 ))
         except Exception:
             pass
