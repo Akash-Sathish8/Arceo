@@ -14,6 +14,13 @@ const APP_URL =
   (process.env.NODE_ENV === "development" ? "http://localhost:5173" : null);
 const BOOK_DEMO_HREF = "/book-demo";
 
+/* The main links, in the bar on desktop and in the menu on phones. */
+const NAV_LINKS = [
+  { href: "/prompts", label: "Prompts" },
+  { href: "/pricing", label: "Pricing" },
+  { href: "/security", label: "Security" },
+] as const;
+
 export default function Navbar() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [scrolled, setScrolled]     = useState(false);
@@ -71,8 +78,9 @@ export default function Navbar() {
           position: "absolute", left: "50%", top: "50%",
           transform: "translate(-50%, -50%)",
         }} className="desktop-nav">
-          <Link href="/pricing" className="nav-link">Pricing</Link>
-          <Link href="/security" className="nav-link">Security</Link>
+          {NAV_LINKS.map((l) => (
+            <Link key={l.href} href={l.href} className="nav-link">{l.label}</Link>
+          ))}
         </nav>
 
         {/* Right actions */}
@@ -104,14 +112,12 @@ export default function Navbar() {
           padding: "12px 24px 20px",
           display: "flex", flexDirection: "column", gap: 2,
         }}>
-          <Link href="/pricing" onClick={() => setMobileOpen(false)}
-            style={{ fontSize: 15, fontWeight: 500, color: "var(--ink)", padding: "10px 4px" }}>
-            Pricing
-          </Link>
-          <Link href="/security" onClick={() => setMobileOpen(false)}
-            style={{ fontSize: 15, fontWeight: 500, color: "var(--ink)", padding: "10px 4px" }}>
-            Security
-          </Link>
+          {NAV_LINKS.map((l) => (
+            <Link key={l.href} href={l.href} onClick={() => setMobileOpen(false)}
+              style={{ fontSize: 15, fontWeight: 500, color: "var(--ink)", padding: "10px 4px" }}>
+              {l.label}
+            </Link>
+          ))}
           {APP_URL && (
             <a href={`${APP_URL}/login`}
               style={{ fontSize: 15, fontWeight: 500, color: "var(--ink)", padding: "10px 4px" }}>
