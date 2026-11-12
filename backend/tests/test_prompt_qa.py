@@ -1,4 +1,4 @@
-"""Prompt library phase 3: QA runs, measured cost, canary probes, spend caps, publish gate."""
+"""Prompt library phase 3: QA runs, measured cost, canary probes, spend caps, publishing past a failed run."""
 
 from __future__ import annotations
 
@@ -110,14 +110,19 @@ def test_a_hardened_prompt_survives_the_probes(client, org, monkeypatch):
     assert data["danger"]["status"] == "probed" and data["danger"]["band"] == "low"
 
 
-def test_low_reliability_blocks_publishing(client, org, monkeypatch):
+def test_low_reliability_no_longer_blocks_publishing(client, org, monkeypatch):
+    """Test results are a measurement, not a sharing gate: a prompt that failed
+    its own checks still publishes, and the version records the result."""
     monkeypatch.setattr(qa, "call_model", FakeModel(obey=False, reply="way too long " * 50))
     p = _mk(client, org)
     client.put(f"/api/prompts/{p['id']}/tests", headers=org["headers"],
                json={"checks": [{"type": "max_words", "value": "20"}], "probes": False})
     assert client.post(f"/api/prompts/{p['id']}/qa", headers=org["headers"]).json()["reliability"] == 0.0
     r = client.post(f"/api/prompts/{p['id']}/publish", headers=org["headers"], json={})
-    assert r.status_code == 409 and "of its tests" in r.json()["detail"]
+    assert r.status_code == 200, r.text
+    assert r.json()["status"] == "published"
+    got = client.get(f"/api/prompts/{p['id']}", headers=org["headers"]).json()
+    assert [v["reliability"] for v in got["versions"]] == [0.0]
 
 
 def test_run_cap_refuses_before_spending(client, org, monkeypatch):

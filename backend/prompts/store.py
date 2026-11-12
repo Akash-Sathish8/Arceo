@@ -47,42 +47,107 @@ def hydrate(row: Optional[dict]) -> Optional[dict]:
 
 
 def display_name(conn, user: dict) -> str:
-    """Public byline: the user's name, never their email."""
+    """Public byline: the user's name, never their email or any part of it."""
     row = conn.execute("SELECT name FROM users WHERE id = %s", (user.get("sub"),)).fetchone()
     name = (row or {}).get("name") or ""
-    return name if name and "@" not in name else (user.get("email") or "creator").split("@")[0]
+    return name if name and "@" not in name else "An Arceo member"
 
 
 # ── prompts ──────────────────────────────────────────────────────────────
 
-_PROMPT_LIST_COLS = ("id, org_id, author_id, author_name, title, description, use_case, visibility, status, "
-                     "published_version, parent_id, cost_summary, danger_summary, reliability, use_count, "
-                     "runs_per_day, model, created_at, updated_at")
+# A card shows the viewer's own prompts as they are now and everyone else's as last
+# PUBLISHED: an edit another org hasn't published (its title, its warnings, its cost) is
+# never listed or searchable. The description isn't versioned, so it is the same for all.
+# Each "%s" is the viewer's org id (see _card_args); "" or None means nobody owns anything.
+_PUBLISHED_JOIN = "LEFT JOIN prompt_versions v ON v.prompt_id = p.id AND v.version = p.published_version"
+_SEEN_TITLE = "CASE WHEN p.org_id = %s THEN p.title ELSE COALESCE(v.title, p.title) END"
+# Whether the body has a blank: the same pattern as template.VAR_RE, so a card can tell
+# "fill in first" from "send in one click" without the body coming over the wire.
+_BLANK_SQL = r"'\{\{\s*[A-Za-z_][A-Za-z0-9_]*\s*\}\}'"
+_PROMPT_LIST_COLS = (
+    "p.id, p.org_id, p.author_id, p.author_name, " + _SEEN_TITLE + " AS title, p.description, p.use_case, "
+    "p.visibility, p.status, p.published_version, p.parent_id, "
+    "CASE WHEN p.org_id = %s THEN p.cost_summary ELSE COALESCE(v.cost, p.cost_summary) END AS cost_summary, "
+    "CASE WHEN p.org_id = %s THEN p.danger_summary ELSE COALESCE(v.danger, p.danger_summary) END AS danger_summary, "
+    "CASE WHEN p.org_id = %s THEN p.reliability ELSE v.reliability END AS reliability, "
+    "COALESCE((CASE WHEN p.org_id = %s THEN p.body ELSE COALESCE(v.body, p.body) END) ~ " + _BLANK_SQL
+    + ", FALSE) AS has_blanks, "
+    "p.use_count, p.runs_per_day, p.model, p.created_at, p.updated_at")
+_CARD_PARAMS = 5                     # "%s" placeholders in _PROMPT_LIST_COLS
+_PUBLIC_P = "p.visibility = 'public' AND p.status = 'published'"
+
+
+# What a library card reads from a cost row: enough for headlineCost / rowBasis
+# on the frontend (frontend/src/lib/promptFormat.ts) and nothing else.
+_CARD_ROW_KEYS = ("model", "model_key", "provider", "available", "usd_per_run", "is_floor", "basis", "output_basis")
+
+
+def slim_cost_summary(cost: Optional[dict], preferred: Optional[str] = None) -> Optional[dict]:
+    """A cost summary cut down to what a list card shows.
+
+    Same shape as the full summary, but `models` keeps only the rows the card can
+    pick (the author's own model when it's priced, the cheapest, else the first
+    priced row) with their token counts dropped. The frontend's headlineCost picks
+    the same row from this as from the full table. GET /api/prompts/{id} still
+    returns the whole table: about 2.4 KB a prompt, most of the library list's size.
+    """
+    if not isinstance(cost, dict):
+        return None
+    rows = [m for m in (cost.get("models") or []) if isinstance(m, dict)]
+    priced = [m for m in rows if m.get("available") and m.get("usd_per_run") is not None]
+    keep: list[dict] = []
+    if preferred:
+        keep += [m for m in priced if preferred in (m.get("model_key"), m.get("model"))][:1]
+    cheapest = cost.get("cheapest_model")
+    keep += [m for m in priced if m.get("model_key") == cheapest][:1] if cheapest else []
+    if not keep and priced:
+        keep.append(priced[0])
+    ids = {id(m) for m in keep}
+    return {
+        "models": [{k: m.get(k) for k in _CARD_ROW_KEYS if k in m} for m in rows if id(m) in ids],
+        "cheapest_model": cheapest,
+        "unsized_variables": cost.get("unsized_variables") or [],
+        "catalog_date": cost.get("catalog_date"),
+        "rates": cost.get("rates"),
+    }
+
+
+def _slim(row: dict) -> dict:
+    row["cost_summary"] = slim_cost_summary(row.get("cost_summary"), row.get("model"))
+    return row
 
 
 def list_prompts(org_id: str, scope: str, q: Optional[str], use_case: Optional[str],
-                 limit: int = 100) -> list[dict]:
+                 limit: int = 100, ids: Optional[list[str]] = None) -> list[dict]:
+    """Rows for a list of cards. cost_summary is the slim card version
+    (slim_cost_summary); open one prompt for its full cost table. Rows another org
+    owns show their published version (see _PROMPT_LIST_COLS). has_blanks says
+    whether the (seen) body has any {{blank}}; the body itself isn't listed."""
     where, args = [], []
+    if ids is not None:
+        # Rows for a ranked search: the visibility rule below still applies.
+        where.append("p.id = ANY(%s)")
+        args.append(list(ids))
     if scope == "mine":
-        where.append("org_id = %s")
+        where.append("p.org_id = %s")
         args.append(org_id)
     elif scope == "public":
-        where.append(PUBLIC_PRED)
+        where.append(_PUBLIC_P)
     else:  # all: mine + public
-        where.append(f"(org_id = %s OR ({PUBLIC_PRED}))")
+        where.append(f"(p.org_id = %s OR ({_PUBLIC_P}))")
         args.append(org_id)
     if q:
-        where.append("(title ILIKE %s OR description ILIKE %s OR use_case ILIKE %s)")
+        where.append(f"({_SEEN_TITLE} ILIKE %s OR p.description ILIKE %s OR p.use_case ILIKE %s)")
         like = f"%{q}%"
-        args += [like, like, like]
+        args += [org_id, like, like, like]
     if use_case:
-        where.append("use_case = %s")
+        where.append("p.use_case = %s")
         args.append(use_case)
-    sql = (f"SELECT {_PROMPT_LIST_COLS} FROM prompts WHERE {' AND '.join(where)} "
-           "ORDER BY updated_at DESC LIMIT %s")
+    sql = (f"SELECT {_PROMPT_LIST_COLS} FROM prompts p {_PUBLISHED_JOIN} WHERE {' AND '.join(where)} "
+           "ORDER BY p.updated_at DESC LIMIT %s")
     with get_db() as conn:
-        rows = conn.execute(sql, (*args, limit)).fetchall()
-    return [hydrate(r) for r in rows]
+        rows = conn.execute(sql, (*([org_id] * _CARD_PARAMS), *args, limit)).fetchall()
+    return [_slim(hydrate(r)) for r in rows]
 
 
 def get_prompt(prompt_id: str, org_id: Optional[str]) -> Optional[dict]:
@@ -170,10 +235,14 @@ def creator_profile(author_id: str) -> dict:
     comparisons only: published prompts, uses, forks, comparison wins."""
     from . import battles
     with get_db() as conn:
+        # Everyone sees a creator's prompts as published (see _PROMPT_LIST_COLS).
         rows = conn.execute(
-            f"SELECT id, title, use_case, author_name, danger_summary, cost_summary, reliability, use_count, "
-            f"runs_per_day, updated_at FROM prompts WHERE author_id = %s AND {PUBLIC_PRED} "
-            f"ORDER BY use_count DESC, updated_at DESC LIMIT 200",
+            "SELECT p.id, COALESCE(v.title, p.title) AS title, p.description, p.use_case, p.author_name, "
+            "COALESCE(v.danger, p.danger_summary) AS danger_summary, COALESCE(v.cost, p.cost_summary) AS cost_summary, "
+            "v.reliability AS reliability, COALESCE(COALESCE(v.body, p.body) ~ " + _BLANK_SQL + ", FALSE) AS has_blanks, "
+            "p.use_count, p.runs_per_day, p.model, p.updated_at "
+            f"FROM prompts p {_PUBLISHED_JOIN} WHERE p.author_id = %s AND {_PUBLIC_P} "
+            "ORDER BY p.use_count DESC, p.updated_at DESC LIMIT 500",
             (author_id,),
         ).fetchall()
         ids = [r["id"] for r in rows]
@@ -196,7 +265,7 @@ def creator_profile(author_id: str) -> dict:
             board = battles.leaderboard(entries, votes, "best")
             if board and board[0].get("author_id") == author_id and board[0]["votes"] > 0:
                 wins += 1
-    prompts = [hydrate(r) for r in rows]
+    prompts = [_slim(hydrate(r)) for r in rows]
     name = prompts[0]["author_name"] if prompts else (name_row or {}).get("author_name")
     return {"author_id": author_id, "author_name": name, "prompts": prompts,
             "total_forks": forks, "total_uses": sum(p.get("use_count") or 0 for p in prompts),

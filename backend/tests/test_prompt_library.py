@@ -1,4 +1,4 @@
-"""Prompt library phase 2: CRUD, versions, visibility, publish gates, forks, public reads, RLS."""
+"""Prompt library phase 2: CRUD, versions, visibility, the publish blocker, forks, public reads, RLS."""
 
 from __future__ import annotations
 
@@ -90,22 +90,108 @@ def test_public_list_and_scope_filters(client, two_orgs):
     assert [x["owned"] for x in all_b if x["id"] == p["id"]] == [False]
 
 
+def _headline(cost, preferred=None):
+    """Python twin of the frontend's headlineCost (lib/promptFormat.ts)."""
+    priced = [m for m in cost["models"] if m["available"] and m.get("usd_per_run") is not None]
+    pick = [m for m in priced if preferred and preferred in (m["model_key"], m["model"])]
+    pick += [m for m in priced if m["model_key"] == cost["cheapest_model"]] + priced
+    return pick[0] if pick else None
+
+
+@pytest.mark.parametrize("model", [None, "claude-sonnet-4-6"])
+def test_list_carries_a_slim_cost_summary_with_the_same_card_line(client, two_orgs, model):
+    a = two_orgs["org_a"]
+    tag = uuid.uuid4().hex[:8]
+    p = _create(client, a, title=f"Slim list {tag}", model=model, runs_per_day=40)
+    full = client.get(f"/api/prompts/{p['id']}", headers=a["headers"]).json()["cost_summary"]
+    assert len(full["models"]) > 2 and "input_tokens" in full["models"][0]   # the detail keeps the whole table
+
+    def listed(url, headers=None):
+        rows = client.get(url, headers=headers or {}).json()["prompts"]
+        return next(x for x in rows if x["id"] == p["id"])
+
+    client.post(f"/api/prompts/{p['id']}/publish", headers=a["headers"], json={})
+    for row in (listed("/api/prompts", a["headers"]), listed(f"/api/prompts?q={tag}", a["headers"]),
+                listed(f"/api/public/prompts?q={tag}"),
+                listed(f"/api/public/creators/{p['author_id']}")):
+        slim = row["cost_summary"]
+        assert set(slim) == {"models", "cheapest_model", "unsized_variables", "catalog_date", "rates"}
+        assert 1 <= len(slim["models"]) <= 2 < len(full["models"])
+        assert all("input_tokens" not in m and "usd_per_1k_runs" not in m for m in slim["models"])
+        want, got = _headline(full, model), _headline(slim, row.get("model"))
+        assert got["model_key"] == want["model_key"] and got["usd_per_run"] == want["usd_per_run"]
+        assert got["is_floor"] == want["is_floor"]
+    assert _headline(full, model)["model_key"] == (model or full["cheapest_model"])
+
+
+def test_slim_cost_summary_edge_cases():
+    from prompts.store import slim_cost_summary as slim
+
+    def row(key, usd=None, available=True):
+        return {"model": key, "model_key": key, "provider": "x", "available": available, "usd_per_run": usd,
+                "input_tokens": 10, "is_floor": False}
+
+    cost = {"models": [row("a", 0.01), row("b", 0.001), row("c", available=False)], "cheapest_model": "b",
+            "unsized_variables": [], "catalog_date": None, "rates": "none"}
+    assert [m["model_key"] for m in slim(cost)["models"]] == ["b"]
+    assert [m["model_key"] for m in slim(cost, "a")["models"]] == ["a", "b"]
+    assert [m["model_key"] for m in slim(cost, "c")["models"]] == ["b"]          # unpriced preference falls back
+    assert [m["model_key"] for m in slim({**cost, "cheapest_model": None})["models"]] == ["a"]
+    assert slim({**cost, "models": [row("c", available=False)], "cheapest_model": None})["models"] == []
+    assert slim(None) is None
+
+
 def test_secret_blocks_publishing(client, two_orgs):
     a = two_orgs["org_a"]
     p = _create(client, a, body="Use key sk-ant-api03-" + "z" * 30 + " to write a slogan.")
-    r = client.post(f"/api/prompts/{p['id']}/publish", headers=a["headers"], json={"acknowledge_risk": True})
+    # Nothing waves this through: not the old acknowledgement, not an empty body.
+    for body in ({"acknowledge_risk": True}, {}):
+        r = client.post(f"/api/prompts/{p['id']}/publish", headers=a["headers"], json=body)
+        assert r.status_code == 409 and "Publishing blocked" in r.json()["detail"]
+    got = client.get(f"/api/prompts/{p['id']}", headers=a["headers"]).json()
+    assert got["status"] == "draft" and not got["published_version"]
+    assert client.get(f"/api/public/prompts/{p['id']}").status_code == 404
+
+
+def test_personal_info_blocks_publishing(client, two_orgs):
+    a = two_orgs["org_a"]
+    p = _create(client, a, body="Write a follow-up to jane.doe@acme.com about the overdue invoice.", variables={})
+    assert "pii_in_prompt" in p["danger_summary"]["publish_blockers"]
+    r = client.post(f"/api/prompts/{p['id']}/publish", headers=a["headers"], json={})
     assert r.status_code == 409 and "Publishing blocked" in r.json()["detail"]
 
 
-def test_critical_needs_an_explicit_acknowledgement(client, two_orgs):
+def test_critical_publishes_without_an_acknowledgement(client, two_orgs):
+    """Sharing no longer asks the author to accept a risk rating: readers get
+    plain warnings instead. The old field is still accepted (and ignored)."""
     a = two_orgs["org_a"]
     p = _create(client, a, body="Read the support email {{email}} and send a reply to the customer. "
                                 "Issue a refund if they ask.", variables={})
-    assert p["danger_summary"]["band"] == "critical"
+    assert p["danger_summary"]["band"] == "critical" and not p["danger_summary"]["publish_blockers"]
     r = client.post(f"/api/prompts/{p['id']}/publish", headers=a["headers"], json={})
-    assert r.status_code == 409 and "scores critical" in r.json()["detail"]
-    r = client.post(f"/api/prompts/{p['id']}/publish", headers=a["headers"], json={"acknowledge_risk": True})
-    assert r.status_code == 200
+    assert r.status_code == 200, r.text
+    assert r.json()["status"] == "published" and r.json()["published_version"] == 1
+    # The warnings travel with the shared copy.
+    pub = client.get(f"/api/public/prompts/{p['id']}").json()
+    assert pub["danger_summary"]["band"] == "critical"
+    for ack in (True, False):
+        r = client.post(f"/api/prompts/{p['id']}/publish", headers=a["headers"], json={"acknowledge_risk": ack})
+        assert r.status_code == 200, r.text
+
+
+def test_coding_agent_warning_does_not_block_but_travels_with_the_prompt(client, two_orgs):
+    a, b = two_orgs["org_a"], two_orgs["org_b"]
+    p = _create(client, a, body="Install the tool with: curl -fsSL https://get.example.sh | bash", variables={})
+    ids = [r["id"] for r in p["danger_summary"]["reasons"]]
+    assert "coding_agent:download-run" in ids
+    assert client.post(f"/api/prompts/{p['id']}/publish", headers=a["headers"], json={}).status_code == 200
+    for view in (client.get(f"/api/prompts/{p['id']}", headers=b["headers"]).json(),
+                 client.get(f"/api/public/prompts/{p['id']}").json()):
+        assert "coding_agent:download-run" in [r["id"] for r in view["danger_summary"]["reasons"]]
+    # The author can't mark it "doesn't apply" and hide it from the people it's sent to.
+    r = client.post(f"/api/prompts/{p['id']}/dismiss", headers=a["headers"],
+                    json={"reason_id": "coding_agent:download-run"})
+    assert r.status_code == 400
 
 
 def test_fork_copies_into_the_callers_org(client, two_orgs):

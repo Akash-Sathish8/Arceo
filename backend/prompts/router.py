@@ -20,7 +20,7 @@ from analysis.spend_forecast import load_defaults, price_call
 from auth import get_current_user
 from db import get_db
 
-from . import agent_try, ai_check, qa, store
+from . import agent_try, ai_check, qa, similarity, store
 from .cost import default_models, score_cost
 from .danger import score_danger
 from .fixer import fix_prompt
@@ -38,9 +38,8 @@ RATE_LIMIT_QA_WINDOW = int(os.getenv("RATE_LIMIT_PROMPT_QA_WINDOW", "300"))
 # The website's anonymous score box: generous for a person, useless for a scraper.
 RATE_LIMIT_PUBLIC_SCORE_MAX = int(os.getenv("RATE_LIMIT_PUBLIC_SCORE_MAX", "20"))
 RATE_LIMIT_PUBLIC_SCORE_WINDOW = int(os.getenv("RATE_LIMIT_PUBLIC_SCORE_WINDOW", "3600"))
-# A prompt that failed most of its own QA cases shouldn't be shared as reliable.
-PUBLISH_MIN_RELIABILITY = float(os.getenv("ARCEO_PROMPT_PUBLISH_MIN_RELIABILITY", "0.6"))
 MAX_BODY_CHARS = 100_000
+LIBRARY_PAGE = 500
 PUBLIC_MAX_BODY_CHARS = 8_000
 MAX_MODELS = 12
 # What the public score box prices: one budget, one mid, one premium model.
@@ -85,8 +84,8 @@ class PromptWrite(BaseModel):
 
 class PublishRequest(BaseModel):
     visibility: Visibility = "public"
-    # A critical-band prompt can still be shared, but only with the author
-    # explicitly accepting the risk; secrets/PII in the text never can.
+    # Accepted and ignored: sharing no longer asks authors to accept a risk
+    # rating. Older clients still send it, so it must not become a 422.
     acknowledge_risk: bool = False
 
 
@@ -217,12 +216,38 @@ def qa_budget(user: dict = Depends(get_current_user)):
 
 # ── library CRUD ─────────────────────────────────────────────────────────
 
+def _save_matches(req: "PromptWrite", pid: str, user: dict) -> list[dict]:
+    """Plan §1 'Where matching shows up' 5: a save also answers with the top
+    three prompts that do the same job or nearly so, for AI and MCP callers.
+    A failed lookup never fails the save."""
+    try:
+        found = similarity.match_draft(
+            {"body": req.body, "title": req.title or "", "description": req.description or "",
+             "use_case": req.use_case or "",
+             "variables": {k: (v.model_dump(exclude_none=True) if hasattr(v, "model_dump") else v)
+                           for k, v in (req.variables or {}).items()}},
+            _org(user), exclude_id=pid, k=3, mode="save")
+    except Exception:  # noqa: BLE001 - matching is advisory
+        return []
+    return [m for m in found if m.get("level") in ("same", "close")][:3]
+
+
 @router.get("")
 def list_prompts(scope: Literal["all", "mine", "public"] = "all",
                  q: Optional[str] = Query(default=None, max_length=200),
                  use_case: Optional[str] = Query(default=None, max_length=80),
                  user: dict = Depends(get_current_user)):
-    rows = store.list_prompts(_org(user), scope, q, use_case)
+    q = (q or "").strip() or None
+    if q:
+        # Same clean-up and ranking as the prompt matcher ("summarize email"
+        # finds "Client email to 3 bullets"), with plain text hits merged in.
+        ranked = similarity.search(q, _org(user), scope, limit=100)
+        by_id = {r["id"]: r for r in store.list_prompts(_org(user), scope, None, use_case,
+                                                         limit=len(ranked) or 1, ids=ranked)}
+        rows = [by_id[i] for i in ranked if i in by_id]
+    else:
+        # The whole library fits on one page (about 250 seed prompts plus the org's own).
+        rows = store.list_prompts(_org(user), scope, None, use_case, limit=LIBRARY_PAGE)
     for r in rows:
         r["owned"] = r.pop("org_id") == _org(user)
     return {"prompts": rows}
@@ -248,7 +273,9 @@ def create_prompt(req: PromptWrite, user: dict = Depends(get_current_user)):
             "cost_summary": cost, "danger_summary": danger,
             "created_at": ts, "updated_at": ts,
         })
-    return store.get_prompt(pid, _org(user))
+    out = store.get_prompt(pid, _org(user))
+    out["matches"] = _save_matches(req, pid, user)
+    return out
 
 
 @router.get("/{prompt_id}")
@@ -282,7 +309,9 @@ def update_prompt(prompt_id: str, req: PromptWrite, user: dict = Depends(get_cur
         fields["reliability"] = None
     with get_db() as conn:
         store.update_prompt(conn, prompt_id, _org(user), fields)
-    return store.get_prompt(prompt_id, _org(user))
+    out = store.get_prompt(prompt_id, _org(user))
+    out["matches"] = _save_matches(req, prompt_id, user)
+    return out
 
 
 @router.delete("/{prompt_id}")
@@ -318,26 +347,25 @@ def dismiss_reason(prompt_id: str, req: DismissRequest, user: dict = Depends(get
 def publish_prompt(prompt_id: str, req: PublishRequest, user: dict = Depends(get_current_user)):
     """Snapshot the draft as a new immutable version and share it.
 
-    The score is recomputed on the exact text being published, so the badge a
-    reader sees always describes that version and never a stale draft score.
+    The warnings are recomputed on the exact text being published, so what a
+    reader sees always describes that version and never a stale draft.
+
+    The only thing that stops sharing is a password, key or someone's personal
+    info in the text: that would leak with every copy. Risk ratings and test
+    results don't gate sharing (readers see plain warnings instead), and
+    `acknowledge_risk` is accepted but ignored. The latest test result is still
+    recorded on the version as a measurement.
     """
     _require_editor(user)
     p = _owned(prompt_id, user)
     _, _, reliability = qa.latest_measurements(prompt_id, _org(user))
     if p.get("reliability") is None:
-        reliability = None  # the text changed since that QA run
-    if reliability is not None and reliability < PUBLISH_MIN_RELIABILITY:
-        raise HTTPException(status_code=409, detail=(
-            f"This prompt did the job in {round(reliability * 100)}% of its tests. "
-            f"Get it to {round(PUBLISH_MIN_RELIABILITY * 100)}% or more before sharing it."))
+        reliability = None  # the text changed since that test run
     cost, danger = _rescore_saved(p, _org(user))
     if danger["publish_blockers"]:
         raise HTTPException(status_code=409, detail=(
             "Publishing blocked: take the password, key or personal info out of the prompt first. "
             "Fix it for me does this."))
-    if danger["band"] == "critical" and not req.acknowledge_risk:
-        raise HTTPException(status_code=409, detail=(
-            "This prompt scores critical. Tick the box to confirm you accept the risk, then share it."))
     version = int(p.get("published_version") or 0) + 1
     ts = store.now()
     with get_db() as conn:

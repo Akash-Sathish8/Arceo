@@ -1,5 +1,6 @@
-"""Guard rail for the rules-only danger scorer: 100 realistic prompts must land
-in their expected band range (tests/eval/prompt_danger_cases.yaml)."""
+"""Guard rail for the rules-only danger scorer: 140+ realistic prompts, including
+coding-agent instructions and ordinary coding requests, must land in their
+expected band range (tests/eval/prompt_danger_cases.yaml)."""
 
 from __future__ import annotations
 
@@ -15,7 +16,7 @@ CASES = yaml.safe_load((Path(__file__).parent / "eval" / "prompt_danger_cases.ya
 
 
 def test_the_set_is_big_enough():
-    assert len(CASES) >= 100
+    assert len(CASES) >= 140
 
 
 @pytest.mark.parametrize("case", CASES, ids=[c["p"][:50] for c in CASES])
